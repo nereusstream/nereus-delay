@@ -580,6 +580,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return assignment;
     }
 
+    /** Additional local material-use check; existing authoritative Owner/Source guards remain responsible for I/O. */
+    void requireLocalSourceTransportOwner(SourceAssignment expected, com.nereusstream.delay.protocol.OwnerIdentity owner, long now) {
+        requireAcceptedAssignment(expected);
+        synchronized (ownerStateLock) {
+            if (fenced || recoveryOnly || lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                    || lease.ownerEpoch() != owner.ownerEpoch()
+                    || !Bytes.constantTimeEquals(lease.leaseToken(), owner.leaseFencingDigest())
+                    || now < lastOwnerTime || !lease.validAt(now)) {
+                throw new IllegalStateException("Source material use lost its original active Owner");
+            }
+        }
+    }
+
     synchronized void bindTargetQueueChangeSignal(final TargetStoreBackend.TargetQueueChangeSignal signal) {
         backend.bindTargetQueueChangeSignal(signal);
     }

@@ -24,6 +24,31 @@ public final class PulsarClientArtifactSourceConsumerFactory {
 
     private PulsarClientArtifactSourceConsumerFactory() {}
 
+    public static GuardedConsumer<byte[]> createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt, TopicResourceGuard guard,
+            String physicalTopic, String subscriptionName,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) throws PulsarClientException {
+        group.addSourceAuthorization(receipt);
+        final var authorization = receipt.authorization();
+        final var resource = authorization.resource().pulsar();
+        if (!physicalTopic.equals(authorization.physicalTopic()) || !guard.authenticatedClusterId().equals(resource.authenticatedClusterId())
+                || !java.util.Arrays.equals(guard.resourceIncarnation(), resource.resourceIncarnation())
+                || guard.topicCreationTimestamp() != resource.physicalTopicCreationTimestamp()) {
+            throw new IllegalStateException("P1 Source subscribe differs from its signed resource");
+        }
+        authorization.requireName(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, subscriptionName);
+        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, time.get());
+        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, time.get());
+        final var consumer = create(group, guard, physicalTopic, subscriptionName);
+        try { receipt.requireActive(time.get()); return consumer; }
+        catch (RuntimeException | Error failure) {
+            try { PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer).get(group.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
+            catch (Exception cleanup) { if (cleanup instanceof InterruptedException) Thread.currentThread().interrupt(); failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
     static synchronized boolean isReceiptEnabled(final GuardedConsumer<?> consumer) {
         boolean found = false;
         final var references = RECEIPT_ENABLED.iterator();
@@ -56,6 +81,8 @@ public final class PulsarClientArtifactSourceConsumerFactory {
             final SubscriptionType subscriptionType)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
+        final var actualGroup = PulsarClientArtifactOwnedBackendGroup.find(client);
+        if (actualGroup != null) { actualGroup.requireSourceSubscription(guard, physicalTopic, subscriptionName, subscriptionType); }
         final var builder = client.newConsumer(Schema.BYTES)
                 .topic(Objects.requireNonNull(physicalTopic, "physicalTopic"))
                 .subscriptionName(Objects.requireNonNull(subscriptionName, "subscriptionName"))
@@ -65,6 +92,9 @@ public final class PulsarClientArtifactSourceConsumerFactory {
                 .isAckReceiptEnabled(true)
                 .autoUpdatePartitions(false)
                 .resourceGuard(Objects.requireNonNull(guard, "guard"));
+        if (actualGroup != null && actualGroup.sourceCredentialReceipt() != null) {
+            builder.subscriptionMode(org.apache.pulsar.client.api.SubscriptionMode.Durable);
+        }
         final Consumer<byte[]> consumer;
         final var owned = PulsarClientArtifactOwnedBackendGroup.find(client);
         if (owned == null) { consumer = builder.subscribe(); }

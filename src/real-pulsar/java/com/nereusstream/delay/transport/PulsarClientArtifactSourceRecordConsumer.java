@@ -98,7 +98,12 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         nativeCalls.incrementAndGet();
         try {
             if (backend != null && !backend.sourceApplicationReady(this)) { throw new IllegalStateException("P1 Source backend is not active"); }
-            return pollOpen();
+            if (backend != null) { backend.requireSourceOperation(consumer,
+                    com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME); }
+            final var result = pollOpen();
+            if (backend != null) { backend.requireSourceOperation(consumer,
+                    com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME); }
+            return result;
         } finally {
             nativeCalls.decrementAndGet();
             if (backend != null) { backend.cleanupProgress(); }
@@ -212,6 +217,8 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
 
     private void requireCheckpointCut(final PulsarSourcePosition expected) {
         ensureOpen();
+        if (backend != null) { backend.requireSourceOperation(consumer,
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK); }
         if (!PulsarClientArtifactSourceConsumerFactory.isReceiptEnabled(consumer)
                 || inFlight != null || lastAcknowledged == null || lastAckProof == null
                 || !Bytes.constantTimeEquals(lastAcknowledged.canonicalBytes(), expected.canonicalBytes())
@@ -245,6 +252,8 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         nativeCalls.incrementAndGet();
         try {
             final SourceConnectionProof acknowledgedProof;
+            if (backend != null) { backend.requireSourceOperation(consumer,
+                    com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK); }
             synchronized (this) {
                 acknowledgedProof = inFlightProof;
             }

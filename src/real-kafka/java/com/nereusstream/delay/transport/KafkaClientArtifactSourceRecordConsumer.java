@@ -179,7 +179,8 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     @Override
     public CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
         return backend == null ? checkpointCutOpen(expectedAppliedPosition)
-                : backend.nativeOperation(() -> checkpointCutOpen(expectedAppliedPosition));
+                : backend.nativeReadOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+                        () -> checkpointCutOpen(expectedAppliedPosition));
     }
 
     private synchronized CheckpointCut checkpointCutOpen(final SourcePosition expectedAppliedPosition) {
@@ -198,7 +199,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                 if (backend == null) {
                     synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
                 } else {
-                    backend.nativeOperation(() -> {
+                    backend.nativeReadOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, () -> {
                         synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
                         return null;
                     });
@@ -224,7 +225,8 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
             final BufferedRecord fetched, final SourceReplayEntry expected, final SourceReplayEntry candidate) {
         if (backend != null) {
-            try { return backend.nativeOperation(() -> acknowledgeOpen(fetched, expected, candidate)); }
+            try { return backend.nativeOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+                    () -> acknowledgeOpen(fetched, expected, candidate)); }
             catch (RuntimeException | Error failed) { return SourceAcknowledgement.AcknowledgementResult.unknown(failed); }
         }
         return acknowledgeOpen(fetched, expected, candidate);

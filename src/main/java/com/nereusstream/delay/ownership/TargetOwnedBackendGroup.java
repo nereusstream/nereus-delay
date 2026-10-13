@@ -30,4 +30,7 @@ public interface TargetOwnedBackendGroup {
     Throwable cleanupFailure();
 
     default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
+    default LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt() { return null; }
+    default boolean holdsSourceCredential(LocalBrokerMtlsResolver.SourceReceipt receipt) { return sourceCredentialReceipt() == receipt; }
+    default boolean sourceCredentialsReady(TargetWorkerShardRuntime worker) { return false; }
 }

@@ -93,6 +93,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         boolean creationObserved;
         int activeReads;
         Object value;
+        com.nereusstream.delay.ownership.SourceTransportCredentialUse sourceCredentialUse;
         CompletableFuture<Void> firstClose;
         CompletableFuture<Void> sdkClose;
         NativeUse(PulsarClientArtifactOwnedBackendGroup group, TargetDestinationSdkBudget.Client allocation) {
@@ -117,9 +118,11 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
 
     private PulsarClientArtifactOwnedBackendGroup(Settings settings, CredentialBinding credential, byte[] sdkJar,
             TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
-            SharedRocksDbResources resources, ThreadPoolExecutor io) {
+            SharedRocksDbResources resources, ThreadPoolExecutor io,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceReceipt) {
         this.settings = Objects.requireNonNull(settings);
-        this.credential = Objects.requireNonNull(credential);
+        if (credential == null && sourceReceipt == null) { throw new IllegalArgumentException("actual P1 credential is required"); }
+        this.credential = credential;
         Bytes.requireLength(sdkJar, 32, "activated P1 JAR");
         this.sdkJar = Bytes.copy(sdkJar);
         this.classes = Objects.requireNonNull(classes);
@@ -147,6 +150,127 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     }
 
     private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+    private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt;
+    private volatile java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> sourceCredentialTime;
+    private final Map<com.nereusstream.delay.protocol.ShardId, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt>
+            sourceCredentials = new java.util.HashMap<>();
+
+    public static PulsarClientArtifactOwnedBackendGroup openVerifiedSourceMtls(Settings settings, byte[] sdkJar,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        receipt.requirePulsarEndpoint(settings.serviceUrl());
+        final var authorization = receipt.authorization();
+        if (authorization.resource().kind() != com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.PULSAR
+                || !authorization.resource().pulsar().authenticatedClusterId().equals(settings.authenticatedClusterId())) {
+            throw new IllegalStateException("P1 Source endpoint differs from the signed deployment resource");
+        }
+        final byte[] cert = receipt.certificateChainPem(), key = receipt.privateKeyPem(), trust = receipt.serverTrustPem();
+        final var authentication = new org.apache.pulsar.client.impl.auth.AuthenticationTls(
+                () -> new java.io.ByteArrayInputStream(cert), () -> new java.io.ByteArrayInputStream(key),
+                () -> new java.io.ByteArrayInputStream(trust));
+        final var group = openInternal(settings, null, sdkJar, authentication, () -> {
+            actualActivation.run();
+            receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+        }, budget, cost, classes, resources, io, null, receipt);
+        group.sourceCredentialTime = Objects.requireNonNull(time);
+        return group;
+    }
+
+    void requireSourceSubscription(org.apache.pulsar.client.api.TopicResourceGuard guard, String topic, String name,
+            org.apache.pulsar.client.api.SubscriptionType type) {
+        final com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt;
+        synchronized (gate) {
+            if (sourceCredentialReceipt == null) return;
+            if (frozen || type != org.apache.pulsar.client.api.SubscriptionType.Exclusive) {
+                throw new IllegalStateException("P1 Source subscription is outside its deployment authorization");
+            }
+            receipt = sourceCredentials.values().stream().filter(candidate -> {
+                final var resource = candidate.authorization().resource();
+                return resource.kind() == com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.PULSAR
+                        && candidate.authorization().physicalTopic().equals(topic)
+                        && guard.authenticatedClusterId().equals(resource.pulsar().authenticatedClusterId())
+                        && java.util.Arrays.equals(guard.resourceIncarnation(), resource.pulsar().resourceIncarnation())
+                        && guard.topicCreationTimestamp() == resource.pulsar().physicalTopicCreationTimestamp();
+            }).findFirst().orElseThrow(() -> new IllegalStateException("P1 Source subscription has no signed resource scope"));
+        }
+        receipt.authorization().requireName(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, name);
+        final var now = Objects.requireNonNull(sourceCredentialTime, "Source deployment clock").get();
+        for (var role : java.util.List.of(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME,
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP)) { receipt.requireOperation(role, now); }
+    }
+
+    @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt() { return sourceCredentialReceipt; }
+    @Override public boolean holdsSourceCredential(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt) {
+        synchronized (gate) { return sourceCredentials.get(receipt.authorization().shard()) == receipt; }
+    }
+    public void addSourceAuthorization(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt) {
+        receipt.requirePulsarEndpoint(settings.serviceUrl());
+        synchronized (gate) {
+            final var previous = sourceCredentials.get(receipt.authorization().shard());
+            if (previous == receipt) return;
+            if (frozen || host != null || sourceCredentialReceipt == null || !sourceCredentialReceipt.sameMaterial(receipt)
+                    || sourceCredentials.size() >= settings.maximumUsers() || previous != null) {
+                throw new IllegalStateException("P1 Source authorization cannot replace its native material generation");
+            }
+            sourceCredentials.put(receipt.authorization().shard(), receipt);
+        }
+    }
+    @Override public boolean sourceCredentialsReady(TargetWorkerShardRuntime worker) {
+        final java.util.List<NativeUse> sources;
+        synchronized (gate) {
+            if (!workerReady(worker)) return false;
+            sources = sourceOwners.entrySet().stream().filter(entry -> worker.ownsSourceConsumer(entry.getValue()))
+                    .map(entry -> use(entry.getKey())).toList();
+            if (sources.isEmpty() || sources.stream().anyMatch(use -> use.sourceCredentialUse == null)) return false;
+        }
+        for (var source : sources) {
+            source.sourceCredentialUse.require(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, source.value);
+            source.sourceCredentialUse.require(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, source.value);
+        }
+        return true;
+    }
+    void bindSourceCredential(Object consumer, TargetWorkerShardRuntime worker,
+            com.nereusstream.delay.ownership.SourceAssignment assignment, com.nereusstream.delay.protocol.OwnerIdentity owner,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        final NativeUse nativeUse;
+        final com.nereusstream.delay.ownership.SourceRecordConsumer source;
+        final com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt;
+        synchronized (gate) {
+            nativeUse = use(consumer); source = sourceOwners.get(consumer); receipt = sourceCredentials.get(assignment.shardId());
+            if (host != null || frozen || nativeUse == null || nativeUse.sourceCredentialUse != null || source == null || receipt == null)
+                throw new IllegalStateException("P1 Source credential binding is unavailable");
+        }
+        final var bound = worker.bindSourceCredential(receipt, source, assignment, owner, consumer, time, clock);
+        synchronized (gate) {
+            if (frozen || use(consumer) != nativeUse) throw new IllegalStateException("P1 Source changed during credential binding");
+            nativeUse.sourceCredentialUse = bound;
+        }
+    }
+    void requireSourceOperation(Object consumer, com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation role) {
+        final com.nereusstream.delay.ownership.SourceTransportCredentialUse bound;
+        synchronized (gate) {
+            if (sourceCredentialReceipt == null) return;
+            final var nativeUse = use(consumer);
+            if (frozen || nativeUse == null || nativeUse.firstClose != null || nativeUse.sourceCredentialUse == null)
+                throw new IllegalStateException("P1 Source material use is frozen or unbound");
+            bound = nativeUse.sourceCredentialUse;
+        }
+        try { bound.require(role, consumer); }
+        catch (RuntimeException | Error failure) {
+            recordFailure(failure);
+            final TargetWorkerHostRuntime current;
+            synchronized (gate) { current = host; }
+            if (current != null) {
+                try { current.quarantineOwnedBackends(); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            }
+            throw failure;
+        }
+    }
 
     public static PulsarClientArtifactOwnedBackendGroup openVerifiedMtls(Settings settings, CredentialBinding credential,
             byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
@@ -170,7 +294,8 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
 
     void requireLoadedMaterial(com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt) {
-        if (credentialReceipt == null || !credentialReceipt.sameMaterial(receipt)) {
+        if (credentialReceipt == null ? sourceCredentialReceipt == null || !sourceCredentialReceipt.sameMaterial(receipt)
+                : !credentialReceipt.sameMaterial(receipt)) {
             throw new IllegalStateException("P1 client did not load this original resolved mTLS snapshot");
         }
     }
@@ -180,14 +305,24 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
             SharedRocksDbResources resources, ThreadPoolExecutor io,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt) {
+        return openInternal(settings, credential, sdkJar, authentication, actualActivation, budget, cost, classes, resources, io, receipt, null);
+    }
+    private static PulsarClientArtifactOwnedBackendGroup openInternal(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, Authentication authentication, Runnable actualActivation,
+            TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceReceipt) {
         final var group = new PulsarClientArtifactOwnedBackendGroup(settings, credential, sdkJar, budget, cost,
-                classes, resources, io);
+                classes, resources, io, sourceReceipt);
         group.credentialReceipt = receipt;
+        group.sourceCredentialReceipt = sourceReceipt;
+        if (sourceReceipt != null) { group.sourceCredentials.put(sourceReceipt.authorization().shard(), sourceReceipt); }
         try {
             group.opening = OwnedCheckpointIo.submit(guard -> {
                 guard.run(); actualActivation.run();
                 final var builder = PulsarClient.builder();
-                if (receipt != null) { builder.enableTlsHostnameVerification(true).allowTlsInsecureConnection(false); }
+                if (receipt != null || sourceReceipt != null) { builder.enableTlsHostnameVerification(true).allowTlsInsecureConnection(false); }
                 TargetSdkArtifactIdentity.requireExact(builder.getClass(), group.sdkJar);
                 group.allocation.beginConstruction();
                 final PulsarClient nativeClient;
@@ -244,12 +379,19 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     }
 
     public void requireCredential(CredentialBinding expected) {
+        if (credential == null) throw new IllegalStateException("P1 Source authority does not imply a Destination credential binding");
         if (!Bytes.constantTimeEquals(credential.bindingDigest(), expected.bindingDigest())) {
             throw new IllegalStateException("P1 shared client has another actual credential generation");
         }
     }
     void requireTargetCredential(com.nereusstream.delay.protocol.TargetChannelIdentity channel) {
+        if (credential == null) throw new IllegalStateException("P1 Target requires its independent resolved Destination credential");
         channel.credentialLease().requireBinding(credential);
+    }
+    void requireTargetCredential(com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt) {
+        requireLoadedMaterial(receipt);
+        if (credential != null) { requireTargetCredential(channel); }
     }
     void requireProducerArtifact(Producer<?> producer) { TargetSdkArtifactIdentity.requireExact(producer.getClass(), sdkJar); }
 

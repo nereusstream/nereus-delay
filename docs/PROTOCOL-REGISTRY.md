@@ -517,6 +517,69 @@ fallback are rejected. SEND uses local receipt/lease checks, never file/catalog/
 new material enters a new SDK generation through the existing control/protection boundary.
 Missing deployment material/trust/probe evidence is activation unavailable, not a fixture proof.
 
+NDIP-3 Source transport authorization is a separate private deployment artifact, never a new
+Source command, Profile, CredentialUseKind or SourceAssignment field. A configured Source-use
+allowlist selects exact key versions of the existing `nereus-delay-local-broker-mtls` verifier
+tuple; Destination signing permission alone is insufficient. The original configured Route
+public key verifies the full signed Route bytes again. The image only authorizes transport
+operations; existing assignment, Owner, System author/signature and resource guards still apply.
+
+`SourceTransportCredentialAuthorization` schema 1 is closed canonical Protobuf with exactly:
+1 schema uint32=1; 2 deployment identity[32]; 3 deployment configuration identity[32];
+4 nonzero raw uint64 configuration generation; 5 SHA-256(full signed Route bytes)[32];
+6 Route snapshot digest[32]; 7 RouteIncarnation[16]; 8 ShardSubject[20] (incarnation || u32be
+partition); 9 exact BrokerResourceIdentity; 10 exact physical topic UTF-8 NFC (at most1024bytes);
+11 partition uint32; 12 nonzero credential binding ID[32]; 13 nonzero raw uint64 credential
+generation; 14 private `nd-local-mtls-v1` reference (at most128bytes); 15 its SHA-256[32];
+16 leaf X509 DER SHA-256[32]; 17 authorization scope/policy digest[32]; 18 nonzero closed
+operation mask uint32; 19 Kafka group ID; 20 P1 active subscription name; 21 P1 active mode
+uint32 (0 absent, 1 Exclusive/Durable); 22 history prefix; 23 observation prefix; 24 recovery
+prefix; 25 fixed TLS trust/endpoint policy digest[32]; 26 original TrustedUtcIntervalEvidence
+verified_at; 27 int64 not_after strictly after verified_at.latest; 28 original private verifier
+evidence SHA-256[32]; 29 exact verifier ID; 30 verifier version uint32=1; 31 nonzero key version
+uint32; 32 image digest[32]; 33 Ed25519 signature[64]. Total image is at most16KiB. Unknown,
+duplicate, out-of-order/noncanonical fields, malformed text and unknown operation bits reject.
+Fields2/3/12 are nonzero; all names/prefixes are at most256 ASCII `[A-Za-z0-9._-]` characters.
+Kafka ACK requires the exact group; P1 consume/ACK requires its exact active subscription/mode.
+Unused adapter/active fields are empty/zero. Read-only history/observer/recovery names must match
+their declared prefix plus `.` and a bounded suffix; those roles imply neither ACK nor append.
+Field25 is SHA-256(UTF8(`nereus-delay-local-mtls-offline-pkix-v1`) || 0x00 || exact client-CA
+PEM || exact server-CA PEM || endpointDigest). endpointDigest is SHA-256 of canonical Protobuf
+with sorted repeated field1 Kafka bootstrap strings and sorted repeated field2 P1 TLS URLs.
+The resolver's `tlsConfigurationDigest()` exposes this safe policy identity to deployment tooling.
+
+The operation bits are CONSUME=1, ACK=2, SYSTEM_APPEND=4, HISTORY=8, OBSERVATION=16,
+RECOVERY=32, LOOKUP=64. Field32 is SHA-256(UTF8(`nereus-delay-source-transport-credential`)
+|| 0x00 || canonical fields1–31). Field33 signs SHA-256(UTF8(
+`nereus-delay-source-transport-credential-signature`) || 0x00 || field32 || u32be(field31)).
+The configured verifier key window covers verified_at through not_after; actual trusted current
+time lies at/after verified_at.latest and strictly before not_after. Resource/topic/partition
+are exact signed Route projections, including P1 creation identity, with no arbitrary topic or
+synthetic Destination Profile. Deployment management publishes immutable configuration versions;
+changing a retained identity's image requires a new explicitly verified generation.
+
+The controlled deployment authorization file is read without following symlinks. Its material
+reference selects the same bounded immutable credential directory. Source private evidence is
+`source-verifier-evidence-<hex(SHA-256(canonical image fields1–27))>.bin` in that directory;
+it is closed canonical Protobuf: 1 schema uint32=1; 2 credentialId[16]; 3 materialVersion[16];
+4 binding ID[32]; 5 raw uint64 credential generation; 6 reference SHA-256[32]; 7 leaf DER
+SHA-256[32]; 8 SHA-256(concatenated lp32 leaf-first DER chain)[32]; 9 leaf SPKI SHA-256[32];
+10 exact PKCS#8 PEM SHA-256[32]; 11 TLS policy digest[32]; 12 SHA-256(image fields1–27)[32];
+13 SHA-256(field14)[32]; 14 nonempty original authenticated Source principal/resource/operation
+probe evidence. The external trusted verifier supplies this evidence and the image signature;
+the Worker only checks their association, never generates a probe or substitutes Target evidence.
+
+Source and Destination receipts share only actually verified material snapshots. Resolver
+retention counts material/proof bytes once, bounds native credential versions by maximumVersions
+and retained private proof files by 4*maximumVersions, and rejects same-identity replacement.
+K1/P1 active Source construction consumes the Source receipt; after real guard/assignment and
+Owner activation, private local use binds the original consumer generation and Worker. Poll,
+ACK and checkpoint cut check the exact role, deployment validity and held Owner locally; failures
+enter the original Host quarantine, while cleanup remains usable after credential expiry.
+No private reference/image/probe goes to Source/Store/checkpoint/public results/logs/metrics.
+SYSTEM_APPEND/history/observer/recovery role assembly and the full service/reopen entry remain
+required development work; parsing an image or compiling active Source is not full completion.
+
 `CredentialBinding` is a separate private control-plane object with exact fields: 1 `ProfileRef profile`; 2 nonzero raw `uint64 secret_generation` (complete 64-bit pattern, zero invalid); 3 bounded nonempty private `bytes secret_reference`; 4 `bytes secret_reference_sha256`=32; 5 `CredentialEquivalenceAttestation equivalence_attestation`; 6 `uint32 binding_protocol_version`=1; 7 `bytes binding_digest`=32. Field 4 equals SHA-256(field 3); attestation fields 1–3 must equal binding fields 1–2/4. Field 7 is:
 
 ```text

@@ -236,6 +236,22 @@ public final class TargetWorkerShardRuntime
         return target.requirePublicationOwner(expected, clock);
     }
 
+    /** Only the actual owned Source can attach a parsed deployment receipt to this accepted Worker graph. */
+    public synchronized SourceTransportCredentialUse bindSourceCredential(
+            LocalBrokerMtlsResolver.SourceReceipt receipt, SourceRecordConsumer consumer, SourceAssignment assignment,
+            com.nereusstream.delay.protocol.OwnerIdentity owner, Object nativeGeneration,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, LongSupplier clock) {
+        if (consumer != actualSourceConsumer || sourceBackendGroup == null
+                || !sourceBackendGroup.holdsSourceCredential(receipt)) {
+            throw new IllegalStateException("Source credential binding lacks this actual owned consumer");
+        }
+        target.requireAcceptedAssignment(assignment);
+        requirePublicationOwner(owner, clock);
+        receipt.authorization().requireAssignment(assignment);
+        receipt.requireActive(time.get());
+        return new SourceTransportCredentialUse(receipt, target, assignment, owner, nativeGeneration, time, clock);
+    }
+
     public synchronized com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption readExternalEvidenceAdoption(
             BoundedReadBudget reads, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
         requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
@@ -701,7 +717,7 @@ public final class TargetWorkerShardRuntime
     synchronized void requireConfiguredServiceReady(TargetWorkerHostRuntime expected, LongSupplier clock) {
         requirePublishRecoveryOwner(clock);
         if (publicationHost != expected || sourceBackendGroup == null || !sourceBackendGroup.workerReady(this)
-                || sourceBackendGroup.credentialReceipt() == null) {
+                || !sourceBackendGroup.sourceCredentialsReady(this)) {
             throw new IllegalStateException("configured service requires its actual owned Source and Host");
         }
         requirePublishingStartupClosure();

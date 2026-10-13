@@ -7,6 +7,9 @@ import com.nereusstream.delay.ownership.TargetOwnedBackendGroup;
 import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
 import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.ownership.LocalBrokerMtlsResolver;
+import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation;
+import com.nereusstream.delay.ownership.SourceTransportCredentialUse;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -73,6 +76,57 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     private boolean sdkTerminated;
     private com.nereusstream.delay.ownership.SourceAssignment positionedAssignment;
     private volatile com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+    private LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt;
+    private SourceTransportCredentialUse sourceCredentialUse;
+
+    public static KafkaClientArtifactOwnedSourceBackend openVerifiedSourceMtls(Settings settings, Map<String,Object> operational,
+            byte[] sdkJar, LocalBrokerMtlsResolver.SourceReceipt receipt,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, Runnable actualActivation,
+            TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        final var authorization = receipt.authorization();
+        if (!authorization.shard().equals(settings.shard())
+                || authorization.resource().kind() != com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.KAFKA
+                || !authorization.resource().kafka().authenticatedClusterId().equals(settings.authenticatedClusterId())
+                || !authorization.resource().kafka().nativeTopicUuid().equals(settings.topicId())
+                || !authorization.physicalTopic().equals(settings.topic())) {
+            throw new IllegalStateException("K1 Source settings differ from the signed deployment resource");
+        }
+        authorization.requireName(Operation.ACK, (String) operational.get(ConsumerConfig.GROUP_ID_CONFIG));
+        final var owner = open(settings, KafkaClientArtifactMtlsConfiguration.applySource(operational, receipt), sdkJar, () -> {
+            actualActivation.run(); receipt.requireOperation(Operation.LOOKUP, time.get());
+            receipt.requireOperation(Operation.CONSUME, time.get()); receipt.requireOperation(Operation.ACK, time.get());
+        }, budget, cost, classes, resources, io);
+        owner.sourceCredentialReceipt = receipt;
+        return owner;
+    }
+
+    @Override public LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt() { return sourceCredentialReceipt; }
+    @Override public boolean sourceCredentialsReady(TargetWorkerShardRuntime expected) {
+        final SourceTransportCredentialUse use;
+        final Object consumer;
+        synchronized (gate) {
+            if (!workerReady(expected) || sourceCredentialReceipt == null || sourceCredentialUse == null) return false;
+            use = sourceCredentialUse; consumer = nativeConsumer;
+        }
+        use.require(Operation.CONSUME, consumer); use.require(Operation.ACK, consumer);
+        return true;
+    }
+    void bindSourceCredential(TargetWorkerShardRuntime actual, com.nereusstream.delay.ownership.SourceAssignment assignment,
+            com.nereusstream.delay.protocol.OwnerIdentity owner,
+            Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, java.util.function.LongSupplier clock) {
+        final GuardedConsumer<byte[],byte[]> consumer;
+        synchronized (gate) {
+            if (!ready || frozen || host != null || sourceCredentialUse != null || sourceCredentialReceipt == null)
+                throw new IllegalStateException("K1 Source credential binding is unavailable");
+            consumer = nativeConsumer;
+        }
+        final var use = actual.bindSourceCredential(sourceCredentialReceipt, source, assignment, owner, consumer, time, clock);
+        synchronized (gate) {
+            if (frozen || nativeConsumer != consumer) throw new IllegalStateException("K1 Source changed during credential binding");
+            sourceCredentialUse = use;
+        }
+    }
 
     public static KafkaClientArtifactOwnedSourceBackend openVerifiedMtls(Settings settings, Map<String, Object> operational,
             byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
@@ -269,14 +323,41 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     }
 
     <T> T nativeOperation(Supplier<T> operation) {
+        return nativeOperation(Operation.CONSUME, operation);
+    }
+    <T> T nativeOperation(Operation role, Supplier<T> operation) {
+        return nativeOperation(role, role != Operation.ACK, operation);
+    }
+    <T> T nativeReadOperation(Operation role, Supplier<T> operation) {
+        return nativeOperation(role, true, operation);
+    }
+    private <T> T nativeOperation(Operation role, boolean checkAfter, Supplier<T> operation) {
+        final SourceTransportCredentialUse credential;
+        final GuardedConsumer<byte[],byte[]> actual;
         synchronized (gate) {
             if (!ready || host == null || frozen) throw new IllegalStateException("K1 Source native admission is frozen or unbound");
+            credential = sourceCredentialUse; actual = nativeConsumer;
             nativeCalls = Math.incrementExact(nativeCalls);
         }
-        try { return operation.get(); }
+        try {
+            requireSourceMaterial(credential, role, actual);
+            final var result = operation.get();
+            if (checkAfter) { requireSourceMaterial(credential, role, actual); }
+            return result;
+        }
         finally {
             synchronized (gate) { nativeCalls--; }
             cleanupProgress();
+        }
+    }
+    private void requireSourceMaterial(SourceTransportCredentialUse credential, Operation role, Object actual) {
+        if (sourceCredentialReceipt == null) return;
+        try { Objects.requireNonNull(credential, "actual bound Source material use").require(role, actual); }
+        catch (RuntimeException | Error failure) {
+            recordFailure(failure);
+            try { host.quarantineOwnedBackends(); }
+            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            throw failure;
         }
     }
 

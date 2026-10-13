@@ -18,6 +18,21 @@ import org.apache.kafka.common.TopicPartition;
 public final class KafkaClientArtifactTargetWorkerSourceFactory {
     private KafkaClientArtifactTargetWorkerSourceFactory() {}
 
+    public static TargetWorkerShardRuntime createVerifiedSource(KafkaClientArtifactOwnedSourceBackend owner,
+            SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,
+            SharedRocksDbResources resources, TargetSourceApplyRuntime sourceRuntime,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        final var worker = create(owner, acceptedAssignment, workClasses, store, resources, sourceRuntime, maintenance);
+        try { owner.bindSourceCredential(worker, acceptedAssignment, identity, time, clock); return worker; }
+        catch (RuntimeException | Error failure) {
+            try { owner.source().close(); }
+            catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
     /** Actual owned Source startup uses the same native instance for positioning, Worker composition and teardown. */
     public static TargetWorkerShardRuntime create(KafkaClientArtifactOwnedSourceBackend owner,
             SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,

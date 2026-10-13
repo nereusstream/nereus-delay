@@ -61,7 +61,7 @@ public final class PulsarClientArtifactTargetProducerFactory {
             @Override public com.nereusstream.delay.adapter.DestinationPublishAdapter create(
                     Runnable guard, TargetDestinationSdkBudget.Client reserved) {
                 guard.run(); activation.run();
-                group.requireTargetCredential(channel);
+                group.requireTargetCredential(channel, receipt);
                 final long[] minimum = new long[CapacityDimension.COUNT];
                 minimum[CapacityDimension.ADAPTER_PRODUCERS.wireValue() - 1] = 1;
                 minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;

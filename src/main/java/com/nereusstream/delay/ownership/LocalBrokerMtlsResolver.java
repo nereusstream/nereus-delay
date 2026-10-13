@@ -60,6 +60,7 @@ public final class LocalBrokerMtlsResolver {
     private final byte[] policyDigest;
     private final EndpointPolicy endpoints;
     private final Map<String, Version> versions = new HashMap<>();
+    private final Map<String, FileImage> privateEvidence = new HashMap<>();
     private long retainedBytes;
 
     public record Limits(int maximumFileBytes, int maximumTotalBytes, int maximumCertificates,
@@ -119,6 +120,8 @@ public final class LocalBrokerMtlsResolver {
         } catch (Exception failure) { throw unavailable(); }
     }
 
+    public byte[] tlsConfigurationDigest() { return Bytes.copy(policyDigest); }
+
     /** Resolve only at control/startup boundaries on the caller's I/O owner; SEND checks this local receipt. */
     public Receipt resolve(TargetChannelIdentity channel, CanonicalTargetPartition physical, ProfileCatalog profiles,
             CredentialAttestationTrustSet trust, Supplier<TrustedUtcIntervalEvidence> time) {
@@ -160,21 +163,108 @@ public final class LocalBrokerMtlsResolver {
             final var confirmed = TargetDestinationCredentialChecks.requireBinding(channel, physical, profiles, trust);
             if (!confirmed.equals(binding)) { throw unavailable(); }
             requireProtection(binding, lease, profiles);
-            final var loaded = new Version(certs, key, evidence, fingerprint, bytes, directoryKeys);
-            final Version snapshot;
-            synchronized (this) {
-                final var previous = versions.get(id + '/' + version);
-                if (previous != null) {
-                    if (!previous.same(loaded)) { throw unavailable(); }
-                    snapshot = previous;
-                } else {
-                    if (versions.size() >= limits.maximumVersions()
-                            || bytes > limits.maximumRetainedBytes() - retainedBytes) { throw unavailable(); }
-                    versions.put(id + '/' + version, loaded); retainedBytes += bytes; snapshot = loaded;
-                }
-            }
-            return new Receipt(binding, lease, snapshot, serverTrustPem, policyDigest, physical, endpoints);
+            final var loaded = new Version(certs, key, fingerprint,
+                    Math.addExact(certs.bytes().length, key.bytes().length), directoryKeys);
+            final var snapshot = retain(id + '/' + version, loaded, Map.of("destination-evidence", evidence));
+            return new Receipt(binding, lease, snapshot, serverTrustPem, policyDigest, physical, endpoints,
+                    retainedProofs(id + '/' + version, List.of("destination-evidence")));
         } catch (Exception failure) { throw unavailable(); }
+    }
+
+    /** Independent Source authorization: no synthetic Destination Profile, channel, Owner or Source position. */
+    public SourceReceipt resolveSource(Path authorizationFile, byte[] signedRoute,
+            SourceTransportCredentialAuthorization.Trust trust, Supplier<TrustedUtcIntervalEvidence> time) {
+        try {
+            if (signedRoute.length == 0 || signedRoute.length > limits.maximumTotalBytes()) { throw unavailable(); }
+            final var input = readAbsolute(authorizationFile, Math.min(limits.maximumFileBytes(),
+                    SourceTransportCredentialAuthorization.MAX_BYTES));
+            final var authorization = SourceTransportCredentialAuthorization.decode(input.bytes());
+            trust.verify(authorization, signedRoute, time.get());
+            if (!Arrays.equals(policyDigest, authorization.policyDigest())
+                    || !Arrays.equals(Bytes.sha256(authorization.reference()), authorization.referenceDigest())) { throw unavailable(); }
+            final var reference = REFERENCE.matcher(new String(authorization.reference(), StandardCharsets.US_ASCII));
+            if (!reference.matches() || reference.group(1).equals("0".repeat(32))
+                    || reference.group(2).equals("0".repeat(32))) { throw unavailable(); }
+            final String id = reference.group(1), version = reference.group(2);
+            final FileImage certs, key, evidence;
+            final List<Object> directories;
+            final String evidenceName = "source-verifier-evidence-" + Bytes.hex(authorization.scopeImageDigest()) + ".bin";
+            try (var directory = Directory.open(root.resolve(id).resolve(version))) {
+                directories = directory.identities();
+                certs = directory.read("client-cert-chain.pem", limits.maximumFileBytes());
+                key = directory.read("client-key.pk8.pem", limits.maximumFileBytes());
+                evidence = directory.read(evidenceName, limits.maximumFileBytes());
+            }
+            final long total = Math.addExact(input.bytes().length, Math.addExact(evidence.bytes().length,
+                    Math.addExact(certs.bytes().length, key.bytes().length)));
+            if (total > limits.maximumTotalBytes()) { throw unavailable(); }
+            final var chain = certificates(certs.bytes(), limits.maximumCertificates());
+            final var fingerprint = Bytes.sha256(chain.getFirst().getEncoded());
+            if (!Arrays.equals(fingerprint, authorization.fingerprint())
+                    || !Arrays.equals(Bytes.sha256(evidence.bytes()), authorization.evidenceDigest())) { throw unavailable(); }
+            requireSourceEvidence(evidence.bytes(), id, version, authorization, chain, key.bytes());
+            requireCertificates(chain, authorization.notBeforeEpochMs(), authorization.notAfterEpochMs());
+            requirePrivateKey(key.bytes(), chain.getFirst());
+            trust.verify(authorization, signedRoute, time.get());
+            final var loaded = new Version(certs, key, fingerprint, Math.addExact(certs.bytes().length, key.bytes().length), directories);
+            final String scope = Bytes.hex(authorization.identityDigest());
+            final var snapshot = retain(id + '/' + version, loaded,
+                    Map.of("source-authorization/" + scope, input, "source-evidence/" + scope, evidence));
+            return new SourceReceipt(authorization, trust, snapshot, serverTrustPem, policyDigest, endpoints,
+                    retainedProofs(id + '/' + version, List.of("source-authorization/" + scope, "source-evidence/" + scope)));
+        } catch (Exception failure) { throw unavailable(); }
+    }
+
+    /** Same-version material and every retained private proof remain immutable; all bytes are charged once. */
+    private synchronized Version retain(String identity, Version loaded, Map<String, FileImage> proofs) {
+        final var previous = versions.get(identity);
+        if (previous != null && !previous.same(loaded)) { throw unavailable(); }
+        long addition = previous == null ? loaded.bytes() : 0;
+        int newProofs = 0;
+        for (var entry : proofs.entrySet()) {
+            final var old = privateEvidence.get(evidenceKey(identity, entry.getKey()));
+            if (old != null && !old.same(entry.getValue())) { throw unavailable(); }
+            if (old == null) { addition = Math.addExact(addition, entry.getValue().bytes().length); newProofs++; }
+        }
+        if (previous == null && versions.size() >= limits.maximumVersions()
+                || privateEvidence.size() + (long) newProofs > 4L * limits.maximumVersions()
+                || addition > limits.maximumRetainedBytes() - retainedBytes) { throw unavailable(); }
+        if (previous == null) { versions.put(identity, loaded); }
+        for (var entry : proofs.entrySet()) { privateEvidence.putIfAbsent(evidenceKey(identity, entry.getKey()), entry.getValue()); }
+        retainedBytes += addition;
+        return previous == null ? loaded : previous;
+    }
+    private static String evidenceKey(String material, String proof) {
+        return proof.startsWith("source-authorization/") ? proof : material + '/' + proof;
+    }
+    private synchronized List<FileImage> retainedProofs(String material, List<String> proofs) {
+        return proofs.stream().map(proof -> Objects.requireNonNull(privateEvidence.get(evidenceKey(material, proof)))).toList();
+    }
+
+    private static void requireSourceEvidence(byte[] bytes, String id, String version,
+            SourceTransportCredentialAuthorization authorization, List<X509Certificate> chain, byte[] key) throws Exception {
+        final var fields = QueryCodecSupport.read(bytes, "private Source mTLS evidence");
+        QueryCodecSupport.requireNumbers(fields, new int[] {1,2,3,4,5,6,7,8,9,10,11,12,13,14}, "private Source mTLS evidence");
+        final var chainBytes = new ByteArrayOutputStream();
+        for (var cert : chain) { chainBytes.write(Bytes.lp32(cert.getEncoded())); }
+        final byte[] probe = QueryCodecSupport.bytes(fields.get(13), 14);
+        final var canonical = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.uint32(out, 1, 1);
+            CanonicalProtobuf.bytes(out, 2, Bytes.hexToBytes(id));
+            CanonicalProtobuf.bytes(out, 3, Bytes.hexToBytes(version));
+            CanonicalProtobuf.bytes(out, 4, authorization.bindingId());
+            CanonicalProtobuf.uint64Bits(out, 5, authorization.credentialGeneration());
+            CanonicalProtobuf.bytes(out, 6, authorization.referenceDigest());
+            CanonicalProtobuf.bytes(out, 7, authorization.fingerprint());
+            CanonicalProtobuf.bytes(out, 8, Bytes.sha256(chainBytes.toByteArray()));
+            CanonicalProtobuf.bytes(out, 9, Bytes.sha256(chain.getFirst().getPublicKey().getEncoded()));
+            CanonicalProtobuf.bytes(out, 10, Bytes.sha256(key));
+            CanonicalProtobuf.bytes(out, 11, authorization.policyDigest());
+            CanonicalProtobuf.bytes(out, 12, authorization.scopeImageDigest());
+            CanonicalProtobuf.bytes(out, 13, Bytes.sha256(probe));
+            CanonicalProtobuf.bytes(out, 14, probe);
+        });
+        if (probe.length == 0 || !Arrays.equals(bytes, canonical)) { throw unavailable(); }
     }
 
     private static void requireProtection(CredentialBinding binding, CredentialUseLease lease, ProfileCatalog profiles) {
@@ -211,9 +301,12 @@ public final class LocalBrokerMtlsResolver {
     }
 
     private void requireCertificates(List<X509Certificate> chain, CredentialUseLease lease) throws Exception {
+        requireCertificates(chain, lease.issuedAt().earliestEpochMs(), lease.validUntilEpochMs());
+    }
+    private void requireCertificates(List<X509Certificate> chain, long earliest, long until) throws Exception {
         for (var cert : chain) {
-            cert.checkValidity(new Date(lease.issuedAt().earliestEpochMs()));
-            cert.checkValidity(new Date(lease.validUntilEpochMs()));
+            cert.checkValidity(new Date(earliest));
+            cert.checkValidity(new Date(until));
         }
         final var leaf = chain.getFirst();
         final var usage = leaf.getKeyUsage();
@@ -232,11 +325,11 @@ public final class LocalBrokerMtlsResolver {
         if (clientRoots.contains(path.getLast())) { path.removeLast(); }
         final var params = new PKIXParameters(anchors);
         // Deliberate offline deployment policy: no network revocation fetch during material resolution.
-        params.setRevocationEnabled(false); params.setDate(new Date(lease.issuedAt().latestEpochMs()));
+        params.setRevocationEnabled(false); params.setDate(new Date(earliest));
         final var validated = (java.security.cert.PKIXCertPathValidatorResult) CertPathValidator.getInstance("PKIX")
                 .validate(CertificateFactory.getInstance("X.509").generateCertPath(path), params);
-        validated.getTrustAnchor().getTrustedCert().checkValidity(new Date(lease.issuedAt().earliestEpochMs()));
-        validated.getTrustAnchor().getTrustedCert().checkValidity(new Date(lease.validUntilEpochMs()));
+        validated.getTrustAnchor().getTrustedCert().checkValidity(new Date(earliest));
+        validated.getTrustAnchor().getTrustedCert().checkValidity(new Date(until));
     }
 
     private static void requirePrivateKey(byte[] pem, X509Certificate leaf) throws Exception {
@@ -284,11 +377,13 @@ public final class LocalBrokerMtlsResolver {
         private final byte[] serverTrust, policy;
         private final CanonicalTargetPartition physical;
         private final EndpointPolicy endpoints;
+        private final List<FileImage> proofs;
         private Receipt(CredentialBinding binding, CredentialUseLease lease, Version version,
-                byte[] serverTrust, byte[] policy, CanonicalTargetPartition physical, EndpointPolicy endpoints) {
+                byte[] serverTrust, byte[] policy, CanonicalTargetPartition physical, EndpointPolicy endpoints, List<FileImage> proofs) {
             this.binding = binding; this.lease = lease; this.version = version;
             this.serverTrust = serverTrust; this.policy = policy; this.physical = physical;
             this.endpoints = endpoints;
+            this.proofs = proofs;
         }
         public void requireBinding(CredentialBinding original) {
             if (!binding.equals(original)) { throw unavailable(); }
@@ -314,8 +409,45 @@ public final class LocalBrokerMtlsResolver {
         public byte[] certificateChainPem() { return Bytes.copy(version.certs().bytes()); }
         public byte[] privateKeyPem() { return Bytes.copy(version.key().bytes()); }
         public byte[] serverTrustPem() { return Bytes.copy(serverTrust); }
-        public long retainedBytes() { return version.bytes() + serverTrust.length; }
+        public long retainedBytes() { return version.bytes() + serverTrust.length + proofs.stream().mapToLong(proof -> proof.bytes().length).sum(); }
         @Override public String toString() { return "ResolvedBrokerMtlsReceipt"; }
+    }
+
+    /** Actual Source material, separately authenticated from every Destination permission. */
+    public static final class SourceReceipt {
+        private final SourceTransportCredentialAuthorization authorization;
+        private final SourceTransportCredentialAuthorization.Trust trust;
+        private final Version version;
+        private final byte[] serverTrust, policy;
+        private final EndpointPolicy endpoints;
+        private final List<FileImage> proofs;
+        private SourceReceipt(SourceTransportCredentialAuthorization authorization, SourceTransportCredentialAuthorization.Trust trust,
+                Version version, byte[] serverTrust, byte[] policy, EndpointPolicy endpoints, List<FileImage> proofs) {
+            this.authorization = authorization; this.trust = trust; this.version = version;
+            this.serverTrust = serverTrust; this.policy = policy; this.endpoints = endpoints;
+            this.proofs = proofs;
+        }
+        public SourceTransportCredentialAuthorization authorization() { return authorization; }
+        public void requireActive(TrustedUtcIntervalEvidence time) { trust.requireActive(); authorization.requireTime(time); }
+        public void requireOperation(SourceTransportCredentialAuthorization.Operation operation, TrustedUtcIntervalEvidence time) {
+            requireActive(time); authorization.requireOperation(operation);
+        }
+        public void requireKafkaBootstrap(Object endpoint) {
+            final String configured = endpoint instanceof List<?> values
+                    ? String.join(",", values.stream().map(value -> (String) value).toList()) : (String) endpoint;
+            if (!endpoints.kafkaBootstrapServers().contains(configured)) { throw unavailable(); }
+        }
+        public void requirePulsarEndpoint(String endpoint) { if (!endpoints.pulsarServiceUrls().contains(endpoint)) { throw unavailable(); } }
+        public boolean sameMaterial(Receipt destination) {
+            return destination != null && version.same(destination.version) && Arrays.equals(policy, destination.policy);
+        }
+        public boolean sameMaterial(SourceReceipt source) {
+            return source != null && version.same(source.version) && Arrays.equals(policy, source.policy);
+        }
+        public byte[] certificateChainPem() { return Bytes.copy(version.certs().bytes()); }
+        public byte[] privateKeyPem() { return Bytes.copy(version.key().bytes()); }
+        public byte[] serverTrustPem() { return Bytes.copy(serverTrust); }
+        @Override public String toString() { return "ResolvedSourceBrokerMtlsReceipt"; }
     }
 
     private record FileImage(byte[] bytes, Object fileKey, long size, java.nio.file.attribute.FileTime modified) {
@@ -325,10 +457,10 @@ public final class LocalBrokerMtlsResolver {
         }
         @Override public String toString() { return "PrivateMtlsFileImage"; }
     }
-    private record Version(FileImage certs, FileImage key, FileImage evidence, byte[] fingerprint, long bytes,
+    private record Version(FileImage certs, FileImage key, byte[] fingerprint, long bytes,
             List<Object> directories) {
         private boolean same(Version other) {
-            return certs.same(other.certs) && key.same(other.key) && evidence.same(other.evidence)
+            return certs.same(other.certs) && key.same(other.key)
                     && Arrays.equals(fingerprint, other.fingerprint) && directories.equals(other.directories);
         }
         @Override public String toString() { return "PrivateMtlsVersion"; }

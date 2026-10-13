@@ -20,6 +20,23 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 public final class PulsarClientArtifactTargetWorkerSourceFactory {
     private PulsarClientArtifactTargetWorkerSourceFactory() {}
 
+    public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard, String physicalTopic, Duration receiveTimeout,
+            SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,
+            SharedRocksDbResources resources, TargetSourceApplyRuntime sourceRuntime, TargetWorkerShardRuntime.Maintenance maintenance,
+            com.nereusstream.delay.protocol.OwnerIdentity owner,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        final var worker = create(group, consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment,
+                workClasses, store, resources, sourceRuntime, maintenance);
+        try { group.bindSourceCredential(consumer, worker, acceptedAssignment, owner, time, clock); return worker; }
+        catch (RuntimeException | Error failure) {
+            try { PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer).get(group.operationTimeoutMs(), java.util.concurrent.TimeUnit.MILLISECONDS); }
+            catch (Exception cleanup) { if (cleanup instanceof InterruptedException) Thread.currentThread().interrupt(); failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
     /** Reject an unrelated/shared consumer before handing an actual owned group into the Worker graph. */
     public static TargetWorkerShardRuntime create(PulsarClientArtifactOwnedBackendGroup group,
             GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard, String physicalTopic,

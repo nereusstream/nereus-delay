@@ -452,3 +452,19 @@ pre/post 与 SEND 保留原 Source/resource/Owner gates，新增凭据检查在 
 旧 UNKNOWN/Journal/cleanup 继续持有原材料，重新解析/续租/rotation 沿原 control、
 Head/protection 和 SDK generation 边界，不引入新持久 grant、插件或远端 secret 服务。
 本轮不读取/生成真实凭据，不执行环境迁退，四包与29切片及完成 flags 保持。
+
+## 2026-10-13：Source deployment credential输入
+
+主会话确认Source权限不能由Destination receipt、Route的IngressCredentialBindingRef
+或SourceAssignment推出。采用独立私有SourceTransportCredentialAuthorization：原配置
+明确授予既有精确verifier tuple/key Source用途，独立签名域、closed部署image与原真实
+Source probe，绑定实际signed Route/resource/topic/Shard、材料版本、配置generation、
+roles/names/window及TLS策略。字段号一次固定于Registry，不新增Profile/UseKind/Source
+命令或assignment字段，也不新建Oxia授权服务/动态rotation框架。
+
+顺序为验证Route/image→同版本真实mTLS材料→私有Source receipt→实际SDK guard/接受
+assignment→原Owner/恢复流程→actual consumer/Worker/assignment/Owner/native generation
+本地use。active poll/ACK/cut检查不读文件/Oxia，依然保留原Author/Owner/资源和System
+签名权限；到期/失效沿原quarantine，cleanup及旧未ACK/UNKNOWN义务不随其解除。实际
+system append/history/observer/recovery roles与完整service/reopen继续接线，测试/Broker
+和环境激活集中后置，无真实凭据读写或新fake production默认。全部完成flags保持。
