@@ -43,12 +43,15 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
         requireCurrentProof(acceptedConsumer, guard, topic, shard.partition());
         final MessageId target = cursor.map(position -> toMessageId(position, guard, topic, shard))
                 .orElse(MessageId.earliest);
+        final var reading = PulsarClientArtifactOwnedBackendGroup.beginNativeRead(acceptedConsumer);
         try {
             acceptedConsumer.seek(target);
+            return awaitStableProof(acceptedConsumer, guard, topic, shard.partition(), proofTimeout);
         } catch (PulsarClientException failure) {
             throw new IllegalStateException("Pulsar guarded recovery seek failed", failure);
+        } finally {
+            if (reading != null) { reading.close(); }
         }
-        return awaitStableProof(acceptedConsumer, guard, topic, shard.partition(), proofTimeout);
     }
 
     /** Waits for two consecutive reads of the same post-seek guard proof. */
@@ -58,6 +61,16 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
             final String physicalTopic,
             final int partition,
             final Duration proofTimeout) {
+        final var reading = PulsarClientArtifactOwnedBackendGroup.beginNativeRead(consumer);
+        try {
+            return awaitStableProofOpen(consumer, expectedGuard, physicalTopic, partition, proofTimeout);
+        } finally {
+            if (reading != null) { reading.close(); }
+        }
+    }
+
+    private static PositionedGuardProof awaitStableProofOpen(GuardedConsumer<byte[]> consumer,
+            TopicResourceGuard expectedGuard, String physicalTopic, int partition, Duration proofTimeout) {
         final GuardedConsumer<byte[]> acceptedConsumer = Objects.requireNonNull(consumer, "consumer");
         final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         final String topic = requirePhysicalTopic(physicalTopic);

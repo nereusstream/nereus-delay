@@ -20,6 +20,7 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ReadIncompleteException;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.util.Objects;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -295,6 +296,26 @@ public final class TargetPulsarPublishRuntime {
 
     /** The scheduler checks this before Claim; acceptance retains only one already durable Claim. */
     public boolean available() { return pending.get() == null; }
+
+    /** Physical charge only. The Worker supplies its registered exact channel after actual backend termination. */
+    boolean releasePhysicalAfterBackendTermination(TargetChannelIdentity channel) {
+        if (active.get()) { return false; }
+        final var flight = pending.get();
+        if (flight == null || flight.inputs == null || !Arrays.equals(flight.inputs.channel().canonicalBytes(), channel.canonicalBytes())) {
+            return true;
+        }
+        if (flight.sending != null && !flight.sending.isDone()
+                || flight.ordinarySending != null && !flight.ordinarySending.isDone()) { return false; }
+        if (flight.submission != null) { flight.submission.releasePhysicalAfterTeardown(); }
+        else if (flight.sending != null && !flight.sending.isCompletedExceptionally()) {
+            flight.sending.getNow(null).releasePhysicalAfterTeardown();
+        }
+        if (flight.ordinarySubmission != null) { flight.ordinarySubmission.releasePhysicalAfterTeardown(); }
+        else if (flight.ordinarySending != null && !flight.ordinarySending.isCompletedExceptionally()) {
+            flight.ordinarySending.getNow(null).releasePhysicalAfterTeardown();
+        }
+        return true;
+    }
 
     public void accept(TargetClaimRecord claim) {
         Objects.requireNonNull(claim, "claim");

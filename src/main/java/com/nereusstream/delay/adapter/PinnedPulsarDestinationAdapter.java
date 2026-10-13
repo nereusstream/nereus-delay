@@ -12,6 +12,9 @@ import java.util.concurrent.CompletionStage;
 
 /** Pulsar target adapter requiring a Broker guard for every SEND. */
 public final class PinnedPulsarDestinationAdapter implements DestinationPublishAdapter {
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+        return transport.ownedBackendGroup();
+    }
     private final PulsarTargetResource resource;
     private final PulsarDestinationTransport transport;
     private final PulsarDestinationTimingPolicy timingPolicy;
@@ -272,6 +275,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     @FunctionalInterface
     public interface PulsarDestinationTransport extends AutoCloseable {
+        default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return null; }
         CompletionStage<DestinationPublishResult> publish(PulsarDestinationRequest request);
 
         /** Current final-record hook; legacy transports fail closed by default. */

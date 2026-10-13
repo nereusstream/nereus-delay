@@ -41,6 +41,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final int maximumFrameBytes;
     private final Runnable protection;
     private final com.nereusstream.delay.ownership.OwnedSourceCursor<GuardedConsumer<byte[]>> cleanup;
+    private final PulsarClientArtifactOwnedBackendGroup backend;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
@@ -76,8 +77,13 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         this.maximumFrameBytes = maximumFrameBytes;
         this.protection = protection;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
+        backend = PulsarClientArtifactOwnedBackendGroup.findNative(consumer);
         cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(
-                java.util.concurrent.CompletableFuture.completedFuture(consumer), GuardedConsumer::closeAsync);
+                java.util.concurrent.CompletableFuture.completedFuture(consumer),
+                PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
+        if (backend != null) { backend.registerCleanup(cleanup, cleanup::operationExited, cleanup::cleanupComplete, proof -> {
+            proof.requireClient(backend.clientForProof()); cleanup.requestClose(); cleanup.backendShutdownCompleted(backend);
+        }); }
         this.expectedGuard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         this.assignment = Objects.requireNonNull(assignment, "assignment");
         if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier pulsarBarrier)) {
@@ -145,10 +151,19 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     public synchronized boolean hasNext() {
         ensureOpen();
         try {
-            return load();
+            return cleanup.read(receiveTimeoutMs, ignored -> load());
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            if (target) { failed = true; }
+            throw new IllegalStateException("Pulsar guarded recovery receive interrupted", failure);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
+            if (target) { failed = true; }
+            throw new IllegalStateException("Pulsar guarded recovery opening is unconfirmed", failure);
         } catch (RuntimeException | Error failure) {
             if (target) { failed = true; }
             throw failure;
+        } finally {
+            if (backend != null) { backend.cleanupProgress(); }
         }
     }
 

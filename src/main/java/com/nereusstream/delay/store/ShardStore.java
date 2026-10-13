@@ -3104,6 +3104,18 @@ public final class ShardStore implements AutoCloseable {
     /** Applies the same durability fencing to a supplied native flush action. */
     synchronized void flushAndSync(final FlushSyncOperation operation) {
         ensureOpen();
+        performFlushAndSync(operation);
+    }
+
+    /** Physical durability only, after the unclean-close barrier; it cannot reopen Store writes or mark clean close. */
+    public synchronized void flushForUncleanClose() {
+        if (closed.get() || !closeStarted || !cleanCloseAttempted || writeOutcomeUncertain) {
+            throw new IllegalStateException("Store lacks a certain unclean-close flush boundary");
+        }
+        performFlushAndSync(this::flushAndSyncNative);
+    }
+
+    private void performFlushAndSync(final FlushSyncOperation operation) {
         Objects.requireNonNull(operation, "operation");
         try {
             operation.run();
@@ -3523,6 +3535,16 @@ public final class ShardStore implements AutoCloseable {
         if (closeFailure != null) {
             throwUnchecked(closeFailure);
         }
+    }
+
+    /**
+     * Starts unclean teardown without closing JNI resources. The Store monitor is the read/write commit barrier;
+     * native SDK I/O may still be pending outside it. No clean marker or successful checkpoint is manufactured.
+     */
+    public synchronized void fenceForUncleanClose() {
+        if (closed.get()) { return; }
+        cleanCloseAttempted = true;
+        closeStarted = true;
     }
 
     private boolean allOptionsClosed() {

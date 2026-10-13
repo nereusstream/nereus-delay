@@ -54,7 +54,8 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         private final PulsarSourcePosition applied;
         private final TargetSourceBacklog.Collector collector;
         private final CompletableFuture<Consumer<byte[]>> opening = new CompletableFuture<>();
-        private final OwnedSourceCursor<Consumer<byte[]>> owned = new OwnedSourceCursor<>(opening, Consumer::closeAsync);
+        private final OwnedSourceCursor<Consumer<byte[]>> owned;
+        private final PulsarClientArtifactOwnedBackendGroup backend;
         private boolean readStarted;
         private boolean openStarted;
         private boolean closing;
@@ -62,6 +63,11 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         private Query(final PulsarClient client, final TopicResourceGuard resource,
                 final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
             this.client = Objects.requireNonNull(client, "client");
+            backend = PulsarClientArtifactOwnedBackendGroup.find(client);
+            owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
+            if (backend != null) { backend.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
+                proof.requireClient(client); requestClose(); owned.backendShutdownCompleted(backend);
+            }); }
             this.resource = Objects.requireNonNull(resource, "resource");
             if (!(Objects.requireNonNull(cut, "cut").applied() instanceof PulsarSourcePosition position)
                     || !Bytes.constantTimeEquals(position.brokerResourceIncarnation(), resource.resourceIncarnation())) {
@@ -83,12 +89,12 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                     if (closing) { throw new IllegalStateException("P1 backlog read was closed before subscribe"); }
                     openStarted = true;
                     try {
-                        client.newConsumer(Schema.BYTES).topic(applied.physicalTopic())
+                        final var builder = client.newConsumer(Schema.BYTES).topic(applied.physicalTopic())
                                 .subscriptionName("nereus-target-source-backlog-" + UUID.randomUUID())
                                 .subscriptionType(SubscriptionType.Exclusive).subscriptionMode(SubscriptionMode.NonDurable)
                                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest).receiverQueueSize(1)
-                                .autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource)
-                                .subscribeAsync().whenComplete((cursor, failure) -> {
+                                .autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource);
+                        PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder).whenComplete((cursor, failure) -> {
                                     if (failure == null) { opening.complete(cursor); }
                                     else { opening.completeExceptionally(failure); }
                                 });
@@ -103,6 +109,7 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                 throw new TargetSourceBacklogRead.Failure(this, failure);
             } finally {
                 requestClose();
+                if (backend != null) { backend.cleanupProgress(); }
             }
         }
 
@@ -157,7 +164,9 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         public synchronized CompletableFuture<Void> requestClose() {
             closing = true;
             if (!openStarted && !owned.cleanupComplete()) { owned.abandonBeforeOpen(); }
-            return owned.requestClose();
+            final var completion = owned.requestClose();
+            if (backend != null) { backend.cleanupProgress(); }
+            return completion;
         }
 
         @Override
@@ -175,7 +184,8 @@ public final class PulsarClientArtifactTargetSourceBacklog {
             if (!owned.failedOpenNeedsBackendShutdown()) {
                 throw new IllegalStateException("P1 Source observer has no failed-open backend shutdown obligation");
             }
-            return client.closeAsync().thenRun(owned::backendShutdownCompleted);
+            if (backend == null) { return CompletableFuture.failedFuture(new IllegalStateException("P1 observer client is borrowed")); }
+            return backend.requestHostQuarantine();
         }
     }
 

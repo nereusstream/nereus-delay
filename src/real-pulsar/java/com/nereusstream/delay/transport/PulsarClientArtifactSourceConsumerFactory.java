@@ -4,6 +4,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -55,7 +56,7 @@ public final class PulsarClientArtifactSourceConsumerFactory {
             final SubscriptionType subscriptionType)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
-        final Consumer<byte[]> consumer = client.newConsumer(Schema.BYTES)
+        final var builder = client.newConsumer(Schema.BYTES)
                 .topic(Objects.requireNonNull(physicalTopic, "physicalTopic"))
                 .subscriptionName(Objects.requireNonNull(subscriptionName, "subscriptionName"))
                 .subscriptionType(Objects.requireNonNull(subscriptionType, "subscriptionType"))
@@ -63,12 +64,24 @@ public final class PulsarClientArtifactSourceConsumerFactory {
                 .receiverQueueSize(1)
                 .isAckReceiptEnabled(true)
                 .autoUpdatePartitions(false)
-                .resourceGuard(Objects.requireNonNull(guard, "guard"))
-                .subscribe();
+                .resourceGuard(Objects.requireNonNull(guard, "guard"));
+        final Consumer<byte[]> consumer;
+        final var owned = PulsarClientArtifactOwnedBackendGroup.find(client);
+        if (owned == null) { consumer = builder.subscribe(); }
+        else {
+            try { consumer = PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder)
+                    .get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
+            catch (Exception failure) {
+                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                throw PulsarClientException.unwrap(failure);
+            }
+        }
         if (!(consumer instanceof GuardedConsumer<?> guarded)) {
             try {
-                consumer.close();
-            } catch (PulsarClientException failure) {
+                if (owned == null) { consumer.close(); }
+                else { owned.closeNative(consumer).get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
+            } catch (Exception failure) {
+                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
                 throw new IllegalStateException("P1 guarded consumer did not implement the proof API", failure);
             }
             throw new IllegalStateException("P1 guarded consumer did not implement the proof API");
@@ -80,5 +93,10 @@ public final class PulsarClientArtifactSourceConsumerFactory {
             RECEIPT_ENABLED.add(new WeakReference<>(result));
         }
         return result;
+    }
+
+    public static GuardedConsumer<byte[]> create(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard guard,
+            String physicalTopic, String subscriptionName) throws PulsarClientException {
+        return create(group.nativeClientForFactory(), guard, physicalTopic, subscriptionName);
     }
 }

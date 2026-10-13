@@ -145,12 +145,18 @@ public final class TargetWorkerShardFleetRuntime {
 
     /** Admits one exact Worker-graph instance under the same lock as all dispatch cursors. */
     synchronized void admit(final ShardTurns runtime) {
+        admit(runtime, () -> {});
+    }
+
+    /** Transfer backend admission only after all fleet membership checks, before any turn can select it. */
+    synchronized void admit(final ShardTurns runtime, final Runnable bindBackend) {
         requireNotInSelectedTurn();
         final var candidate = Objects.requireNonNull(runtime, "shard runtime");
         candidate.requireFleetComposition(workClasses, resources);
         if (shards.stream().anyMatch(shard -> shard.shardId().equals(candidate.shardId()))) {
             throw new IllegalArgumentException("Target Worker fleet contains a duplicate shard");
         }
+        Objects.requireNonNull(bindBackend, "backend admission").run();
         shards.add(candidate);
     }
 

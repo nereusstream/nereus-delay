@@ -293,5 +293,6 @@ public final class TargetPulsarPublishExecutor {
         public Optional<DestinationPublishResult> result() { return Optional.ofNullable(result); }
         public boolean handedOff() { return handedOff; }
         public boolean markCallbackTimeout() { return call != null && call.markCallbackTimeout(); }
+        void releasePhysicalAfterTeardown() { if (call != null) { call.releasePhysicalCharge(); } }
     }
 }

@@ -1,5 +1,11 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-13 当前开发：owned P1 shared-client/native 创建交接、Host 私有关闭 permit、
+whole-Host quarantine 和未正常完成的 Store/Owner 退出接线已加入；SDK fork 开发锁
+更新为 b8fc1f39eb517c14cc1cdf35e60a0b1dcad2ec40，仅有必要构建/编译结果。mixed Source
+故障退场、完整服务装配、其余三包及全部集中验收仍开放，所有完成 flags 保持 false。
+当前开发边界见[实施计划](02-实施计划.md)，实际结果与待验证条件见04和12。
+
 2026-10-11后续：K1/P1 caller-owned有限SDK async provider已接实际Worker-cut collector，
 两套Broker positive专项和optional编译/样式通过；K1进入同cut schema2文件链。生产资源/
 完整认证与pins、故障cleanup和正式发布/恢复/迁移清退仍开放，状态与延期策略保持。

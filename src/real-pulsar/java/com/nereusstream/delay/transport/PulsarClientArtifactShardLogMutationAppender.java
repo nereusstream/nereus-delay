@@ -129,9 +129,9 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         final CompletableFuture<MessageId> completion;
         try {
             if (writer == null) {
-                completion = producer.newMessage().value(frame).sendAsync();
+                completion = PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync());
             } else {
-                final var handed = writer.invokeSdk(reservation, () -> producer.newMessage().value(frame).sendAsync());
+                final var handed = writer.invokeSdk(reservation, () -> PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync()));
                 if (!handed.started()) { return AppendOutcome.definitelyNotPersisted(); }
                 completion = handed.result();
             }

@@ -2218,3 +2218,13 @@ reservation。K1 BASELINE在实际producer.close返回后才释放；P1保存首
 termination。独立SDK generation费用、physical request/zombie和Source logical obligation
 仍分别结清，backend清理不产生NOT_PUBLISHED或解除retention。多通道完整服务与实际
 P1 shared-client envelope配置继续在包1/3完成；本批编译不认证资源上限。
+
+
+2026-10-13 owned P1 group 费用：一个实际 client generation 预留 finite threads/
+connections/FD/memory，多个 Target producer 使用同一 client 并各保留原 leaf 费用；
+NativeUse 先于实际 SDK create/subscribe，失败及晚到资源保持原注册。private Host
+permit 下 SDK 结束后仍等待本地 read/seek 与创建交接退出，再结清 group 费用。
+Source logical、SDK generation、physical request/zombie 三类账各自完成；quarantine
+或 backend terminated 不解除 UNKNOWN/checkpoint/retention，也不释放未结束的其它
+SDK client。maximumConnections 是当前配置预留，尚未由实际 Broker topology 证明，
+完整 config/resource envelope 继续在包1/3，编译结果不认证容量或性能。

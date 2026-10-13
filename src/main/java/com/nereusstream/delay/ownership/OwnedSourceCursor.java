@@ -11,6 +11,7 @@ import java.util.function.Function;
 public final class OwnedSourceCursor<T> {
     private final CompletableFuture<T> opening;
     private final Function<T, CompletableFuture<Void>> closer;
+    private final TargetOwnedBackendGroup backend;
     private final CompletableFuture<Void> cleanup = new CompletableFuture<>();
     private T resource;
     private boolean reading;
@@ -20,6 +21,12 @@ public final class OwnedSourceCursor<T> {
     private Throwable closeFailure;
 
     public OwnedSourceCursor(final CompletableFuture<T> opening, final Function<T, CompletableFuture<Void>> closer) {
+        this(opening, closer, null);
+    }
+
+    public OwnedSourceCursor(final CompletableFuture<T> opening, final Function<T, CompletableFuture<Void>> closer,
+            final TargetOwnedBackendGroup backend) {
+        this.backend = backend;
         this.opening = Objects.requireNonNull(opening, "opening");
         this.closer = Objects.requireNonNull(closer, "closer");
         opening.whenComplete((opened, failure) -> {
@@ -78,6 +85,8 @@ public final class OwnedSourceCursor<T> {
     }
 
     public synchronized boolean cleanupComplete() { return cleanup.isDone() && !cleanup.isCompletedExceptionally(); }
+    public synchronized boolean readActive() { return reading; }
+    public synchronized boolean operationExited() { return !reading && opening.isDone(); }
 
     public synchronized Throwable cleanupFailure() { return closeFailure == null ? openFailure : closeFailure; }
 
@@ -106,6 +115,21 @@ public final class OwnedSourceCursor<T> {
             if (!closing || reading || !opening.isDone() || openFailure == null) {
                 throw new IllegalStateException("Source failed-open cleanup lacks completed backend shutdown scope");
             }
+        }
+        cleanup.complete(null);
+    }
+
+    /** Only the original registered owner can supply the actual native termination fact, after its Host permit. */
+    public void backendShutdownCompleted(TargetOwnedBackendGroup original) {
+        if (backend == null || backend != original || !backend.nativeResourcesTerminated() || backend.applicationReady()) {
+            throw new IllegalStateException("Source cursor has no original terminated backend owner");
+        }
+        synchronized (this) {
+            if (!closing || reading || !opening.isDone()) {
+                throw new IllegalStateException("Source operation still has live opening/read work");
+            }
+            resource = null;
+            closeInFlight = false;
         }
         cleanup.complete(null);
     }

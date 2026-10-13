@@ -12,6 +12,8 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageIdAdv;
@@ -40,8 +42,11 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     private SourceConnectionProof inFlightProof;
     private PulsarSourcePosition lastAcknowledged;
     private SourceConnectionProof lastAckProof;
-    private boolean closed;
+    private volatile boolean closed;
     private final boolean target;
+    private final PulsarClientArtifactOwnedBackendGroup backend;
+    private final AtomicInteger nativeCalls = new AtomicInteger();
+    private CompletableFuture<Void> firstClose;
 
     public PulsarClientArtifactSourceRecordConsumer(
             final GuardedConsumer<byte[]> consumer,
@@ -65,6 +70,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             final Duration receiveTimeout, final boolean target) {
         this.target = target;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
+        this.backend = PulsarClientArtifactOwnedBackendGroup.findNative(consumer);
         this.expectedGuard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         this.shard = Objects.requireNonNull(shard, "shard");
         this.physicalTopic = Objects.requireNonNull(physicalTopic, "physicalTopic");
@@ -78,10 +84,28 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             throw new IllegalArgumentException("guarded source consumer is bound to a different topic identity");
         }
         requireProof();
+        if (backend != null) {
+            backend.registerSourceOwner(consumer, this);
+            backend.registerCleanup(this, () -> nativeCalls.get() == 0, () -> closed, proof -> {
+                proof.requireClient(backend.clientForProof());
+                synchronized (this) { closed = true; }
+            });
+        }
     }
 
     @Override
-    public synchronized Optional<PolledSourceRecord> poll() {
+    public Optional<PolledSourceRecord> poll() {
+        nativeCalls.incrementAndGet();
+        try {
+            if (backend != null && !backend.sourceApplicationReady(this)) { throw new IllegalStateException("P1 Source backend is not active"); }
+            return pollOpen();
+        } finally {
+            nativeCalls.decrementAndGet();
+            if (backend != null) { backend.cleanupProgress(); }
+        }
+    }
+
+    private synchronized Optional<PolledSourceRecord> pollOpen() {
         ensureOpen();
         if (inFlight != null) {
             throw new IllegalStateException("previous Pulsar source record has not been ACKED");
@@ -152,14 +176,18 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             throw new IllegalStateException("cannot close Pulsar source with a pending source record");
         }
         if (!closed) {
-            closed = true;
             try {
-                consumer.close();
-            } catch (PulsarClientException failure) {
+                if (firstClose == null) { firstClose = PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer); }
+                firstClose.copy().get(backend == null ? 30_000 : backend.operationTimeoutMs(), TimeUnit.MILLISECONDS);
+                closed = true;
+            } catch (Exception failure) {
+                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
                 throw new IllegalStateException("Pulsar guarded source close failed", failure);
             }
         }
     }
+
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
 
     @Override
     public synchronized CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
@@ -214,6 +242,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                         new IllegalStateException("Pulsar source ACK entry identity changed"));
             }
         }
+        nativeCalls.incrementAndGet();
         try {
             final SourceConnectionProof acknowledgedProof;
             synchronized (this) {
@@ -222,7 +251,11 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             if (acknowledgedProof == null || !acknowledgedProof.equals(requireProof())) {
                 throw new IllegalStateException("Pulsar source proof changed before ACK");
             }
-            consumer.acknowledge(message);
+            if (backend == null) { consumer.acknowledge(message); }
+            else {
+                PulsarClientArtifactOwnedBackendGroup.nativeSend(consumer, () -> consumer.acknowledgeAsync(message))
+                        .get(backend.operationTimeoutMs(), TimeUnit.MILLISECONDS);
+            }
             if (!acknowledgedProof.equals(requireProof())) {
                 throw new IllegalStateException("Pulsar source proof changed after ACK");
             }
@@ -237,8 +270,12 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                 inFlightProof = null;
             }
             return SourceAcknowledgement.AcknowledgementResult.acked();
-        } catch (PulsarClientException | RuntimeException | Error failure) {
+        } catch (Exception | Error failure) {
+            if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
             return SourceAcknowledgement.AcknowledgementResult.unknown(failure);
+        } finally {
+            nativeCalls.decrementAndGet();
+            if (backend != null) { backend.cleanupProgress(); }
         }
     }
 

@@ -143,7 +143,7 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         final long timeoutNanos = Math.multiplyExact(timeoutMs, 1_000_000L);
         final long started = System.nanoTime();
         guard.run();
-        final var opening = Objects.requireNonNull(client, "client").newConsumer(Schema.BYTES)
+        final var builder = Objects.requireNonNull(client, "client").newConsumer(Schema.BYTES)
                 .topic(expected.physicalTopic())
                 .subscriptionName("nereus-target-admission-history-" + UUID.randomUUID())
                 .subscriptionType(SubscriptionType.Exclusive)
@@ -152,12 +152,24 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
                 .receiverQueueSize(1)
                 .autoUpdatePartitions(false)
                 .startMessageIdInclusive()
-                .resourceGuard(Objects.requireNonNull(resource, "resource"))
-                .subscribeAsync();
-        final var cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening, Consumer::closeAsync);
+                .resourceGuard(Objects.requireNonNull(resource, "resource"));
+        final var backend = PulsarClientArtifactOwnedBackendGroup.find(client);
+        final var opening = new java.util.concurrent.CompletableFuture<Consumer<byte[]>>();
+        final var reading = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final var cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening,
+                PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
+        if (backend != null) { backend.registerCleanup(cleanup, () -> !reading.get() && cleanup.operationExited(), cleanup::cleanupComplete, proof -> {
+            proof.requireClient(client); cleanup.requestClose(); cleanup.backendShutdownCompleted(backend);
+        }); }
         Consumer<byte[]> nativeConsumer = null;
         Throwable failure = null;
         try {
+            try {
+                PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder).whenComplete((value, failed) -> {
+                    if (failed == null) { opening.complete(value); }
+                    else { opening.completeExceptionally(failed); }
+                });
+            } catch (RuntimeException | Error failed) { opening.completeExceptionally(failed); throw failed; }
             nativeConsumer = opening.get(remainingMs(started, timeoutNanos), TimeUnit.MILLISECONDS);
             if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
                 throw new IllegalStateException("P1 history requires the guarded source proof API");
@@ -201,6 +213,8 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             failure = fatal;
             throw fatal;
         } finally {
+            reading.set(false);
+            if (backend != null) { backend.cleanupProgress(); }
             try {
                 cleanup.requestClose().get(timeoutMs, TimeUnit.MILLISECONDS);
             } catch (Exception unconfirmed) {
@@ -239,7 +253,10 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             if (!cleanup.failedOpenNeedsBackendShutdown()) {
                 throw new IllegalStateException("history operation has no failed-open backend shutdown obligation");
             }
-            return client.closeAsync().thenRun(cleanup::backendShutdownCompleted);
+            final var owner = PulsarClientArtifactOwnedBackendGroup.find(client);
+            if (owner == null) { return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalStateException("P1 history client is borrowed")); }
+            return owner.requestHostQuarantine();
         }
     }
 

@@ -1,7 +1,6 @@
 package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.TargetSdkCleanupFailure;
-import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import java.time.Duration;
 import java.util.Objects;
@@ -12,18 +11,16 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ThreadPoolExecutor;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
-import org.apache.pulsar.client.api.PulsarClientException;
 
 /** Owns the first actual P1 producer close operation; bounded waits never modify its completion. */
 final class PulsarClientArtifactProducerClose {
     private final Producer<?> producer;
     private final PulsarClient client;
     private final TargetDestinationSdkBudget.Client budget;
+    private final PulsarClientArtifactOwnedBackendGroup group;
     private final long timeoutMs;
     private CompletableFuture<Void> nativeClose;
     private TargetSdkCleanupFailure retainedFailure;
-    private CompletableFuture<Void> backendClose;
-    private OwnedCheckpointIo<Boolean> backendShutdown;
     private boolean backendStopped;
 
     PulsarClientArtifactProducerClose(Producer<?> producer, Duration timeout) {
@@ -37,6 +34,7 @@ final class PulsarClientArtifactProducerClose {
     PulsarClientArtifactProducerClose(PulsarClient client, Producer<?> producer, Duration timeout,
             TargetDestinationSdkBudget.Client budget) {
         this.client = client;
+        this.group = client == null ? null : PulsarClientArtifactOwnedBackendGroup.find(client);
         this.budget = budget;
         this.producer = Objects.requireNonNull(producer, "actual producer");
         timeoutMs = Math.min(60_000, Objects.requireNonNull(timeout, "close timeout").toMillis());
@@ -46,7 +44,8 @@ final class PulsarClientArtifactProducerClose {
     private synchronized CompletableFuture<Void> firstClose() {
         if (nativeClose == null) {
             try {
-                nativeClose = Objects.requireNonNull(producer.closeAsync(), "actual producer close completion");
+                nativeClose = Objects.requireNonNull(group == null ? producer.closeAsync() : group.closeNative(producer),
+                        "actual producer close completion");
             } catch (RuntimeException | Error failure) {
                 nativeClose = CompletableFuture.failedFuture(failure);
             }
@@ -54,7 +53,23 @@ final class PulsarClientArtifactProducerClose {
         return nativeClose.copy();
     }
 
+    CompletableFuture<Void> closeFuture() {
+        observeBackendTermination();
+        synchronized (this) {
+            if (backendStopped) {
+                if (budget != null) { budget.closed(); }
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+        return firstClose().thenRun(() -> { if (budget != null) { budget.closed(); } });
+    }
+
+    private void observeBackendTermination() {
+        if (group != null && group.producerBackendStopped(producer)) { confirmBackendStopped(); }
+    }
+
     void close() {
+        observeBackendTermination();
         synchronized (this) {
             if (backendStopped) {
                 if (budget != null) { budget.closed(); }
@@ -98,39 +113,22 @@ final class PulsarClientArtifactProducerClose {
     }
 
     synchronized CompletableFuture<Void> closeClientBackendAfterFailedClose() {
-        if (client == null || retainedFailure == null || nativeClose == null) {
+        if (group == null || retainedFailure == null || nativeClose == null) {
             return CompletableFuture.failedFuture(new IllegalStateException("P1 cleanup lacks its original client owner"));
         }
-        if (backendClose == null) {
-            try {
-                backendClose = Objects.requireNonNull(client.closeAsync(), "original client close completion");
-            } catch (RuntimeException | Error failure) {
-                backendClose = CompletableFuture.failedFuture(failure);
-            }
-        }
-        return backendClose.thenRun(this::confirmBackendStopped);
+        return group.requestHostQuarantine().thenRun(this::confirmBackendStopped);
     }
 
     synchronized CompletableFuture<Void> shutdownClientBackendAfterFailedClose(ThreadPoolExecutor ownerIo) {
-        if (client == null || backendClose == null || !backendClose.isDone() || !backendClose.isCompletedExceptionally()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("P1 backend has no completed failed close to retry"));
-        }
-        if (backendShutdown == null || backendShutdown.ioExited() && backendShutdown.completedValue().isEmpty()) {
-            try {
-                backendShutdown = OwnedCheckpointIo.submit(ignored -> {
-                    try { client.shutdown(); }
-                    catch (PulsarClientException failure) { throw new IllegalStateException("Original P1 backend shutdown failed", failure); }
-                    confirmBackendStopped();
-                    return true;
-                }, () -> {}, ownerIo);
-            } catch (RuntimeException | Error rejected) {
-                return CompletableFuture.failedFuture(rejected);
-            }
-        }
-        return backendShutdown.receipt().thenApply(ignored -> null);
+        return closeClientBackendAfterFailedClose();
     }
 
     private synchronized void confirmBackendStopped() {
+        if (group == null || !group.producerBackendStopped(producer)) {
+            throw new IllegalStateException("Original P1 producer backend has not terminated");
+        }
+        // The actual owner may have initiated close before this helper was constructed.
+        if (nativeClose == null) { firstClose(); }
         if (nativeClose == null || !nativeClose.isDone()) {
             throw new IllegalStateException("Original P1 producer cleanup still has pending work after backend shutdown");
         }

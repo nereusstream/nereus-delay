@@ -272,6 +272,14 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot close Target maintenance loop from its maintenance turn");
         }
+        requestStop();
+        synchronized (turnLock) {
+            // The lock is the in-flight turn boundary. Owner drain may start after it is released.
+        }
+    }
+
+    /** Stops new ticks without waiting for a native read that may require backend shutdown to finish. */
+    public void requestStop() {
         Throwable closeFailure = null;
         synchronized (this) {
             closed = true;
@@ -294,9 +302,6 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                     }
                 }
             }
-        }
-        synchronized (turnLock) {
-            // The lock is the in-flight turn boundary. Owner drain may start after it is released.
         }
         if (closeFailure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;

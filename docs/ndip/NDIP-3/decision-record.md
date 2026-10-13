@@ -392,3 +392,28 @@ quiesce全部用户后才可关闭原client。不得据Closing/isShutdown或再�
 必要client构建和Delay main/real SDK编译已有结果，测试/真实Broker/style/docs门禁
 仍统一后置。source/JAR身份与有限回归意图见12，原P1/Broker历史scope保持。实际
 共享owner/多通道服务root仍须完成，包1、全部29切片及production均未据此完成。
+
+
+## 2026-10-13：Host quarantine 的原 owner、permit 与故障退场
+
+主会话“调整 A–F 分区队列推进方式”批准独立 whole-Host 故障入口及 Consumer 原创建
+完成语义修复。范围为此 Host 实际自有 shared P1 client 及全部原 native 使用者；不
+采用 borrowed/其它 Host 的 client，不新增每 Target client、grant 或故障管理循环。
+
+先封住 Host admission/新副作用并建立 Store/runtime 本地写屏障，再 mint 私有 permit，
+绑定具体 Host、backend、关闭 generation 和冻结注册集。不能等待全部 native future、
+failed-open/read/ACK/SEND 已成功后才关 client；它们可由原 client shutdown 推动终结。
+重复调用保留首 close/failed handle，原 cleanup 仍用原有限 I/O 池；只有 SDK 及本地
+资源实际结束才释放相应费用。裸 closeClientBackend 入口统一交还实际 Host owner。
+
+故障 BACKEND_TERMINATED 不代表正常 drain、Source/UNKNOWN/Journal 结算或 final
+checkpoint 成功。保留原 entry/首结果、prepared mutation、checkpoint intent 与全部
+credential/retention 材料；故障本地 Store 关闭不写 clean-close/假 ACK，lease 释放仍须
+原 Owner 身份及实际 CAS。冷启动用 retained Store 或原受保护 Catalog/Floor+Source
+和 UNKNOWN/Journal 材料恢复；恢复材料缺失则维持 fault/protection。
+
+本轮 P1 SDK lock 为 b8fc1f39eb517c14cc1cdf35e60a0b1dcad2ec40；先在原 Closing/Closed
+边界终结 pending subscribe/producer future，原错误与晚到句柄保持，不扩大 native
+ACK/cursor/guard/wire/schema 或共享 cnx 策略。必要编译结果与有限验证目的见04/12。
+当前 mixed Source 故障退出、完整 startup/config/provider 装配及其它三个功能包仍需
+实施；全部完成 flags 和集中验证后置安排保留。

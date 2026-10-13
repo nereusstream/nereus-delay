@@ -48,6 +48,14 @@ public final class TargetOwnerDrainCoordinator {
     private boolean ownerLost;
     private boolean uncertainStore;
     private boolean terminal;
+    private volatile boolean faultFenced;
+    private boolean faultFlushed;
+    public record ReplayExit(boolean ownerLost, boolean leaseReleased, boolean writeOutcomeUncertain) {}
+
+    void fenceNormalDrain() { faultFenced = true; }
+    private void requireNormalDrain() {
+        if (faultFenced) { throw new IllegalStateException("normal Owner drain was fenced by backend quarantine"); }
+    }
 
     TargetOwnerDrainCoordinator(
             final ShardStore store,
@@ -71,6 +79,7 @@ public final class TargetOwnerDrainCoordinator {
     public synchronized Result drain(final Request request, final LongSupplier clock) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(clock, "clock");
+        requireNormalDrain();
         if (terminal) {
             return new Result(completedStatus(), null);
         }
@@ -102,6 +111,7 @@ public final class TargetOwnerDrainCoordinator {
                 return new Result(Status.OWNER_LOST_CLOSED, null);
             }
             if (!storeClosed) {
+                requireNormalDrain();
                 if (!store.isCloseStarted() && !store.isWriteOutcomeUncertain()) {
                     if (!requireDrainingLease(request, clock)) {
                         closeLostOwner();
@@ -117,6 +127,7 @@ public final class TargetOwnerDrainCoordinator {
                 storeClosed = true;
             }
             if (!leaseReleased) {
+                requireNormalDrain();
                 releaseLease(request, clock);
             }
             if (ownerLost) {
@@ -129,6 +140,29 @@ public final class TargetOwnerDrainCoordinator {
         } finally {
             resources.releaseDrainSlot();
         }
+    }
+
+    /** Closes for retained-Store/Source replay without requiring a fake ACK or final checkpoint. */
+    synchronized ReplayExit exitForReplay(Request request, LongSupplier clock, TargetOwnedBackendGroup backend) {
+        if (!faultFenced || backend == null || !backend.resourcesTerminated()) {
+            throw new IllegalStateException("fault exit lacks a terminated owned backend and local write fence");
+        }
+        resources.acquireDrainSlot();
+        try {
+            if (expectedLease == null) { expectedLease = target.snapshotDrainLease(); }
+            if (!storeClosed) {
+                if (!faultFlushed && !store.isWriteOutcomeUncertain()) {
+                    store.flushForUncleanClose();
+                    faultFlushed = true;
+                }
+                uncertainStore |= store.isWriteOutcomeUncertain();
+                store.close();
+                storeClosed = true;
+            }
+            if (!leaseReleased && !ownerLost) { releaseUncertainLease(request, clock); }
+            sourceLoop.backendTerminationForReplay(backend);
+            return new ReplayExit(ownerLost, leaseReleased, uncertainStore);
+        } finally { resources.releaseDrainSlot(); }
     }
 
     public synchronized boolean terminal() {

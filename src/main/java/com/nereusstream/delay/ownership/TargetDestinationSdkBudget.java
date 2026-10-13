@@ -58,7 +58,8 @@ public final class TargetDestinationSdkBudget {
         resources.requireRuntimeBusinessAdmission();
         if (id.isBlank() || id.length() > 512 || clients.containsKey(id) || clients.size() >= maximumClients
                 || cost.amount(CapacityDimension.ADAPTER_CONNECTIONS) == 0
-                || cost.amount(CapacityDimension.ADAPTER_THREADS) == 0) {
+                    && cost.amount(CapacityDimension.ADAPTER_THREADS) == 0
+                    && cost.amount(CapacityDimension.ADAPTER_PRODUCERS) == 0) {
             throw new IllegalStateException("SDK generation identity/window is unavailable");
         }
         final var next = used.add(cost);
@@ -99,6 +100,13 @@ public final class TargetDestinationSdkBudget {
             synchronized (TargetDestinationSdkBudget.this) {
                 if (released || started) { throw new IllegalStateException("SDK allocation is not unused"); }
                 resources.requireRuntimeBusinessAdmission(); started = true;
+            }
+        }
+        public void requireCovers(CapacityVector minimum) {
+            synchronized (TargetDestinationSdkBudget.this) {
+                if (released || !cost.covers(finite(minimum))) {
+                    throw new IllegalStateException("SDK allocation does not cover its actual configured resources");
+                }
             }
         }
         public void releaseUnstarted() {

@@ -112,4 +112,12 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
         // can retry the same boundary instead of treating the source as done.
         closed = true;
     }
+
+    /** Ends this process-local loop after its actual backend stopped; the pending Source entry is retained. */
+    synchronized void backendTerminationForReplay(TargetOwnedBackendGroup original) {
+        if (consumer.ownedBackendGroup() != original || original == null || !original.resourcesTerminated()) {
+            throw new IllegalStateException("Source replay exit lacks its original terminated backend");
+        }
+        closed = true;
+    }
 }

@@ -145,6 +145,7 @@ public final class TargetOrdinaryPublishExecutor {
     }
 
     public static final class Submission {
+        void releasePhysicalAfterTeardown() { if (call != null) { call.releasePhysicalCharge(); } }
         private final TargetOrdinaryPublishRequest request;
         private volatile BoundedDestinationPublishAdapter.PublishCall call;
         private volatile DestinationPublishResult result;

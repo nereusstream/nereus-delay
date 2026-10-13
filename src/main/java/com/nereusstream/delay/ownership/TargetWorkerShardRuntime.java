@@ -89,10 +89,13 @@ public final class TargetWorkerShardRuntime
     private final TargetReservationGcRuntime maintenance;
     private final TargetOwnerDrainCoordinator drainCoordinator;
     private final LongSupplier ownerClock;
-    private boolean sourceAndMaintenancePaused;
+    private volatile boolean sourceAndMaintenancePaused;
+    private volatile boolean backendQuarantined;
+    private final TargetOwnedBackendGroup sourceBackendGroup;
+    private final SourceRecordConsumer actualSourceConsumer;
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
-    private TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
+    private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
     private volatile TargetJournalNegativeSettlementMaintenance journalSettlement;
     private volatile TargetPulsarPublishRuntime publishRuntime;
@@ -119,6 +122,8 @@ public final class TargetWorkerShardRuntime
         exactTarget.requireWorkerStore(exactStore, this.resources);
         this.resources.bindWorkClassExecutionRegistry(exactClasses);
         shardId = exactStore.shardId();
+        sourceBackendGroup = consumer.ownedBackendGroup();
+        actualSourceConsumer = consumer;
         sourceLoop = new WorkerSourceApplyLoop(Objects.requireNonNull(consumer, "consumer"), exactClasses, exactTarget);
         maintenance = exactTarget.newReservationGcRuntime(
                 exactClasses,
@@ -173,6 +178,8 @@ public final class TargetWorkerShardRuntime
         boolean settleClose();
         boolean closed();
         boolean readyForPublishing();
+        default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+        default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
     }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
     public synchronized void registerPublicationResources(String identity,PublicationResources owner,
@@ -1406,10 +1413,46 @@ public final class TargetWorkerShardRuntime
     }
 
     private void requireNewTurnsAdmitted() {
+        if (backendQuarantined || sourceBackendGroup != null && !sourceBackendGroup.workerReady(this)) {
+            throw new IllegalStateException("Target Worker backend is unbound or quarantined");
+        }
         if (sourceAndMaintenancePaused) {
             throw new IllegalStateException("Target Worker source and maintenance admission is paused");
         }
         requireCheckpointSettled();
+    }
+
+    public TargetOwnedBackendGroup sourceBackendGroup() { return sourceBackendGroup; }
+    public boolean ownsSourceConsumer(SourceRecordConsumer expected) { return actualSourceConsumer == expected; }
+
+    /** Does not wait for Source ACK or SDK reads holding the Worker monitor; it fences their later Store commits. */
+    void quarantineBackendWrites() {
+        backendQuarantined = true;
+        sourceAndMaintenancePaused = true;
+        drainCoordinator.fenceNormalDrain();
+        target.fence();
+        store.fenceForUncleanClose();
+        final var checkpoint = pendingCheckpoint;
+        if (checkpoint != null) { checkpoint.requestPreparationStop(); }
+    }
+
+    synchronized Optional<TargetOwnerDrainCoordinator.ReplayExit> exitQuarantinedForReplay(
+            TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
+        if (!backendQuarantined) { throw new IllegalStateException("Worker is not quarantined"); }
+        if (sourceBackendGroup == null || !sourceBackendGroup.resourcesTerminated()) { return Optional.empty(); }
+        if (pendingCheckpoint != null) {
+            pendingCheckpoint.retryPendingIoCleanup();
+            if (!pendingCheckpoint.ownedIoExited()) { return Optional.empty(); }
+        }
+        for (var owner : publicationResources.values()) {
+            final var backend = owner.ownedBackendGroup();
+            if (backend != null && backend.resourcesTerminated() && owner.channelIdentity() != null
+                    && publishRuntime != null && !publishRuntime.releasePhysicalAfterBackendTermination(owner.channelIdentity())) {
+                return Optional.empty();
+            }
+            if (!owner.settleClose()) { return Optional.empty(); }
+        }
+        return Optional.of(drainCoordinator.exitForReplay(request, clock, sourceBackendGroup));
     }
 
     private void requireCheckpointSettled() {

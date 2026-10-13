@@ -10,6 +10,7 @@ import java.util.concurrent.CompletionStage;
 
 /** Target-side publish boundary. It reports side-effect evidence only; it never mutates shard state. */
 public interface DestinationPublishAdapter extends AutoCloseable {
+    default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return null; }
     CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request);
 
     /**

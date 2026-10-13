@@ -99,7 +99,7 @@ public final class PulsarClientArtifactRecordEncoder {
     /** Configures and sends the exact logical record through the P1 producer. */
     public static CompletableFuture<MessageId> send(
             final Producer<byte[]> producer, final PulsarPreparedRecord record) {
-        return configure(producer, record).sendAsync();
+        return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> configure(producer, record).sendAsync());
     }
 
     private static void putProperty(final Map<String, String> properties, final PulsarMetadata.Property property) {

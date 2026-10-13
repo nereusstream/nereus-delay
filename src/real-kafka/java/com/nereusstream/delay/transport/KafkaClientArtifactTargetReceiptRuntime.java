@@ -31,6 +31,8 @@ import java.util.function.Supplier;
 /** Actual one-slot startup/reopen/teardown over the Worker graph; CONTROL Admin and shared executors remain caller-owned. */
 public final class KafkaClientArtifactTargetReceiptRuntime implements DestinationPublishAdapter,
         TargetWorkerShardRuntime.PublicationResources {
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+    @Override public TargetChannelIdentity channelIdentity() { return channel; }
     public enum Status { SAMPLING, WAITING_ANCHOR, PUBLISHING_ANCHOR, OPENING, READY, CLOSING, CLOSED, FAILED }
     public record Turn(Status status, Throwable failure) {}
 

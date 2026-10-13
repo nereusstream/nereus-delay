@@ -117,6 +117,10 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
 
     @Override public synchronized boolean readyForPublishing() { return ready && !stopping; }
     @Override public synchronized boolean closed() { return closed; }
+    @Override public synchronized TargetOwnedBackendGroup ownedBackendGroup() {
+        return adapter == null ? null : adapter.ownedBackendGroup();
+    }
+    @Override public TargetChannelIdentity channelIdentity() { return channel; }
 
     private synchronized DestinationPublishAdapter current() { return ready && !stopping ? adapter : null; }
     private static CompletionStage<DestinationPublishResult> unavailable() {

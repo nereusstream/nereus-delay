@@ -550,6 +550,7 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             return (registration == null || registration.ioExited())
                     && (preparationIo == null || preparationIo.ioExited());
         }
+        public synchronized boolean ownedIoExited() { return ioExited(); }
 
         /** Empty until the complete protected creation/auth/upload/Catalog action has succeeded. */
         public Optional<CheckpointPublicationCoordinator.CheckpointPublication> publication() {

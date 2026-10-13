@@ -16,6 +16,9 @@ import java.util.Optional;
  * this SPI without leaking their client types into the semantic core.</p>
  */
 public interface SourceRecordConsumer extends AutoCloseable {
+    /** Only an actually owned SDK group may participate in the Host's backend-failure lifecycle. */
+    default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+
     /**
      * Polls at most one record. An empty result means that this turn has no
      * record available; it is not permission to release an unacknowledged

@@ -236,7 +236,7 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         requireTargetWriter();
         final CompletableFuture<MessageId> completion;
         try {
-            completion = producer.newMessage().value(payload).sendAsync();
+            completion = PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(payload).sendAsync());
         } catch (RuntimeException failure) {
             throw new IllegalStateException("Attempt Journal append did not reach a durable acknowledgement", failure);
         }

@@ -662,4 +662,11 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         }
         closeNativePolicyChangeSubscription(null);
     }
+
+    /** Quarantine fences the Store separately; a current native turn must not block initiating backend close. */
+    public void requestStop() {
+        final Thread current;
+        synchronized (this) { closed = true; current = thread; }
+        if (current != null) { current.interrupt(); }
+    }
 }

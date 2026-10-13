@@ -42,6 +42,7 @@ import org.apache.pulsar.client.api.TopicResourceGuardException;
 public final class PulsarClientArtifactDestinationTransport
         implements PinnedPulsarDestinationAdapter.PulsarDestinationTransport {
     private final Producer<byte[]> producer;
+    private final PulsarClientArtifactOwnedBackendGroup backend;
     private final PulsarClientArtifactProducerClose producerClose;
     private final String authenticatedClusterId;
     private final byte[] resourceIncarnation;
@@ -123,6 +124,7 @@ public final class PulsarClientArtifactDestinationTransport
             final PublishEvidenceProvider publishEvidenceProvider, final boolean nativePreparedDeliveryEnabled,
             final Duration closeTimeout, final TargetDestinationSdkBudget.Client budget) {
         this.producer = Objects.requireNonNull(producer, "producer");
+        this.backend = client == null ? null : PulsarClientArtifactOwnedBackendGroup.find(client);
         this.producerClose = new PulsarClientArtifactProducerClose(client, producer, closeTimeout, budget);
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
@@ -183,9 +185,9 @@ public final class PulsarClientArtifactDestinationTransport
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         try {
-            return producer.newMessage()
+            return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage()
                     .value(request.payload())
-                    .sendAsync()
+                    .sendAsync())
                     .handle((messageId, failure) -> failure == null
                             ? success(request, preparedPublishHash, messageId)
                             : failure(request, preparedPublishHash, failure));
@@ -250,7 +252,7 @@ public final class PulsarClientArtifactDestinationTransport
                 }
             }
             libraryInvoked = true;
-            return builder.sendAsync()
+            return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, builder::sendAsync)
                     .handle((messageId, failure) -> failure == null
                             ? success(record, artifacts, messageId)
                             : failure(record, artifacts, failure));
@@ -280,7 +282,7 @@ public final class PulsarClientArtifactDestinationTransport
         final var denied = gate.check(request);
         if (denied != null) { return CompletableFuture.completedFuture(denied); }
         // Synchronous failure after this boundary is intentionally propagated: completion/ownership is unobserved.
-        return builder.sendAsync().handle((id, failure) -> failure == null
+        return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, builder::sendAsync).handle((id, failure) -> failure == null
                 ? success(request, id)
                 : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
     }
@@ -319,6 +321,7 @@ public final class PulsarClientArtifactDestinationTransport
     public void close() {
         producerClose.close();
     }
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
 
     private DestinationPublishResult success(
             final PulsarDestinationRequest request, final byte[] preparedPublishHash, final MessageId messageId) {

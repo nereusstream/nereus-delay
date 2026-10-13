@@ -37,6 +37,42 @@ import java.util.function.Supplier;
 
 /** Owns whole-fleet source admission, maintenance ticks and ordered local shutdown. */
 public final class TargetWorkerHostRuntime {
+    /** Process-local close permission. Only this Host can create it after fencing its admitted Stores. */
+    public static final class BackendClosePermit {
+        private final TargetWorkerHostRuntime host;
+        private final TargetOwnedBackendGroup backend;
+        private final long generation;
+        private final List<Object> registrations;
+
+        private BackendClosePermit(TargetWorkerHostRuntime host, TargetOwnedBackendGroup backend,
+                long generation, List<Object> registrations) {
+            this.host = host;
+            this.backend = backend;
+            this.generation = generation;
+            this.registrations = List.copyOf(registrations);
+        }
+
+        public void requireOriginalGroup(TargetOwnedBackendGroup expected, List<Object> frozen) {
+            synchronized (host) {
+                if (backend != expected || host.quarantineGeneration != generation || !host.backendBarrierEstablished
+                        || !host.ownedBackends.contains(expected) || registrations.size() != frozen.size()) {
+                    throw new IllegalStateException("backend close lacks its original Host quarantine barrier");
+                }
+                for (int i = 0; i < registrations.size(); i++) {
+                    if (registrations.get(i) != frozen.get(i)) {
+                        throw new IllegalStateException("backend close registration set changed");
+                    }
+                }
+            }
+        }
+    }
+
+    public enum BackendQuarantineStatus { QUARANTINED, BACKEND_TERMINATED }
+
+    public record BackendQuarantineResult(BackendQuarantineStatus status, List<Throwable> failures) {
+        public BackendQuarantineResult { failures = List.copyOf(failures); }
+    }
+
     /** A concurrent Host turn owns this Shard; the attempted action has not started. */
     public static final class ShardAdmissionBusyException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
@@ -163,7 +199,8 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    public record Result(List<ShardDrain> shards) {
+    public record Result(List<ShardDrain> shards, boolean ownedBackendsTerminated) {
+        public Result(List<ShardDrain> shards) { this(shards, true); }
         public Result {
             shards = List.copyOf(Objects.requireNonNull(shards, "shards"));
             if (shards.isEmpty()) {
@@ -172,7 +209,7 @@ public final class TargetWorkerHostRuntime {
         }
 
         public boolean complete() {
-            return shards.stream().allMatch(ShardDrain::complete);
+            return ownedBackendsTerminated && shards.stream().allMatch(ShardDrain::complete);
         }
     }
 
@@ -191,6 +228,13 @@ public final class TargetWorkerHostRuntime {
     private TargetWorkerTargetInventory.Snapshot pendingTargetInventory;
     private boolean stopping;
     private boolean drainAllActive;
+    private volatile boolean backendQuarantined;
+    private boolean quarantineActive;
+    private boolean faultExitActive;
+    private boolean backendBarrierEstablished;
+    private long quarantineGeneration;
+    private final List<TargetOwnedBackendGroup> ownedBackends = new ArrayList<>();
+    private final Map<TargetOwnedBackendGroup, BackendClosePermit> backendClosePermits = new java.util.IdentityHashMap<>();
     private TargetSourceBacklogCache sourceObservationCache;
     private java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
             TargetSourceBacklogRead> sourceObservationFactory;
@@ -471,6 +515,11 @@ public final class TargetWorkerHostRuntime {
         TargetWorkerHostRuntime host = null;
         try {
             host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
+            for (TargetWorkerShardRuntime worker : exactShards) {
+                if (worker.sourceBackendGroup() != null) {
+                    host.registerOwnedBackend(worker.sourceBackendGroup());
+                }
+            }
             if (checkpointFactory != null) {
                 host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
             }
@@ -1135,7 +1184,20 @@ public final class TargetWorkerHostRuntime {
             worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
         }
         synchronized (fleet) {
-            fleet.admit(turns);
+            fleet.admit(turns, () -> {
+                if (shard instanceof TargetWorkerShardRuntime worker && worker.sourceBackendGroup() != null) {
+                    final var backend = worker.sourceBackendGroup();
+                    if (!ownedBackends.contains(backend)) {
+                        final var next = new ArrayList<TargetWorkerShardRuntime>();
+                        for (var existing : shards) {
+                            if (!existing.shardId().equals(shardId)) { next.add((TargetWorkerShardRuntime) existing); }
+                        }
+                        next.add(worker);
+                        backend.bindHost(this, List.copyOf(next));
+                        ownedBackends.add(backend);
+                    } else { backend.admitWorker(this, worker); }
+                }
+            });
             if (previousIndex < 0) {
                 shards.add(shard);
             } else {
@@ -1159,6 +1221,9 @@ public final class TargetWorkerHostRuntime {
         Objects.requireNonNull(ownerClock, "ownerClock");
         final TargetWorkerOrdinaryLoop currentOrdinaryLoop;
         synchronized (this) {
+            if (backendQuarantined) {
+                throw new IllegalStateException("quarantined Host requires fault exit, not normal final-checkpoint drain");
+            }
             if (drainAllActive) {
                 throw new IllegalStateException("Target host whole-fleet drain is already active");
             }
@@ -1202,7 +1267,9 @@ public final class TargetWorkerHostRuntime {
                 }
                 results.add(result);
             }
-            return new Result(results);
+            final boolean backendsClosed = results.stream().allMatch(ShardDrain::complete)
+                    && closeOwnedBackendsAfterNormalDrain();
+            return new Result(results, backendsClosed);
         } finally {
             synchronized (this) {
                 drainAllActive = false;
@@ -1304,6 +1371,7 @@ public final class TargetWorkerHostRuntime {
         synchronized (shard) {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
+                requireNormalDrain();
                 final var schedule = checkpointSchedule;
                 final boolean finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
                 if (!finalFlight) { shard.requestCheckpointPreparationStop(); }
@@ -1357,6 +1425,7 @@ public final class TargetWorkerHostRuntime {
                         return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null, null);
                     }
                 }
+                requireNormalDrain();
                 final var resources=shard.settlePendingPublicationResourcesForDrain();
                 if(resources.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_PUBLICATION,sourceTurn,
                         null,null,null,null,null,resources.orElseThrow());
@@ -1376,6 +1445,7 @@ public final class TargetWorkerHostRuntime {
                         return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn, task, null, null);
                     }
                 }
+                requireNormalDrain();
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
                 return new ShardDrain(
                         shard.shardId(), map(drained.status()), sourceTurn, null, drained.pendingGcTask(), null);
@@ -1387,6 +1457,152 @@ public final class TargetWorkerHostRuntime {
 
     public synchronized boolean stopping() {
         return stopping;
+    }
+
+    private void requireNormalDrain() {
+        if (backendQuarantined) { throw new IllegalStateException("normal drain was fenced by backend quarantine"); }
+    }
+
+    /** Normal final-checkpoint/Source/Owner drain has already completed for the exact admitted fleet. */
+    private boolean closeOwnedBackendsAfterNormalDrain() {
+        final List<TargetOwnedBackendGroup> backends;
+        synchronized (this) {
+            requireNormalDrain();
+            if (!stopping || shards.stream().anyMatch(shard -> !completed.containsKey(shard.shardId()))) {
+                throw new IllegalStateException("owned SDK close requires the completed normal Host drain");
+            }
+            backends = List.copyOf(ownedBackends);
+            if (backends.isEmpty()) { return true; }
+            if (quarantineGeneration == 0) { quarantineGeneration++; }
+        }
+        for (var backend : backends) {
+            final var frozen = backend.freezeRegistrations();
+            final BackendClosePermit closing;
+            synchronized (this) {
+                backendBarrierEstablished = true;
+                closing = backendClosePermits.computeIfAbsent(backend, ignored ->
+                        new BackendClosePermit(this, backend, quarantineGeneration, frozen));
+            }
+            backend.closeOwnedBackend(closing);
+        }
+        return backends.stream().allMatch(TargetOwnedBackendGroup::resourcesTerminated);
+    }
+
+    /** Binds an actual backend once to the admitted Worker graph, before its first application use. */
+    public void registerOwnedBackend(TargetOwnedBackendGroup backend) {
+        final List<TargetWorkerShardRuntime> workers;
+        synchronized (this) {
+            if (stopping || backendQuarantined) { throw new IllegalStateException("Host backend registration is closed"); }
+            if (ownedBackends.stream().anyMatch(existing -> existing == backend)) { return; }
+            workers = shards.stream().map(shard -> {
+                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                    throw new IllegalStateException("owned backend requires actual Worker Shards");
+                }
+                return worker;
+            }).toList();
+            backend.bindHost(this, workers);
+            ownedBackends.add(backend);
+        }
+    }
+
+    /**
+     * Fences local side-effect sections first, then closes owned SDK backends without waiting for their futures.
+     * The returned result is unrelated to normal drain/final-checkpoint/Owner release. Repeat calls retain permits.
+     */
+    public BackendQuarantineResult quarantineOwnedBackends() {
+        final List<Shard> frozenShards;
+        final List<TargetOwnedBackendGroup> backends;
+        final TargetWorkerOrdinaryLoop ordinary;
+        synchronized (this) {
+            if (quarantineActive || faultExitActive) { return backendQuarantineStatus(); }
+            if (ownedBackends.isEmpty()) { throw new IllegalStateException("Host has no actually owned backend group"); }
+            quarantineActive = true;
+            if (!backendQuarantined && backendClosePermits.isEmpty()) { quarantineGeneration++; }
+            backendQuarantined = true;
+            stopping = true;
+            ordinary = ordinaryLoop;
+            frozenShards = List.copyOf(shards);
+            backends = List.copyOf(ownedBackends);
+        }
+        try {
+            final Map<TargetOwnedBackendGroup, List<Object>> frozen = new java.util.IdentityHashMap<>();
+            for (var backend : backends) { frozen.put(backend, backend.freezeRegistrations()); }
+            // Store and runtime fences are independent of Worker monitors held by a native receive/ACK wait.
+            for (Shard shard : frozenShards) {
+                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                    throw new IllegalStateException("quarantine requires actual Store/runtime barriers");
+                }
+                worker.quarantineBackendWrites();
+            }
+            if (ordinary != null) { ordinary.requestStop(); }
+            maintenanceLoop.requestStop();
+            if (sourceObservationCache != null) { sourceObservationCache.stop(); }
+            synchronized (this) {
+                backendBarrierEstablished = true;
+                for (var backend : backends) {
+                    backendClosePermits.computeIfAbsent(backend, ignored ->
+                            new BackendClosePermit(this, backend, quarantineGeneration, frozen.get(backend)));
+                }
+            }
+            for (var backend : backends) {
+                final BackendClosePermit permit;
+                synchronized (this) { permit = backendClosePermits.get(backend); }
+                backend.closeOwnedBackend(permit);
+            }
+            return backendQuarantineStatus();
+        } finally {
+            synchronized (this) { quarantineActive = false; notifyAll(); }
+        }
+    }
+
+    public synchronized BackendQuarantineResult backendQuarantineStatus() {
+        final var failures = new ArrayList<Throwable>();
+        boolean terminated = backendBarrierEstablished;
+        for (var backend : ownedBackends) {
+            terminated &= backend.resourcesTerminated();
+            if (backend.cleanupFailure() != null) { failures.add(backend.cleanupFailure()); }
+        }
+        return new BackendQuarantineResult(terminated ? BackendQuarantineStatus.BACKEND_TERMINATED
+                : BackendQuarantineStatus.QUARANTINED, failures);
+    }
+
+    public record QuarantinedShardExit(ShardId shard, TargetOwnerDrainCoordinator.ReplayExit exited,
+            RuntimeException failure) {}
+
+    /** Retries only the quarantined old process exit; pending ACK/UNKNOWN and protected candidates remain for replay. */
+    public List<QuarantinedShardExit> exitQuarantinedForReplay(TargetOwnerDrainCoordinator.Request request,
+            LongSupplier clock) {
+        final List<Shard> current;
+        final TargetWorkerOrdinaryLoop ordinary;
+        synchronized (this) {
+            if (!backendQuarantined || quarantineActive || faultExitActive || drainAllActive || !draining.isEmpty()) {
+                throw new IllegalStateException("quarantined fault exit still has a concurrent Host lifecycle owner");
+            }
+            current = List.copyOf(shards); ordinary = ordinaryLoop;
+            faultExitActive = true;
+        }
+        try {
+            if (backendQuarantineStatus().status() != BackendQuarantineStatus.BACKEND_TERMINATED) {
+                return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
+            }
+            if (ordinary != null) { ordinary.close(); }
+            maintenanceLoop.close();
+            final var result = new ArrayList<QuarantinedShardExit>();
+            for (var shard : current) {
+                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                    throw new IllegalStateException("fault exit requires actual Worker/Store ownership");
+                }
+                try {
+                    result.add(new QuarantinedShardExit(shard.shardId(),
+                            worker.exitQuarantinedForReplay(request, clock).orElse(null), null));
+                } catch (RuntimeException failure) {
+                    result.add(new QuarantinedShardExit(shard.shardId(), null, failure));
+                }
+            }
+            return List.copyOf(result);
+        } finally {
+            synchronized (this) { faultExitActive = false; notifyAll(); }
+        }
     }
 
     public Throwable firstMaintenanceFailure() {
