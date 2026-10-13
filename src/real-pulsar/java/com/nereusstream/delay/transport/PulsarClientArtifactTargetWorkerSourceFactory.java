@@ -20,6 +20,22 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 public final class PulsarClientArtifactTargetWorkerSourceFactory {
     private PulsarClientArtifactTargetWorkerSourceFactory() {}
 
+    /** Actual service path consumes only the repository's privately constructed Source activation. */
+    public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> consumer, TopicResourceGuard guard, String topic, Duration receiveTimeout,
+            com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Activated activation,
+            WorkClassExecutionRegistry classes, ShardStore store, SharedRocksDbResources resources,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        activation.requireGraph(classes, resources, store);
+        try { return createVerifiedSource(group, consumer, guard, topic, receiveTimeout, activation.assignment(),
+                classes, store, resources, activation.runtime(), maintenance, identity, time, clock);
+        } catch (RuntimeException | Error failure) {
+            throw com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.sourceConstructionFailed(activation, failure);
+        }
+    }
+
     public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
             GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard, String physicalTopic, Duration receiveTimeout,
             SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,

@@ -1,5 +1,9 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-14 接续：实际Source runtime factory已接真实Route/assignment/session/Owner激活、
+具体内容preparation及same-DB replay/Claim恢复；K1/P1可消费其私有activation。必要编译
+通过，外层完整服务/root/restore/cold reopen继续，集中验证与全部完成flags不提升。
+
 2026-10-14 接续：仓库内Source具体collector已覆盖十类typed inputs，并冻结原Control
 registration/key、接入private capacity paired commit与operation hold cleanup；Oxia子根
 提供同pool factory。必要编译通过，具体生产材料/本地回调与完整主根/reopen继续，

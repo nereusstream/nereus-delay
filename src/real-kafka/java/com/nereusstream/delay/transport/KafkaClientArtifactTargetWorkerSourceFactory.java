@@ -18,6 +18,21 @@ import org.apache.kafka.common.TopicPartition;
 public final class KafkaClientArtifactTargetWorkerSourceFactory {
     private KafkaClientArtifactTargetWorkerSourceFactory() {}
 
+    /** Actual service path consumes only the repository's privately constructed Source activation. */
+    public static TargetWorkerShardRuntime createVerifiedSource(KafkaClientArtifactOwnedSourceBackend owner,
+            com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Activated activation,
+            WorkClassExecutionRegistry classes, ShardStore store, SharedRocksDbResources resources,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.LongSupplier clock) {
+        activation.requireGraph(classes, resources, store);
+        try { return createVerifiedSource(owner, activation.assignment(), classes, store, resources, activation.runtime(),
+                maintenance, identity, time, clock);
+        } catch (RuntimeException | Error failure) {
+            throw com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.sourceConstructionFailed(activation, failure);
+        }
+    }
+
     public static TargetWorkerShardRuntime createVerifiedSource(KafkaClientArtifactOwnedSourceBackend owner,
             SourceAssignment acceptedAssignment, WorkClassExecutionRegistry workClasses, ShardStore store,
             SharedRocksDbResources resources, TargetSourceApplyRuntime sourceRuntime,
