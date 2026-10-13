@@ -1915,9 +1915,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalStateException("Target source Owner/Store is fenced");
         }
         final LongSupplier ownerClock = Objects.requireNonNull(clock, "ownerClock");
-        while (true) {
+        final long started = monotonicClock.getAsLong();
+        for (int attempt = 0; attempt < 4; attempt++) {
+            requireOwnerReadDeadline(started);
             final OwnerLease observedLease = lease;
             final OwnerLease current = authorities.leases().current(scope.shard()).orElse(null);
+            requireOwnerReadDeadline(started);
             synchronized (ownerStateLock) {
                 final OwnerLease activeLease = lease;
                 if (fenced || !activeLease.sameIdentity(initialLease)) {
@@ -1945,6 +1948,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 }
                 return;
             }
+        }
+        throw new IllegalStateException("Target Source Owner renewal raced beyond its finite reread budget");
+    }
+
+    private void requireOwnerReadDeadline(long started) {
+        final long elapsed = monotonicClock.getAsLong() - started;
+        if (elapsed < 0 || elapsed >= limits.elapsedNanos()) {
+            throw new IllegalStateException("Target Source authoritative Owner check exceeded its finite operation deadline");
         }
     }
 

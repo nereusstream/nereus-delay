@@ -48,6 +48,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private boolean started;
     private boolean closed;
     private boolean closeCompleted;
+    private Duration configuredRequestTimeout;
 
     /** Creates a session that owns and closes the supplied Oxia client. */
     public OxiaRouteAuthoritySession(final SyncOxiaClient client, final String keyPrefix) {
@@ -92,6 +93,12 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             final Duration sessionTimeout,
             final String keyPrefix)
             throws OxiaException {
+        return connect(serviceAddress, namespace, clientIdentifier, sessionTimeout, null, keyPrefix);
+    }
+
+    /** Configured Target startup supplies one finite deadline to authority, watch and explicit reconnect clients. */
+    public static OxiaRouteAuthoritySession connect(String serviceAddress, String namespace, String clientIdentifier,
+            Duration sessionTimeout, Duration requestTimeout, String keyPrefix) throws OxiaException {
         Objects.requireNonNull(serviceAddress, "serviceAddress");
         Objects.requireNonNull(namespace, "namespace");
         Objects.requireNonNull(clientIdentifier, "clientIdentifier");
@@ -99,35 +106,42 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         if (sessionTimeout.isZero() || sessionTimeout.isNegative()) {
             throw new IllegalArgumentException("sessionTimeout must be positive");
         }
+        if (requestTimeout != null && (requestTimeout.toMillis() <= 0 || requestTimeout.toMillis() > 60_000)) {
+            throw new IllegalArgumentException("configured Route requestTimeout must be within 1..60000ms");
+        }
         final String canonicalNamespace = canonicalText(namespace, "namespace");
         final String canonicalClientIdentifier = canonicalText(clientIdentifier, "clientIdentifier");
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
-        final SyncOxiaClient sessionClient = OxiaClientBuilder.create(serviceAddress)
+        final var authorityBuilder = OxiaClientBuilder.create(serviceAddress)
                 .namespace(canonicalNamespace)
                 .clientIdentifier(canonicalClientIdentifier)
-                .sessionTimeout(sessionTimeout)
-                .syncClient();
+                .sessionTimeout(sessionTimeout);
+        if (requestTimeout != null) authorityBuilder.requestTimeout(requestTimeout);
+        final SyncOxiaClient sessionClient = authorityBuilder.syncClient();
         try {
-            final SyncOxiaClient notificationClient = OxiaClientBuilder.create(serviceAddress)
+            final var notificationBuilder = OxiaClientBuilder.create(serviceAddress)
                     .namespace(canonicalNamespace)
                     .clientIdentifier(
                             canonicalText(canonicalClientIdentifier + "-route-watch", "notificationClientIdentifier"))
-                    .sessionTimeout(sessionTimeout)
-                    .syncClient();
-            return new OxiaRouteAuthoritySession(
+                    .sessionTimeout(sessionTimeout);
+            if (requestTimeout != null) notificationBuilder.requestTimeout(requestTimeout);
+            final SyncOxiaClient notificationClient = notificationBuilder.syncClient();
+            final var session = new OxiaRouteAuthoritySession(
                     new SyncRecordClient(sessionClient),
                     () -> createAuthorityClient(
                             serviceAddress,
                             canonicalNamespace,
                             canonicalClientIdentifier + "-route-reconnect-" + UUID.randomUUID(),
-                            sessionTimeout),
+                            sessionTimeout, requestTimeout),
                     new SyncRecordClient(notificationClient),
                     () -> createNotificationClient(
                             serviceAddress,
                             canonicalNamespace,
                             canonicalClientIdentifier + "-route-reconnect-" + UUID.randomUUID(),
-                            sessionTimeout),
+                            sessionTimeout, requestTimeout),
                     canonicalPrefix);
+            session.configuredRequestTimeout = requestTimeout;
+            return session;
         } catch (RuntimeException failure) {
             try {
                 sessionClient.close();
@@ -138,17 +152,27 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
     }
 
+    /** Applies to this factory's actual authority/watch clients and its reconnect factories. */
+    public synchronized Duration requireConfiguredRequestTimeout() {
+        requireNotClosed();
+        if (configuredRequestTimeout == null) {
+            throw new IllegalStateException("Target root requires configured finite Route request deadlines");
+        }
+        return configuredRequestTimeout;
+    }
+
     private static OxiaRouteRecordClient createAuthorityClient(
             final String serviceAddress,
             final String namespace,
             final String clientIdentifier,
-            final Duration sessionTimeout) {
+            final Duration sessionTimeout, Duration requestTimeout) {
         try {
-            return new SyncRecordClient(OxiaClientBuilder.create(serviceAddress)
+            final var builder = OxiaClientBuilder.create(serviceAddress)
                     .namespace(namespace)
                     .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
-                    .sessionTimeout(sessionTimeout)
-                    .syncClient());
+                    .sessionTimeout(sessionTimeout);
+            if (requestTimeout != null) builder.requestTimeout(requestTimeout);
+            return new SyncRecordClient(builder.syncClient());
         } catch (OxiaException failure) {
             throw new IllegalStateException("failed to create Oxia Route authority client", failure);
         }
@@ -158,13 +182,14 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             final String serviceAddress,
             final String namespace,
             final String clientIdentifier,
-            final Duration sessionTimeout) {
+            final Duration sessionTimeout, Duration requestTimeout) {
         try {
-            return new SyncRecordClient(OxiaClientBuilder.create(serviceAddress)
+            final var builder = OxiaClientBuilder.create(serviceAddress)
                     .namespace(namespace)
                     .clientIdentifier(canonicalText(clientIdentifier + "-route-watch", "notificationClientIdentifier"))
-                    .sessionTimeout(sessionTimeout)
-                    .syncClient());
+                    .sessionTimeout(sessionTimeout);
+            if (requestTimeout != null) builder.requestTimeout(requestTimeout);
+            return new SyncRecordClient(builder.syncClient());
         } catch (OxiaException failure) {
             throw new IllegalStateException("failed to create Oxia Route notification client", failure);
         }

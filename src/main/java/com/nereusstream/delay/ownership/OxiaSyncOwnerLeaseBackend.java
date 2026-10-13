@@ -54,6 +54,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     private final String keyPrefix;
     private final SessionMarker sessionMarker;
     private final Runnable sessionCheck;
+    private Duration configuredRequestTimeout;
 
     /** Creates a backend over an already configured Oxia client. */
     public OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix) {
@@ -127,7 +128,9 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         }
         final SyncOxiaClient client = builder.syncClient();
         try {
-            return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, canonicalPrefix, true));
+            final var backend = new OxiaSyncOwnerLeaseBackend(client, canonicalPrefix, true);
+            backend.configuredRequestTimeout = requestTimeout;
+            return new ClientHandle(client, backend);
         } catch (RuntimeException failure) {
             try {
                 client.close();
@@ -187,6 +190,23 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             throw new IllegalStateException("backend was not connected with an Oxia session marker");
         }
         requireConnectedSession();
+    }
+
+    /** Trusted startup may reuse a connected handle only with the exact SDK client that created its marker. */
+    public void requireOriginalConnectedClient(SyncOxiaClient actual) {
+        if (!(rawClient instanceof SyncRecordClient original) || original.delegate != actual || sessionMarker == null) {
+            throw new IllegalArgumentException("Oxia handle changes the original session/client association");
+        }
+        assertConnectedSession();
+    }
+
+    /** Only the original configured connection factory records this fact; a borrowed client cannot self-report it. */
+    public Duration requireConfiguredRequestTimeout() {
+        if (configuredRequestTimeout == null || configuredRequestTimeout.toMillis() < 1
+                || configuredRequestTimeout.toMillis() > 60_000) {
+            throw new IllegalStateException("Target root requires its actual Oxia client to have a finite request timeout");
+        }
+        return configuredRequestTimeout;
     }
 
     /**

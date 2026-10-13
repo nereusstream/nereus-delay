@@ -504,3 +504,15 @@ non-borrowable physical reservation、parent完整old/new/step及donor Source sh
 状态的认证；业务验证器不能只接一个ref/hash/Boolean授权。当前新增snapshot验证器
 与paired grant/commit入口，真实collector、原内容provider和整条root/reopen继续开发。
 只做必要编译，全部集中测试/Broker/凭据/环境迁退仍后置，完成flags不变。
+
+## 2026-10-14：原Owner/session fencing查询保留
+
+主会话收窄“所有外部I/O锁外”的表述：新增内容/历史/key/role/Profile/Artifact/capacity
+材料化继续在有限collector、Store锁外执行，提交消费已取得的snapshot保护。原
+TargetSourceApplyRuntime.guard/gcGuard→requireOwner→Oxia current，以及session marker/
+原assignment fencing检查，允许保留现有guard位置的必要远端读取。不得删成cached
+Owner/截止时间、watch connected或deployment Owner=true；不声称native commit零远端IO。
+调用失败、主动fence/失权、超时和写不确定性继续原fence/恢复，未ACK/UNKNOWN与已
+提交义务不释放。根入口必须配置真实client有限request timeout；Owner renewal竞争
+重读在原操作deadline内最多四次，不开启无界锁内retry。此为保留原正确性边界，不
+增加wire/grant/租约服务或新“本地Owner权威”，性能/原子性保证不因此提升。
