@@ -44,7 +44,10 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private BufferedRecord inFlight;
     private KafkaSourcePosition lastAcknowledged;
-    private boolean closed;
+    private volatile boolean closed;
+    private volatile boolean closing;
+    private final KafkaClientArtifactOwnedSourceBackend backend;
+    private java.util.concurrent.CompletableFuture<Void> firstClose;
 
     public KafkaClientArtifactSourceRecordConsumer(
             final GuardedConsumer<byte[], byte[]> consumer,
@@ -53,7 +56,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
             final ShardId shard,
             final String physicalTopic,
             final Duration pollTimeout) {
-        this(consumer, authenticatedClusterId, nativeTopicUuid, shard, physicalTopic, pollTimeout, false);
+        this(consumer, authenticatedClusterId, nativeTopicUuid, shard, physicalTopic, pollTimeout, false, null);
     }
 
     /** Explicit Target writer input path; the legacy constructor retains its Control reader boundary. */
@@ -61,12 +64,21 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
             final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
             final String physicalTopic, final Duration pollTimeout) {
         return new KafkaClientArtifactSourceRecordConsumer(consumer, authenticatedClusterId, nativeTopicUuid,
-                shard, physicalTopic, pollTimeout, true);
+                shard, physicalTopic, pollTimeout, true, null);
+    }
+
+    static KafkaClientArtifactSourceRecordConsumer forOwnedTarget(GuardedConsumer<byte[], byte[]> consumer,
+            String cluster, UUID topic, ShardId shard, String physicalTopic, Duration poll,
+            KafkaClientArtifactOwnedSourceBackend owner) {
+        return new KafkaClientArtifactSourceRecordConsumer(consumer, cluster, topic, shard, physicalTopic, poll,
+                true, Objects.requireNonNull(owner));
     }
 
     private KafkaClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[], byte[]> consumer,
             final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
-            final String physicalTopic, final Duration pollTimeout, final boolean target) {
+            final String physicalTopic, final Duration pollTimeout, final boolean target,
+            final KafkaClientArtifactOwnedSourceBackend backend) {
+        this.backend = backend;
         this.target = target;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
@@ -87,7 +99,11 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     }
 
     @Override
-    public synchronized Optional<PolledSourceRecord> poll() {
+    public Optional<PolledSourceRecord> poll() {
+        return backend == null ? pollOpen() : backend.nativeOperation(this::pollOpen);
+    }
+
+    private synchronized Optional<PolledSourceRecord> pollOpen() {
         ensureOpen();
         if (inFlight != null) {
             throw new IllegalStateException("previous Kafka source record has not been ACKed");
@@ -131,14 +147,42 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     @Override
     public synchronized void close() {
-        if (!closed) {
+        if (closed && backend != null && firstClose == null) firstClose = backend.originalClose();
+        if (closed && (firstClose == null || !firstClose.isCompletedExceptionally())) return;
+        closing = true;
+        if (backend != null) {
+            final var original = backend.closeSourceNormally();
+            if (firstClose == null) firstClose = original;
+        } else if (firstClose == null) {
+                firstClose = new java.util.concurrent.CompletableFuture<>();
+                try { consumer.close(); firstClose.complete(null); }
+                catch (RuntimeException | Error failed) { firstClose.completeExceptionally(failed); }
+        }
+        try {
+            firstClose.copy().get(30_000, java.util.concurrent.TimeUnit.MILLISECONDS);
             closed = true;
-            consumer.close();
+        } catch (InterruptedException failed) {
+            Thread.currentThread().interrupt(); throw new IllegalStateException("K1 Source close interrupted", failed);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failed) {
+            throw new IllegalStateException("K1 Source original close remains unconfirmed", failed);
         }
     }
 
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
+
+    void backendTerminated(KafkaClientArtifactOwnedSourceBackend original) {
+        if (original != backend || !original.nativeResourcesTerminated() || original.applicationReady())
+            throw new IllegalStateException("K1 Source lacks its original backend termination proof");
+        closed = true; // retained buffered/inFlight entry and original ACK result are not discarded
+    }
+
     @Override
-    public synchronized CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
+    public CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
+        return backend == null ? checkpointCutOpen(expectedAppliedPosition)
+                : backend.nativeOperation(() -> checkpointCutOpen(expectedAppliedPosition));
+    }
+
+    private synchronized CheckpointCut checkpointCutOpen(final SourcePosition expectedAppliedPosition) {
         if (!(expectedAppliedPosition instanceof KafkaSourcePosition expected)) {
             throw new IllegalArgumentException("Kafka checkpoint requires a Kafka source position");
         }
@@ -151,8 +195,13 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
             @Override
             public void requireCurrent() {
-                synchronized (KafkaClientArtifactSourceRecordConsumer.this) {
-                    requireCheckpointCut(expected);
+                if (backend == null) {
+                    synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
+                } else {
+                    backend.nativeOperation(() -> {
+                        synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
+                        return null;
+                    });
                 }
             }
         };
@@ -174,12 +223,21 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
             final BufferedRecord fetched, final SourceReplayEntry expected, final SourceReplayEntry candidate) {
+        if (backend != null) {
+            try { return backend.nativeOperation(() -> acknowledgeOpen(fetched, expected, candidate)); }
+            catch (RuntimeException | Error failed) { return SourceAcknowledgement.AcknowledgementResult.unknown(failed); }
+        }
+        return acknowledgeOpen(fetched, expected, candidate);
+    }
+
+    private SourceAcknowledgement.AcknowledgementResult acknowledgeOpen(
+            BufferedRecord fetched, SourceReplayEntry expected, SourceReplayEntry candidate) {
         if (candidate != expected) {
             return SourceAcknowledgement.AcknowledgementResult.unknown(
                     new IllegalStateException("Kafka source ACK entry identity changed"));
         }
         synchronized (this) {
-            if (inFlight != fetched || closed) {
+            if (inFlight != fetched || closed || closing) {
                 return SourceAcknowledgement.AcknowledgementResult.unknown(
                         new IllegalStateException("Kafka source ACK state changed"));
             }
@@ -209,8 +267,8 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     }
 
     private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("Kafka source consumer is closed");
+        if (closed || closing) {
+            throw new IllegalStateException("Kafka source consumer is closed or closing");
         }
     }
 

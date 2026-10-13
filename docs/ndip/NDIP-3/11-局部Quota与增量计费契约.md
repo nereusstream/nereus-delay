@@ -2228,3 +2228,10 @@ Source logical、SDK generation、physical request/zombie 三类账各自完成�
 或 backend terminated 不解除 UNKNOWN/checkpoint/retention，也不释放未结束的其它
 SDK client。maximumConnections 是当前配置预留，尚未由实际 Broker topology 证明，
 完整 config/resource envelope 继续在包1/3，编译结果不认证容量或性能。
+
+
+2026-10-13 K1 Source SDK费用：self-created source consumer使用同Worker SDKwindow，
+构造前reserve，原partial handle/第一次close失败保持原allocation；本地调用计数、
+真实SDK组件以及owner I/O结束后才释放。仅SASL自己的引用递减，最后引用的实际login
+清理保留receipt；P1/其它Source或Target结束不授权释放此client。configured connections/
+fetch与最低费用是预留及结构检查，实际最大batch/拓扑/threads/RSS仍须包3闭合和测量。

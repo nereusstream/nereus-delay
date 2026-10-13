@@ -1718,9 +1718,9 @@
     "developmentEndpoint": "All four package code conditions hold and no known required writer/provider/integration remains; then freeze source and hand off the finite validation/environment matrix, without open-ended follow-on development.",
     "developmentKafkaSourceLock": {
       "branch": "nereus/delay-guarded-producer-v1",
-      "commit": "8087db6498c4f4d03eabfbfcb83bc6410872531a",
-      "sdkJarSha256": "e443b062e6d717164c28b6acf2ba0c163878d7df83af7b09fdeb8262a297e9b9",
-      "scope": "Target K2 same-response log-start/empty Fetch, one CompletedFetch segment with paired nextOffsets, and fresh exact-topic/partition read-only producer Metadata response guard; client compilation only; old receipts retain their original source and Broker/image scope."
+      "commit": "0a8fa588fe4d365771f463335759dfc5dcc053fe",
+      "sdkJarSha256": "70cbabf149746a505a6f94897003765d9345124163429aeccfc9d5894ca0bf0d",
+      "scope": "Original guarded K1 Source component cleanup and partial constructor handles; bounded heartbeat exit, retained Fetch/Selector/SSL/SASL cleanup and last-reference ownership, independent native termination fact. Delay self-created Source owner, Host/private-permit integration and poll/ACK/cut exit accounting. Necessary clients JAR build and main/real SDK compilation only. Historical Fetch/K2 Metadata receipts and Broker/image retain their original source scopes; tests/Broker/style deferred and full process configuration/provider/startup/resource-envelope integration remains open."
     },
     "developmentPulsarSourceLock": {
       "branch": "nereus/delay-resource-guard-v1",

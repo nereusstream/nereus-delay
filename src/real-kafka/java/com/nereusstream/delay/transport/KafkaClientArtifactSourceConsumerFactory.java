@@ -51,14 +51,24 @@ public final class KafkaClientArtifactSourceConsumerFactory {
             return guarded;
         } catch (RuntimeException | Error failure) {
             try {
-                nativeConsumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(closeTimeout));
+                closeGuardedNative(nativeConsumer, closeTimeout);
             } catch (RuntimeException | Error closeFailure) {
                 final var retained = new KafkaClientArtifactTargetCleanupFailure(failure,
-                        () -> nativeConsumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(closeTimeout)));
+                        () -> closeGuardedNative(nativeConsumer, closeTimeout));
                 retained.addSuppressed(closeFailure);
                 throw retained;
             }
             throw failure;
+        }
+    }
+
+    private static void closeGuardedNative(Consumer<byte[], byte[]> consumer, java.time.Duration timeout) {
+        if (!(consumer instanceof GuardedConsumer<?, ?> guarded)) {
+            throw new IllegalStateException("Source cleanup lacks the original guarded native owner");
+        }
+        guarded.closeGuardedResources(timeout);
+        if (!guarded.guardedResourcesTerminated()) {
+            throw new IllegalStateException("Source cleanup has no completed native component proof");
         }
     }
 

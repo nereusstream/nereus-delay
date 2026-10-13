@@ -417,3 +417,21 @@ credential/retention 材料；故障本地 Store 关闭不写 clean-close/假 AC
 ACK/cursor/guard/wire/schema 或共享 cnx 策略。必要编译结果与有限验证目的见04/12。
 当前 mixed Source 故障退出、完整 startup/config/provider 装配及其它三个功能包仍需
 实施；全部完成 flags 和集中验证后置安排保留。
+
+
+## 2026-10-13：K1 Source owner 与实际组件清理裁决
+
+主会话批准同现有 TargetOwnedBackendGroup/Host private permit 接实际自有 K1 Source，
+不增加通用group层：冻结新poll/ACK/cut、在wrapper锁之外wakeup、真实调用退出后关闭。
+保留首close失败与原handle，business gate和native termination分开。必要SDK范围包括
+GuardedConsumer/KafkaConsumer/Classic的最小API及已证实妨碍完成的Fetch、network/
+Selector/SSL/SASL/helper；不变更Fetch/commit/group/guard/wire或重开consumer。
+
+SDK清理按原组件记录，已成功的协调/leave/session动作不重发；原partial-construction
+handle只能清理。无证明仍pending/计费，超时不取消在途任务，不并发替换cleanup。
+P1关闭不代替Kafka，未ACK数据及原首结果/UNKNOWN/checkpoint保护继续供重放。
+
+当前K1 fork source lock为0a8fa588fe4d365771f463335759dfc5dcc053fe；owned Source 已
+接实际Worker/Host native gate，必要构建/编译和SDK普通push结果见04。完整service
+provider/startup/reopen和资源envelope继续实施，有限验证目的见12，测试/Broker/style
+仍后置，全四包、29切片和全部完成flags不变。
