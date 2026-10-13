@@ -70,6 +70,52 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                 pollTimeout, true, maximumFrameBytes, Objects.requireNonNull(protection, "protection"));
     }
 
+    /** Creates the actual no-group/no-ACK client from the verified snapshot, never a caller's borrowed consumer. */
+    public static KafkaClientArtifactRecoverySourceCursor openVerified(java.util.Map<String,Object> operational,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            SourceAssignment assignment, long startOffsetInclusive, Duration pollTimeout, int maximumFrameBytes,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, Runnable originalProtection) {
+        if (maximumFrameBytes < 1 || maximumFrameBytes == Integer.MAX_VALUE || pollTimeout.toMillis() < 1
+                || pollTimeout.compareTo(Duration.ofSeconds(60)) > 0) throw new IllegalArgumentException("Source recovery settings must be finite");
+        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
+        credential.authorization().requireAssignment(assignment);
+        final var resource = credential.authorization().resource().kafka();
+        final String topic = credential.authorization().physicalTopic();
+        final String name = credential.authorization().newReaderName(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.RECOVERY);
+        final var protection = credential.guardRecovery(assignment.shardId(), topic, name, time, originalProtection);
+        final var config = new java.util.HashMap<>(KafkaClientArtifactMtlsConfiguration.applySource(operational, credential));
+        config.remove(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG);
+        config.remove(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_INSTANCE_ID_CONFIG);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.CLIENT_ID_CONFIG, name);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_PROTOCOL_CONFIG, "classic");
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "none");
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, maximumFrameBytes);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.FETCH_MAX_BYTES_CONFIG, maximumFrameBytes);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, Math.toIntExact(pollTimeout.toMillis()));
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, Math.toIntExact(pollTimeout.toMillis()));
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        config.put(org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_METRICS_PUSH_CONFIG, false);
+        protection.run();
+        final var actual = KafkaClientArtifactSourceConsumerFactory.create(config, resource.authenticatedClusterId(), topic,
+                resource.nativeTopicUuid(), assignment.shardId().partition(), pollTimeout);
+        try {
+            protection.run();
+            return forTarget(actual, assignment, topic, startOffsetInclusive, pollTimeout, maximumFrameBytes, protection);
+        } catch (RuntimeException | Error failure) {
+            try { actual.closeGuardedResources(pollTimeout); if (!actual.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete"); }
+            catch (RuntimeException | Error cleanup) {
+                final var retained = new KafkaClientArtifactTargetCleanupFailure(failure, () -> {
+                    actual.closeGuardedResources(pollTimeout);
+                    if (!actual.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete");
+                });
+                retained.addSuppressed(cleanup); throw retained;
+            }
+            throw failure;
+        }
+    }
+
     private KafkaClientArtifactRecoverySourceCursor(GuardedConsumer<byte[], byte[]> consumer, SourceAssignment assignment,
             String physicalTopic, long startOffsetInclusive, Duration pollTimeout, boolean target, int maximumFrameBytes,
             Runnable protection) {
@@ -198,7 +244,10 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     public synchronized void close() {
         if (!closed) {
             failed = true;
-            if (target) { consumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(pollTimeout)); }
+            if (target) {
+                consumer.closeGuardedResources(pollTimeout);
+                if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete");
+            }
             else { consumer.close(); }
             closed = true;
         }

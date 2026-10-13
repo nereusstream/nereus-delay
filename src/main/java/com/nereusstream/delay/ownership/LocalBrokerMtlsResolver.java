@@ -446,6 +446,19 @@ public final class LocalBrokerMtlsResolver {
                 requireOperation(role, time.get());
             };
         }
+        /** Recovery begins before an active Worker exists; the original accepted assignment/Owner/Pin guard is mandatory. */
+        public Runnable guardRecovery(com.nereusstream.delay.protocol.ShardId shard, String topic, String name,
+                Supplier<TrustedUtcIntervalEvidence> time, Runnable heldAssignmentOwnerAndRetention) {
+            if (!authorization.shard().equals(shard) || !authorization.physicalTopic().equals(topic)) { throw unavailable(); }
+            authorization.requireName(SourceTransportCredentialAuthorization.Operation.RECOVERY, name);
+            Objects.requireNonNull(heldAssignmentOwnerAndRetention, "original recovery assignment/Owner/retention protection");
+            return () -> {
+                requireOperation(SourceTransportCredentialAuthorization.Operation.RECOVERY, time.get());
+                requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+                heldAssignmentOwnerAndRetention.run();
+                requireOperation(SourceTransportCredentialAuthorization.Operation.RECOVERY, time.get());
+            };
+        }
         public void requireKafkaBootstrap(Object endpoint) {
             final String configured = endpoint instanceof List<?> values
                     ? String.join(",", values.stream().map(value -> (String) value).toList()) : (String) endpoint;

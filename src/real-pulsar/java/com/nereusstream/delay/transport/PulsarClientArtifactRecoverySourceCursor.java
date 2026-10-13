@@ -1,18 +1,28 @@
 package com.nereusstream.delay.transport;
 
+import com.nereusstream.delay.ownership.CheckpointInputFuture;
+import com.nereusstream.delay.ownership.LocalBrokerMtlsResolver;
+import com.nereusstream.delay.ownership.OwnedSourceCursor;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
+import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -40,7 +50,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final boolean target;
     private final int maximumFrameBytes;
     private final Runnable protection;
-    private final com.nereusstream.delay.ownership.OwnedSourceCursor<GuardedConsumer<byte[]>> cleanup;
+    private final OwnedSourceCursor<Consumer<byte[]>> cleanup;
     private final PulsarClientArtifactOwnedBackendGroup backend;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
@@ -70,18 +80,95 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                 receiveTimeout, true, maximumFrameBytes, Objects.requireNonNull(protection, "protection"));
     }
 
+    /**
+     * Opens a private no-ACK consumer from the group's actual verified material. The callback must accept the
+     * post-seek assignment through the existing assignment authority; the protection must recheck that accepted
+     * assignment, Owner and retained Source pins. Neither the credential nor the native proof grants assignment authority.
+     */
+    public static PulsarClientArtifactRecoverySourceCursor openVerified(PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential,
+            Optional<PulsarSourcePosition> lastApplied, Duration receiveTimeout, int maximumFrameBytes,
+            Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
+            Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment) {
+        final long timeoutMs = Objects.requireNonNull(receiveTimeout, "receiveTimeout").toMillis();
+        if (timeoutMs < 1 || timeoutMs > 60_000 || maximumFrameBytes < 1 || maximumFrameBytes == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Source recovery settings must be finite");
+        }
+        Objects.requireNonNull(acceptPostSeekAssignment, "original post-seek assignment acceptance");
+        Objects.requireNonNull(lastApplied, "lastApplied");
+        group.requireSourceReadResource(credential, resource);
+        final var authorization = credential.authorization();
+        final String topic = authorization.physicalTopic();
+        lastApplied.ifPresent(position -> authorization.requirePosition(position, topic));
+        final String name = authorization.newReaderName(SourceTransportCredentialAuthorization.Operation.RECOVERY);
+        final var protection = credential.guardRecovery(authorization.shard(), topic, name, time, originalProtection);
+        protection.run();
+        final var client = group.nativeClientForFactory();
+        final var builder = client.newConsumer(org.apache.pulsar.client.api.Schema.BYTES).topic(topic)
+                .subscriptionName(name).subscriptionType(org.apache.pulsar.client.api.SubscriptionType.Exclusive)
+                .subscriptionMode(org.apache.pulsar.client.api.SubscriptionMode.NonDurable)
+                .subscriptionInitialPosition(org.apache.pulsar.client.api.SubscriptionInitialPosition.Earliest)
+                .receiverQueueSize(1).autoUpdatePartitions(false).resourceGuard(resource);
+        final var opening = new CompletableFuture<Consumer<byte[]>>();
+        final var owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, group);
+        boolean started = false;
+        try {
+            group.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
+                proof.requireClient(client); owned.requestClose(); owned.backendShutdownCompleted(group);
+            });
+            protection.run();
+            started = true;
+            try {
+                PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder).whenComplete((value, failure) -> {
+                    if (failure == null) { opening.complete(value); }
+                    else { opening.completeExceptionally(failure); }
+                });
+            } catch (RuntimeException | Error failure) { opening.completeExceptionally(failure); throw failure; }
+            return owned.read(timeoutMs, nativeConsumer -> {
+                if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
+                    throw new IllegalStateException("P1 recovery requires the guarded Source proof API");
+                }
+                @SuppressWarnings("unchecked") final var consumer = (GuardedConsumer<byte[]>) nativeConsumer;
+                protection.run();
+                final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, resource,
+                        topic, authorization.shard(), lastApplied, receiveTimeout);
+                protection.run();
+                final var assignment = Objects.requireNonNull(acceptPostSeekAssignment.apply(positioned), "accepted assignment");
+                authorization.requireAssignment(assignment);
+                protection.run();
+                return new PulsarClientArtifactRecoverySourceCursor(consumer, resource, assignment, topic,
+                        receiveTimeout, true, maximumFrameBytes, protection, owned, group);
+            });
+        } catch (Exception | Error failure) {
+            if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+            if (!started) { owned.abandonBeforeOpen(); }
+            owned.requestClose();
+            group.cleanupProgress();
+            if (!owned.cleanupComplete()) { throw new CleanupFailure(owned, group, failure); }
+            if (failure instanceof Error fatal) { throw fatal; }
+            throw new IllegalStateException("P1 verified Source recovery opening failed", failure);
+        }
+    }
+
     private PulsarClientArtifactRecoverySourceCursor(GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard,
             SourceAssignment assignment, String physicalTopic, Duration receiveTimeout, boolean target,
             int maximumFrameBytes, Runnable protection) {
+        this(consumer, expectedGuard, assignment, physicalTopic, receiveTimeout, target, maximumFrameBytes,
+                protection, null, null);
+    }
+
+    private PulsarClientArtifactRecoverySourceCursor(GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard,
+            SourceAssignment assignment, String physicalTopic, Duration receiveTimeout, boolean target,
+            int maximumFrameBytes, Runnable protection, OwnedSourceCursor<Consumer<byte[]>> originalCleanup,
+            PulsarClientArtifactOwnedBackendGroup originalBackend) {
         this.target = target;
         this.maximumFrameBytes = maximumFrameBytes;
         this.protection = protection;
         this.consumer = Objects.requireNonNull(consumer, "consumer");
-        backend = PulsarClientArtifactOwnedBackendGroup.findNative(consumer);
-        cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(
-                java.util.concurrent.CompletableFuture.completedFuture(consumer),
-                PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
-        if (backend != null) { backend.registerCleanup(cleanup, cleanup::operationExited, cleanup::cleanupComplete, proof -> {
+        backend = originalCleanup == null ? PulsarClientArtifactOwnedBackendGroup.findNative(consumer) : originalBackend;
+        cleanup = originalCleanup == null ? new OwnedSourceCursor<>(CompletableFuture.completedFuture(consumer),
+                PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend) : originalCleanup;
+        if (originalCleanup == null && backend != null) { backend.registerCleanup(cleanup, cleanup::operationExited, cleanup::cleanupComplete, proof -> {
             proof.requireClient(backend.clientForProof()); cleanup.requestClose(); cleanup.backendShutdownCompleted(backend);
         }); }
         this.expectedGuard = Objects.requireNonNull(expectedGuard, "expectedGuard");
@@ -105,6 +192,21 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         protection.run();
         requireProof();
         protection.run();
+    }
+
+    /** Keeps the same open/close operation and backend obligation after a timeout or partial SDK failure. */
+    public static final class CleanupFailure extends IllegalStateException implements CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient OwnedSourceCursor<?> cleanup;
+        private final transient PulsarClientArtifactOwnedBackendGroup backend;
+        private CleanupFailure(OwnedSourceCursor<?> cleanup, PulsarClientArtifactOwnedBackendGroup backend, Throwable failure) {
+            super("P1 recovery Source cleanup is not confirmed", failure);
+            this.cleanup = cleanup; this.backend = backend;
+        }
+        @Override public boolean cleanupComplete() { return cleanup.cleanupComplete(); }
+        @Override public CompletableFuture<Void> retryCleanup() { return cleanup.retryClose(); }
+        public Throwable cleanupFailure() { return cleanup.cleanupFailure(); }
+        public CompletableFuture<Void> requestHostQuarantine() { return backend.requestHostQuarantine(); }
     }
 
     /**
