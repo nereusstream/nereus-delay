@@ -7,6 +7,9 @@ import java.util.concurrent.CompletableFuture;
 
 /** One actual SDK backend owned by this Host; registration and termination include its late native handles. */
 public interface TargetOwnedBackendGroup {
+    /** Checks the complete original fleet without transferring ownership or changing its admitted Sources. */
+    void requireHostComposition(TargetWorkerHostRuntime host, List<TargetWorkerShardRuntime> fleet);
+
     void bindHost(TargetWorkerHostRuntime host, List<TargetWorkerShardRuntime> fleet);
 
     void requireWorkerGraph(WorkClassExecutionRegistry classes, SharedRocksDbResources resources);

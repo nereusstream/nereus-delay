@@ -549,15 +549,20 @@ public final class TargetWorkerHostRuntime {
             if (checkpointFactory != null) {
                 host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
             }
-            for (TargetWorkerShardRuntime worker : exactShards) {
-                if (worker.sourceBackendGroup() != null) {
-                    host.registerOwnedBackend(worker.sourceBackendGroup());
+            final var backends = new ArrayList<TargetOwnedBackendGroup>();
+            for (var worker : exactShards) {
+                final var backend = worker.sourceBackendGroup();
+                if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) {
+                    backends.add(backend);
                 }
             }
+            // Reject a borrowed/unready group before any other group transfers to this Host.
+            for (var backend : backends) { backend.requireHostComposition(host, exactShards); }
+            for (var backend : backends) { host.registerOwnedBackend(backend); }
             if (activateMaintenance) { host.startMaintenance(); }
             return host;
         } catch (RuntimeException | Error failure) {
-            if (host != null) {
+            if (host != null && host.ownedBackends.isEmpty()) {
                 host.rollbackTargetQueueChangeSignalBindings(host.shards, failure);
             }
             try {
@@ -568,6 +573,8 @@ public final class TargetWorkerHostRuntime {
                 }
             }
             if (host != null && !host.ownedBackends.isEmpty()) {
+                // Keep the original Store bindings exclusive until this failed Host completes fault exit.
+                // Unbinding here would let another Host reuse a Worker that our quarantine still fences.
                 synchronized (host) { host.stopping = true; }
                 for (var backend : host.ownedBackends) {
                     try { backend.freezeRegistrations(); }

@@ -218,14 +218,26 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     @Override public void requireWorkerGraph(WorkClassExecutionRegistry expected, SharedRocksDbResources shared) {
         if (classes != expected || resources != shared) throw new IllegalArgumentException("K1 Source belongs to another Worker graph");
     }
-    @Override public void bindHost(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+    @Override public void requireHostComposition(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        Objects.requireNonNull(expected, "host");
         for (var member : fleet) member.requireFleetComposition(classes, resources);
         synchronized (gate) {
-            if (!ready || frozen || positionedAssignment == null || host != null && host != expected)
-                throw new IllegalStateException("K1 Source is unready, frozen or owned by another Host");
-            final var matching = fleet.stream().filter(member -> member.ownsSourceConsumer(source)).toList();
-            if (matching.size() != 1) throw new IllegalStateException("K1 Source requires its one actual Worker owner");
-            host = expected; worker = matching.get(0);
+            requireHostCompositionLocked(expected, fleet);
+        }
+    }
+    private void requireHostCompositionLocked(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        if (!ready || frozen || positionedAssignment == null || host != null && host != expected)
+            throw new IllegalStateException("K1 Source is unready, frozen or owned by another Host");
+        if (fleet.stream().filter(member -> member.ownsSourceConsumer(source)).count() != 1)
+            throw new IllegalStateException("K1 Source requires its one actual Worker owner");
+    }
+    @Override public void bindHost(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        Objects.requireNonNull(expected, "host");
+        for (var member : fleet) member.requireFleetComposition(classes, resources);
+        synchronized (gate) {
+            requireHostCompositionLocked(expected, fleet);
+            worker = fleet.stream().filter(member -> member.ownsSourceConsumer(source)).findFirst().orElseThrow();
+            host = expected;
         }
     }
     @Override public void admitWorker(TargetWorkerHostRuntime expected, TargetWorkerShardRuntime candidate) {

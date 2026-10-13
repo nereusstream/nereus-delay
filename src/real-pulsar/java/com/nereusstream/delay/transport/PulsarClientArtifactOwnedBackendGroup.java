@@ -217,18 +217,29 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         if (classes != expected || resources != shared) { throw new IllegalArgumentException("P1 group belongs to another Worker"); }
     }
 
-    @Override public void bindHost(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+    @Override public void requireHostComposition(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        Objects.requireNonNull(expected, "host");
         for (var worker : fleet) { worker.requireFleetComposition(classes, resources); }
         synchronized (gate) {
-            if (host != null && host != expected || frozen) {
-                throw new IllegalStateException("P1 client is borrowed, unready or already belongs to another Host");
+            requireHostCompositionLocked(expected, fleet);
+        }
+    }
+    private void requireHostCompositionLocked(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        if (!ready || host != null && host != expected || frozen) {
+            throw new IllegalStateException("P1 client is borrowed, unready or already belongs to another Host");
+        }
+        for (var source : sourceOwners.values()) {
+            if (fleet.stream().noneMatch(worker -> worker.ownsSourceConsumer(source))) {
+                throw new IllegalStateException("P1 native Source is used outside this Host fleet");
             }
-            for (var source : sourceOwners.values()) {
-                if (fleet.stream().noneMatch(worker -> worker.ownsSourceConsumer(source))) {
-                    throw new IllegalStateException("P1 native Source is used outside this Host fleet");
-                }
-                admittedSources.add(source);
-            }
+        }
+    }
+    @Override public void bindHost(TargetWorkerHostRuntime expected, List<TargetWorkerShardRuntime> fleet) {
+        Objects.requireNonNull(expected, "host");
+        for (var worker : fleet) { worker.requireFleetComposition(classes, resources); }
+        synchronized (gate) {
+            requireHostCompositionLocked(expected, fleet);
+            admittedSources.addAll(sourceOwners.values());
             host = expected;
             admittedWorkers.addAll(fleet);
         }
