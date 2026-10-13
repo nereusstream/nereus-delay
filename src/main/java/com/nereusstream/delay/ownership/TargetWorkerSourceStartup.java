@@ -59,6 +59,8 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
     private TargetWorkerSourceRuntimeFactory.Recovery recovery;
     private TargetWorkerRecoverySource recoverySource;
+    private CheckpointInputFuture.Cleanup recoveryOpeningCleanup;
+    private TargetOwnedBackendGroup recoveryOpeningBackend;
     private com.nereusstream.delay.store.RecoveryCatalogAuthority checkpointCatalog;
     private com.nereusstream.delay.protocol.RecoveryPin checkpointPin;
     private boolean ownsCheckpointPin;
@@ -275,7 +277,8 @@ public final class TargetWorkerSourceStartup {
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
         final Construction original;
         synchronized (this) {
-            if (initial != null || initializationRunning || store == null || recoverySource != null || recovery != null || activation != null) {
+            if (initial != null || initializationRunning || store == null
+                    || recoverySource != null && recoverySource != source || recovery != null || activation != null) {
                 throw new IllegalStateException("original same-DB recovery is unavailable or already started");
             }
             original = beginConstruction(false);
@@ -402,6 +405,44 @@ public final class TargetWorkerSourceStartup {
     }
     public TargetWorkerProcessRuntime.Assembly graph() { return graph; }
 
+    public synchronized SourceAssignment acceptedAssignment() {
+        if (assignment == null) throw new IllegalStateException("original Source assignment has not been accepted");
+        return assignment;
+    }
+
+    /** Actual reader factories own their original call until the cursor or native opening cleanup is retained. */
+    public synchronized Construction beginRecoveryReaderConstruction() {
+        if (initial != null || initializationRunning || store == null || recoverySource != null
+                || recoveryOpeningCleanup != null || recovery != null || activation != null) {
+            throw new IllegalStateException("original recovery reader construction is unavailable");
+        }
+        return beginConstruction(false);
+    }
+
+    public synchronized void retainRecoverySource(TargetWorkerRecoverySource original) {
+        Objects.requireNonNull(original).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
+                graph.classes(), graph.resources());
+        if (recoverySource != null && recoverySource != original || recovery != null || activation != null) {
+            throw new IllegalStateException("original recovery Source cannot be replaced");
+        }
+        recoverySource = original;
+    }
+
+    public synchronized void retainRecoveryOpeningCleanup(CheckpointInputFuture.Cleanup original) {
+        if (recoveryOpeningCleanup != null && recoveryOpeningCleanup != original) {
+            throw new IllegalStateException("original recovery opening cleanup cannot be replaced");
+        }
+        recoveryOpeningCleanup = Objects.requireNonNull(original);
+    }
+
+    public synchronized void retainRecoveryOpeningBackend(TargetOwnedBackendGroup original) {
+        Objects.requireNonNull(original).requireWorkerGraph(graph.classes(), graph.resources());
+        if (recoveryOpeningBackend != null && recoveryOpeningBackend != original) {
+            throw new IllegalStateException("original recovery opening backend cannot be replaced");
+        }
+        recoveryOpeningBackend = original;
+    }
+
     /** Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure. */
     public synchronized OwnerLease ownerLease() {
         if (lease == null || stopping || firstFailure != null) throw new IllegalStateException("original acquired Source lease is unavailable");
@@ -519,6 +560,13 @@ public final class TargetWorkerSourceStartup {
             if (recovery != null) {
                 recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
                 if (!recovery.coordinator().authorityIoExited()) return false;
+            }
+            if (recoveryOpeningCleanup != null) {
+                if (recoveryOpeningBackend != null) {
+                    recoveryOpeningBackend.closeBeforeHostBinding();
+                    if (!recoveryOpeningBackend.resourcesTerminated()) return false;
+                }
+                recoveryOpeningCleanup.retryCleanup(); if (!recoveryOpeningCleanup.cleanupComplete()) return false;
             }
             if (recoverySource != null) {
                 recoverySource.close(); if (!recoverySource.cleanupComplete()) return false;

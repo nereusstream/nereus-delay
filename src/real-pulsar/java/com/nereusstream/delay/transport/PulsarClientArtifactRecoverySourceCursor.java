@@ -87,6 +87,37 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
      * post-seek assignment through the existing assignment authority; the protection must recheck that accepted
      * assignment, Owner and retained Source pins. Neither the credential nor the native proof grants assignment authority.
      */
+    public static PulsarClientArtifactRecoverySourceCursor openForStartup(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential, Duration receiveTimeout,
+            int maximumFrameBytes, Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
+            Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment) {
+        try (var original = startup.beginRecoveryReaderConstruction()) {
+            original.requireCurrent();
+            final var graph = startup.graph(); group.requireWorkerGraph(graph.classes(), graph.resources());
+            if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
+                throw new IllegalArgumentException("recovery reader exceeds the original Source frame envelope");
+            }
+            final var applied = startup.store().appliedShardLogPosition();
+            if (!(applied instanceof PulsarSourcePosition position)) {
+                throw new IllegalArgumentException("actual recovery Store lacks its P1 Source cut");
+            }
+            final var cursor = openVerified(group, resource, credential, Optional.of(position), receiveTimeout,
+                    maximumFrameBytes, time, () -> { startup.requireCurrent(); originalProtection.run(); }, proof -> {
+                        final var accepted = Objects.requireNonNull(acceptPostSeekAssignment.apply(proof));
+                        if (!accepted.sameIdentity(startup.acceptedAssignment())) {
+                            throw new IllegalStateException("post-seek assignment changes the acquired original Source identity");
+                        }
+                        return accepted;
+                    });
+            startup.retainRecoverySource(cursor); original.requireCurrent();
+            return cursor;
+        } catch (CleanupFailure partial) {
+            startup.retainRecoveryOpeningBackend(group); startup.retainRecoveryOpeningCleanup(partial);
+            startup.retain(partial); throw partial;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
     public static PulsarClientArtifactRecoverySourceCursor openVerified(PulsarClientArtifactOwnedBackendGroup group,
             TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential,
             Optional<PulsarSourcePosition> lastApplied, Duration receiveTimeout, int maximumFrameBytes,

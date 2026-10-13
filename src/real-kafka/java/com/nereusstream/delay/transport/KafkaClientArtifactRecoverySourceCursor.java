@@ -36,6 +36,9 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private final KafkaActivationBarrier activationBarrier;
     private final SourceAssignment assignment;
     private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt verifiedCredential;
+    private com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client allocation;
+    private com.nereusstream.delay.scheduler.WorkClassExecutionRegistry allocationClasses;
+    private com.nereusstream.delay.store.SharedRocksDbResources allocationResources;
     private final String authenticatedClusterId;
     private final java.util.UUID nativeTopicUuid;
     private final ShardId shard;
@@ -74,6 +77,77 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     }
 
     /** Creates the actual no-group/no-ACK client from the verified snapshot, never a caller's borrowed consumer. */
+    public static KafkaClientArtifactRecoverySourceCursor openForStartup(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, java.util.Map<String,Object> operational,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            Duration pollTimeout, int maximumFrameBytes,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, Runnable originalProtection,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, String allocationId,
+            int maximumConnections, com.nereusstream.delay.protocol.CapacityVector cost) {
+        try (var original = startup.beginRecoveryReaderConstruction()) {
+            original.requireCurrent();
+            final var graph = startup.graph();
+            if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
+                throw new IllegalArgumentException("recovery reader exceeds the original Source frame envelope");
+            }
+            final var last = startup.store().appliedShardLogPosition();
+            if (!(last instanceof KafkaSourcePosition position) || position.offset() < 0) {
+                throw new IllegalArgumentException("actual recovery Store lacks its K1 Source cut");
+            }
+            final var cursor = openVerified(operational, sdkJar, credential, startup.acceptedAssignment(),
+                    Math.addExact(position.offset(), 1L), pollTimeout, maximumFrameBytes, time,
+                    () -> { startup.requireCurrent(); originalProtection.run(); }, budget, allocationId,
+                    maximumConnections, cost, graph.classes(), graph.resources());
+            startup.retainRecoverySource(cursor); original.requireCurrent();
+            return cursor;
+        } catch (com.nereusstream.delay.ownership.TargetSdkCleanupFailure partial) {
+            startup.retainRecoveryOpeningCleanup(partial); startup.retain(partial); throw partial;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    public static KafkaClientArtifactRecoverySourceCursor openVerified(java.util.Map<String,Object> operational,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            SourceAssignment assignment, long startOffsetInclusive, Duration pollTimeout, int maximumFrameBytes,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, Runnable originalProtection,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, String allocationId,
+            int maximumConnections, com.nereusstream.delay.protocol.CapacityVector cost,
+            com.nereusstream.delay.scheduler.WorkClassExecutionRegistry classes,
+            com.nereusstream.delay.store.SharedRocksDbResources resources) {
+        budget.requireWorker(classes, resources);
+        if (maximumConnections < 1 || maximumConnections == Integer.MAX_VALUE || maximumFrameBytes < 1
+                || maximumFrameBytes == Integer.MAX_VALUE
+                || cost.amount(com.nereusstream.delay.protocol.CapacityDimension.OTHER_NATIVE_BYTES) < 1) {
+            throw new IllegalArgumentException("recovery SDK allocation requires explicit finite resources");
+        }
+        final long[] minimum = new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.ADAPTER_CONNECTIONS.wireValue() - 1] = maximumConnections;
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.OPEN_FILES.wireValue() - 1] = maximumConnections;
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.ADAPTER_THREADS.wireValue() - 1] = 1;
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = maximumFrameBytes;
+        if (!cost.covers(new com.nereusstream.delay.protocol.CapacityVector(minimum))) {
+            throw new IllegalArgumentException("recovery SDK charge cannot cover its declared connections/Fetch envelope");
+        }
+        final var reserved = budget.reserve(allocationId, cost);
+        try {
+            reserved.beginConstruction();
+            final var cursor = openVerified(operational, sdkJar, credential, assignment, startOffsetInclusive,
+                    pollTimeout, maximumFrameBytes, time, originalProtection);
+            cursor.allocation = reserved; cursor.allocationClasses = classes; cursor.allocationResources = resources;
+            return cursor;
+        } catch (com.nereusstream.delay.ownership.TargetSdkCleanupFailure partial) {
+            throw new KafkaClientArtifactTargetCleanupFailure(partial, () -> {
+                partial.retryClose();
+                if (!partial.cleanupComplete()) throw new IllegalStateException("original recovery SDK cleanup remains live");
+                reserved.closed();
+            });
+        } catch (RuntimeException | Error failure) {
+            // This pinned factory retains unfinished construction/bind/position cleanup as TargetSdkCleanupFailure.
+            reserved.closed(); throw failure;
+        }
+    }
+
+    /** Component entry without a Worker charge; the process startup requires the budgeted overload above. */
     public static KafkaClientArtifactRecoverySourceCursor openVerified(java.util.Map<String,Object> operational,
             byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             SourceAssignment assignment, long startOffsetInclusive, Duration pollTimeout, int maximumFrameBytes,
@@ -257,6 +331,10 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             else { consumer.close(); }
             closed = true;
         }
+        if (allocation != null && !allocation.released()) {
+            if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("original recovery SDK components remain live");
+            allocation.closed();
+        }
     }
 
     /** Keeps the native Source guard live across Target look-ahead and queued recovery writes. */
@@ -267,7 +345,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     @Override public synchronized void requireStartup(SourceAssignment expected, long frameBytes,
             com.nereusstream.delay.scheduler.WorkClassExecutionRegistry classes,
             com.nereusstream.delay.store.SharedRocksDbResources resources) {
-        if (!target || verifiedCredential == null || !assignment.sameIdentity(expected)
+        if (!target || verifiedCredential == null || allocation == null || allocation.released()
+                || allocationClasses != classes || allocationResources != resources || !assignment.sameIdentity(expected)
                 || maximumFrameBytes > frameBytes) throw new IllegalStateException("recovery cursor lacks its original verified Source startup");
         verifiedCredential.authorization().requireAssignment(expected);
     }
@@ -277,7 +356,9 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
     }
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return null; }
-    @Override public synchronized boolean cleanupComplete() { return closed && target && consumer.guardedResourcesTerminated(); }
+    @Override public synchronized boolean cleanupComplete() {
+        return closed && target && consumer.guardedResourcesTerminated() && (allocation == null || allocation.released());
+    }
 
     /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */
     public synchronized void requireCurrent() {
