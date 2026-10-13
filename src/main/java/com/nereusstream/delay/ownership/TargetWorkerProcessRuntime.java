@@ -381,6 +381,15 @@ public final class TargetWorkerProcessRuntime {
         retryCleanup();
     }
 
+    boolean releaseRecoveryPinsForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(oxia);
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) { original = List.copyOf(sources.values()); }
+        boolean released = true;
+        for (var source : original) released &= source.releaseCheckpointPinForHost(permit);
+        return released;
+    }
+
     /** Before the graph escapes, only SDK startup IO exists. Borrowed assembly must retire through its actual Host. */
     public void stopBeforeAssembly() {
         synchronized (this) {

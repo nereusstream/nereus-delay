@@ -1106,10 +1106,11 @@ public final class TargetWorkerHostRuntime {
             if (oxiaClosePermit == null) oxiaClosePermit = new OxiaClosePermit(this, root);
             permit = oxiaClosePermit;
         }
-        root.closeForHost(permit);
-        if (!root.cleanupComplete()) return false;
         final TargetWorkerProcessRuntime process;
         synchronized (this) { process = processRuntime; }
+        if (process != null && !process.releaseRecoveryPinsForHost(permit)) return false;
+        root.closeForHost(permit);
+        if (!root.cleanupComplete()) return false;
         if (process != null) process.closeForHost(permit);
         return true;
     }

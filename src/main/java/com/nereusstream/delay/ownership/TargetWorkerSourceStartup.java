@@ -61,10 +61,15 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerRecoverySource recoverySource;
     private com.nereusstream.delay.store.RecoveryCatalogAuthority checkpointCatalog;
     private com.nereusstream.delay.protocol.RecoveryPin checkpointPin;
+    private boolean ownsCheckpointPin;
+    private boolean checkpointPinConfirmed;
+    private boolean checkpointPinReleased;
+    private Throwable checkpointPinFailure;
     private com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor.Submission restoreSubmission;
     private Throwable recoveryCleanupFailure;
     private TargetOwnedBackendGroup backend;
     private TargetWorkerShardRuntime worker;
+    private TargetOwnerDrainCoordinator.ReplayExit failedWorkerExit;
     private boolean stopping;
     private boolean storeClosed;
     private boolean leaseReleased;
@@ -100,6 +105,101 @@ public final class TargetWorkerSourceStartup {
 
     void acquireCheckpoint() { acquireExisting(false); }
 
+    /** Creates one exact ephemeral pin through this root's actual shared intent/Catalog backend. */
+    public synchronized com.nereusstream.delay.protocol.RecoveryPin createCheckpointPin(String exactShardPrefix,
+            byte[] pinId, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            com.nereusstream.delay.protocol.RecoveryCandidateRef candidate) {
+        requireCurrent();
+        if (initial != null || store != null || restoreSubmission != null || checkpointPin != null) {
+            throw new IllegalStateException("original checkpoint pin request cannot be replaced");
+        }
+        if (identity.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalArgumentException("checkpoint pin identity changes its actual acquired Owner");
+        }
+        final var actual = graph.oxia().providers().checkpointPublication(exactShardPrefix, graph.config().checkpoint().physical());
+        final var manifest = actual.manifest(candidate.checkpointId()).orElseThrow();
+        if (!manifest.shardId().equals(scope.shard())
+                || !Bytes.constantTimeEquals(manifest.manifestSha256(), candidate.manifestSha256())
+                || !Bytes.constantTimeEquals(manifest.recoveryLineageId(), candidate.recoveryLineageId())) {
+            throw new IllegalArgumentException("checkpoint pin candidate changes its original published image");
+        }
+        final var floor = actual.currentFloorRef().orElseThrow();
+        final var requested = new com.nereusstream.delay.protocol.RecoveryPin(pinId,
+                new com.nereusstream.delay.protocol.ShardSubject(scope.shard()), identity, candidate, floor,
+                floor.catalogGeneration(), graph.oxia().providers().sessionIdentity());
+        checkpointCatalog = actual; checkpointPin = requested; ownsCheckpointPin = true;
+        return retryCheckpointPinCreation();
+    }
+
+    /** The original backend owns exact-CAS response-loss reconciliation; no new request or successful pin is guessed. */
+    public synchronized com.nereusstream.delay.protocol.RecoveryPin retryCheckpointPinCreation() {
+        requireCurrent();
+        if (!ownsCheckpointPin || checkpointPin == null || checkpointPinReleased) throw new IllegalStateException("no original pin creation is pending");
+        try {
+            if (!checkpointPinConfirmed) {
+                final var actual = checkpointCatalog.createRecoveryPin(checkpointPin);
+                if (!checkpointPin.equals(actual)) throw new IllegalStateException("actual pin CAS changed its original request");
+                checkpointPinConfirmed = true;
+            }
+            requireCheckpointPin(); return checkpointPin;
+        } catch (RuntimeException | Error failure) {
+            if (checkpointPinFailure == null) checkpointPinFailure = failure;
+            throw failure;
+        }
+    }
+
+    private void requireCheckpointPin() {
+        if (checkpointPinReleased || !checkpointCatalog.activeRecoveryPin().orElseThrow().equals(checkpointPin)) {
+            throw new IllegalStateException("original checkpoint pin is no longer active");
+        }
+    }
+
+    /** Reopens only a previously installed image for original Catalog/Pin recovery; it never downloads over ACTIVE. */
+    public synchronized void resumeInstalledCheckpoint() {
+        if (!ownsCheckpointPin || !checkpointPinConfirmed) throw new IllegalStateException("original owned pin is not confirmed");
+        resumeInstalledCheckpoint(checkpointCatalog, checkpointPin);
+    }
+
+    public synchronized void resumeInstalledCheckpoint(com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.protocol.RecoveryPin pin) {
+        requireCurrent();
+        if (initial != null || store != null || restoreSubmission != null || initializationRunning
+                || checkpointPin != null && (checkpointCatalog != catalog || !checkpointPin.equals(pin))) {
+            throw new IllegalStateException("original installed checkpoint startup cannot be replaced");
+        }
+        if (ownsCheckpointPin && !checkpointPinConfirmed) throw new IllegalStateException("original pin creation is not confirmed");
+        requirePinOwner(pin);
+        checkpointCatalog = Objects.requireNonNull(catalog); checkpointPin = pin;
+        requireCheckpointPin();
+        try {
+            store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+            requireCurrent();
+            final var base = store.recoveryMetadata().lineageBase();
+            final var install = store.recoveryMetadata().installState();
+            if (base == null || install == null || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED
+                    || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.FRESH
+                    || !Bytes.constantTimeEquals(base.storeIncarnation(), store.metadata().storeIncarnation())
+                    || !Bytes.constantTimeEquals(base.checkpointId(), pin.candidate().checkpointId())
+                    || !Bytes.constantTimeEquals(base.manifestSha256(), pin.candidate().manifestSha256())
+                    || !Bytes.constantTimeEquals(base.recoveryLineageId(), pin.candidate().recoveryLineageId())
+                    || pin.candidate().storeIncarnation() != null
+                        && !Bytes.constantTimeEquals(pin.candidate().storeIncarnation(), store.metadata().storeIncarnation())) {
+                throw new IllegalStateException("installed checkpoint changed its original base/Store/pin identity");
+            }
+            checkpointCatalog.validatePublishedRestoreCandidate(checkpointCatalog.manifest(base.checkpointId()).orElseThrow());
+            requireCheckpointPin();
+        } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
+    }
+
+    private void requirePinOwner(com.nereusstream.delay.protocol.RecoveryPin pin) {
+        if (!pin.shard().shardId().equals(scope.shard()) || pin.owner().ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(pin.owner().leaseFencingDigest(), lease.leaseToken())
+                || !Bytes.constantTimeEquals(pin.oxiaSessionIdentityDigest(), graph.oxia().providers().sessionIdentity())) {
+            throw new IllegalArgumentException("checkpoint pin changes its actual Source Owner/session/Shard");
+        }
+    }
+
     private void acquireExisting(boolean openStore) {
         try {
             assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
@@ -116,14 +216,23 @@ public final class TargetWorkerSourceStartup {
 
     /** Queues authenticated published download/install in the original bounded CHECKPOINT class. */
     public synchronized void restoreCheckpoint(com.nereusstream.delay.store.CheckpointDownloadRequest request,
+            com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
+            com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
+        if (!ownsCheckpointPin || !checkpointPinConfirmed) throw new IllegalStateException("original owned pin is not confirmed");
+        restoreCheckpoint(request, checkpointPin, checkpointCatalog, downloader, images, protection);
+    }
+
+    public synchronized void restoreCheckpoint(com.nereusstream.delay.store.CheckpointDownloadRequest request,
             com.nereusstream.delay.protocol.RecoveryPin pin, com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
             com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
             com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
         requireCurrent();
-        if (initial != null || initializationRunning || store != null || restoreSubmission != null || checkpointPin != null) {
+        if (initial != null || initializationRunning || store != null || restoreSubmission != null
+                || checkpointPin != null && (checkpointCatalog != catalog || !checkpointPin.equals(pin))) {
             throw new IllegalStateException("original published checkpoint startup cannot be replaced");
         }
         Objects.requireNonNull(request); Objects.requireNonNull(pin); Objects.requireNonNull(catalog);
+        if (ownsCheckpointPin && !checkpointPinConfirmed) throw new IllegalStateException("original pin creation is not confirmed");
         if (!request.manifest().shardId().equals(scope.shard()) || !pin.shard().shardId().equals(scope.shard())
                 || pin.owner().ownerEpoch() != lease.ownerEpoch()
                 || !Bytes.constantTimeEquals(pin.owner().leaseFencingDigest(), lease.leaseToken())
@@ -369,6 +478,7 @@ public final class TargetWorkerSourceStartup {
     }
     public synchronized Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
     public synchronized Optional<Throwable> recoveryCleanupFailure() { return Optional.ofNullable(recoveryCleanupFailure); }
+    public synchronized Optional<Throwable> checkpointPinFailure() { return Optional.ofNullable(checkpointPinFailure); }
     public synchronized boolean activationReady() { return activation != null && !stopping && firstFailure == null; }
     public synchronized void retain(Throwable failure) {
         if (firstFailure == null) firstFailure = failure;
@@ -398,7 +508,7 @@ public final class TargetWorkerSourceStartup {
                         java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) return false;
             }
             if (store != null && !storeClosed) store.fenceForUncleanClose();
-            if (worker != null) worker.quarantineBackendWrites();
+            if (worker != null && failedWorkerExit == null) worker.quarantineBackendWrites();
             if (activation != null) {
                 activation.runtime().fence(); activation.runtime().retryAuthorityCleanup();
                 if (!activation.runtime().authorityIoExited()) return false;
@@ -424,9 +534,13 @@ public final class TargetWorkerSourceStartup {
                 for (var publication : worker.publicationBackendGroups()) {
                     publication.closeBeforeHostBinding(); if (!publication.resourcesTerminated()) return false;
                 }
-                var exited = worker.exitQuarantinedForReplay(request, owner.clock());
-                if (exited.isEmpty()) return false;
-                storeClosed = true; leaseReleased = exited.get().leaseReleased(); ownerLost = exited.get().ownerLost();
+                if (failedWorkerExit == null) {
+                    var exited = worker.exitQuarantinedForReplay(request, owner.clock());
+                    if (exited.isEmpty()) return false;
+                    failedWorkerExit = exited.get();
+                }
+                storeClosed = true; leaseReleased = failedWorkerExit.leaseReleased(); ownerLost = failedWorkerExit.ownerLost();
+                if (!releaseOwnedCheckpointPin()) return false;
                 failedCleanupComplete = true;
                 return true;
             }
@@ -439,6 +553,7 @@ public final class TargetWorkerSourceStartup {
                 if (current.isEmpty() || !lease.sameIdentity(current.get())) ownerLost = true;
                 else if (!(leaseReleased = graph.oxia().providers().leases().release(current.get()))) return false;
             }
+            if (!releaseOwnedCheckpointPin()) return false;
             // An uncertain acquisition remains in the original failure receipt; no successful lease is invented.
             failedCleanupComplete = true;
             return true;
@@ -446,6 +561,28 @@ public final class TargetWorkerSourceStartup {
     }
 
     synchronized boolean failedCleanupComplete() { return failedCleanupComplete; }
+
+    /** Only the original stopped Host can authorize the final pin release before its shared Oxia clients close. */
+    boolean releaseCheckpointPinForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(graph.oxia());
+        synchronized (this) { return releaseOwnedCheckpointPin(); }
+    }
+
+    private boolean releaseOwnedCheckpointPin() {
+        if (!ownsCheckpointPin || checkpointPinReleased) return true;
+        try {
+            final var current = checkpointCatalog.activeRecoveryPin();
+            if (current.isEmpty() || !current.get().equals(checkpointPin)) {
+                // Old protection is gone, including after response loss or a new owner's pin; never delete the successor.
+                checkpointPinReleased = true; return true;
+            }
+            checkpointCatalog.releaseRecoveryPin(checkpointPin);
+            checkpointPinReleased = true; return true;
+        } catch (RuntimeException | Error failure) {
+            if (checkpointPinFailure == null) checkpointPinFailure = failure;
+            return false;
+        }
+    }
 
     private boolean retryRestoreNativeCleanup(Throwable failure, java.util.Set<Throwable> seen) {
         if (!seen.add(failure)) return true;
