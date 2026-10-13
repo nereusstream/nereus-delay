@@ -31,6 +31,7 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
         KafkaClientArtifactTargetTransactionalFactory.Activation, KafkaClientArtifactTargetReceiptAnchor.Protection {
     private final TargetWorkerShardRuntime worker;
     private final OwnerIdentity owner;
+    private final boolean newWork;
     private final TargetChannelIdentity channel;
     private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
     private final TargetKafkaReceiptControlArtifact protection;
@@ -59,6 +60,17 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
             ProfileCatalog profiles, CredentialAttestationTrustSet credentialTrust, CredentialMaterial credentials,
             Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, byte[] activatedSdkJarSha256,
             Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads) {
+        this(worker,owner,channel,catalog,originalProtectionDigest,resource,profiles,credentialTrust,credentials,time,ownerClock,
+                activatedSdkJarSha256,adoptionReads,true);
+    }
+
+    public KafkaClientArtifactTargetReceiptProvider(TargetWorkerShardRuntime worker, OwnerIdentity owner,
+            TargetChannelIdentity channel, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+            byte[] originalProtectionDigest, com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource,
+            ProfileCatalog profiles, CredentialAttestationTrustSet credentialTrust, CredentialMaterial credentials,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier ownerClock, byte[] activatedSdkJarSha256,
+            Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads, boolean newWork) {
+        this.newWork=newWork;
         this.worker = Objects.requireNonNull(worker, "actual Worker");
         this.owner = Objects.requireNonNull(owner, "actual configured Owner");
         this.channel = Objects.requireNonNull(channel, "current registered channel");
@@ -75,8 +87,11 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
         requireWorker();
         protection = catalog.requireActive(resource, channel.context().evidenceGeneration(), originalProtectionDigest);
         protection.protection().requireChannel(channel);
+        worker.requirePublicationChannel(channel,newWork,adoptionReads.get(),ownerClock);
         requireCurrentChannel();
     }
+
+    public com.nereusstream.delay.protocol.TargetKafkaReceiptProtection protection() { return protection.protection(); }
 
     /** Real sample, original CONTROL signature and exact durable reread all precede returning the v6 binding. */
     public CompletableFuture<Optional<TargetKafkaReceiptBinding>> prepareBinding(String targetPhysicalTopic,
@@ -121,6 +136,9 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     @Override
     public OwnerIdentity requireCurrent(TargetChannelIdentity requested, TargetKafkaReceiptBinding receipt, byte[] actualSdkJar) {
         channel.requireExactFrozenIdentity(requested);
+        final var current=worker.requirePublicationChannel(channel,false,adoptionReads.get(),ownerClock);
+        if(!current.id().equals(channel.context().target()))throw new IllegalStateException("SDK opening Target changed actual Source identity");
+        if(newWork)worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock);
         requireSdk(actualSdkJar);
         requireBinding(receipt);
         return requireWorker();
@@ -179,18 +197,20 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     /** Same original frame stays retained on UNKNOWN; native APPLIED adoption is reconciled before any first SEND. */
     public com.nereusstream.delay.ownership.TargetPulsarPublishRuntime.ReceiptPublications publications(
             Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads, Executor io) {
-        Objects.requireNonNull(reads, "finite native adoption read budget"); Objects.requireNonNull(io, "caller bounded I/O executor");
+        Objects.requireNonNull(reads, "finite native adoption read budget");
+        if(!(io instanceof java.util.concurrent.ThreadPoolExecutor pool))throw new IllegalArgumentException("receipt publication requires actual bounded I/O pool");
         return new com.nereusstream.delay.ownership.TargetPulsarPublishRuntime.ReceiptPublications() {
             @Override public CompletableFuture<Void> bind(com.nereusstream.delay.protocol.SystemMutation prepared) {
-                return CompletableFuture.runAsync(() -> {
-                    final var body = TargetPublishAdmissionBody.decode(prepared.canonicalBody());
+                return com.nereusstream.delay.ownership.OwnedCheckpointIo.<Void>submit(guard -> {
+                    guard.run();final var body = TargetPublishAdmissionBody.decode(prepared.canonicalBody());
                     final var anchor = requireBinding(body.kafkaReceipt());
                     if (!body.owner().equals(requireWorker())) { throw new IllegalStateException("prepared receipt use has another live Owner"); }
-                    catalog.bindPrepared(protection, anchor, prepared); requireWorker();
-                }, io);
+                    catalog.bindPrepared(protection, anchor, prepared); requireWorker();guard.run();return null;
+                },()->{},pool).receipt();
             }
             @Override public CompletableFuture<Void> adopt(com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied actual) {
-                return CompletableFuture.runAsync(() -> reconcileAdoption(actual.kafkaMapping(), reads.get()), io);
+                return com.nereusstream.delay.ownership.OwnedCheckpointIo.<Void>submit(guard->{guard.run();
+                    reconcileAdoption(actual.kafkaMapping(),reads.get());guard.run();return null;},()->{},pool).receipt();
             }
         };
     }
@@ -214,6 +234,7 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     private OwnerIdentity requireWorker() { return worker.requirePublicationOwner(owner, ownerClock); }
     private void requireCurrentChannel() {
         requireWorker();
+        worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
         channel.credentialLease().requireActiveAt(Objects.requireNonNull(time.get(), "actual trusted clock interval"));
         final var profile = Objects.requireNonNull(profiles.resolve(channel.credentialLease().profile()), "original destination Profile");
         final var binding = Objects.requireNonNull(profiles.resolveBinding(profile.ref(), channel.credentialLease().secretGeneration()),

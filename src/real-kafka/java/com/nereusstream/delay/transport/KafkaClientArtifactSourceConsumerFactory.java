@@ -26,6 +26,15 @@ public final class KafkaClientArtifactSourceConsumerFactory {
             final String physicalTopic,
             final UUID nativeTopicUuid,
             final int partition) {
+        return create(configuration, authenticatedClusterId, physicalTopic, nativeTopicUuid, partition,
+                java.time.Duration.ofSeconds(30));
+    }
+
+    /** Explicit Target cleanup deadline; failed bind retains this exact native consumer for retry. */
+    public static GuardedConsumer<byte[], byte[]> create(
+            final Map<String, Object> configuration, final String authenticatedClusterId,
+            final String physicalTopic, final UUID nativeTopicUuid, final int partition,
+            final java.time.Duration closeTimeout) {
         final Map<String, Object> sourceConfiguration =
                 new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         sourceConfiguration.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
@@ -42,9 +51,12 @@ public final class KafkaClientArtifactSourceConsumerFactory {
             return guarded;
         } catch (RuntimeException | Error failure) {
             try {
-                nativeConsumer.close();
+                nativeConsumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(closeTimeout));
             } catch (RuntimeException | Error closeFailure) {
-                failure.addSuppressed(closeFailure);
+                final var retained = new KafkaClientArtifactTargetCleanupFailure(failure,
+                        () -> nativeConsumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(closeTimeout)));
+                retained.addSuppressed(closeFailure);
+                throw retained;
             }
             throw failure;
         }

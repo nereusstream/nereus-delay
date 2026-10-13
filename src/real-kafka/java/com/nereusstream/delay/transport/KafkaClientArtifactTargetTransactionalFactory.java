@@ -107,53 +107,97 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
         config.put(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, millis);
         final var opened = new CompletableFuture<KafkaClientArtifactTargetTransactionalTransport>();
         io.execute(() -> {
-            Producer<byte[], byte[]> nativeProducer = null;
             try {
-                final byte[] actualJar = KafkaClientArtifactTargetReceiptReader.requireSdkIdentity();
-                final var owner = Objects.requireNonNull(activation.requireCurrent(channel, receipt, actualJar), "current Owner");
-                if (mapping != null) { activation.requireAdoption(mapping); }
-                nativeProducer = new KafkaProducer<>(config, new ByteArraySerializer(), new ByteArraySerializer());
-                if (!(nativeProducer instanceof GuardedTransactionalProducer<byte[], byte[]> guarded)) {
-                    throw new IllegalStateException("Target K2 requires its locked guarded transactional Producer");
-                }
-                // Actual same-ID SDK initialization resolves/fences the previous Producer epoch.
-                // This completion alone does not certify NOT_PUBLISHED or release the durable Source slot.
-                // No record SEND or auto topic creation: these checks use this same producer's fresh response path.
-                final var target = new ProducerResourceGuard(receipt.receiptResource().authenticatedClusterId(),
-                        receipt.targetPhysicalTopic(), new Uuid(physical.resource().kafka().nativeTopicUuid().getMostSignificantBits(),
-                                physical.resource().kafka().nativeTopicUuid().getLeastSignificantBits()),
-                        Math.toIntExact(physical.physicalPartition()));
-                final var receiptGuard = new ProducerResourceGuard(receipt.receiptResource().authenticatedClusterId(),
-                        receipt.receiptPhysicalTopic(), new Uuid(receipt.receiptResource().receiptTopicUuid().getMostSignificantBits(),
-                                receipt.receiptResource().receiptTopicUuid().getLeastSignificantBits()), receipt.receiptPartition());
-                guarded.requireResourceGuard(target);
-                guarded.requireResourceGuard(receiptGuard);
-                requireOwner(owner, activation.requireCurrent(channel, receipt, actualJar));
-                guarded.initTransactions();
-                guarded.requireResourceGuard(target);
-                guarded.requireResourceGuard(receiptGuard);
-                requireOwner(owner, activation.requireCurrent(channel, receipt, actualJar));
-                final var transport = new KafkaClientArtifactTargetTransactionalTransport(guarded, channel, receipt,
-                        io, reads, protection, limits.operationTimeout(), limits.pollTimeout(),
-                        limits.maximumRecords(), limits.maximumBytes());
-                if (mapping != null) {
-                    transport.installFence(new Fence(mapping, channel, owner, actualJar,
-                            () -> {
-                                requireOwner(owner, activation.requireCurrent(channel, receipt, actualJar));
-                                protection.requireCurrent(mapping, mapping.admission().kafkaReceipt().scanStartOffset());
-                            }));
-                }
+                final var transport = createTransport(mapping, config, reads, physical, channel, receipt, activation,
+                        protection, io, limits, null, null, () -> {});
                 if (!opened.complete(transport)) { transport.close(); }
             } catch (RuntimeException | Error failure) {
-                if (nativeProducer != null) {
-                    try { nativeProducer.close(limits.operationTimeout()); }
-                    catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
-                }
                 opened.completeExceptionally(failure);
                 if (failure instanceof Error fatal) { throw fatal; }
             }
         });
         return opened;
+    }
+
+    /** Production opening owns queue/no-start, original cleanup handle and a pre-reserved SDK generation. */
+    public static com.nereusstream.delay.ownership.OwnedCheckpointIo<KafkaClientArtifactTargetTransactionalTransport> openOwned(
+            TargetKafkaReceiptMapping original, Map<String,Object> producerConfiguration, Map<String,Object> readerConfiguration,
+            CanonicalTargetPartition physical, TargetChannelIdentity channel, TargetKafkaReceiptBinding receipt,
+            Activation activation, KafkaClientArtifactTargetReceiptReader.Protection protection,
+            java.util.concurrent.ThreadPoolExecutor io, Limits limits,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client producerBudget,
+            java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readers) {
+        Objects.requireNonNull(producerBudget,"reserved producer generation"); Objects.requireNonNull(readers,"finite reader generations");
+        if(original!=null){com.nereusstream.delay.protocol.PublishEvidence.requireTargetFencedChannel(original.admission().channel(),channel);}
+        final var config = new HashMap<>(producerConfiguration);
+        final String stable = new String(channel.context().producerIdentity(),StandardCharsets.UTF_8);
+        if(config.containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG)&&!stable.equals(config.get(ProducerConfig.TRANSACTIONAL_ID_CONFIG)))
+            throw new IllegalArgumentException("K2 configuration changes stable producer identity");
+        if(config.containsKey(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG))throw new IllegalArgumentException("K2 forbids transforming interceptors");
+        config.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,stable);config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,true);
+        config.put(ProducerConfig.ACKS_CONFIG,"all");config.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,1);
+        config.put(ProducerConfig.LINGER_MS_CONFIG,0);
+        final int millis=Math.toIntExact(limits.operationTimeout().toMillis());
+        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG,(long)millis);config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG,Math.min(millis,10000));
+        config.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,millis);config.put(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG,millis);
+        final var actualConfig=Map.copyOf(config); final var actualReads=Map.copyOf(readerConfiguration);
+        try {
+            final var opening=com.nereusstream.delay.ownership.OwnedCheckpointIo.submitResource(guard ->
+                    createTransport(original,actualConfig,actualReads,physical,channel,receipt,activation,protection,
+                            io,limits,producerBudget,readers,guard), () -> {}, value -> {
+                try { value.close(); }
+                catch(RuntimeException | Error failure){throw new KafkaClientArtifactTargetCleanupFailure(failure,value::close);}
+            },io);
+            opening.receipt().whenComplete((value,failure)->{
+                if(failure!=null){try{producerBudget.releaseUnstarted();}catch(IllegalStateException started){/* actual native owner retains charge */}}
+            });
+            return opening;
+        } catch(RuntimeException | Error rejected){producerBudget.releaseUnstarted();throw rejected;}
+    }
+
+    private static KafkaClientArtifactTargetTransactionalTransport createTransport(TargetKafkaReceiptMapping mapping,
+            Map<String,Object> config,Map<String,Object> reads,CanonicalTargetPartition physical,TargetChannelIdentity channel,
+            TargetKafkaReceiptBinding receipt,Activation activation,KafkaClientArtifactTargetReceiptReader.Protection protection,
+            Executor io,Limits limits,com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client budget,
+            java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readerBudgets,Runnable guard) {
+        if(channel.context().kind()!=ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                ||physical.resource().kind()!=com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.KAFKA
+                ||!physical.id().equals(channel.context().target())
+                ||!physical.resource().kafka().authenticatedClusterId().equals(receipt.receiptResource().authenticatedClusterId()))
+            throw new IllegalArgumentException("K2 opening changes exact Source Target/cluster/channel");
+        Producer<byte[],byte[]> nativeProducer=null;
+        boolean constructing=false;
+        try {
+            guard.run();final byte[] actualJar=KafkaClientArtifactTargetReceiptReader.requireSdkIdentity();
+            final var owner=Objects.requireNonNull(activation.requireCurrent(channel,receipt,actualJar),"actual current Owner");
+            if(mapping!=null)activation.requireAdoption(mapping);
+            guard.run(); if(budget!=null)budget.beginConstruction();constructing=true;
+            nativeProducer=new KafkaProducer<>(config,new ByteArraySerializer(),new ByteArraySerializer());
+            if(!(nativeProducer instanceof GuardedTransactionalProducer<byte[],byte[]> guarded))throw new IllegalStateException("locked K1 guarded producer required");
+            final var target=new ProducerResourceGuard(receipt.receiptResource().authenticatedClusterId(),receipt.targetPhysicalTopic(),
+                    new Uuid(physical.resource().kafka().nativeTopicUuid().getMostSignificantBits(),physical.resource().kafka().nativeTopicUuid().getLeastSignificantBits()),
+                    Math.toIntExact(physical.physicalPartition()));
+            final var receiptGuard=new ProducerResourceGuard(receipt.receiptResource().authenticatedClusterId(),receipt.receiptPhysicalTopic(),
+                    new Uuid(receipt.receiptResource().receiptTopicUuid().getMostSignificantBits(),receipt.receiptResource().receiptTopicUuid().getLeastSignificantBits()),receipt.receiptPartition());
+            guard.run();guarded.requireResourceGuard(target);guarded.requireResourceGuard(receiptGuard);
+            guard.run();requireOwner(owner,activation.requireCurrent(channel,receipt,actualJar));guarded.initTransactions();
+            guard.run();guarded.requireResourceGuard(target);guarded.requireResourceGuard(receiptGuard);
+            requireOwner(owner,activation.requireCurrent(channel,receipt,actualJar));guard.run();
+            final var transport=new KafkaClientArtifactTargetTransactionalTransport(guarded,channel,receipt,io,reads,protection,
+                    limits.operationTimeout(),limits.pollTimeout(),limits.maximumRecords(),limits.maximumBytes(),budget,readerBudgets);
+            if(mapping!=null)transport.installFence(new Fence(mapping,channel,owner,actualJar,()->{
+                requireOwner(owner,activation.requireCurrent(channel,receipt,actualJar));
+                protection.requireCurrent(mapping,mapping.admission().kafkaReceipt().scanStartOffset());
+            }));
+            return transport;
+        } catch(RuntimeException | Error failure){
+            if(nativeProducer!=null){final var actual=nativeProducer;
+                try{actual.close(limits.operationTimeout());if(budget!=null)budget.closed();}
+                catch(RuntimeException | Error closeFailure){final var held=new KafkaClientArtifactTargetCleanupFailure(failure,()->{
+                    actual.close(limits.operationTimeout());if(budget!=null)budget.closed();});held.addSuppressed(closeFailure);throw held;}}
+            else if(budget!=null){if(constructing)budget.closed();else budget.releaseUnstarted();}
+            throw failure;
+        }
     }
 
     private static void requireOwner(OwnerIdentity expected, OwnerIdentity current) {

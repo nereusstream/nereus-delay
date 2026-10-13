@@ -120,7 +120,7 @@ public final class TargetPublishRecoveryMaintenance {
                 loading = Objects.requireNonNull(history.load(selected), "history future");
                 return new Turn(Status.LOADING, null, null);
             }
-            if (!loading.isDone()) {
+            if (!CheckpointInputFuture.ioExited(loading)) {
                 return new Turn(Status.LOADING, null, null);
             }
             if (!worker.publishRecoveryStillPending(readBudget(), selected, ownerClock)) {
@@ -154,6 +154,10 @@ public final class TargetPublishRecoveryMaintenance {
             return new Turn(Status.FAILED, pending == null ? null : pending.mutation(), failure);
         }
     }
+
+    /** Drain owns only the selected row/loading/Source handoff; it does not start another discovery sweep. */
+    public synchronized boolean pendingForDrain(){return selected!=null||pending!=null||loading!=null&&!CheckpointInputFuture.ioExited(loading);}
+    public synchronized void retryLoadingCleanup(){if(loading!=null)CheckpointInputFuture.retryCleanup(loading);}
 
     public synchronized Optional<SystemMutation> pendingMutation() {
         return pending == null ? Optional.empty() : Optional.of(pending.mutation());

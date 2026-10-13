@@ -90,8 +90,36 @@ public final class KafkaClientArtifactTargetReceiptAnchor {
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         final var future = new CompletableFuture<Optional<Observation>>();
-        Objects.requireNonNull(io, "caller bounded I/O executor").execute(() -> {
-            try {
+        Objects.requireNonNull(io,"caller bounded I/O executor").execute(()->{
+            try{future.complete(sampleNow(config,resource,physicalTopic,physicalPartition,protection,timeout,null,()->{}));}
+            catch(RuntimeException | Error failure){future.completeExceptionally(failure);if(failure instanceof Error fatal)throw fatal;}
+        });
+        return future;
+    }
+
+    /** Production sampler uses the existing finite I/O owner and holds its pre-reserved reader through cleanup. */
+    public static com.nereusstream.delay.ownership.OwnedCheckpointIo<Optional<Observation>> sampleOwned(
+            Map<String,Object> configuration,KafkaReceiptSlotResource resource,String topic,int partition,Protection protection,
+            Duration timeout,java.util.concurrent.ThreadPoolExecutor io,com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client budget) {
+        final var config=new HashMap<>(configuration);
+        config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,false);config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG,"read_committed");
+        config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,"none");config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG,1);
+        config.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG,4096);config.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG,4096);
+        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        if(config.containsKey(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG)||timeout.isNegative()||timeout.isZero()||timeout.compareTo(Duration.ofSeconds(60))>0)
+            throw new IllegalArgumentException("owned anchor requires finite non-transforming configuration");
+        try{
+            final var owned=com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(guard->sampleNow(config,resource,topic,partition,
+                    protection,timeout,budget,guard),()->{},io);
+            owned.receipt().whenComplete((value,failure)->{if(failure!=null){try{budget.releaseUnstarted();}catch(IllegalStateException started){/* native cleanup retains its charge */}}});
+            return owned;
+        }catch(RuntimeException | Error rejected){budget.releaseUnstarted();throw rejected;}
+    }
+    private static Optional<Observation> sampleNow(Map<String,Object> config,KafkaReceiptSlotResource resource,String physicalTopic,
+            int physicalPartition,Protection protection,Duration timeout,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client budget,Runnable guardCheck){
+        guardCheck.run();
                 final var sdk = KafkaClientArtifactTargetReceiptReader.requireSdkIdentity();
                 final var pin = protection.requireProtected(resource, physicalTopic, physicalPartition);
                 Bytes.requireLength(pin, 32, "durable receipt protection digest");
@@ -100,8 +128,11 @@ public final class KafkaClientArtifactTargetReceiptAnchor {
                 final var guard = new ConsumerResourceGuard(resource.authenticatedClusterId(), physicalTopic,
                         new Uuid(id.getMostSignificantBits(), id.getLeastSignificantBits()), physicalPartition);
                 Optional<Observation> result = Optional.empty();
-                try (var consumer = KafkaClientArtifactSourceConsumerFactory.create(config,
-                        resource.authenticatedClusterId(), physicalTopic, id, physicalPartition)) {
+                org.apache.kafka.clients.consumer.GuardedConsumer<byte[],byte[]> consumer=null;
+                boolean constructing=false;
+                try {
+                    guardCheck.run();if(budget!=null)budget.beginConstruction();constructing=true;
+                    consumer=KafkaClientArtifactSourceConsumerFactory.create(config,resource.authenticatedClusterId(),physicalTopic,id,physicalPartition,timeout);
                     final var partition = guard.topicPartition();
                     consumer.assign(List.of(partition));
                     // ListOffsets supplies only a candidate; the guarded Fetch must authenticate the same end.
@@ -120,14 +151,21 @@ public final class KafkaClientArtifactTargetReceiptAnchor {
                         result = Optional.of(new Observation(resource, physicalTopic, physicalPartition,
                                 candidate, pin, response, sdk));
                     }
+                } catch(RuntimeException | Error failure){
+                    if(consumer==null){
+                        if(failure instanceof KafkaClientArtifactTargetCleanupFailure held){
+                            throw new KafkaClientArtifactTargetCleanupFailure(held,()->{held.retryClose();if(budget!=null)budget.closed();});
+                        }
+                        if(budget!=null){if(constructing)budget.closed();else budget.releaseUnstarted();}
+                    }
+                    throw failure;
+                } finally {
+                    if(consumer!=null){final var actual=consumer;
+                        try{actual.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(budget!=null)budget.closed();}
+                        catch(RuntimeException | Error failure){throw new KafkaClientArtifactTargetCleanupFailure(failure,()->{
+                            actual.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(budget!=null)budget.closed();});}}
                 }
                 protection.requireCurrent(pin, resource, physicalTopic, physicalPartition, sdk);
-                future.complete(result);
-            } catch (RuntimeException | Error failure) {
-                future.completeExceptionally(failure);
-                if (failure instanceof Error fatal) { throw fatal; }
-            }
-        });
-        return future;
+                return result;
     }
 }

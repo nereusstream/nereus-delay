@@ -768,3 +768,23 @@ BROKEN 的原 bytes 仍可审计，但不授予当前 SEND 或 absence 权。Flo
 本批源码编译通过，不代表全部包1/29切片完成。完整服务启动配置、物理资源/I/O关闭、
 最大状态 envelope、Broker 与跨进程恢复、测试/style/docs 仍开放或集中后置；未改当前生产
 配置，未执行迁移/删除/保护解除。全部 completion 与 production authority flags 不提升。
+
+
+2026-10-13 SDK启动/关闭接线：KafkaClientArtifactTargetReceiptRuntime使用实际Source-applied
+当前channel slot、immutable identity及Target；新初始化要求当前generation，cold模式允许
+当前STOPPED scope恢复已存在mapping，但不授普通SEND。已拥有的receipt使用retained
+identity/producer domain，不因后续STOP/renewal删除原数据。实际provider/CONTROL root仍是
+签发和current resource/profile/credential/SDK检查来源，纯Settings不授权限。
+
+同Worker SDK pool的finite vector覆盖connections/producers/threads/FD/buffer/direct/other
+native；构造前预留，timeout/取消view/失败close不释放。创建后失权/未transfer关闭原SDK，
+失败携私有handle与可重试cleanup；receipt与cold reader沿同池，original mapping/scanStart
+不变。设置加载明确operation/poll/records/bytes/broker/buffer/physical bounds和完整SDK
+成本，不取无限sentinel或未知项。broker拓扑/SDK内存真实envelope仍须集中实测/验证。
+
+transaction关闭序列化queued no-start和实际running I/O；running reader未退出不冒称close
+完成。producer和reader实际退出后才完成原悬挂physical UNKNOWN stage；SDK客户端费用
+与单请求physical charge分别保持。Host先结清retained recovery/pub/Source，后等待原SDK
+关闭、physical window为空才注销channel，再做final checkpoint/Store/Owner drain。原
+CONTROL Admin/shared executor属于其原owner；关闭SDK不解除catalog保护、staging、
+原Attempt/ref或删除任何资源。全服务/多通道生产配置和集中验收继续开放。

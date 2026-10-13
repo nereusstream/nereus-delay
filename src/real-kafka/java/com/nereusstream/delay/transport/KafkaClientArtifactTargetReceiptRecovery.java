@@ -57,6 +57,14 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
             KafkaClientArtifactTargetTransactionalTransport resource, Map<String, Object> readerConfiguration,
             KafkaClientArtifactTargetReceiptReader.Protection protection,
             KafkaClientArtifactTargetTransactionalFactory.Limits limits, int maximumTurns) {
+        this(mapping,resource,readerConfiguration,protection,limits,maximumTurns,null);
+    }
+
+    public KafkaClientArtifactTargetReceiptRecovery(TargetKafkaReceiptMapping mapping,
+            KafkaClientArtifactTargetTransactionalTransport resource, Map<String, Object> readerConfiguration,
+            KafkaClientArtifactTargetReceiptReader.Protection protection,
+            KafkaClientArtifactTargetTransactionalFactory.Limits limits, int maximumTurns,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client readerBudget) {
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
         if (maximumTurns <= 0) { throw new IllegalArgumentException("recovery requires a finite positive turn bound"); }
         this.maximumTurns = maximumTurns;
@@ -67,9 +75,12 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
         };
         rights.run();
         lastNextOffset = mapping.admission().kafkaReceipt().scanStartOffset();
-        reader = new KafkaClientArtifactTargetReceiptReader(readerConfiguration, mapping,
-                (actual, offset) -> { fence.requireCurrent(actual); protection.requireCurrent(actual, offset); },
-                limits.pollTimeout(), limits.maximumRecords(), limits.maximumBytes(), true);
+        try {reader=new KafkaClientArtifactTargetReceiptReader(readerConfiguration,mapping,
+                (actual,offset)->{fence.requireCurrent(actual);protection.requireCurrent(actual,offset);},
+                limits.pollTimeout(),limits.maximumRecords(),limits.maximumBytes(),true,readerBudget);}
+        catch(RuntimeException | Error failure){if(readerBudget!=null&&!readerBudget.released()){
+            try{readerBudget.releaseUnstarted();}catch(IllegalStateException held){/* failed native close retains its original owner */}}
+            throw failure;}
     }
 
     public synchronized Turn runTurn() {
@@ -162,5 +173,6 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
     }
 
     public synchronized Optional<Observation> observation() { return Optional.ofNullable(observation); }
+    public synchronized boolean closeCompleted(){return closed&&reader.closeCompleted();}
     @Override public synchronized void close() { closed = true; reader.close(); }
 }

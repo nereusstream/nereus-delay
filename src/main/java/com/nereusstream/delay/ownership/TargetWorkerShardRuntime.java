@@ -152,6 +152,44 @@ public final class TargetWorkerShardRuntime
         return shardId;
     }
 
+    public synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requirePublicationChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel, boolean newWork, BoundedReadBudget reads, LongSupplier clock) {
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.requirePublicationChannel(channel,newWork,reads,clock);
+    }
+
+    public synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requireRetainedPublicationChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel,BoundedReadBudget reads,LongSupplier clock) {
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.requireRetainedPublicationChannel(channel,reads,clock);
+    }
+
+    public synchronized com.nereusstream.delay.protocol.TargetQuotaAccounting readPublicationAccounting(
+            BoundedReadBudget reads,com.nereusstream.delay.protocol.TargetChannelIdentity channel,LongSupplier clock) {
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();return target.readPublicationAccounting(reads,channel,clock);
+    }
+
+    public interface PublicationResources {
+        boolean settleClose();
+        boolean closed();
+        boolean readyForPublishing();
+    }
+    private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
+    public synchronized void registerPublicationResources(String identity,PublicationResources owner,
+            TargetDestinationSdkBudget budget,LongSupplier clock) {
+        requirePublishRecoveryOwner(clock);budget.requireWorker(workClasses,resources);
+        publicationResources.entrySet().removeIf(entry->entry.getValue().closed());
+        if(publicationResources.size()>=budget.maximumClients()||publicationResources.putIfAbsent(identity,Objects.requireNonNull(owner))!=null)
+            throw new IllegalStateException("publication resource generation is already owned or its window is exhausted");
+    }
+    @Override public synchronized Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){
+        for(var entry:publicationResources.entrySet()){
+            if(!entry.getValue().settleClose())return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                    "target-publication-resources/"+entry.getKey(),1));
+        }
+        return Optional.empty();
+    }
+
     /** Actual native Store/Source/Oxia assignment-session guard for external publication resources; never SEND permission. */
     public synchronized com.nereusstream.delay.protocol.OwnerIdentity requirePublicationOwner(
             com.nereusstream.delay.protocol.OwnerIdentity expected, LongSupplier clock) {
@@ -612,6 +650,10 @@ public final class TargetWorkerShardRuntime
     void requirePublishingStartupClosure() {
         final var runtime = Objects.requireNonNull(publishRuntime, "configured Target publisher");
         runtime.requireConfiguredEndpoints();
+        if(runtime.hasKafkaReceiptEndpoint() && (publicationResources.values().stream().noneMatch(owner->!owner.closed()&&owner.readyForPublishing())
+                ||publicationResources.values().stream().anyMatch(owner->!owner.closed()&&!owner.readyForPublishing()))) {
+            throw new IllegalStateException("K2 Claim startup requires actual SDK resource ownership");
+        }
         if (runtime.requiresJournal()) {
             Objects.requireNonNull(journalSettlement, "configured retained Source/Journal cleanup");
         }
@@ -1196,6 +1238,8 @@ public final class TargetWorkerShardRuntime
         if (journalSettlement != null && !journalSettlement.completedForSource(store.shardMutationSequence())) {
             throw new IllegalStateException("Target Worker cannot pause an unfinished Journal settlement sweep");
         }
+        if(publicationResources.values().stream().anyMatch(owner->!owner.closed()))
+            throw new IllegalStateException("Target Worker cannot pause live publication resources");
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
     }
@@ -1226,7 +1270,19 @@ public final class TargetWorkerShardRuntime
     public Optional<WorkClassTask> settlePendingPublicationForDrain(final SchedulerBudget workBudget,
             final SchedulerBudget sourceBudget, final LongSupplier clock) {
         final var publisher = publishRuntime;
-        if (publisher == null || publisher.available()) { return settleJournalForDrain(clock); }
+        if (publisher == null || publisher.available()) {
+            final var recovery=publishRecoveryMaintenance;
+            if(recovery!=null&&recovery.pendingForDrain()){
+                recovery.retryLoadingCleanup();final var loaded=recovery.runTurn();
+                if(loaded.failure()!=null)throw new IllegalStateException("retained recovery could not settle",loaded.failure());
+                workClasses.runTurn(workBudget);
+                synchronized(this){requireNewTurnsAdmitted();if(sourceLoop.pendingEntry().isPresent())sourceLoop.settlePendingEntry(sourceBudget,clock);
+                    else sourceLoop.runTurn(sourceBudget,clock);}
+                if(recovery.pendingForDrain())return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                        "target-recovery-drain/"+shardId,1));
+            }
+            return settleJournalForDrain(clock);
+        }
         final var turn = publisher.runTurn();
         if (turn.failure() != null) { throw new IllegalStateException("retained publication could not settle", turn.failure()); }
         if (publisher.available()) { return settleJournalForDrain(clock); }

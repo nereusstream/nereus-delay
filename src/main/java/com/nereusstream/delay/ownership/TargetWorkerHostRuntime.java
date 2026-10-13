@@ -77,6 +77,8 @@ public final class TargetWorkerHostRuntime {
         default Optional<WorkClassTask> settlePendingPublicationForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
 
+        default Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){return Optional.empty();}
+
         default boolean canPublishFinalCheckpoint() { return true; }
 
         default long checkpointStoreSequence() { return 0; }
@@ -1355,6 +1357,9 @@ public final class TargetWorkerHostRuntime {
                         return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE, sourceTurn, null, null, null);
                     }
                 }
+                final var resources=shard.settlePendingPublicationResourcesForDrain();
+                if(resources.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_PUBLICATION,sourceTurn,
+                        null,null,null,null,null,resources.orElseThrow());
                 if (finalCheckpointOnDrain && shard.canPublishFinalCheckpoint()) {
                     final var gc = shard.settlePendingGcForDrain(request.gcBudget());
                     if (gc.isPresent()) {

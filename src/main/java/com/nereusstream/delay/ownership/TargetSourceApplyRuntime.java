@@ -960,6 +960,59 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(Objects.requireNonNull(ownerClock, "ownerClock"));
     }
 
+    synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requirePublicationChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel, boolean newWork, BoundedReadBudget reads, LongSupplier clock) {
+        return readPublicationChannel(channel,newWork,false,reads,clock);
+    }
+    synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requireRetainedPublicationChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel,BoundedReadBudget reads,LongSupplier clock) {
+        return readPublicationChannel(channel,false,true,reads,clock);
+    }
+    private com.nereusstream.delay.protocol.CanonicalTargetPartition readPublicationChannel(
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel,boolean newWork,boolean retained,
+            BoundedReadBudget reads,LongSupplier clock) {
+        requireGcOwner(clock);
+        final var actual=backend.guardedRead(reads,reader->{
+            final var slot=com.nereusstream.delay.runtime.TargetChannelControlVerifier.readSlot(reader,channel,lineage);
+            if(slot==null)throw new IllegalStateException("publication startup lacks its actual APPLIED channel lifecycle");
+            if(newWork)slot.requireNewWork(channel);
+            else if(!retained)slot.channel().requireExactFrozenIdentity(channel);
+            else {
+                if(!java.util.Arrays.equals(slot.channel().context().producerIdentity(),channel.context().producerIdentity())
+                        ||Long.compareUnsigned(slot.channel().context().channelGeneration(),channel.context().channelGeneration())<0)
+                    throw new IllegalStateException("retained channel changed its Source stable producer scope");
+                final byte[] old=reader.get(com.nereusstream.delay.store.ColumnFamily.META,channel.encodedKey());
+                if(old==null||!java.util.Arrays.equals(com.nereusstream.delay.store.TargetValueEnvelope.decode(old,
+                        com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE).payload(),channel.canonicalBytes()))
+                    throw new IllegalStateException("retained channel lacks its exact immutable Source identity");
+            }
+            final byte[] key=com.nereusstream.delay.store.TargetKeyCodec.identity(channel.context().target());
+            final byte[] raw=reader.get(com.nereusstream.delay.store.ColumnFamily.META,key);
+            if(raw==null)throw new IllegalStateException("publication channel lacks its actual Target identity");
+            final var physical=com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(key,
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE).payload());
+            reader.requireWithinElapsedBudget();return physical;
+        },workerReads(clock));
+        requireGcOwner(clock);return actual;
+    }
+
+    synchronized com.nereusstream.delay.protocol.TargetQuotaAccounting readPublicationAccounting(
+            BoundedReadBudget reads,com.nereusstream.delay.protocol.TargetChannelIdentity channel,LongSupplier clock) {
+        requireGcOwner(clock);
+        final var result=backend.guardedRead(reads,reader->{
+            final var id=new com.nereusstream.delay.protocol.TargetQuotaIdentity(com.nereusstream.delay.protocol.TargetQuotaIdentity.Kind.TARGET,
+                    scope.shard(),channel.context().accountingIncarnation(),channel.context().target(),null);
+            final byte[] key=id.key();key[0]=com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final byte[] raw=reader.get(com.nereusstream.delay.store.ColumnFamily.META,key);
+            if(raw==null)throw new IllegalStateException("publication has no frozen Target accounting descriptor");
+            final var owner=com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(key,
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                    scope.shard(),scope.tenantScope());
+            if(!java.util.Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("publication accounting lineage changed");
+            owner.latestMutation().requireAtOrBefore(reader.aggregate().mutation());reader.requireWithinElapsedBudget();return owner.accounting();
+        },workerReads(clock));requireGcOwner(clock);return result;
+    }
+
     synchronized OwnerIdentity requirePublicationOwner(OwnerIdentity expected, LongSupplier clock) {
         requireGcOwner(clock);
         if (Objects.requireNonNull(expected, "configured publication Owner").ownerEpoch() != lease.ownerEpoch()

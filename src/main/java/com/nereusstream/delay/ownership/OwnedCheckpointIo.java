@@ -10,6 +10,7 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     private final Function<Runnable, T> operation;
     private final Runnable guard;
     private final ThreadPoolExecutor executor;
+    private final java.util.function.Consumer<T> discard;
     private final CompletableFuture<T> receipt = new CompletableFuture<>();
     private final CheckpointInputFuture<T> view = CheckpointInputFuture.track(receipt, this::requestStop,
             this::retryCleanup, this::cleanupIdle);
@@ -27,19 +28,39 @@ public final class OwnedCheckpointIo<T> implements Runnable {
                 || pool.getRejectedExecutionHandler().getClass() != ThreadPoolExecutor.AbortPolicy.class) {
             throw new IllegalArgumentException("checkpoint executor requires finite threads/queue and AbortPolicy");
         }
+        return submitResource(operation, guard, null, pool);
+    }
+
+    /** A newly opened native value must be closed if the final guard/stop rejects transfer to its caller. */
+    public static <T> OwnedCheckpointIo<T> submitResource(Function<Runnable, T> operation, Runnable guard,
+            java.util.function.Consumer<T> discard, ThreadPoolExecutor pool) {
+        Objects.requireNonNull(pool, "executor");
+        if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
+                || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
+                || pool.getRejectedExecutionHandler().getClass() != ThreadPoolExecutor.AbortPolicy.class) {
+            throw new IllegalArgumentException("owned I/O requires finite threads/queue and AbortPolicy");
+        }
         final var owned = new OwnedCheckpointIo<>(Objects.requireNonNull(operation, "operation"),
-                Objects.requireNonNull(guard, "guard"), pool);
+                Objects.requireNonNull(guard, "guard"), pool, discard);
         pool.execute(owned);
         return owned;
     }
 
-    private OwnedCheckpointIo(Function<Runnable, T> operation, Runnable guard, ThreadPoolExecutor executor) {
+    private OwnedCheckpointIo(Function<Runnable, T> operation, Runnable guard, ThreadPoolExecutor executor,
+            java.util.function.Consumer<T> discard) {
         this.operation = operation;
         this.guard = guard;
         this.executor = executor;
+        this.discard = discard;
     }
 
     public CompletableFuture<T> receipt() { return view.copy(); }
+
+    /** Actual retained success, even if a detached receipt was cancelled; used to close an untransferred SDK. */
+    public java.util.Optional<T> completedValue() {
+        if (!receipt.isDone() || receipt.isCompletedExceptionally()) { return java.util.Optional.empty(); }
+        return java.util.Optional.ofNullable(receipt.join());
+    }
 
     public synchronized boolean ioExited() { return exited && view.ioExited(); }
 
@@ -107,8 +128,13 @@ public final class OwnedCheckpointIo<T> implements Runnable {
             if (stopping && failure == null) {
                 failure = new IllegalStateException("checkpoint input I/O stop requested");
             }
-            exited = true;
+            if(failure==null)exited=true;
         }
+        if (failure != null && value != null && discard != null) {
+            try { discard.accept(value); }
+            catch (Throwable cleanup) { if(cleanup!=failure)cleanup.addSuppressed(failure); failure = cleanup; }
+        }
+        synchronized (this) { exited = true; }
         if (failure == null) { receipt.complete(value); }
         else { receipt.completeExceptionally(failure); }
     }

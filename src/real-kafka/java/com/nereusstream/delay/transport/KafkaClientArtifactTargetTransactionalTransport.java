@@ -45,12 +45,32 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     private volatile KafkaClientArtifactTargetReceiptReader.Observation observation;
     private volatile Throwable firstFailure;
     private KafkaClientArtifactTargetTransactionalFactory.Fence fence;
+    private final com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client producerBudget;
+    private final java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readerBudgets;
+    private Pending pending;
+    private boolean producerCloseCompleted;
+    private static final class Pending {
+        final CompletableFuture<DestinationPublishResult> result=new CompletableFuture<>();
+        boolean started, exited;
+        KafkaClientArtifactTargetReceiptReader reader;
+        KafkaClientArtifactTargetCleanupFailure cleanup;
+    }
 
     // Factory-only construction follows actual initTransactions and independent channel/resource authority.
     KafkaClientArtifactTargetTransactionalTransport(GuardedTransactionalProducer<byte[], byte[]> producer,
             TargetChannelIdentity channel, TargetKafkaReceiptBinding receipt, Executor io,
             Map<String, Object> readerConfiguration, KafkaClientArtifactTargetReceiptReader.Protection protection,
             Duration operationTimeout, Duration pollTimeout, int maximumRecords, int maximumBytes) {
+        this(producer,channel,receipt,io,readerConfiguration,protection,operationTimeout,pollTimeout,maximumRecords,maximumBytes,null,null);
+    }
+
+    KafkaClientArtifactTargetTransactionalTransport(GuardedTransactionalProducer<byte[], byte[]> producer,
+            TargetChannelIdentity channel, TargetKafkaReceiptBinding receipt, Executor io,
+            Map<String, Object> readerConfiguration, KafkaClientArtifactTargetReceiptReader.Protection protection,
+            Duration operationTimeout, Duration pollTimeout, int maximumRecords, int maximumBytes,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client producerBudget,
+            java.util.function.Supplier<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> readerBudgets) {
+        this.producerBudget=producerBudget; this.readerBudgets=readerBudgets;
         this.producer = Objects.requireNonNull(producer, "initialized guarded producer");
         this.channel = Objects.requireNonNull(channel, "activated channel");
         this.receipt = Objects.requireNonNull(receipt, "protected receipt resource");
@@ -73,13 +93,15 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
             TargetOrdinaryPublishRequest request, TargetOrdinaryPublishPreflight gate) {
         requireRequest(Objects.requireNonNull(request, "actual Source request"));
         Objects.requireNonNull(gate, "last ownership gate");
-        if (closed.get() || !busy.compareAndSet(false, true)) {
-            return CompletableFuture.completedFuture(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+        final Pending accepted;
+        synchronized(this){
+            if(closed.get()||!busy.compareAndSet(false,true))return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE,null));
+            accepted=new Pending();pending=accepted;
         }
-        final var result = new CompletableFuture<DestinationPublishResult>();
-        try { io.execute(() -> send(request, gate, result)); }
-        catch (RuntimeException | Error rejected) { busy.set(false); throw rejected; }
-        return result;
+        try{io.execute(()->send(request,gate,accepted));}
+        catch(RuntimeException | Error rejected){synchronized(this){accepted.exited=true;busy.set(false);}throw rejected;}
+        return accepted.result.copy();
     }
 
     private void requireRequest(TargetOrdinaryPublishRequest request) {
@@ -99,9 +121,15 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     }
 
     private void send(TargetOrdinaryPublishRequest request, TargetOrdinaryPublishPreflight gate,
-            CompletableFuture<DestinationPublishResult> result) {
-        boolean transaction = false;
+            Pending accepted) {
+        synchronized(this){
+            if(accepted.exited)return;
+            accepted.started=true;
+        }
+        boolean transaction=false;
+        DestinationPublishResult outcome=null;
         try {
+            if(closed.get()){outcome=unknown();return;}
             requireRequest(request);
             observation = null;
             final var mapping = request.applied().kafkaMapping();
@@ -116,15 +144,15 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
             final var record = new ProducerRecord<>(binding.receiptPhysicalTopic(), binding.receiptPartition(),
                     null, TargetKafkaReceiptWire.key(mapping), TargetKafkaReceiptWire.value(mapping));
             var denied = gate.check(request);
-            if (denied != null) { result.complete(denied); return; }
+            if (denied != null) { outcome=denied; return; }
             producer.beginTransaction();
             transaction = true;
             denied = gate.check(request);
-            if (denied != null) { producer.abortTransaction(); result.complete(denied); return; }
+            if (denied != null) { producer.abortTransaction(); outcome=denied; return; }
             final long deadline = System.nanoTime() + operationTimeout.toNanos();
             final var target = producer.sendGuardedInTransaction(business, targetGuard);
             denied = gate.check(request);
-            if (denied != null) { producer.abortTransaction(); result.complete(unknown()); return; }
+            if (denied != null) { producer.abortTransaction(); outcome=unknown(); return; }
             final var receiptSend = producer.sendGuardedInTransaction(record, receiptGuard);
             final var targetAck = await(target, deadline);
             final var receiptAck = await(receiptSend, deadline);
@@ -139,8 +167,14 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
             // The callbacks and successful EndTxn alone do not prove committed visibility.
             // A new reader searches from durable Source mapping, never from callback receiptOffset.
             KafkaClientArtifactTargetReceiptReader.Observation published = null;
-            try (var reader = new KafkaClientArtifactTargetReceiptReader(readerConfiguration, mapping, protection,
-                    pollTimeout, maximumRecords, maximumBytes)) {
+            final var reserved=readerBudgets==null?null:readerBudgets.get();
+            try{accepted.reader=new KafkaClientArtifactTargetReceiptReader(readerConfiguration,mapping,protection,
+                    pollTimeout,maximumRecords,maximumBytes,false,reserved);}
+            catch(RuntimeException | Error failure){if(reserved!=null&&!reserved.released()){
+                try{reserved.releaseUnstarted();}catch(IllegalStateException held){/* started client retains its native cleanup handle */}}
+                throw failure;}
+            final var reader=accepted.reader;
+            try {
                 final long readDeadline = System.nanoTime() + operationTimeout.toNanos();
                 while (System.nanoTime() < readDeadline) {
                     final var turn = reader.runTurn();
@@ -153,28 +187,36 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
                         break;
                     }
                 }
-            }
-            if (published == null) { result.complete(unknown()); }
+            } finally { reader.close(); accepted.reader=null; }
+            if (published == null) { outcome=unknown(); }
             else {
                 observation = published;
                 protection.requireCurrent(mapping, published.nextOffset());
-                result.complete(DestinationPublishResult.published(p.physical().resource(),
+                outcome=DestinationPublishResult.published(p.physical().resource(),
                         Math.toIntExact(p.physical().physicalPartition()), p.publishAttemptId(),
-                        targetAck.responseEvidence().logAppendTimeMs(), published.evidence().canonicalBytes()));
+                        targetAck.responseEvidence().logAppendTimeMs(), published.evidence().canonicalBytes());
             }
         } catch (Exception | Error failure) {
-            firstFailure = failure;
+            firstFailure=failure;
+            if(failure instanceof KafkaClientArtifactTargetCleanupFailure held)accepted.cleanup=held;
             // A partial SEND, failed abort or lost EndTxn response retains Source mapping/slot and becomes UNKNOWN.
             // Close the actual SDK before reporting physical completion. Failed teardown leaves the stage unresolved.
             if (transaction) {
                 try { producer.abortTransaction(); }
                 catch (RuntimeException | Error abortFailure) { failure.addSuppressed(abortFailure); }
             }
-            try { close(); result.complete(unknown()); }
-            catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+            try { closeProducer(); }
+            catch(RuntimeException | Error closeFailure){failure.addSuppressed(closeFailure);}
+            outcome=unknown();
             if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
             if (failure instanceof Error fatal) { throw fatal; }
-        } finally { busy.set(false); }
+        } finally {
+            if(accepted.reader!=null){try{accepted.reader.close();accepted.reader=null;}
+                catch(RuntimeException | Error held){if(firstFailure==null)firstFailure=held;}}
+            synchronized(this){accepted.exited=true;busy.set(false);}
+            if(outcome!=null && accepted.reader==null && accepted.cleanup==null
+                    && (firstFailure==null || producerCloseCompleted))accepted.result.complete(outcome);
+        }
     }
 
     /** Actual private guarded read for the independent Outcome/Artifact/retention authority. */
@@ -228,10 +270,26 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
     private static Uuid uuid(java.util.UUID id) { return new Uuid(id.getMostSignificantBits(), id.getLeastSignificantBits()); }
     private static DestinationPublishResult unknown() { return DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null); }
 
-    @Override
-    public void close() {
+    private synchronized void closeProducer() {
         closed.set(true);
-        // Retrying a previously failed close is permitted; a failure never grants a new SEND.
-        producer.close(operationTimeout);
+        if(!producerCloseCompleted){producer.close(operationTimeout);producerCloseCompleted=true;}
+        if(producerBudget!=null)producerBudget.closed();
+    }
+    /** Close fences queued work; it never marks a running consumer or its physical stage complete early. */
+    @Override public void close() {
+        final Pending retained;
+        synchronized(this){closed.set(true);retained=pending;
+            if(retained!=null&&!retained.started&&!retained.exited){retained.exited=true;busy.set(false);retained.result.complete(unknown());}}
+        closeProducer();
+        if(retained!=null){
+            synchronized(this){if(!retained.exited)throw new IllegalStateException("Target transaction I/O is still running");}
+            if(retained.reader!=null){retained.reader.close();retained.reader=null;}
+            if(retained.cleanup!=null){retained.cleanup.retryClose();retained.cleanup=null;}
+            retained.result.complete(unknown());
+        }
+    }
+    public synchronized boolean closeCompleted(){
+        return producerCloseCompleted&&(producerBudget==null||producerBudget.released())
+                &&(pending==null||pending.exited&&pending.reader==null&&pending.cleanup==null);
     }
 }

@@ -262,6 +262,7 @@ public final class TargetPulsarPublishRuntime {
         } else { kafkaPublisher = endpoint; }
     }
 
+    boolean hasKafkaReceiptEndpoint(){return kafkaPublisher!=null;}
     boolean supportsNative() { return publisher != null; }
     boolean requiresJournal() { return publisher != null; }
 

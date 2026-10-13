@@ -2196,3 +2196,14 @@ schema4 companion 加入完整实际外部对象；Store 锁外重新读取、�
 bytes，实际长度不由 counter/total/aggregate 宣称。已保留对象的 Floor/retirement、旧 writer
 闭合和真实 external deletion 尚在包2/4，当前拒绝无证据释放。字段和签名域见
 PROTOCOL-REGISTRY，具体调用链见07。当前只通过 main/locked K1 SDK编译，验收统一后置。
+
+
+2026-10-13 SDK physical envelope开发：TargetDestinationSdkBudget是独立Worker SDK费用
+窗口，不加入Target logical aggregate。窗口作为fixed cost与其它fixed SDK（包括system
+writer generations）及actual Shard committed envelopes共同对hard caps检查；同WorkClass
+图唯一实例。client分配前预留完整finite vector，other-native部分复用native ledger；
+排队已证实no-start可退回，SDK构造/close后失败保留原handle与窗口直到actual close。
+producer、sampler/receipt/cold reader分别计其实际独立客户端，不以Future取消、Source
+Outcome resolved或Owner退出抵消费用。physical request/zombie与SDK client generation
+不是同一费用：单请求退出不等于客户端关闭，客户端关闭不等于原durable义务释放。
+配置额度未实测为容量/性能结论；原EVIDENCE/STATE与51–55归属不改。

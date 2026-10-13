@@ -56,6 +56,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
 
     private final TargetKafkaReceiptMapping mapping;
     private final GuardedConsumer<byte[], byte[]> consumer;
+    private final com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client sdkBudget;
     private final ConsumerResourceGuard guard;
     private final TopicPartition partition;
     private final Protection protection;
@@ -84,6 +85,15 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
             final TargetKafkaReceiptMapping mapping, final Protection protection,
             final Duration timeout, final int maximumRecords, final int maximumBytes,
             final boolean freezeRecoveryUpperBound) {
+        this(configuration,mapping,protection,timeout,maximumRecords,maximumBytes,freezeRecoveryUpperBound,null);
+    }
+
+    KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
+            final TargetKafkaReceiptMapping mapping, final Protection protection,
+            final Duration timeout, final int maximumRecords, final int maximumBytes,
+            final boolean freezeRecoveryUpperBound,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client sdkBudget) {
+        this.sdkBudget = sdkBudget;
         sdkJarSha256 = requireSdkIdentity();
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
         this.protection = Objects.requireNonNull(protection, "protected read authority");
@@ -115,14 +125,23 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         config.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, maximumBytes);
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-        consumer = KafkaClientArtifactSourceConsumerFactory.create(config, resource.authenticatedClusterId(),
-                receipt.receiptPhysicalTopic(), resource.receiptTopicUuid(), receipt.receiptPartition());
+        GuardedConsumer<byte[],byte[]> created=null;
+        boolean constructing=false;
         try {
-            consumer.assign(List.of(partition));
-            consumer.seek(partition, nextOffset);
-            protection.requireCurrent(mapping, nextOffset);
-        } catch (RuntimeException | Error failure) {
-            try { consumer.close(); } catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+            if(sdkBudget!=null)sdkBudget.beginConstruction();constructing=true;
+            created=KafkaClientArtifactSourceConsumerFactory.create(config,resource.authenticatedClusterId(),
+                    receipt.receiptPhysicalTopic(),resource.receiptTopicUuid(),receipt.receiptPartition(),timeout);
+            created.assign(List.of(partition));created.seek(partition,nextOffset);
+            protection.requireCurrent(mapping,nextOffset);
+            consumer=created;
+        } catch(RuntimeException | Error failure){
+            if(created!=null){final var retained=created;
+                try{retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(sdkBudget!=null)sdkBudget.closed();}
+                catch(RuntimeException | Error closeFailure){final var held=new KafkaClientArtifactTargetCleanupFailure(failure,()->{
+                    retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(sdkBudget!=null)sdkBudget.closed();});held.addSuppressed(closeFailure);throw held;}}
+            else if(failure instanceof KafkaClientArtifactTargetCleanupFailure cleanup){
+                throw new KafkaClientArtifactTargetCleanupFailure(cleanup,()->{cleanup.retryClose();if(sdkBudget!=null)sdkBudget.closed();});
+            }else if(sdkBudget!=null){if(constructing)sdkBudget.closed();else sdkBudget.releaseUnstarted();}
             throw failure;
         }
     }
@@ -276,8 +295,10 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     }
 
     public synchronized Optional<Observation> observation() { return Optional.ofNullable(observed); }
+    public synchronized boolean closeCompleted(){return closeCompleted&&(sdkBudget==null||sdkBudget.released());}
     @Override public synchronized void close() {
         closed = true;
-        if (!closeCompleted) { consumer.close(); closeCompleted = true; }
+        if (!closeCompleted) { consumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout)); closeCompleted = true; }
+        if(sdkBudget!=null)sdkBudget.closed();
     }
 }

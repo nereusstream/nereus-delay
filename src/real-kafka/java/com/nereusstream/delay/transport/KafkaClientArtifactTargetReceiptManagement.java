@@ -158,27 +158,16 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         trust.requireIssuerSignature(TargetKafkaReceiptControlArtifact.signProtection(protection.protection(),
                 protection.control(), protection.authorizedAt(), originalControlKey));
         requireCurrent(protection.protection(), protection.control(), protection.authorizedAt());
-        return (actual, targetPhysicalTopic) -> {
-            final var published = new CompletableFuture<com.nereusstream.delay.protocol.TargetKafkaReceiptBinding>();
-            io.execute(() -> {
-                try {
-                    requireCurrent(protection.protection(), protection.control(), protection.authorizedAt());
-                    if (!Arrays.equals(actual.protectionDigest(), protection.digest())) {
-                        throw new IllegalArgumentException("actual sample belongs to another original protected epoch");
-                    }
-                    final var binding = actual.binding(targetPhysicalTopic, protection.protection().slotsPerShard());
-                    final var signed = TargetKafkaReceiptControlArtifact.signAnchor(actual.canonicalBytes(), protection.digest(),
-                            protection.control(), protection.authorizedAt(), originalControlKey);
-                    catalog.publishAnchor(signed, protection, binding);
-                    requireCurrent(protection.protection(), protection.control(), protection.authorizedAt());
-                    published.complete(binding);
-                } catch (RuntimeException | Error failure) {
-                    published.completeExceptionally(failure);
-                    if (failure instanceof Error fatal) { throw fatal; }
-                }
-            });
-            return published;
-        };
+        if(!(io instanceof java.util.concurrent.ThreadPoolExecutor pool))throw new IllegalArgumentException("CONTROL anchor publication requires finite owned I/O pool");
+        return (actual,targetPhysicalTopic)->com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(guard->{
+            guard.run();requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());
+            if(!Arrays.equals(actual.protectionDigest(),protection.digest()))throw new IllegalArgumentException("sample belongs to another original epoch");
+            final var binding=actual.binding(targetPhysicalTopic,protection.protection().slotsPerShard());
+            final var signed=TargetKafkaReceiptControlArtifact.signAnchor(actual.canonicalBytes(),protection.digest(),
+                    protection.control(),protection.authorizedAt(),originalControlKey);
+            guard.run();catalog.publishAnchor(signed,protection,binding);
+            requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());guard.run();return binding;
+        },()->{},pool).receipt();
     }
 
     private TargetKafkaReceiptControlArtifact establishNow(Scope scope, PreparedControlOperation control, SourcePosition at,
