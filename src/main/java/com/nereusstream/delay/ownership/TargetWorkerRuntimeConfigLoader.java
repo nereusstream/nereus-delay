@@ -8,16 +8,68 @@ import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import com.nereusstream.delay.store.WorkerResourceEnvelope;
+import java.io.IOException;
+import java.io.StringReader;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 /** Closed explicit properties schema. Missing/unknown/unbounded values fail before resource allocation. */
 public final class TargetWorkerRuntimeConfigLoader {
+    private static final int MAX_CONFIGURATION_BYTES = 256 << 10;
+    private static final int MAX_CONFIGURATION_FIELDS = 512;
     private TargetWorkerRuntimeConfigLoader() {}
+
+    /** Reads the deployment's explicit UTF-8 properties before any Worker/native resource allocation. */
+    public static TargetWorkerRuntimeConfig load(Path path) throws IOException {
+        final var file = Objects.requireNonNull(path, "configuration path").toAbsolutePath().normalize();
+        final var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (!before.isRegularFile() || before.size() > MAX_CONFIGURATION_BYTES) {
+            throw new IOException("Target Worker configuration requires a bounded ordinary file");
+        }
+        final byte[] image;
+        try (var input = Files.newInputStream(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            image = input.readNBytes(MAX_CONFIGURATION_BYTES + 1);
+        }
+        final var after = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (image.length > MAX_CONFIGURATION_BYTES || !after.isRegularFile() || image.length != before.size()
+                || before.size() != after.size() || !Objects.equals(before.fileKey(), after.fileKey())
+                || !before.lastModifiedTime().equals(after.lastModifiedTime())) {
+            throw new IOException("Target Worker configuration changed during bounded loading");
+        }
+        final var decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(image));
+        final var properties = new ClosedProperties();
+        properties.load(new StringReader(decoded.toString()));
+        final var values = new HashMap<String, String>();
+        properties.forEach((key, value) -> values.put((String) key, (String) value));
+        return load(values);
+    }
+
+    /** Properties normally discards duplicate keys; deployment settings must have one unambiguous value. */
+    private static final class ClosedProperties extends Properties {
+        private static final long serialVersionUID = 1L;
+
+        @Override public synchronized Object put(Object key, Object value) {
+            if (!(key instanceof String name) || !(value instanceof String text) || name.isBlank()
+                    || name.length() > 256 || text.length() > 4096 || size() >= MAX_CONFIGURATION_FIELDS
+                    || containsKey(name)) {
+                throw new IllegalArgumentException("Target Worker configuration field is duplicated or exceeds its bound");
+            }
+            return super.put(name, text);
+        }
+    }
 
     public static TargetWorkerRuntimeConfig load(Map<String, String> values) {
         final var f = new Fields(values);

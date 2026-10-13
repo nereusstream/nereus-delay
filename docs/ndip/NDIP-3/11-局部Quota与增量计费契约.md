@@ -621,6 +621,31 @@ SystemMutation result 和 source 在同一个 WriteBatch 提交；成功后才�
 retained obligation；新入口/既有工作仍遵循 §10.4。实际 release、完整账本 owner 与
 bookkeeping 源继续由本 B4 剩余契约和 C4 的原子装配完成，不能因本地激活对象存在而提前回收。
 
+2026-10-14实际开发输入边界：可信部署provider负责从真实完整分配域加载并认证原
+policy/grant/absence/独立usage/counter cut、exclusive physical reservation及parent原
+完整内容/hash/child/source证据，并保留原版本与保护。static部署清单只有确实代表
+完整域、原受信版本及排他保留且可在commit证明仍有效时才能成为该来源，普通caps
+文件或Source transport receipt不能替代它；不假称已有某个tenant allocator服务。
+
+`TargetQuotaCapacitySnapshot.collect`接原Source mutation与有限shards/grants/steps/bytes，
+复制freeze其认证投影，核对完整member↔Shard cuts、原prior/View/Source、Target retained
+totals在Shard usage内、逐维及cardinality的sum(max(grant,usage))和原policy、Target
+limit在Shard cut内、真正reservation对同grant/allocation与physical demand/旧excess的
+覆盖。parent投影复用其原ref和格式，不新编一个parent wire；检查完整old/new sets、
+每scope exact prior→next child链/ControlRef、本publication归属和当前grant仍在计划
+内。final计划只按其最终grant检查静态总额，中间实际cut继续保留grandfathered usage；
+recipient增加及已发生increase后必须持有所有donor的原source-applied shrink/hold和
+drained counter/source/usage证据。Target不再次计入tenant cuts，不在线借其它Shard容量。
+
+私有构造Verified把同一snapshot装到原GrantControlVerifier和Source GrantControl，原
+registration/双签名/actor/Route等权限继续独立必需。paired commit guard绑定原Source
+位置和完整Source envelope digest，保持snapshot/revision/reservation与root原Owner/Store
+guard至native提交；有live guard不允许释放。collection拒绝且cleanup失败时保留原
+Held cleanup handle，无伪成功/默认absence。结构化image自身和digest不是认证证明；
+Provider必须来自受信composition root，其原证据认证与完整域/物理保留不能由普通DTO
+替代。当前只有具体验证/组合入口与编译；bounded actual collector、provider/root接线
+及集中Source/恢复/容量验证尚未完成，不提升B4或生产authority。
+
 ## 12. Accounting projection 自身的固定存储预留
 
 ### 12.1 唯一 root owner 与不可递归的费用

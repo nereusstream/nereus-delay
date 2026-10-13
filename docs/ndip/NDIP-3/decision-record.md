@@ -484,3 +484,23 @@ native completion释放SDK费用，Source/UNKNOWN/Journal/持久mutation义务�
 预算，configured core验证实际Source appender身份，正常Host只在各Shard final drain
 完成后关这些backends。history/observer角色使用真实Source receipt，不据该局部接线或
 编译关闭包1/29切片。recovery/provider/service完整装配继续，全部测试及环境动作后置。
+
+## 2026-10-14：完整启动的原内容/历史与capacity输入
+
+主会话批准deployment-owned原内容和历史权威作为必填启动依赖：可信进程root提供原
+生产provider实例，或受控有限immutable原key/issuer/role/tenant/Route/scope/window输入
+由具体验证器加载。禁止用户配置反射class/script；不另建auth服务，不使用noop/fixture/
+Source transport receipt补内容权限。当前执行Owner不能改写历史作者/key/Source窗口。
+root实际创建/接续Source、Oxia session/原Route/catalog/Owner/assignment、Store、SDK组
+与Host，派生局部Store/Owner guard；不以caller预造的完整runtime代替启动实现。
+外部I/O在Store锁外bounded collector中形成immutable已认证snapshot，commit仅检查
+持有的版本、来源、reservation/pins与保护；缺具体运行输入则明确拒绝相应能力。
+
+CapacityAuthority当前没有完整现成后端。选定“真实完整且受保护的capacity snapshot
+来源＋仓库具体验证器”，不新建allocator、不从local hardCaps/评分/单assignment推导。
+11 §11.2的完整tenant cut、grandfathered usage、原Control/prior/next/allocation、真正
+non-borrowable physical reservation、parent完整old/new/step及donor Source shrink/drained
+先行都必须落实。provider负责原记录、完整域/absence、原policy/parent hash与实际保留
+状态的认证；业务验证器不能只接一个ref/hash/Boolean授权。当前新增snapshot验证器
+与paired grant/commit入口，真实collector、原内容provider和整条root/reopen继续开发。
+只做必要编译，全部集中测试/Broker/凭据/环境迁退仍后置，完成flags不变。
