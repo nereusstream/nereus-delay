@@ -1,22 +1,103 @@
 package com.nereusstream.delay.transport;
 
+import com.nereusstream.delay.ownership.LocalBrokerMtlsResolver;
 import com.nereusstream.delay.ownership.SourceAssignment;
+import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetSourceRecoveryInputs;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.common.TopicPartition;
 
-/** Binds the guarded Kafka source to an already activated Target Worker runtime. */
+/** Opens the configured guarded K1 Source and binds its actual recovered/activated Target Worker. */
 public final class KafkaClientArtifactTargetWorkerSourceFactory {
     private KafkaClientArtifactTargetWorkerSourceFactory() {}
+
+    public record RecoveryReader(String allocationId, Duration pollTimeout, int maximumConnections, CapacityVector cost) {
+        public RecoveryReader {
+            Objects.requireNonNull(cost);
+            for (var dimension : com.nereusstream.delay.protocol.CapacityDimension.values()) {
+                if (cost.amount(dimension) == Long.MAX_VALUE) throw new IllegalArgumentException("K1 recovery cost must be finite");
+            }
+            if (allocationId == null || allocationId.isBlank() || allocationId.length() > 512
+                    || pollTimeout == null || pollTimeout.toMillis() < 1 || pollTimeout.toMillis() > 60_000
+                    || maximumConnections < 1 || maximumConnections == Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("K1 recovery reader requires finite original SDK settings");
+            }
+        }
+    }
+
+    /** Immutable deployment values; no caller credential/Owner runtime is accepted by the configured entry. */
+    public record SourceConfiguration(KafkaClientArtifactOwnedSourceBackend.Settings settings,
+            Map<String, String> operational, byte[] sdkJar, Path authorizationFile, byte[] signedRoute,
+            byte[] deploymentId, byte[] workerRunId, long maximumRecoveryInputBytes, RecoveryReader recoveryReader) {
+        public SourceConfiguration {
+            Objects.requireNonNull(settings); Objects.requireNonNull(recoveryReader); Objects.requireNonNull(operational);
+            Bytes.requireLength(sdkJar, 32, "K1 SDK artifact hash");
+            Bytes.requireLength(deploymentId, 32, "signed Source deployment identity");
+            if (operational.size() > 64 || authorizationFile == null || !authorizationFile.isAbsolute()
+                    || signedRoute == null || signedRoute.length == 0 || signedRoute.length > 256 * 1024
+                    || workerRunId == null || workerRunId.length == 0 || workerRunId.length > 512
+                    || maximumRecoveryInputBytes < 1 || maximumRecoveryInputBytes == Long.MAX_VALUE
+                    || recoveryReader.allocationId().equals(settings.allocationId())) {
+                throw new IllegalArgumentException("configured K1 Source requires bounded original deployment values");
+            }
+            operational.forEach((key, value) -> {
+                if (key == null || key.isBlank() || key.length() > 128 || value == null || value.length() > 4096) {
+                    throw new IllegalArgumentException("K1 operational settings exceed their finite literal bound");
+                }
+            });
+            operational = Map.copyOf(operational); sdkJar = Bytes.copy(sdkJar); signedRoute = Bytes.copy(signedRoute);
+            deploymentId = Bytes.copy(deploymentId); workerRunId = Bytes.copy(workerRunId);
+            authorizationFile = authorizationFile.normalize();
+        }
+        @Override public byte[] sdkJar() { return Bytes.copy(sdkJar); }
+        @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
+        @Override public byte[] deploymentId() { return Bytes.copy(deploymentId); }
+        @Override public byte[] workerRunId() { return Bytes.copy(workerRunId); }
+    }
+
+    /** Resolves actual signed Source-use/mTLS material under the original Root lease and construction call. */
+    public static Opening openConfiguredSource(TargetWorkerSourceStartup startup, SourceConfiguration configuration,
+            LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
+            TargetSourceRecoveryInputs.Provider recoveryProvider,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, CapacityVector cost,
+            TargetWorkerShardRuntime.Maintenance maintenance, java.util.function.LongSupplier clock) {
+        Objects.requireNonNull(configuration); Objects.requireNonNull(resolver); Objects.requireNonNull(trust);
+        Objects.requireNonNull(recoveryProvider); Objects.requireNonNull(time);
+        try (var original = startup.beginKafkaClientOpening()) {
+            original.requireCurrent();
+            if (configuration.maximumRecoveryInputBytes() > startup.graph().config().resources().certifiedJvmHeapBytes()) {
+                throw new IllegalArgumentException("configured recovery input bytes exceed the Worker heap bound");
+            }
+            final var receipt = resolver.resolveSource(configuration.authorizationFile(), configuration.signedRoute(), trust, time);
+            original.requireCurrent();
+            final var lease = startup.ownerLease();
+            final var identity = new com.nereusstream.delay.protocol.OwnerIdentity(configuration.deploymentId(),
+                    configuration.workerRunId(), lease.ownerEpoch(), lease.leaseToken());
+            final Map<String,Object> operational = new java.util.HashMap<>(configuration.operational());
+            final var opening = openVerifiedSource(original, startup, configuration.settings(), operational,
+                    configuration.sdkJar(), receipt, time, budget, cost, maintenance, identity, clock);
+            opening.configureRecoveryProvider(recoveryProvider, configuration.maximumRecoveryInputBytes(),
+                    configuration.recoveryReader(), operational, configuration.sdkJar(), budget);
+            original.requireCurrent();
+            return opening;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
 
     /** Completes this process root's actual Source startup and retains its original SDK owner on failure. */
     public static TargetWorkerShardRuntime createVerifiedSource(KafkaClientArtifactOwnedSourceBackend owner,
@@ -43,24 +124,44 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
             TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
             java.util.function.LongSupplier clock) {
-        try (var original = startup.beginWorkerConstruction()) {
-            original.requireCurrent();
-            startup.requireCurrent();
-            Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
-            final var assignment = startup.activation().assignment();
-            if (!(assignment.activationBarrier() instanceof KafkaActivationBarrier barrier)
-                    || !assignment.shardId().equals(settings.shard()) || assignment.shardId().partition() < 0
-                    || !barrier.authenticatedClusterId().equals(settings.authenticatedClusterId())
-                    || !barrier.nativeTopicUuid().equals(settings.topicId())) {
-                throw new IllegalArgumentException("K1 SDK opening changes its original accepted Source resource");
-            }
-            final var graph = startup.graph();
-            final var owner = KafkaClientArtifactOwnedSourceBackend.openVerifiedSourceMtls(settings, operational, sdkJar,
-                    receipt, time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
-            startup.registerBackend(owner);
-            startup.requireCurrent();
-            return new Opening(startup, owner, maintenance, identity, time, clock);
+        try (var original = startup.beginKafkaClientOpening()) {
+            return openVerifiedSource(original, startup, settings, operational, sdkJar, receipt, time,
+                    budget, cost, maintenance, identity, clock);
         } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    private static Opening openVerifiedSource(TargetWorkerSourceStartup.Construction original,
+            TargetWorkerSourceStartup startup, KafkaClientArtifactOwnedSourceBackend.Settings settings,
+            Map<String,Object> operational, byte[] sdkJar, LocalBrokerMtlsResolver.SourceReceipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, CapacityVector cost,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.LongSupplier clock) {
+        original.requireCurrent(); startup.requireCurrent();
+        Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
+        final var assignment = startup.acceptedAssignment();
+        final var lease = startup.ownerLease();
+        receipt.authorization().requireAssignment(assignment);
+        if (!(assignment.activationBarrier() instanceof KafkaActivationBarrier barrier)
+                || !Bytes.constantTimeEquals(identity.deploymentId(), receipt.authorization().deploymentId())
+                || identity.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())
+                || !assignment.shardId().equals(settings.shard()) || assignment.shardId().partition() < 0
+                || !barrier.authenticatedClusterId().equals(settings.authenticatedClusterId())
+                || !barrier.nativeTopicUuid().equals(settings.topicId())) {
+            throw new IllegalArgumentException("K1 SDK opening changes its original accepted Source resource/Owner");
+        }
+        final var now = time.get();
+        for (var role : java.util.List.of(SourceTransportCredentialAuthorization.Operation.CONSUME,
+                SourceTransportCredentialAuthorization.Operation.ACK, SourceTransportCredentialAuthorization.Operation.LOOKUP)) {
+            receipt.requireOperation(role, now);
+        }
+        final var graph = startup.graph();
+        final var owner = KafkaClientArtifactOwnedSourceBackend.openVerifiedSourceMtls(settings, operational, sdkJar,
+                receipt, time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
+        startup.registerBackend(owner);
+        original.requireCurrent();
+        return new Opening(startup, owner, maintenance, identity, time, clock);
     }
 
     public static final class Opening {
@@ -72,6 +173,13 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         private final java.util.function.LongSupplier clock;
         private TargetWorkerShardRuntime worker;
         private boolean failed;
+        private TargetSourceRecoveryInputs.Provider recoveryProvider;
+        private long maximumRecoveryInputBytes;
+        private RecoveryReader recoveryReader;
+        private Map<String,Object> recoveryOperational;
+        private byte[] recoverySdkJar;
+        private com.nereusstream.delay.ownership.TargetDestinationSdkBudget recoveryBudget;
+        private TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 KafkaClientArtifactOwnedSourceBackend owner, TargetWorkerShardRuntime.Maintenance maintenance,
                 com.nereusstream.delay.protocol.OwnerIdentity identity,
@@ -80,6 +188,17 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             this.startup = startup; this.owner = owner; this.maintenance = maintenance;
             this.identity = identity; this.time = time; this.clock = clock;
         }
+        private void configureRecoveryProvider(TargetSourceRecoveryInputs.Provider provider, long maximumRetainedBytes,
+                RecoveryReader reader, Map<String,Object> operational, byte[] sdkJar,
+                com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget) {
+            if (recoveryProvider != null || recoveryInputs != null || worker != null || failed) {
+                throw new IllegalStateException("K1 recovery preparation cannot replace its original configuration");
+            }
+            recoveryProvider = Objects.requireNonNull(provider); maximumRecoveryInputBytes = maximumRetainedBytes;
+            recoveryReader = Objects.requireNonNull(reader); recoveryOperational = Map.copyOf(operational);
+            recoverySdkJar = Bytes.copy(sdkJar); recoveryBudget = Objects.requireNonNull(budget);
+        }
+
         /** Explicit driver turn; positioning/credential binding use the existing finite SDK timeout. */
         public synchronized java.util.Optional<TargetWorkerShardRuntime> advance() {
             if (failed) throw new IllegalStateException("original K1 Source opening failed");
@@ -87,6 +206,23 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             try {
                 startup.requireCurrent();
                 if (!owner.finishStartup()) return java.util.Optional.empty();
+                if (recoveryProvider != null && startup.needsKafkaRecovery()) {
+                    if (recoveryInputs == null) {
+                        recoveryInputs = startup.openRecoveryInputs(recoveryProvider, identity, maximumRecoveryInputBytes);
+                    }
+                    final var ready = recoveryInputs.ready();
+                    if (ready.isEmpty()) return java.util.Optional.empty();
+                    final var inputs = ready.orElseThrow();
+                    final var reader = KafkaClientArtifactRecoverySourceCursor.openForStartup(startup, recoveryOperational,
+                            recoverySdkJar, inputs.credential(), recoveryReader.pollTimeout(), inputs.maximumFrameBytes(),
+                            time, inputs::requireSourceCurrent, recoveryBudget, recoveryReader.allocationId(),
+                            recoveryReader.maximumConnections(), recoveryReader.cost());
+                    startup.startRecovery(reader, identity, inputs.journal(), inputs::requireSourceCurrent,
+                            inputs.journal() == null ? null : inputs::requireJournalCurrent);
+                }
+                if (startup.kafkaRecoveryPending()) startup.runRecoveryTurn();
+                if (!startup.activationReady()) return java.util.Optional.empty();
+                if (!startup.prepareServiceJournalHandoff()) return java.util.Optional.empty();
                 worker = createVerifiedSource(owner, startup, maintenance, identity, time, clock);
                 return java.util.Optional.of(worker);
             } catch (RuntimeException | Error failure) { failed = true; startup.retain(failure); throw failure; }
@@ -133,7 +269,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             TargetWorkerShardRuntime.Maintenance maintenance) {
         Objects.requireNonNull(sourceRuntime, "sourceRuntime").requireAcceptedAssignment(acceptedAssignment);
         Objects.requireNonNull(owner, "actual K1 Source owner").requireWorkerGraph(workClasses, resources);
-        owner.positionAcceptedAssignment(acceptedAssignment);
+        owner.positionAcceptedAssignment(acceptedAssignment, store.appliedShardLogPosition());
         return TargetWorkerShardFactory.create(owner.source(), acceptedAssignment, workClasses, store,
                 resources, sourceRuntime, maintenance);
     }

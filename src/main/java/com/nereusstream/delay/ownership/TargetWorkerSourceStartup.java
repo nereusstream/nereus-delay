@@ -438,6 +438,32 @@ public final class TargetWorkerSourceStartup {
         return beginConstruction(false);
     }
 
+    /** The actual K1 consumer may open before recovery activation, but never as a replacement SDK owner. */
+    public synchronized Construction beginKafkaClientOpening() {
+        requireCurrent();
+        if (initializationRunning || backend != null
+                || !(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.KafkaActivationBarrier)) {
+            throw new IllegalStateException("K1 client opening requires its original initialized Source boundary and SDK owner");
+        }
+        return beginConstruction(false);
+    }
+
+    public synchronized boolean needsKafkaRecovery() {
+        requireCurrent();
+        if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.KafkaActivationBarrier)) {
+            throw new IllegalStateException("K1 recovery changes its original Source kind");
+        }
+        return store != null && !storeClosed && activation == null && recovery == null;
+    }
+
+    public synchronized boolean kafkaRecoveryPending() {
+        requireCurrent();
+        if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.KafkaActivationBarrier)) {
+            throw new IllegalStateException("K1 recovery changes its original Source kind");
+        }
+        return recovery != null && recoverySource != null && activation == null;
+    }
+
     public synchronized Construction beginPulsarConsumerOpening(PulsarPreparation original) {
         if (original != pulsarPreparation || constructionThread != null || worker != null) {
             throw new IllegalStateException("prepared P1 consumer construction belongs to another original call");

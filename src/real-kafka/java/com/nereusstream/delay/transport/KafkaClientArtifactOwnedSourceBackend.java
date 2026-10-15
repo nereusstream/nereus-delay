@@ -75,6 +75,7 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     private boolean startupConstructed;
     private boolean sdkTerminated;
     private com.nereusstream.delay.ownership.SourceAssignment positionedAssignment;
+    private long positionedOffset;
     private volatile com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
     private LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt;
     private SourceTransportCredentialUse sourceCredentialUse;
@@ -239,6 +240,10 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     public boolean finishStartup() {
         synchronized (gate) {
             if (frozen) throw new IllegalStateException("K1 Source is frozen");
+            if (!opening.operationExited()) return false;
+            final var result = opening.receipt();
+            if (!result.isDone()) return false;
+            result.join(); // Propagate the original failure even while its native cleanup remains retained.
             if (!opening.ioExited()) return false;
             source = opening.completedValue().orElseThrow(() -> new IllegalStateException("K1 Source opening failed", openingFailure()));
             ready = true; return true;
@@ -252,7 +257,8 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
     }
 
     /** Position the same owned consumer before Host binding; no application poll or ACK is enabled here. */
-    void positionAcceptedAssignment(com.nereusstream.delay.ownership.SourceAssignment assignment) {
+    void positionAcceptedAssignment(com.nereusstream.delay.ownership.SourceAssignment assignment,
+            com.nereusstream.delay.protocol.SourcePosition resumeAfter) {
         final GuardedConsumer<byte[], byte[]> consumer;
         if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.KafkaActivationBarrier barrier)
                 || !settings.shard().equals(assignment.shardId())
@@ -260,24 +266,31 @@ public final class KafkaClientArtifactOwnedSourceBackend implements TargetOwnedB
                 || !settings.topicId().equals(barrier.nativeTopicUuid()) || barrier.exclusiveOffset() < 0) {
             throw new IllegalArgumentException("owned K1 Source differs from the accepted activation barrier");
         }
+        barrier.validatePosition(Objects.requireNonNull(resumeAfter, "actual activated Store cut"));
+        final var cut = (com.nereusstream.delay.protocol.KafkaSourcePosition) resumeAfter;
+        if (cut.offset() < 0 || !barrier.reachedBy(cut)) {
+            throw new IllegalArgumentException("owned K1 Source resume cut has not reached its original activation barrier");
+        }
+        final long nextOffset = Math.addExact(cut.offset(), 1L);
         synchronized (gate) {
             if (!ready || frozen || host != null || nativeCalls != 0)
                 throw new IllegalStateException("K1 Source positioning is not available before Host binding");
             if (positionedAssignment != null) {
-                if (!positionedAssignment.sameIdentity(assignment))
-                    throw new IllegalStateException("K1 Source cannot replace its original positioned assignment");
+                if (!positionedAssignment.sameIdentity(assignment) || positionedOffset != nextOffset)
+                    throw new IllegalStateException("K1 Source cannot replace its original positioned assignment/cut");
                 return;
             }
             nativeCalls++; consumer = nativeConsumer;
         }
         try {
             final var partition = new org.apache.kafka.common.TopicPartition(settings.topic(), settings.shard().partition());
-            consumer.seek(partition, barrier.exclusiveOffset());
-            if (consumer.position(partition, settings.operationTimeout()) != barrier.exclusiveOffset())
-                throw new IllegalStateException("owned K1 Source did not establish its accepted start position");
+            consumer.seek(partition, nextOffset);
+            if (consumer.position(partition, settings.operationTimeout()) != nextOffset)
+                throw new IllegalStateException("owned K1 Source did not establish its actual Store resume position");
             synchronized (gate) {
                 if (frozen) throw new IllegalStateException("K1 Source was frozen during positioning");
                 positionedAssignment = assignment;
+                positionedOffset = nextOffset;
             }
         } finally {
             synchronized (gate) { nativeCalls--; }
