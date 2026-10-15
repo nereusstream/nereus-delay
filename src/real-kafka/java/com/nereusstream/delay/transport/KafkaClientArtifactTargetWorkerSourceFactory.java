@@ -282,6 +282,23 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     resolver, profiles, trust, time, reads, sdkBudget);
         }
 
+        public KafkaClientArtifactTargetReceiptFactory.Opening openReceiptChannel(Path configuration, byte[] channelDigest,
+                com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch,
+                KafkaClientArtifactTargetReceiptFactory.RecoveryAdmission originalAdmission, LocalBrokerMtlsResolver resolver,
+                com.nereusstream.delay.runtime.ProfileCatalog profiles,
+                com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+                KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) throws java.io.IOException {
+            final TargetWorkerShardRuntime original;
+            synchronized (this) {
+                if (failed || worker == null) throw new IllegalStateException("original K1 Source Worker is unavailable");
+                original = worker;
+            }
+            return KafkaClientArtifactTargetReceiptFactory.open(startup, original, dispatch, channelDigest, configuration,
+                    originalAdmission, resolver, profiles, trust, catalog, publisher, sdkBudget, time, reads, clock);
+        }
+
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
         public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {

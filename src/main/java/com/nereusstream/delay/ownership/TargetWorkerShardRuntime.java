@@ -215,8 +215,11 @@ public final class TargetWorkerShardRuntime
         channelInventory = original;
     }
     synchronized TargetWorkerChannelInventory.Entry requireOpenPublicationChannel(byte[] digest) {
+        return requirePublicationInventoryChannel(digest, true);
+    }
+    synchronized TargetWorkerChannelInventory.Entry requirePublicationInventoryChannel(byte[] digest, boolean newWork) {
         final var original = Objects.requireNonNull(channelInventory, "complete original Source channel inventory");
-        original.requireOwner(target); return original.requireOpen(digest);
+        original.requireOwner(target); return newWork ? original.requireOpen(digest) : original.requireRetained(digest);
     }
 
     synchronized void requirePublicationResource(PublicationResources original) {

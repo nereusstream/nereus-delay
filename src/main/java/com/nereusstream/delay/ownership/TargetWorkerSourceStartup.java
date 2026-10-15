@@ -1152,6 +1152,32 @@ public final class TargetWorkerSourceStartup {
         } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
+    /** Exact retained facts for the actual SDK factory on the original construction call. */
+    public synchronized TargetWorkerChannelInventory.Entry publicationChannel(
+            TargetWorkerShardRuntime actual, byte[] digest, boolean newWork) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        if (constructionThread != Thread.currentThread()) throw new IllegalStateException("channel lookup requires its original SDK construction");
+        return actual.requirePublicationInventoryChannel(digest, newWork);
+    }
+
+    public synchronized com.nereusstream.delay.protocol.OwnerIdentity publicationOwnerIdentity(TargetWorkerShardRuntime actual) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        if (constructionThread != Thread.currentThread()) throw new IllegalStateException("Owner lookup requires its original SDK construction");
+        final var original = Objects.requireNonNull(registryIdentity, "original verified Source registry identity");
+        final var current = new com.nereusstream.delay.protocol.OwnerIdentity(original.deploymentId(), original.workerRunId(),
+                lease.ownerEpoch(), lease.leaseToken());
+        return actual.requirePublicationOwner(current, owner.clock());
+    }
+
+    public synchronized void retainPublicationDispatch(TargetWorkerShardRuntime actual, TargetWorkerPublicationDispatch dispatch) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        if (constructionThread != Thread.currentThread()) throw new IllegalStateException("dispatch binding requires its original SDK construction");
+        Objects.requireNonNull(dispatch, "original process publication dispatch");
+        process.requirePublicationDispatch(this, dispatch);
+        if (publicationDispatch != null && publicationDispatch != dispatch) throw new IllegalStateException("original publication dispatch cannot be replaced");
+        publicationDispatch = dispatch;
+    }
+
     /** Resolves an actual OPEN inventory identity under this Root's original Owner before SDK creation. */
     public TargetDestinationActivation preparePublicationChannel(byte[] digest, LocalBrokerMtlsResolver resolver,
             com.nereusstream.delay.runtime.ProfileCatalog profiles,
@@ -1162,13 +1188,7 @@ public final class TargetWorkerSourceStartup {
         try (var construction = beginWorkerResourceConstruction(worker)) {
             construction.requireCurrent();
             final var entry = worker.requireOpenPublicationChannel(originalDigest);
-            final com.nereusstream.delay.protocol.OwnerIdentity current;
-            synchronized (this) {
-                final var original = Objects.requireNonNull(registryIdentity, "original verified Source registry identity");
-                current = new com.nereusstream.delay.protocol.OwnerIdentity(original.deploymentId(), original.workerRunId(),
-                        lease.ownerEpoch(), lease.leaseToken());
-            }
-            worker.requirePublicationOwner(current, owner.clock());
+            final var current = publicationOwnerIdentity(worker);
             // Actual bounded file/PKIX work is outside the Startup/Store monitors.
             final var material = Objects.requireNonNull(resolver).resolve(entry.identity(), entry.physical(), profiles, trust, time);
             construction.requireCurrent(); worker.requireOpenPublicationChannel(originalDigest);
