@@ -214,6 +214,10 @@ public final class TargetWorkerShardRuntime
         if (channelInventory != null && channelInventory != original) throw new IllegalStateException("original channel inventory cannot be replaced");
         channelInventory = original;
     }
+    synchronized TargetWorkerChannelInventory.Entry requireOpenPublicationChannel(byte[] digest) {
+        final var original = Objects.requireNonNull(channelInventory, "complete original Source channel inventory");
+        original.requireOwner(target); return original.requireOpen(digest);
+    }
 
     synchronized void requirePublicationResource(PublicationResources original) {
         final var channel = Objects.requireNonNull(original.channelIdentity(), "original channel identity");
@@ -234,11 +238,14 @@ public final class TargetWorkerShardRuntime
         requireChannelInventoryCoverage();
         requirePublicationResourcesReady();
         for (var owner : publicationResources.values()) {
-            if (owner.closed() || owner.recoveryOnly()) continue;
+            if (owner.closed()) continue;
             final var channel = Objects.requireNonNull(owner.channelIdentity(), "actual publication channel");
-            if (!configuration.supports(channel.context().kind())
-                    || !(owner instanceof com.nereusstream.delay.adapter.DestinationPublishAdapter actual)) {
+            if (!configuration.supports(channel.context().kind())) {
                 throw new IllegalStateException("configured publisher does not cover its actual channel SDK owner");
+            }
+            if (owner.recoveryOnly()) continue;
+            if (!(owner instanceof com.nereusstream.delay.adapter.DestinationPublishAdapter actual)) {
+                throw new IllegalStateException("new-work SDK owner has no actual destination adapter");
             }
             dispatch.mux().requireEndpoint(channel, actual);
         }
@@ -258,8 +265,8 @@ public final class TargetWorkerShardRuntime
             final String id = com.nereusstream.delay.protocol.Bytes.hex(entry.identity().digest());
             open.add(id);
             final var sdk = publicationResources.get(id);
-            if (sdk == null || sdk.closed() || sdk.recoveryOnly() || !sdk.readyForPublishing()) {
-                throw new IllegalStateException("current OPEN Source channel lacks its actual SEND SDK owner");
+            if (sdk == null || sdk.closed() || !(sdk.recoveryOnly() ? sdk.readyForRecovery() : sdk.readyForPublishing())) {
+                throw new IllegalStateException("current OPEN Source channel lacks its actual SEND or original recovery SDK owner");
             }
             entry.identity().requireExactFrozenIdentity(Objects.requireNonNull(sdk.channelIdentity()));
         }

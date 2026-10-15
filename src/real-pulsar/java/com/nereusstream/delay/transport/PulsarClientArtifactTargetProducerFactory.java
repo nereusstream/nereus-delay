@@ -16,6 +16,7 @@ import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
@@ -27,6 +28,52 @@ import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 /** Actual P1 BASELINE/managed producer opening within an already owned shared backend generation. */
 public final class PulsarClientArtifactTargetProducerFactory {
     private PulsarClientArtifactTargetProducerFactory() {}
+
+    public record Configuration(Duration timeout, long maximumPublicationBytes, CapacityVector cost, boolean nativeEnabled) {
+        public Configuration {
+            Objects.requireNonNull(timeout); Objects.requireNonNull(cost);
+            if (timeout.toMillis() < 1 || timeout.toMillis() > 60_000 || maximumPublicationBytes < 1
+                    || maximumPublicationBytes == Long.MAX_VALUE
+                    || cost.amount(CapacityDimension.ADAPTER_PRODUCERS) < 1
+                    || cost.amount(CapacityDimension.BUFFERED_MESSAGES) < 1
+                    || cost.amount(CapacityDimension.BUFFERED_BYTES) < maximumPublicationBytes) {
+                throw new IllegalArgumentException("configured P1 producer cost/settings cannot serve its publication bound");
+            }
+        }
+    }
+
+    public static Configuration load(Path path) throws java.io.IOException {
+        final var f = com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final boolean nativeEnabled = switch (f.text("producer.nativeEnabled")) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException("P1 nativeEnabled requires an explicit boolean");
+        };
+        final var result = new Configuration(Duration.ofMillis(f.number("producer.timeoutMs")),
+                f.number("producer.maximumPublicationBytes"), f.capacity("producer.cost."), nativeEnabled);
+        f.requireComplete(); return result;
+    }
+
+    public static TargetDestinationChannelRuntime openConfigured(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            PulsarClientArtifactOwnedBackendGroup group,
+            com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch, byte[] channelDigest, Path configuration,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver resolver,
+            com.nereusstream.delay.runtime.ProfileCatalog profiles,
+            com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            TargetDestinationSdkBudget budget) throws java.io.IOException {
+        final var config = load(configuration);
+        try {
+            group.requireWorkerGraph(startup.graph().classes(), startup.graph().resources());
+            final var activation = startup.preparePublicationChannel(channelDigest, resolver, profiles, trust, reads, time);
+            final var factory = opening(group, activation.channel(), activation.physical(), config.timeout(),
+                    config.maximumPublicationBytes(), activation, config.nativeEnabled());
+            return startup.openPublicationChannel(dispatch, activation.channel(), activation.physical(), budget, config.cost(),
+                    config.maximumPublicationBytes(), factory, reads);
+        } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
+    }
 
     public static TargetDestinationChannelRuntime.Open opening(PulsarClientArtifactOwnedBackendGroup group,
             TargetChannelIdentity channel, CanonicalTargetPartition physical, Duration timeout,

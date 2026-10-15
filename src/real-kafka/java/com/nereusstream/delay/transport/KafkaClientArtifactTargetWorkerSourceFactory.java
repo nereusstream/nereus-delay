@@ -224,6 +224,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                 SourceTransportCredentialAuthorization.Operation.ACK, SourceTransportCredentialAuthorization.Operation.LOOKUP)) {
             receipt.requireOperation(role, now);
         }
+        startup.bindSourceIdentity(receipt, identity, now);
         final var graph = startup.graph();
         final var owner = KafkaClientArtifactOwnedSourceBackend.openVerifiedSourceMtls(settings, operational, sdkJar,
                 receipt, time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
@@ -270,6 +271,15 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             recoveryProvider = Objects.requireNonNull(provider); maximumRecoveryInputBytes = maximumRetainedBytes;
             recoveryReader = Objects.requireNonNull(reader); recoveryOperational = Map.copyOf(operational);
             recoverySdkJar = Bytes.copy(sdkJar); recoveryBudget = Objects.requireNonNull(budget);
+        }
+
+        public com.nereusstream.delay.ownership.TargetDestinationChannelRuntime openBaselineChannel(Path configuration,
+                byte[] channelDigest, com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch,
+                LocalBrokerMtlsResolver resolver, com.nereusstream.delay.runtime.ProfileCatalog profiles,
+                com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) throws java.io.IOException {
+            return KafkaClientArtifactTargetBaselineFactory.openConfigured(startup, dispatch, channelDigest, configuration,
+                    resolver, profiles, trust, time, reads, sdkBudget);
         }
 
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */

@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.TargetChannelIdentity;
 import java.time.Duration;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,61 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 /** Actual bounded K1 baseline opening; uses neither transaction nor a receipt/Journal substitute. */
 public final class KafkaClientArtifactTargetBaselineFactory {
     private KafkaClientArtifactTargetBaselineFactory() {}
+
+    public record Configuration(Map<String,String> operational, byte[] sdkJar, String topic,
+            Duration timeout, long bufferBytes, int maximumRequestBytes,
+            com.nereusstream.delay.protocol.CapacityVector cost) {
+        public Configuration {
+            com.nereusstream.delay.protocol.Bytes.requireLength(sdkJar, 32, "K1 SDK artifact hash");
+            sdkJar = com.nereusstream.delay.protocol.Bytes.copy(sdkJar);
+            operational = Map.copyOf(operational); Objects.requireNonNull(cost); Objects.requireNonNull(timeout);
+            if (topic == null || !topic.matches("[a-zA-Z0-9._-]{1,249}") || topic.equals(".") || topic.equals("..")
+                    || timeout.toMillis() < 1000 || timeout.toMillis() > 60_000 || maximumRequestBytes < 1
+                    || maximumRequestBytes == Integer.MAX_VALUE || bufferBytes < maximumRequestBytes
+                    || bufferBytes == Long.MAX_VALUE || operational.size() > 64) {
+                throw new IllegalArgumentException("configured K1 Target requires finite native settings");
+            }
+            operational.forEach((key, value) -> {
+                if (key.isBlank() || key.length() > 128 || value.isBlank() || value.length() > 4096) {
+                    throw new IllegalArgumentException("configured K1 operational settings exceed their literal bound");
+                }
+            });
+            if (cost.amount(com.nereusstream.delay.protocol.CapacityDimension.ADAPTER_PRODUCERS) < 1
+                    || cost.amount(com.nereusstream.delay.protocol.CapacityDimension.ADAPTER_THREADS) < 1
+                    || cost.amount(com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_MESSAGES) < 1
+                    || cost.amount(com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_BYTES) < bufferBytes) {
+                throw new IllegalArgumentException("configured K1 cost does not cover its actual producer/buffer");
+            }
+        }
+        @Override public byte[] sdkJar() { return com.nereusstream.delay.protocol.Bytes.copy(sdkJar); }
+    }
+
+    public static Configuration load(Path path) throws java.io.IOException {
+        final var f = com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final var result = new Configuration(f.prefixed("kafka.", 64), f.hex("sdk.sha256", 32, 32),
+                f.text("target.topic"), Duration.ofMillis(f.number("producer.timeoutMs")),
+                f.number("producer.bufferBytes"), f.integer("producer.maximumRequestBytes"), f.capacity("producer.cost."));
+        f.requireComplete(); return result;
+    }
+
+    public static TargetDestinationChannelRuntime openConfigured(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch, byte[] channelDigest, Path configuration,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver resolver,
+            com.nereusstream.delay.runtime.ProfileCatalog profiles,
+            com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget) throws java.io.IOException {
+        final var config = load(configuration);
+        try {
+            final var activation = startup.preparePublicationChannel(channelDigest, resolver, profiles, trust, reads, time);
+            final var factory = opening(new HashMap<>(config.operational()), activation.channel(), activation.physical(),
+                    config.topic(), config.timeout(), config.bufferBytes(), config.maximumRequestBytes(), activation, config.sdkJar());
+            return startup.openPublicationChannel(dispatch, activation.channel(), activation.physical(), budget, config.cost(),
+                    config.maximumRequestBytes(), factory, reads);
+        } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
+    }
 
     public static TargetDestinationChannelRuntime.Open opening(Map<String,Object> supplied,
             TargetChannelIdentity channel, CanonicalTargetPartition physical, String topic,

@@ -243,6 +243,12 @@ public final class TargetWorkerChannelInventory {
         }, clock);
     }
     public synchronized List<Entry> entries() { requireCurrent(); return List.copyOf(identities.values()); }
+    synchronized Entry requireOpen(byte[] digest) {
+        Bytes.requireLength(digest, 32, "original channel digest"); requireCurrent();
+        final var entry = identities.get(Bytes.hex(digest));
+        if (entry == null || !entry.currentOpen()) throw new IllegalStateException("channel is absent from the current OPEN Source inventory");
+        return entry;
+    }
     synchronized boolean hasOpenChannels() {
         requireCurrent(); return slots.values().stream().anyMatch(slot -> slot.phase() == TargetChannelSlot.Phase.OPEN);
     }

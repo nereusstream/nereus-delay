@@ -207,6 +207,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                 SourceTransportCredentialAuthorization.Operation.ACK, SourceTransportCredentialAuthorization.Operation.LOOKUP)) {
             receipt.requireOperation(role, now);
         }
+        startup.bindSourceIdentity(receipt, identity, now);
         final var graph = startup.graph();
         final var group = PulsarClientArtifactOwnedBackendGroup.openVerifiedSourceMtls(settings, sdkJar, receipt,
                 time, startup::requirePulsarOpeningAuthority, budget, cost, graph.classes(), graph.resources(), graph.io());
@@ -247,6 +248,16 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             this.sdkBudget = sdkBudget;
             this.topic = topic; this.subscription = subscription; this.timeout = timeout;
             this.maintenance = maintenance; this.identity = identity; this.time = time; this.clock = clock;
+        }
+
+        /** Opens the actual Target producer on this original Source client's graph/material. */
+        public com.nereusstream.delay.ownership.TargetDestinationChannelRuntime openPublicationChannel(Path configuration,
+                byte[] channelDigest, com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch,
+                LocalBrokerMtlsResolver resolver, com.nereusstream.delay.runtime.ProfileCatalog profiles,
+                com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) throws java.io.IOException {
+            return PulsarClientArtifactTargetProducerFactory.openConfigured(startup, group, dispatch, channelDigest,
+                    configuration, resolver, profiles, trust, time, reads, sdkBudget);
         }
 
         /** Reuses the final actually positioned consumer and its original shared client/material after Source recovery. */

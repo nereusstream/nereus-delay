@@ -52,6 +52,8 @@ public final class TargetDestinationActivation implements Runnable {
     public LocalBrokerMtlsResolver.Receipt verifiedMaterial() {
         return Objects.requireNonNull(verifiedMaterial, "Target production opening requires resolved mTLS material");
     }
+    public TargetChannelIdentity channel() { return channel; }
+    public CanonicalTargetPartition physical() { return physical; }
 
     /** Local SEND check: no file/catalog/secret resolution and no change to the original Source ownership gate. */
     public void requireLoadedMaterial(TargetChannelIdentity actual) {

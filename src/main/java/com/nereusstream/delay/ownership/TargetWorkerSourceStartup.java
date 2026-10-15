@@ -1152,6 +1152,33 @@ public final class TargetWorkerSourceStartup {
         } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
+    /** Resolves an actual OPEN inventory identity under this Root's original Owner before SDK creation. */
+    public TargetDestinationActivation preparePublicationChannel(byte[] digest, LocalBrokerMtlsResolver resolver,
+            com.nereusstream.delay.runtime.ProfileCatalog profiles,
+            com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
+        final byte[] originalDigest = Bytes.copy(digest);
+        try (var construction = beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();
+            final var entry = worker.requireOpenPublicationChannel(originalDigest);
+            final com.nereusstream.delay.protocol.OwnerIdentity current;
+            synchronized (this) {
+                final var original = Objects.requireNonNull(registryIdentity, "original verified Source registry identity");
+                current = new com.nereusstream.delay.protocol.OwnerIdentity(original.deploymentId(), original.workerRunId(),
+                        lease.ownerEpoch(), lease.leaseToken());
+            }
+            worker.requirePublicationOwner(current, owner.clock());
+            // Actual bounded file/PKIX work is outside the Startup/Store monitors.
+            final var material = Objects.requireNonNull(resolver).resolve(entry.identity(), entry.physical(), profiles, trust, time);
+            construction.requireCurrent(); worker.requireOpenPublicationChannel(originalDigest);
+            final var activation = new TargetDestinationActivation(worker, current, entry.identity(), entry.physical(),
+                    profiles, trust, material, reads, time, owner.clock());
+            activation.run(); construction.requireCurrent();
+            return activation;
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
+    }
+
     /** Actual BASELINE/managed opening over this Root's private Worker and shared physical/routing owner. */
     public TargetDestinationChannelRuntime openPublicationChannel(TargetWorkerPublicationDispatch dispatch,
             com.nereusstream.delay.protocol.TargetChannelIdentity channel,
@@ -1234,6 +1261,25 @@ public final class TargetWorkerSourceStartup {
             throw new IllegalStateException("original recovery opening backend cannot be replaced");
         }
         recoveryOpeningBackend = original;
+    }
+
+    /** Retains the signed Source deployment/Owner identity on its original actual SDK construction. */
+    public synchronized void bindSourceIdentity(LocalBrokerMtlsResolver.SourceReceipt receipt,
+            com.nereusstream.delay.protocol.OwnerIdentity identity,
+            com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence now) {
+        requireCurrent();
+        if (constructionThread != Thread.currentThread() || worker != null) {
+            throw new IllegalStateException("Source identity binding requires its original SDK construction");
+        }
+        receipt.authorization().requireAssignment(assignment);
+        receipt.requireActive(now);
+        if (!Bytes.constantTimeEquals(identity.deploymentId(), receipt.authorization().deploymentId())
+                || identity.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())
+                || registryIdentity != null && !Arrays.equals(registryIdentity.canonicalBytes(), identity.canonicalBytes())) {
+            throw new IllegalArgumentException("Source identity changes its signed deployment or original Owner");
+        }
+        registryIdentity = identity;
     }
 
     /** Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure. */
