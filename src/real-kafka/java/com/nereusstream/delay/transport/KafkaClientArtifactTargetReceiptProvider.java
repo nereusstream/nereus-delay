@@ -2,6 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalTargetPartition;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CredentialBinding;
@@ -43,6 +44,15 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     private final CredentialMaterial credentials;
     private final Supplier<com.nereusstream.delay.store.BoundedReadBudget> adoptionReads;
     private com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt;
+    private volatile TargetWorkerShardRuntime.PublicationReads nativeReads;
+
+    void bindNativeReads(TargetWorkerShardRuntime.PublicationReads original) {
+        original.requireBinding(worker, channel);
+        synchronized (this) {
+            if (nativeReads != null && nativeReads != original) throw new IllegalStateException("original SDK read ownership cannot be replaced");
+            nativeReads = original;
+        }
+    }
 
     public KafkaClientArtifactTargetReceiptProvider(TargetWorkerShardRuntime worker, OwnerIdentity owner,
             TargetChannelIdentity channel, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
@@ -119,24 +129,29 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     public CompletableFuture<Optional<TargetKafkaReceiptBinding>> prepareBinding(String targetPhysicalTopic,
             Map<String, Object> readerConfiguration, AnchorPublisher publisher, Duration timeout, Executor io) {
         final var p = protection.protection();
-        requireCurrentChannel();
+        final var access = nativeReads;
+        requireCurrentChannel(access);
         return KafkaClientArtifactTargetReceiptAnchor.sample(readerConfiguration, p.resource(), p.physicalTopic(),
                 p.physicalPartition(), this, timeout, io).thenCompose(sample -> {
                     if (sample.isEmpty()) { return CompletableFuture.completedFuture(Optional.empty()); }
-                    requireCurrentChannel();
+                    requireCurrentChannel(access);
                     return Objects.requireNonNull(publisher, "actual CONTROL anchor publication").publish(
                             sample.orElseThrow(), targetPhysicalTopic).thenApply(binding -> {
-                                requireBinding(binding); return Optional.of(binding);
+                                requireBinding(binding, access); return Optional.of(binding);
                             });
                 });
     }
 
     /** Cold startup reloads original two digests; it never samples a replacement end for an existing mapping. */
     public TargetKafkaReceiptControlArtifact requireBinding(TargetKafkaReceiptBinding binding) {
-        requireWorker();
+        return requireBinding(binding, null);
+    }
+    private TargetKafkaReceiptControlArtifact requireBinding(TargetKafkaReceiptBinding binding,
+            TargetWorkerShardRuntime.PublicationReads access) {
+        requireWorker(access);
         catalog.requireActive(binding.receiptResource(), protection.protection().evidenceGeneration(), binding.retentionProtectionDigest());
         final var anchor = catalog.requireAnchor(protection, binding);
-        requireCurrentChannel();
+        requireCurrentChannel(access);
         return anchor;
     }
 
@@ -148,29 +163,33 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
                 || !admitted.publication().capabilityProfile().equals(protection.protection().capability())) {
             throw new IllegalArgumentException("receipt recovery changes frozen producer/range/capability");
         }
-        reconcileAdoption(mapping, adoptionReads.get());
+        reconcileAdoption(mapping, adoptionReads.get(), nativeReads);
     }
 
     @Override public void requireAdoption(TargetKafkaReceiptMapping mapping) {
-        reconcileAdoption(mapping, adoptionReads.get());
+        reconcileAdoption(mapping, adoptionReads.get(), nativeReads);
     }
 
     @Override
     public OwnerIdentity requireCurrent(TargetChannelIdentity requested, TargetKafkaReceiptBinding receipt, byte[] actualSdkJar) {
         channel.requireExactFrozenIdentity(requested);
-        final var current=newWork ? worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock)
-                : worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
+        final var access = nativeReads;
+        final CanonicalTargetPartition current;
+        if (!newWork) current = retainedChannel(access);
+        else if (access == null) current = worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock);
+        else current = access.requireOpenChannel(channel,adoptionReads.get(),ownerClock);
         if(!current.id().equals(channel.context().target()))throw new IllegalStateException("SDK opening Target changed actual Source identity");
         requireSdk(actualSdkJar);
-        requireBinding(receipt);
-        return requireWorker();
+        requireBinding(receipt, access);
+        return requireWorker(access);
     }
 
     @Override
     public byte[] requireProtected(com.nereusstream.delay.protocol.KafkaReceiptSlotResource resource, String topic, int partition) {
-        requireWorker(); requireResource(resource, topic, partition);
+        final var access = nativeReads;
+        requireWorker(access); requireResource(resource, topic, partition);
         catalog.requireActive(resource, protection.protection().evidenceGeneration(), protection.digest());
-        requireCurrentChannel();
+        requireCurrentChannel(access);
         return protection.digest();
     }
     @Override
@@ -232,17 +251,22 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
             }
             @Override public CompletableFuture<Void> adopt(com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Applied actual) {
                 return com.nereusstream.delay.ownership.OwnedCheckpointIo.<Void>submit(guard->{guard.run();
-                    reconcileAdoption(actual.kafkaMapping(),reads.get());guard.run();return null;},()->{},pool).receipt();
+                    reconcileAdoption(actual.kafkaMapping(),reads.get(),nativeReads);guard.run();return null;},()->{},pool).receipt();
             }
         };
     }
 
     /** Cold restart reconciles from immutable native first-result/owner/ref facts, without re-SEND or a new anchor. */
     public void reconcileAdoption(TargetKafkaReceiptMapping mapping, com.nereusstream.delay.store.BoundedReadBudget reads) {
-        requireBinding(mapping.admission().kafkaReceipt());
-        final var actual = worker.readExternalEvidenceAdoption(Objects.requireNonNull(reads, "bounded adoption reads"),
-                mapping, ownerClock);
-        catalog.adopt(actual); requireWorker();
+        reconcileAdoption(mapping, reads, null);
+    }
+    private void reconcileAdoption(TargetKafkaReceiptMapping mapping, com.nereusstream.delay.store.BoundedReadBudget reads,
+            TargetWorkerShardRuntime.PublicationReads access) {
+        requireBinding(mapping.admission().kafkaReceipt(), access);
+        Objects.requireNonNull(reads, "bounded adoption reads");
+        final var actual = access == null ? worker.readExternalEvidenceAdoption(reads, mapping, ownerClock)
+                : access.readAdoption(reads, mapping, ownerClock);
+        catalog.adopt(actual); requireWorker(access);
     }
 
     /** Anchor reservation consumption uses exact external bytes; the shared protection is independently owned once by Source. */
@@ -254,16 +278,24 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     }
 
     private OwnerIdentity requireWorker() { return worker.requirePublicationOwner(owner, ownerClock); }
-    private void requireCurrentChannel() {
-        requireWorker();
-        final var physical = worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
+    private OwnerIdentity requireWorker(TargetWorkerShardRuntime.PublicationReads access) {
+        return access == null ? requireWorker() : access.requireOwner(owner, ownerClock);
+    }
+    private com.nereusstream.delay.protocol.CanonicalTargetPartition retainedChannel(TargetWorkerShardRuntime.PublicationReads access) {
+        return access == null ? worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock)
+                : access.requireRetainedChannel(channel,adoptionReads.get(),ownerClock);
+    }
+    private void requireCurrentChannel() { requireCurrentChannel(null); }
+    private void requireCurrentChannel(TargetWorkerShardRuntime.PublicationReads access) {
+        requireWorker(access);
+        final var physical = retainedChannel(access);
         channel.credentialLease().requireActiveAt(Objects.requireNonNull(time.get(), "actual trusted clock interval"));
         final var binding = com.nereusstream.delay.ownership.TargetDestinationCredentialChecks.requireBinding(
                 channel, physical, profiles, credentialTrust);
         credentials.requireConfigured(binding);
         requireSdk(KafkaClientArtifactTargetReceiptReader.requireSdkIdentity());
-        requireWorker();
-        final var afterMaterial = worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
+        requireWorker(access);
+        final var afterMaterial = retainedChannel(access);
         if (!Arrays.equals(physical.canonicalBytes(), afterMaterial.canonicalBytes())) {
             throw new IllegalStateException("receipt SDK resource changed after credential loading");
         }

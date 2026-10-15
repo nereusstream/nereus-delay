@@ -133,7 +133,8 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
         if(original!=null)binding=original.admission().kafkaReceipt();
         physicalAdmission.registerTargetChannel(new DestinationPhysicalAdmission.TargetChannelSpec(channel,physical,
                 1,settings.physicalBytes(),1,settings.physicalBytes()));registered=true;
-        try{worker.registerPublicationResources(identity,this,budget,ownerClock);}
+        try{worker.registerPublicationResources(identity,this,budget,ownerClock);
+            provider.bindNativeReads(worker.publicationReads(this));}
         catch(RuntimeException | Error failure){physicalAdmission.unregisterTargetChannel(channel);registered=false;throw failure;}
     }
 

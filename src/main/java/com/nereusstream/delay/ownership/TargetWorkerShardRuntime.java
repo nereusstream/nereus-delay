@@ -244,6 +244,66 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    /** Only an already registered original SDK may retain these read checks across a periodic checkpoint. */
+    public synchronized PublicationReads publicationReads(PublicationResources original) {
+        requireRuntimeAdmitted(); resources.requireRuntimeBusinessAdmission(); requirePublicationResource(original);
+        if (original.closed()) throw new IllegalStateException("original publication SDK has exited");
+        return new PublicationReads(this, original, original.channelIdentity());
+    }
+
+    /** Resource-bound read-only view; no Source mutation, Claim, registration or SEND admission entry is exposed. */
+    public static final class PublicationReads {
+        private final TargetWorkerShardRuntime worker;
+        private final PublicationResources original;
+        private final com.nereusstream.delay.protocol.TargetChannelIdentity channel;
+        private PublicationReads(TargetWorkerShardRuntime worker, PublicationResources original,
+                com.nereusstream.delay.protocol.TargetChannelIdentity channel) {
+            this.worker = worker; this.original = original; this.channel = channel;
+        }
+        private void requireOriginal() {
+            worker.requireRuntimeAdmitted(); worker.resources.requireRuntimeBusinessAdmission();
+            worker.requirePublicationResource(original);
+            if (original.closed()) throw new IllegalStateException("original publication SDK has exited");
+        }
+        public void requireBinding(TargetWorkerShardRuntime expected,
+                com.nereusstream.delay.protocol.TargetChannelIdentity identity) {
+            synchronized (worker) {
+                if (worker != expected) throw new IllegalArgumentException("publication reads belong to another original Worker");
+                channel.requireExactFrozenIdentity(identity); requireOriginal();
+            }
+        }
+        public OwnerIdentity requireOwner(OwnerIdentity expected, LongSupplier clock) {
+            synchronized (worker) {
+                requireOriginal(); final var actual = worker.target.requirePublicationOwner(expected, clock);
+                requireOriginal(); return actual;
+            }
+        }
+        public com.nereusstream.delay.protocol.CanonicalTargetPartition requireOpenChannel(
+                com.nereusstream.delay.protocol.TargetChannelIdentity identity, BoundedReadBudget budget, LongSupplier clock) {
+            synchronized (worker) {
+                channel.requireExactFrozenIdentity(identity); requireOriginal();
+                final var actual = worker.target.requirePublicationChannel(identity, true, budget, clock);
+                requireOriginal(); return actual;
+            }
+        }
+        public com.nereusstream.delay.protocol.CanonicalTargetPartition requireRetainedChannel(
+                com.nereusstream.delay.protocol.TargetChannelIdentity identity, BoundedReadBudget budget, LongSupplier clock) {
+            synchronized (worker) {
+                channel.requireExactFrozenIdentity(identity); requireOriginal();
+                final var actual = worker.target.requireRetainedPublicationChannel(identity, budget, clock);
+                requireOriginal(); return actual;
+            }
+        }
+        public com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption readAdoption(
+                BoundedReadBudget budget, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+            synchronized (worker) {
+                channel.requireExactFrozenIdentity(mapping.admission().channel()); requireOriginal();
+                final var actual = worker.target.readExternalEvidenceAdoption(budget, mapping, clock);
+                requireOriginal(); return actual;
+            }
+        }
+    }
+
     public synchronized void registerPublicationMaintenance(PublicationResources original, PublicationMaintenance maintenance,
             TargetDestinationSdkBudget budget, LongSupplier clock) {
         requirePublishRecoveryOwner(clock); budget.requireWorker(workClasses, resources); requirePublicationResource(original);
@@ -1719,14 +1779,17 @@ public final class TargetWorkerShardRuntime
         sourceLoop.close();
     }
 
-    private void requireNewTurnsAdmitted() {
+    private void requireRuntimeAdmitted() {
         if (backendQuarantined || sourceBackendGroup != null && !sourceBackendGroup.workerReady(this)) {
             throw new IllegalStateException("Target Worker backend is unbound or quarantined");
         }
         if (sourceAndMaintenancePaused) {
             throw new IllegalStateException("Target Worker source and maintenance admission is paused");
         }
-        requireCheckpointSettled();
+    }
+
+    private void requireNewTurnsAdmitted() {
+        requireRuntimeAdmitted(); requireCheckpointSettled();
     }
 
     void requireOxiaAuthority(OxiaOwnerLeaseStore expected,
