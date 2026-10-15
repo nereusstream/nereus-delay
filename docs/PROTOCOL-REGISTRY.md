@@ -3551,3 +3551,70 @@ wire/schema change or deployment activation. Retained observation bytes, origina
 capability/sourceLockDigest, Admission/mapping/channel and historical Broker
 evidence keep their original identities. No source allowlist or credential
 recovery permission is introduced; independent Target RECOVERY remains required.
+
+Private Target RECOVERY credential input (2026-10-16; not a Source/CONTROL command):
+`TargetRecoveryCredentialAuthorization` is a closed canonical v1 image of at most
+32768 bytes, with exactly these fields:
+1 version=1; 2 deployment digest[32]; 3 deployment-configuration digest[32];
+4 nonzero uint64-bit configuration generation; 5 tenant scope[32]; 6 original
+controlScopeRef[32]; 7 original TargetChannelIdentity canonical bytes; 8 exact
+CanonicalTargetPartition bytes; 9 Target physical topic; 10 KafkaReceiptSlotResource
+bytes; 11 receipt physical topic; 12 uint32 slotsPerShard; 13 uint32 receipt
+partition; 14 original producer/transactional identity; 15 empty or exact mapping
+SHA256[32]; 16 recovery binding identity[32]; 17 nonzero uint64-bit credential
+version; 18 private immutable material reference (1..128 bytes); 19 reference
+SHA256[32]; 20 actual certificate fingerprint[32]; 21 actual verified principal
+hash[32]; 22 TLS endpoint/trust policy digest[32]; 23 TrustedUtcIntervalEvidence;
+24 int64 exclusive expiry; 25 recovery-verifier evidence SHA256[32]; 26 closed
+operation mask=7 (guarded lookup=1, original-ID initTransactions fence=2, original
+receipt read_committed=4); 27 verifier ID; 28 nonzero uint32 verifier version;
+29 nonzero uint32 signing-key version; 30 authorization digest[32]; 31 Ed25519
+signature[64]. Scope-image digest is SHA256(canonical fields 1..24). Authorization
+digest is SHA256("nereus-delay-target-recovery-credential\0", canonical fields
+1..29). Signature preimage is SHA256("nereus-delay-target-recovery-credential-signature\0",
+authorization digest, big-endian uint32 signing-key version). Source and ordinary
+Destination signatures cannot satisfy this domain. The trusted deployment must
+explicitly enable each TARGET_RECOVERY verifier/issuer/key tuple, check its key
+window and exact deployment/configuration generation/tenant, and supply a real
+current recovery-permission and immutable-version retirement hold. An arbitrary
+key from the trust set, context/hash/true, the old SEND lease or Source RECOVERY
+is insufficient. The hold's original acquisition authority owns partial-acquire
+cleanup; once returned it stays held until actual native/late-I/O exit and
+explicit close, including after permission expiry.
+
+The private recovery mTLS verifier-evidence image has exactly 16 canonical fields:
+1 version=1; 2 local material ID[16]; 3 immutable material version[16]; 4 recovery
+binding ID[32]; 5 uint64-bit credential version; 6 material-reference SHA256[32];
+7 certificate fingerprint[32]; 8 verified principal hash[32]; 9 SHA256 of the
+lp32 DER certificate-chain sequence; 10 public-key SHA256; 11 private-key-file
+SHA256; 12 TLS policy digest; 13 authorization scope-image digest; 14 operation
+mask=7; 15 actual probe bytes SHA256; 16 nonempty actual probe bytes. Its full
+SHA256 must equal authorization field 25. It uses the immutable material directory
+file target-recovery-verifier-evidence-<scope-image-digest-hex>.bin. The resolver
+checks actual PKIX chain, private-key possession/match, immutable captured bytes,
+remaining aggregate input limit and current hold before and after material load.
+It requires an already reserved SDK generation covering captured input bytes and
+66 temporary directory/file descriptors before capture. This minimum does not
+certify the full parser/PKIX/SDK/native Worker envelope.
+
+The private material receipt's public recovery evidence projection is a separate
+closed v1 image: 1 version=1; 2 authorization digest; 3 scope-image digest;
+4 verifier-evidence digest; 5 recovery binding ID; 6 credential version;
+7 material-reference digest; 8 fingerprint; 9 principal hash; 10 TLS policy digest.
+It omits private references, raw probe requests and private-key bytes. Original
+private inputs remain under the actual deployment material owner and resolver's
+bounded immutable-version graph. Native Fence/observation binding, exact pending
+mapping/Store/cut/Owner/session/SDK-opening proof and the public evidence/ref
+retention path still require their typed service integration. This component
+alone does not grant SEND, prepareBinding, new anchor/Admission/slot, commit,
+Source mutation or any absence conclusion. Old channel/lease/Admission/mapping,
+Source first-result and historical evidence bytes remain unchanged. All runtime,
+Broker/recovery and resource validation remains deferred.
+
+The recovery loader begins the original reserved SDK generation before capture;
+its dedicated receipt owns that reservation through material hold and actual SDK
+termination. Failed loading retains the same hold/reservation cleanup until it
+succeeds. A later typed native owner must continue this generation, not begin it
+again or call releaseUnstarted while material cleanup remains. Actual Hold.close
+is retryable and idempotent after success; a failed hold or budget close retains
+the original pointer and charge. No normal SDK factory fallback is introduced.

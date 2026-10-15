@@ -630,3 +630,39 @@ capability/sourceLockDigest及历史Broker证据不重写、不重标。源码�
 激活，真实环境仍须按原协议激活对应SDK/capability/Artifact组合；没有兼容allowlist。
 独立Target RECOVERY授权与旧执行凭据过期后的实际恢复仍是未闭合代码义务，不能用
 本次源码接续绕开旧gate。只作必要编译，集中验证和全程序完成flags不变。
+
+
+## 2026-10-16：独立Target RECOVERY部署授权
+
+主会话裁定沿原可信deployment/credential-verifier root加载独立签名的Target RECOVERY
+授权，不新增CONTROL operation、grant链或CredentialUseKind。原Channel/Admission/
+mapping/receipt及旧lease在原使用点的历史合法性保留；恢复当前有效性只核独立恢复
+材料，不能要求过期旧SEND secret复活，也不改写原身份或旧义务。Source RECOVERY与
+普通Destination SEND attestation不能替代恢复目的证明。
+
+签名域、显式TARGET_RECOVERY issuer/key tuple allowlist、部署/config generation、
+tenant/controlScope、原channel/Target/receipt native identity与topic/partition、原
+transactional.id、当前恢复credential version/ref/binding/fingerprint/principal、
+TLS policy、恢复专用probe/attestation、有限时间和当前失效/撤销均须分别验证。签名可
+限一个channel/receipt/transactional.id，无需逐Owner/逐mapping签CONTROL；若配置含
+mapping digest则不得扩大。实际root读取认证原pending mapping后，私有runtime receipt
+还须绑定exact mapping/scanStart/anchor/protection/Store cut/当前Owner/session/SDK
+group与本次opening，排除合法在途writer。该实际runtime/typed SDK接线继续实施。
+
+恢复只允许guarded lookup、同原ID initTransactions fencing、原receipt read_committed
+及关闭；prepareBinding、新anchor/Admission/slot和所有SEND/transaction commit均不可达。
+typed恢复工厂不得返回正常SEND transport/raw producer。每个副作用/poll/Source证据
+消费前核实际Owner/pending slot、当前恢复权限和原连续保护，失权/超时不生成否定结论。
+原same-ID fence→post-fence固定U→实际连续处理/LSO/保留范围→Source Outcome链不变。
+
+原历史证据继续由原Source/Store/Catalog/ProtectionSet/Floor保留；当前恢复授权/实际
+probe/immutable材料由真实deployment material authority持有当前权限与retirement
+hold。hold直至实际SDK/晚到I/O/cleanup退出后显式关闭，授权过期不自动释放；不能借
+旧managedChannelProtectionUntil、ObjectStore lease或内容hash代替。崩溃后新Owner
+重新取得当前恢复材料/保护。公共恢复证明保留安全投影和原受保护证据ref，私钥、原始
+私密路径/请求不写Source/日志；内部Fence/observation需要时用显式新版本。
+
+当前只完成独立签名codec/trust与专用mTLS加载/receipt及security配置入口，尚未完成
+上述私有pending-runtime receipt、typed无SEND SDK/resource/service接线与公共证据保留
+链，不能将loader编译视为旧lease过期已可端到端恢复。具体实际authority实例仍须由
+原可信root提供，没有默认noop/true；材料/hold缺失拒绝。只必要编译，集中验证后置。

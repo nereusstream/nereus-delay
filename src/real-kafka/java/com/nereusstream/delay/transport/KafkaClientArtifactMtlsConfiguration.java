@@ -21,6 +21,12 @@ public final class KafkaClientArtifactMtlsConfiguration {
         return configure(operational, receipt.privateKeyPem(), receipt.certificateChainPem(), receipt.serverTrustPem());
     }
 
+    public static Map<String, Object> applyTargetRecovery(Map<String, Object> operational,
+            LocalBrokerMtlsResolver.TargetRecoveryReceipt receipt) {
+        receipt.requireKafkaBootstrap(operational.get("bootstrap.servers"));
+        return configure(operational, receipt.privateKeyPem(), receipt.certificateChainPem(), receipt.serverTrustPem());
+    }
+
     private static Map<String,Object> configure(Map<String,Object> operational, byte[] keyPem, byte[] certPem, byte[] trustPem) {
         for (String key : operational.keySet()) {
             if (key.startsWith("ssl.") || key.startsWith("sasl.") || key.startsWith("security.")

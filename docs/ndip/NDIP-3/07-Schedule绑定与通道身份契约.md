@@ -812,3 +812,16 @@ pending callbacks/buffers和该creation的关闭结果。Broker close失败后�
 Journal创建后失败也携带cleanup义务。共享client的显式owner关闭只能在所有相关用户
 quiesce后执行，实际owned executors未terminate时保留窗口/原资源；清理不撤销UNKNOWN、
 Journal、Source、credential和retention义务。P1 managed factory及服务root装配继续开放。
+
+
+2026-10-16 Target RECOVERY独立用途：冻结channel/Admission/mapping和原lease bytes
+不变。当前恢复identity/材料/权限使用独立签名部署授权，不能用Source RECOVERY或
+仅SEND scope证明替代；原历史合法性、当前恢复权、连续receipt保护是三个独立条件。
+签名可以限定原channel/receipt/txn-id，actual root再以私有receipt绑定实际pending
+mapping/Store cut/Owner/session/SDK opening，禁止caller自造或跨会话复用。
+当前purpose-aware codec、issuer tuple trust、actual mTLS/probe loader及持有hold的
+专用receipt已实现，实际typed无SEND SDK/resource/service及公共证据保留链尚未接通。
+恢复native接口只可lookup、原ID initTransactions、原范围read_committed和关闭；
+prepareBinding/anchor/newAdmission/slot/SEND/commit均不授予。每个native调用与证据
+交付前持续核权限、原pending/Owner/连续保护；授权到期阻止新动作，原句柄/UNKNOWN/
+费用/hold保留到真实退出。ordinary SEND路径继续核原lease，没有自动恢复fallback。

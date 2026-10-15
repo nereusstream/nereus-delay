@@ -239,6 +239,112 @@ public final class LocalBrokerMtlsResolver {
         } catch (Exception failure) { throw unavailable(); }
     }
 
+    /** Dedicated Target recovery input. Call only on the original pre-reserved, bounded startup I/O owner. */
+    public TargetRecoveryReceipt resolveTargetRecovery(Path authorizationFile,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+            TargetRecoveryCredentialAuthorization.Trust trust, Supplier<TrustedUtcIntervalEvidence> time,
+            TargetDestinationSdkBudget.Client originalSdkBudget, Runnable ownedIoGuard) {
+        // This is captured-input capacity, in addition to the actual producer/reader envelope supplied by its owner.
+        final long[] minimum = new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_BYTES.wireValue() - 1] =
+                Math.addExact((long) limits.maximumTotalBytes(), serverTrustPem.length);
+        minimum[com.nereusstream.delay.protocol.CapacityDimension.OPEN_FILES.wireValue() - 1] = 66;
+        Objects.requireNonNull(originalSdkBudget, "pre-reserved original recovery SDK generation")
+                .requireCovers(new com.nereusstream.delay.protocol.CapacityVector(minimum));
+        Objects.requireNonNull(ownedIoGuard, "original bounded I/O operation").run();
+        originalSdkBudget.beginConstruction();
+        TargetRecoveryCredentialAuthorization.Hold hold = null;
+        try {
+            final var input = readAbsolute(authorizationFile,
+                    Math.min(limits.maximumFileBytes(), TargetRecoveryCredentialAuthorization.MAX_BYTES));
+            final var authorization = TargetRecoveryCredentialAuthorization.decode(input.bytes());
+            authorization.requireMapping(mapping);
+            trust.verify(authorization, time.get());
+            if (!Arrays.equals(policyDigest, authorization.policyDigest())) throw unavailable();
+            final var reference = REFERENCE.matcher(new String(authorization.reference(), StandardCharsets.US_ASCII));
+            if (!reference.matches() || reference.group(1).equals("0".repeat(32))
+                    || reference.group(2).equals("0".repeat(32))) throw unavailable();
+            final String id = reference.group(1), version = reference.group(2);
+            hold = trust.acquire(authorization, time.get());
+            trust.requireHeld(authorization, hold, time.get());
+            ownedIoGuard.run();
+            final FileImage certs, key, evidence;
+            final List<Object> directories;
+            final String evidenceName = "target-recovery-verifier-evidence-" + Bytes.hex(authorization.scopeImageDigest()) + ".bin";
+            long remaining = limits.maximumTotalBytes() - (long) input.bytes().length;
+            try (var directory = Directory.open(root.resolve(id).resolve(version))) {
+                directories = directory.identities();
+                certs = directory.read("client-cert-chain.pem", recoveryReadLimit(remaining));
+                remaining -= certs.bytes().length;
+                key = directory.read("client-key.pk8.pem", recoveryReadLimit(remaining));
+                remaining -= key.bytes().length;
+                evidence = directory.read(evidenceName, recoveryReadLimit(remaining));
+            }
+            final var chain = certificates(certs.bytes(), limits.maximumCertificates());
+            final var fingerprint = Bytes.sha256(chain.getFirst().getEncoded());
+            if (!Arrays.equals(fingerprint, authorization.fingerprint())
+                    || !Arrays.equals(Bytes.sha256(evidence.bytes()), authorization.evidenceDigest())) throw unavailable();
+            requireTargetRecoveryEvidence(evidence.bytes(), id, version, authorization, chain, key.bytes());
+            requireCertificates(chain, authorization.notBeforeEpochMs(), authorization.notAfterEpochMs());
+            requirePrivateKey(key.bytes(), chain.getFirst());
+            trust.verify(authorization, time.get());
+            trust.requireHeld(authorization, hold, time.get());
+            ownedIoGuard.run();
+            final var loaded = new Version(certs, key, fingerprint,
+                    Math.addExact(certs.bytes().length, key.bytes().length), directories);
+            final String scope = Bytes.hex(authorization.digest());
+            final var snapshot = retain(id + '/' + version, loaded,
+                    Map.of("target-recovery-authorization/" + scope, input, "target-recovery-evidence/" + scope, evidence));
+            return new TargetRecoveryReceipt(authorization, trust, hold, originalSdkBudget, snapshot, serverTrustPem, endpoints,
+                    retainedProofs(id + '/' + version,
+                            List.of("target-recovery-authorization/" + scope, "target-recovery-evidence/" + scope)));
+        } catch (Exception | Error failure) {
+            final var retained = hold;
+            final Runnable cleanup = () -> {
+                if (retained != null) retained.close();
+                originalSdkBudget.closed();
+            };
+            try { cleanup.run(); }
+            catch (RuntimeException | Error cleanupFailure) { throw new TargetSdkCleanupFailure(unavailable(), cleanup); }
+            if (failure instanceof Error fatal) throw fatal;
+            throw unavailable();
+        }
+    }
+
+    private int recoveryReadLimit(long remaining) {
+        if (remaining <= 0) throw unavailable();
+        return (int) Math.min(remaining, limits.maximumFileBytes());
+    }
+
+    private static void requireTargetRecoveryEvidence(byte[] bytes, String id, String version,
+            TargetRecoveryCredentialAuthorization a, List<X509Certificate> chain, byte[] privateKey) throws Exception {
+        final var fields = QueryCodecSupport.read(bytes, "private Target recovery mTLS evidence");
+        QueryCodecSupport.requireNumbers(fields,
+                new int[] {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}, "private Target recovery mTLS evidence");
+        final var chainBytes = new ByteArrayOutputStream();
+        for (var cert : chain) chainBytes.write(Bytes.lp32(cert.getEncoded()));
+        final byte[] probe = QueryCodecSupport.bytes(fields.get(15), 16);
+        final var canonical = CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.uint32(out, 1, 1);
+            CanonicalProtobuf.bytes(out, 2, Bytes.hexToBytes(id));
+            CanonicalProtobuf.bytes(out, 3, Bytes.hexToBytes(version));
+            CanonicalProtobuf.bytes(out, 4, a.bindingId());
+            CanonicalProtobuf.uint64Bits(out, 5, a.credentialGeneration());
+            CanonicalProtobuf.bytes(out, 6, a.referenceDigest());
+            CanonicalProtobuf.bytes(out, 7, a.fingerprint());
+            CanonicalProtobuf.bytes(out, 8, a.principalHash());
+            CanonicalProtobuf.bytes(out, 9, Bytes.sha256(chainBytes.toByteArray()));
+            CanonicalProtobuf.bytes(out, 10, Bytes.sha256(chain.getFirst().getPublicKey().getEncoded()));
+            CanonicalProtobuf.bytes(out, 11, Bytes.sha256(privateKey));
+            CanonicalProtobuf.bytes(out, 12, a.policyDigest());
+            CanonicalProtobuf.bytes(out, 13, a.scopeImageDigest());
+            CanonicalProtobuf.uint32(out, 14, TargetRecoveryCredentialAuthorization.OPERATIONS);
+            CanonicalProtobuf.bytes(out, 15, Bytes.sha256(probe));
+            CanonicalProtobuf.bytes(out, 16, probe);
+        });
+        if (probe.length == 0 || !Arrays.equals(bytes, canonical)) throw unavailable();
+    }
+
     /** Same-version material and every retained private proof remain immutable; all bytes are charged once. */
     private synchronized Version retain(String identity, Version loaded, Map<String, FileImage> proofs) {
         final var previous = versions.get(identity);
@@ -435,6 +541,65 @@ public final class LocalBrokerMtlsResolver {
         public byte[] serverTrustPem() { return Bytes.copy(serverTrust); }
         public long retainedBytes() { return version.bytes() + serverTrust.length + proofs.stream().mapToLong(proof -> proof.bytes().length).sum(); }
         @Override public String toString() { return "ResolvedBrokerMtlsReceipt"; }
+    }
+
+    /** Actual recovery-only material; the native owner keeps this hold until its original SDK and late I/O exit. */
+    public static final class TargetRecoveryReceipt implements AutoCloseable {
+        private final TargetRecoveryCredentialAuthorization authorization;
+        private final TargetRecoveryCredentialAuthorization.Trust trust;
+        private final TargetRecoveryCredentialAuthorization.Hold hold;
+        private final TargetDestinationSdkBudget.Client budget;
+        private final Version version;
+        private final byte[] serverTrust;
+        private final EndpointPolicy endpoints;
+        private final List<FileImage> proofs;
+        private boolean stopping, closed;
+        private TargetRecoveryReceipt(TargetRecoveryCredentialAuthorization authorization,
+                TargetRecoveryCredentialAuthorization.Trust trust, TargetRecoveryCredentialAuthorization.Hold hold,
+                TargetDestinationSdkBudget.Client budget,
+                Version version, byte[] serverTrust, EndpointPolicy endpoints, List<FileImage> proofs) {
+            this.authorization = authorization; this.trust = trust; this.hold = hold; this.budget = budget; this.version = version;
+            this.serverTrust = serverTrust; this.endpoints = endpoints; this.proofs = proofs;
+        }
+        public TargetRecoveryCredentialAuthorization authorization() { return authorization; }
+        public synchronized void requireCurrent(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+                TrustedUtcIntervalEvidence time) {
+            if (stopping || budget.released()) throw unavailable();
+            authorization.requireMapping(mapping); trust.requireHeld(authorization, hold, time);
+        }
+        public void requireKafkaBootstrap(Object endpoint) {
+            final String configured = endpoint instanceof List<?> values
+                    ? String.join(",", values.stream().map(value -> (String) value).toList()) : (String) endpoint;
+            if (!endpoints.kafkaBootstrapServers().contains(configured)) throw unavailable();
+        }
+        public byte[] certificateChainPem() { return Bytes.copy(version.certs().bytes()); }
+        public byte[] privateKeyPem() { return Bytes.copy(version.key().bytes()); }
+        public byte[] serverTrustPem() { return Bytes.copy(serverTrust); }
+        /** Public references omit private material paths, raw probe requests and every private-key byte. */
+        public byte[] publicEvidence() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.uint32(out, 1, 1);
+                CanonicalProtobuf.bytes(out, 2, authorization.digest());
+                CanonicalProtobuf.bytes(out, 3, authorization.scopeImageDigest());
+                CanonicalProtobuf.bytes(out, 4, authorization.evidenceDigest());
+                CanonicalProtobuf.bytes(out, 5, authorization.bindingId());
+                CanonicalProtobuf.uint64Bits(out, 6, authorization.credentialGeneration());
+                CanonicalProtobuf.bytes(out, 7, authorization.referenceDigest());
+                CanonicalProtobuf.bytes(out, 8, authorization.fingerprint());
+                CanonicalProtobuf.bytes(out, 9, authorization.principalHash());
+                CanonicalProtobuf.bytes(out, 10, authorization.policyDigest());
+            });
+        }
+        public long retainedBytes() {
+            return version.bytes() + serverTrust.length + proofs.stream().mapToLong(p -> p.bytes().length).sum();
+        }
+        public synchronized boolean closeCompleted() { return closed; }
+        /** Caller must first prove actual native/late-I/O termination; expiry alone never releases protection. */
+        @Override public synchronized void close() {
+            stopping = true;
+            if (!closed) { hold.close(); budget.closed(); closed = true; }
+        }
+        @Override public String toString() { return "ResolvedTargetRecoveryBrokerMtlsReceipt"; }
     }
 
     /** Actual Source material, separately authenticated from every Destination permission. */
