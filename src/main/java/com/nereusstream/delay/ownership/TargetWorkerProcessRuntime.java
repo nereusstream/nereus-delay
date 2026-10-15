@@ -69,6 +69,21 @@ public final class TargetWorkerProcessRuntime {
             new java.util.LinkedHashMap<>();
     private final java.util.Set<TargetWorkerSourceStartup.Construction> sourceConstructions =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    /** Actual CONTROL receipt backing, kept after Worker users exit and before the original Oxia session closes. */
+    public interface ReceiptManagement {
+        byte[] identity();
+        void requireGraph(WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
+        boolean ready();
+        void requestStop();
+        boolean closeForProcess(ReceiptManagementClosePermit permit);
+        Throwable cleanupFailure();
+    }
+    private final java.util.Map<String, ReceiptManagement> receiptManagement = new java.util.LinkedHashMap<>();
+    private final java.util.Set<ReceiptManagementConstruction> receiptConstructions =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final java.util.Map<ReceiptManagement, ReceiptManagementClosePermit> receiptClosePermits = new java.util.IdentityHashMap<>();
+    private boolean receiptManagementFailed;
+    private boolean receiptManagementClosing;
     private SharedRocksDbResources resources;
     private SharedRocksDbResources.NativeOpeningFailure partialSharedOpening;
     private WorkClassExecutionRegistry classes;
@@ -246,13 +261,127 @@ public final class TargetWorkerProcessRuntime {
     }
 
     private void requireAssemblyAdmission() {
-        if (stopping || host != null || preparingHost || startupTurnActive) throw new IllegalStateException("process assembly is closed");
+        if (stopping || receiptManagementFailed || host != null || preparingHost || startupTurnActive)
+            throw new IllegalStateException("process assembly is closed");
     }
 
     synchronized void requireSourceAssemblyAdmission(TargetWorkerSourceStartup original) {
-        if (stopping || host != null || preparingHost || !sources.containsValue(original)) {
+        if (stopping || receiptManagementFailed || host != null || preparingHost || !sources.containsValue(original)) {
             throw new IllegalStateException("original process Source assembly is no longer admitted");
         }
+    }
+
+    /** Registration precedes native allocation; the retained actual owner also owns late failed construction. */
+    public synchronized ReceiptManagementConstruction beginReceiptManagementConstruction(
+            ReceiptManagement original, TargetDestinationSdkBudget budget) {
+        requireAssemblyAdmission(); oxia.providers();
+        if (assemblyBorrowed) throw new IllegalStateException("receipt management requires the original unborrowed process graph");
+        Objects.requireNonNull(budget).requireWorker(classes, resources);
+        Objects.requireNonNull(original).requireGraph(classes, resources);
+        final byte[] identity = original.identity();
+        com.nereusstream.delay.protocol.Bytes.requireLength(identity, 32, "original receipt management identity");
+        final String id = com.nereusstream.delay.protocol.Bytes.hex(identity);
+        if (receiptManagement.size() >= budget.maximumClients() || receiptManagement.containsKey(id))
+            throw new IllegalStateException("original receipt management identity/window is unavailable");
+        final var construction = new ReceiptManagementConstruction(this, original, Thread.currentThread());
+        receiptManagement.put(id, original); receiptConstructions.add(construction); return construction;
+    }
+
+    synchronized void requireReceiptManagement(TargetWorkerSourceStartup source, ReceiptManagement original) {
+        requireSourceAssemblyAdmission(source);
+        if (!receiptManagement.containsValue(original) || !original.ready())
+            throw new IllegalArgumentException("receipt backing is not this original process's ready management owner");
+    }
+
+    public static final class ReceiptManagementConstruction implements AutoCloseable {
+        private final TargetWorkerProcessRuntime root;
+        private final ReceiptManagement original;
+        private final Thread thread;
+        private boolean closed;
+        private ReceiptManagementConstruction(TargetWorkerProcessRuntime root, ReceiptManagement original, Thread thread) {
+            this.root = root; this.original = original; this.thread = thread;
+        }
+        public Assembly graph() {
+            synchronized (root) {
+                requireCurrent(); return new Assembly(root.configuration.worker(), root.classes, root.resources, root.io, root.oxia);
+            }
+        }
+        public void requireCurrent() {
+            synchronized (root) {
+                root.requireAssemblyAdmission();
+                if (closed || thread != Thread.currentThread() || !root.receiptConstructions.contains(this)
+                        || !root.receiptManagement.containsValue(original))
+                    throw new IllegalStateException("receipt management construction lost its original process scope");
+            }
+        }
+        @Override public void close() {
+            synchronized (root) {
+                if (closed || thread != Thread.currentThread() || !root.receiptConstructions.remove(this))
+                    throw new IllegalStateException("receipt management construction exit changed its original caller");
+                closed = true;
+            }
+        }
+    }
+
+    /** Startup failures fence the same original Sources; no partially opened backing can escape into a Host. */
+    public void failReceiptManagement(ReceiptManagement original, Throwable failure) {
+        final List<TargetWorkerSourceStartup> affected;
+        synchronized (this) {
+            if (!receiptManagement.containsValue(original)) throw new IllegalArgumentException("foreign receipt management owner");
+            receiptManagementFailed = true; retain(failure); affected = List.copyOf(sources.values());
+        }
+        for (var source : affected) {
+            try { source.failResourceStartup(failure); }
+            catch (RuntimeException | Error cleanup) { retain(cleanup); }
+        }
+    }
+
+    public static final class ReceiptManagementClosePermit {
+        private final TargetWorkerProcessRuntime root;
+        private final ReceiptManagement original;
+        private ReceiptManagementClosePermit(TargetWorkerProcessRuntime root, ReceiptManagement original) {
+            this.root = root; this.original = original;
+        }
+        public void requireOriginal(ReceiptManagement expected) {
+            synchronized (root) {
+                if (original != expected || !root.receiptManagementClosing || !root.stopping
+                        || root.receiptClosePermits.get(original) != this || !root.receiptConstructions.isEmpty())
+                    throw new IllegalStateException("receipt management close lacks its original dependency exit permit");
+            }
+        }
+    }
+
+    /** Host issued this only after all original Shard/Store/SDK users exited; Oxia must remain open meanwhile. */
+    boolean closeReceiptManagementForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(oxia);
+        synchronized (this) { stopping = true; }
+        return closeReceiptManagementAfterDependencies();
+    }
+
+    private boolean closeReceiptManagementAfterDependencies() {
+        final List<ReceiptManagement> original;
+        synchronized (this) {
+            if (!stopping || !receiptConstructions.isEmpty()) return false;
+            receiptManagementClosing = true; original = List.copyOf(receiptManagement.values());
+            for (var owner : original) receiptClosePermits.computeIfAbsent(owner,
+                    ignored -> new ReceiptManagementClosePermit(this, owner));
+        }
+        // Freeze every original owner before any bounded native close; do not hold the process monitor over SDK I/O.
+        boolean exited = true;
+        for (var owner : original) {
+            try { owner.requestStop(); }
+            catch (RuntimeException | Error failure) { retain(failure); exited = false; }
+        }
+        for (var owner : original) {
+            final ReceiptManagementClosePermit closing;
+            synchronized (this) { closing = receiptClosePermits.get(owner); }
+            try {
+                exited &= owner.closeForProcess(closing);
+                final var history = owner.cleanupFailure();
+                if (history != null) retain(history);
+            } catch (RuntimeException | Error failure) { retain(failure); exited = false; }
+        }
+        return exited;
     }
 
     synchronized void beginSourceConstruction(TargetWorkerSourceStartup original, TargetWorkerSourceStartup.Construction construction) {
@@ -328,7 +457,7 @@ public final class TargetWorkerProcessRuntime {
         for (var source : original) exited &= source.retryFailedStartupCleanup(request);
         if (!exited) return false;
         synchronized (this) { if (startupTurnActive) return false; dependenciesExited = true; }
-        oxia.stopUnattached(); retryCleanup();
+        retryCleanup();
         return cleanupComplete();
     }
 
@@ -355,7 +484,10 @@ public final class TargetWorkerProcessRuntime {
         synchronized (this) {
             requireAssemblyAdmission();
             if (!controlled.equals(List.copyOf(sources.values()))) throw new IllegalStateException("Source assembly changed");
-            if (!sourceConstructions.isEmpty()) throw new IllegalStateException("original Source construction has not exited before Host transfer");
+            if (!sourceConstructions.isEmpty() || !receiptConstructions.isEmpty())
+                throw new IllegalStateException("original Source/receipt construction has not exited before Host transfer");
+            if (receiptManagement.values().stream().anyMatch(owner -> !owner.ready()))
+                throw new IllegalStateException("original receipt management backing is not ready for Host transfer");
             preparingHost = true; assemblyBorrowed = true;
         }
         try {
@@ -464,12 +596,17 @@ public final class TargetWorkerProcessRuntime {
             }
             stopping = true; dependenciesExited = true;
         }
-        if (oxia != null) oxia.stopUnattached();
         retryCleanup();
     }
 
     /** Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread. */
-    public synchronized void retryCleanup() {
+    public void retryCleanup() {
+        synchronized (this) { if (!stopping || !dependenciesExited || resourcesClosed) return; }
+        if (!closeReceiptManagementAfterDependencies()) return;
+        synchronized (this) { retryProcessCleanup(); }
+    }
+
+    private void retryProcessCleanup() {
         if (!stopping || !dependenciesExited || resourcesClosed) return;
         try {
             if (systemWriters != null) {
@@ -483,6 +620,7 @@ public final class TargetWorkerProcessRuntime {
                 if (!partialSharedOpening.cleanupComplete()) return;
             }
             if (oxia != null) {
+                if (host == null) oxia.stopUnattached();
                 oxia.retryCleanup();
                 if (!oxia.cleanupComplete()) return;
             }

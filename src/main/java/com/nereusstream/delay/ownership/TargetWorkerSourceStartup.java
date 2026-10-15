@@ -1169,6 +1169,11 @@ public final class TargetWorkerSourceStartup {
         return actual.requirePublicationOwner(current, owner.clock());
     }
 
+    /** Configured K2 obtains CONTROL backing only from the same original process owner, before Host transfer. */
+    public void requireReceiptManagement(TargetWorkerProcessRuntime.ReceiptManagement original) {
+        process.requireReceiptManagement(this, original);
+    }
+
     public synchronized void retainPublicationDispatch(TargetWorkerShardRuntime actual, TargetWorkerPublicationDispatch dispatch) {
         requireCurrent(); requireAdmittedWorker(actual);
         if (constructionThread != Thread.currentThread()) throw new IllegalStateException("dispatch binding requires its original SDK construction");

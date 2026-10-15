@@ -299,6 +299,28 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     originalAdmission, resolver, profiles, trust, catalog, publisher, sdkBudget, time, reads, clock);
         }
 
+        /** Uses the ready privileged backing retained by the same process; no Admin or CONTROL key reaches this Worker. */
+        public KafkaClientArtifactTargetReceiptFactory.Opening openReceiptChannel(Path configuration, byte[] channelDigest,
+                com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch,
+                KafkaClientArtifactTargetReceiptFactory.RecoveryAdmission originalAdmission, LocalBrokerMtlsResolver resolver,
+                com.nereusstream.delay.runtime.ProfileCatalog profiles,
+                com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) throws java.io.IOException {
+            startup.requireReceiptManagement(management);
+            final var config = KafkaClientArtifactTargetReceiptFactory.load(configuration);
+            if (!java.util.Arrays.equals(config.protectionDigest(), management.protection(channelDigest).digest()))
+                throw new IllegalArgumentException("configured K2 protection differs from the same process's original backing");
+            final TargetWorkerShardRuntime original;
+            synchronized (this) {
+                if (failed || worker == null) throw new IllegalStateException("original K1 Source Worker is unavailable");
+                original = worker;
+            }
+            return KafkaClientArtifactTargetReceiptFactory.openLoaded(startup, original, dispatch, channelDigest, config,
+                    originalAdmission, resolver, profiles, trust, management.catalog(), management.publisher(channelDigest),
+                    sdkBudget, time, reads, clock);
+        }
+
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
         public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {

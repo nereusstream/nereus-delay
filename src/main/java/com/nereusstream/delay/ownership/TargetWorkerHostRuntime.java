@@ -1110,6 +1110,7 @@ public final class TargetWorkerHostRuntime {
         final TargetWorkerProcessRuntime process;
         synchronized (this) { process = processRuntime; }
         if (process != null && !process.releaseRecoveryPinsForHost(permit)) return false;
+        if (process != null && !process.closeReceiptManagementForHost(permit)) return false;
         root.closeForHost(permit);
         if (!root.cleanupComplete()) return false;
         if (process != null) process.closeForHost(permit);

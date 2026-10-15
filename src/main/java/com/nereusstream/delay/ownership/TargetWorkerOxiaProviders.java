@@ -120,6 +120,14 @@ public final class TargetWorkerOxiaProviders {
     public OxiaSyncPayloadProofTrustSetCatalog payloadTrusts() { return payloadTrusts; }
     public byte[] sessionIdentity() { return session.sessionIdentity(); }
 
+    /** Uses the original owned connected session, which outlives the process receipt management dependency. */
+    public com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog receiptProtectionCatalog(
+            String prefix, com.nereusstream.delay.runtime.TargetKafkaReceiptProtectionTrust trust,
+            com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.Limits limits) {
+        session.backend().requireOriginalConnectedClient(session.client());
+        return new com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog(session, prefix, trust, limits);
+    }
+
     /** One per-Shard authority backs both intents and Catalog/Floor; do not construct a second catalog record. */
     public OxiaSyncCheckpointPublicationBackend checkpointPublication(String exactShardPrefix, CheckpointManifestLimits limits) {
         session.backend().requireOriginalConnectedClient(session.client());

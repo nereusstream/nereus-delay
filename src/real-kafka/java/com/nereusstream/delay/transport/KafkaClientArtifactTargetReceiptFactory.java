@@ -86,7 +86,16 @@ public final class KafkaClientArtifactTargetReceiptFactory {
             CredentialAttestationTrustSet trust, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
             KafkaClientArtifactTargetReceiptProvider.AnchorPublisher controlPublisher, TargetDestinationSdkBudget budget,
             Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier ownerClock) throws IOException {
-        final var config = load(configuration);
+        return openLoaded(startup, worker, dispatch, channelDigest, load(configuration), originalAdmission,
+                resolver, profiles, trust, catalog, controlPublisher, budget, time, reads, ownerClock);
+    }
+
+    static Opening openLoaded(TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker,
+            TargetWorkerPublicationDispatch dispatch, byte[] channelDigest, Configuration config,
+            RecoveryAdmission originalAdmission, LocalBrokerMtlsResolver resolver, ProfileCatalog profiles,
+            CredentialAttestationTrustSet trust, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+            KafkaClientArtifactTargetReceiptProvider.AnchorPublisher controlPublisher, TargetDestinationSdkBudget budget,
+            Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier ownerClock) {
         final byte[] digest = Bytes.copy(channelDigest);
         try (var construction = startup.beginWorkerResourceConstruction(worker)) {
             construction.requireCurrent(); startup.retainPublicationDispatch(worker, dispatch);

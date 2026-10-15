@@ -199,6 +199,15 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         });
     }
 
+    /** Same actual startup method under the already owned finite factory I/O task; never blocks on another queued task. */
+    TargetKafkaReceiptControlArtifact establishForStartup(Scope scope, PreparedControlOperation control,
+            SourcePosition at, PrivateKey key, TargetKafkaReceiptProtectionTrust authority,
+            OxiaSyncTargetKafkaReceiptProtectionCatalog originalCatalog) {
+        final var use = beginUse();
+        try { return establishNow(scope, control, at, key, authority, originalCatalog); }
+        finally { use.close(); }
+    }
+
     private TargetKafkaReceiptControlArtifact establishNow(Scope scope, PreparedControlOperation control, SourcePosition at,
             PrivateKey key, TargetKafkaReceiptProtectionTrust trust, OxiaSyncTargetKafkaReceiptProtectionCatalog catalog) {
         requireAttached(catalog, trust, key);
@@ -350,6 +359,13 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
             finally { use.close(); }
         }, () -> {}, pool);
         operations.add(owned); return owned.receipt();
+    }
+
+    /** Freezes all callers before the process attempts any native dependency close. */
+    void requestStop() {
+        final List<com.nereusstream.delay.ownership.OwnedCheckpointIo<?>> pending;
+        synchronized (this) { stopping = true; pending = List.copyOf(operations); }
+        for (var operation : pending) operation.requestStop();
     }
 
     /** Detached completion/cancellation never proves SDK or actual management method exit. */
