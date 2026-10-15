@@ -86,6 +86,154 @@ public final class TargetWorkerSourceStartup {
     private PulsarPreparation pulsarPreparation;
     private boolean initialCommitted;
     private com.nereusstream.delay.protocol.OwnerIdentity registryIdentity;
+    private final java.util.List<RecoveryInputsOpening> recoveryInputs = new java.util.ArrayList<>(2);
+    private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private long recoveryInputBytesLimit;
+
+    /** A provider must register its actual SDK owner before it can allocate/open native Journal resources. */
+    public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
+        Objects.requireNonNull(actual).requireWorkerGraph(graph.classes(), graph.resources());
+        if (actual == backend || recoveryInputBackends.contains(actual)) return;
+        if (recoveryInputBackends.size() == 2) throw new IllegalStateException("two Owner recovery input SDK owners are already retained");
+        recoveryInputBackends.add(actual);
+    }
+
+    /** Uses the original finite process executor; the root retains late results and partial cleanup before exposure. */
+    public synchronized RecoveryInputsOpening openRecoveryInputs(TargetSourceRecoveryInputs.Provider provider,
+            com.nereusstream.delay.protocol.OwnerIdentity expectedOwner, long maximumRetainedBytes) {
+        requireCurrent(); Objects.requireNonNull(provider); Objects.requireNonNull(expectedOwner);
+        if (worker != null || maximumRetainedBytes < 1 || maximumRetainedBytes == Long.MAX_VALUE
+                || maximumRetainedBytes > graph.config().resources().certifiedJvmHeapBytes()
+                || expectedOwner.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(expectedOwner.leaseFencingDigest(), lease.leaseToken())) {
+            throw new IllegalArgumentException("recovery inputs lack the actual startup Owner or finite retained-input memory bound");
+        }
+        for (var prior : recoveryInputs) {
+            if (Arrays.equals(prior.owner.canonicalBytes(), expectedOwner.canonicalBytes())) {
+                if (prior.provider != provider || prior.maximumBytes != maximumRetainedBytes) {
+                    throw new IllegalStateException("the original Owner input provider/bound cannot be replaced");
+                }
+                return prior;
+            }
+        }
+        if (recoveryInputs.size() == 2 || recoveryInputBytesLimit != 0 && recoveryInputBytesLimit != maximumRetainedBytes) {
+            throw new IllegalStateException("recovery inputs exceed the original two-Owner bounded startup");
+        }
+        recoveryInputBytesLimit = maximumRetainedBytes;
+        long remainingBytes = maximumRetainedBytes;
+        for (var prior : recoveryInputs) {
+            if (!Arrays.equals(prior.owner.deploymentId(), expectedOwner.deploymentId())
+                    || !Arrays.equals(prior.owner.workerRunId(), expectedOwner.workerRunId())) {
+                throw new IllegalArgumentException("recovery provider changed its deployment/worker run identity");
+            }
+            remainingBytes = Math.subtractExact(remainingBytes, prior.original == null ? prior.allocationBytes : prior.retainedBytes);
+        }
+        if (remainingBytes < 1) throw new IllegalStateException("the original recovery input byte reservation is still occupied");
+        final long allocationBytes = remainingBytes;
+        final var opening = new RecoveryInputsOpening(this, provider, expectedOwner, maximumRetainedBytes, allocationBytes);
+        final SourceAssignment originalAssignment = assignment;
+        recoveryInputs.add(opening);
+        try {
+            opening.io = OwnedCheckpointIo.submit(guard -> {
+                final var value = Objects.requireNonNull(provider.load(expectedOwner, originalAssignment, allocationBytes, guard));
+                synchronized (this) { opening.original = value; opening.retainedBytes = value.retainedBytes(); }
+                guard.run(); opening.requireValue(); guard.run();
+                return value;
+            }, this::requireCurrent, graph.io());
+            return opening;
+        } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
+    }
+
+    public static final class RecoveryInputsOpening {
+        private final TargetWorkerSourceStartup startup;
+        private final TargetSourceRecoveryInputs.Provider provider;
+        private final com.nereusstream.delay.protocol.OwnerIdentity owner;
+        private final long maximumBytes;
+        private final long allocationBytes;
+        private long retainedBytes;
+        private OwnedCheckpointIo<TargetSourceRecoveryInputs> io;
+        private TargetSourceRecoveryInputs original;
+        private boolean closed;
+        private RecoveryInputsOpening(TargetWorkerSourceStartup startup, TargetSourceRecoveryInputs.Provider provider,
+                com.nereusstream.delay.protocol.OwnerIdentity owner, long maximumBytes, long allocationBytes) {
+            this.startup = startup; this.provider = provider; this.owner = owner; this.maximumBytes = maximumBytes;
+            this.allocationBytes = allocationBytes;
+        }
+        public Optional<TargetSourceRecoveryInputs> ready() {
+            synchronized (startup) {
+                if (io == null || !io.operationExited()) return Optional.empty();
+                final var result = io.receipt();
+                if (!result.isDone()) return Optional.empty();
+                result.join();
+                if (!io.ioExited()) return Optional.empty();
+                requireValue();
+                return Optional.of(original);
+            }
+        }
+        public com.nereusstream.delay.protocol.OwnerIdentity owner() { return owner; }
+        private void requireValue() {
+            synchronized (startup) {
+                final var value = Objects.requireNonNull(original, "original input hold");
+                if (closed || !Arrays.equals(owner.canonicalBytes(), value.owner().canonicalBytes())
+                        || value.credential() == null || value.maximumFrameBytes() < 1
+                        || value.maximumFrameBytes() > startup.graph.config().maximumSourceFrameBytes()
+                        || value.retainedBytes() < 0 || value.retainedBytes() != retainedBytes || retainedBytes > allocationBytes
+                        || value.journal() != null && value.journalBackend() == null) {
+                    throw new IllegalStateException("provider changed its actual Owner/credential/frame/hold bound");
+                }
+                if (value.journalBackend() != null && value.journalBackend() != startup.backend
+                        && !startup.recoveryInputBackends.contains(value.journalBackend())) {
+                    throw new IllegalStateException("provider did not retain its actual Journal SDK owner before opening");
+                }
+                long bytes = 0;
+                for (var input : startup.recoveryInputs) {
+                    if (input.original != null) {
+                        if (input != this && input.original == value) throw new IllegalStateException("Owner input hold was rebound");
+                        bytes = Math.addExact(bytes, input.retainedBytes);
+                    }
+                }
+                if (bytes > maximumBytes) throw new IllegalStateException("two Owner input holds exceed their aggregate bound");
+                value.requireSourceCurrent();
+                if (value.journal() != null) value.requireJournalCurrent();
+            }
+        }
+    }
+
+    private boolean recoveryInputOperationsExited(boolean stop) {
+        boolean exited = true;
+        for (var input : recoveryInputs) {
+            if (input.io == null) continue;
+            if (stop) input.io.requestStop();
+            exited &= input.io.operationExited();
+        }
+        return exited;
+    }
+
+    private boolean recoveryInputCleanupExited() {
+        boolean exited = true;
+        for (var input : recoveryInputs) {
+            if (input.io == null) continue;
+            input.io.retryCleanup(); exited &= input.io.ioExited();
+        }
+        return exited;
+    }
+
+    private boolean releaseRecoveryInputs() {
+        if (!recoveryInputOperationsExited(true) || !recoveryInputCleanupExited()) return false;
+        boolean released = true;
+        for (var input : recoveryInputs) {
+            if (input.original == null || input.closed) continue;
+            try { input.original.close(); input.closed = true; }
+            catch (RuntimeException | Error failure) { retain(failure); released = false; }
+        }
+        return released;
+    }
+
+    void requireRecoveryInputBackend(TargetOwnedBackendGroup actual) {
+        requireCurrent();
+        if (!recoveryInputBackends.contains(actual)) throw new IllegalArgumentException("SDK owner is not an original recovery input allocation");
+    }
 
     /** Only this startup can issue a receipt for its unexposed Source/runtime and actual Store barrier. */
     public synchronized Optional<PulsarPreparation> preparePulsarSource() {
@@ -99,6 +247,7 @@ public final class TargetWorkerSourceStartup {
                 || !(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier)) {
             throw new IllegalStateException("P1 preparation requires its original unexposed startup");
         }
+        if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) return Optional.empty();
         if (recovery != null) {
             if (!recovery.coordinator().sourceReadyForReactivation()
                     || recoverySource == null || !recoverySource.cleanupComplete()) return Optional.empty();
@@ -845,6 +994,10 @@ public final class TargetWorkerSourceStartup {
         synchronized (this) {
             activation().requireGraph(graph.classes(), graph.resources(), store());
             actual.requireSourceStartup(activation.runtime(), store);
+            if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) {
+                throw new IllegalStateException("original recovery input opening/cleanup is still pending");
+            }
+            for (var inputBackend : recoveryInputBackends) actual.retainRecoveryInputBackend(this, inputBackend);
             if (recoverySource != null) actual.retainRecoveryBackend(recoverySource.backend());
             if (pulsarPreparation != null && pulsarPreparation.previousReader != null) {
                 actual.retainPriorRecoveryBackend(pulsarPreparation, pulsarPreparation.previousReader.backend());
@@ -884,6 +1037,7 @@ public final class TargetWorkerSourceStartup {
         if (firstFailure == null) throw new IllegalStateException("successful startup is still admitted for assembly");
         stopping = true;
         try {
+            if (!recoveryInputOperationsExited(true)) return false;
             if (restoreSubmission != null) {
                 if (graph.classes().state(restoreSubmission.task()).orElse(null)
                         == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.RUNNING
@@ -937,6 +1091,10 @@ public final class TargetWorkerSourceStartup {
             if (backend != null) {
                 backend.closeBeforeHostBinding(); if (!backend.resourcesTerminated()) return false;
             }
+            for (var inputBackend : recoveryInputBackends) {
+                inputBackend.closeBeforeHostBinding(); if (!inputBackend.resourcesTerminated()) return false;
+            }
+            if (!recoveryInputCleanupExited()) return false;
             if (worker != null) {
                 for (var publication : worker.publicationBackendGroups()) {
                     publication.closeBeforeHostBinding(); if (!publication.resourcesTerminated()) return false;
@@ -947,7 +1105,7 @@ public final class TargetWorkerSourceStartup {
                     failedWorkerExit = exited.get();
                 }
                 storeClosed = true; leaseReleased = failedWorkerExit.leaseReleased(); ownerLost = failedWorkerExit.ownerLost();
-                if (!releaseOwnedCheckpointPin()) return false;
+                if (!releaseRecoveryInputs() || !releaseOwnedCheckpointPin()) return false;
                 failedCleanupComplete = true;
                 return true;
             }
@@ -960,7 +1118,7 @@ public final class TargetWorkerSourceStartup {
                 if (current.isEmpty() || !lease.sameIdentity(current.get())) ownerLost = true;
                 else if (!(leaseReleased = graph.oxia().providers().leases().release(current.get()))) return false;
             }
-            if (!releaseOwnedCheckpointPin()) return false;
+            if (!releaseRecoveryInputs() || !releaseOwnedCheckpointPin()) return false;
             // An uncertain acquisition remains in the original failure receipt; no successful lease is invented.
             failedCleanupComplete = true;
             return true;
@@ -972,7 +1130,7 @@ public final class TargetWorkerSourceStartup {
     /** Only the original stopped Host can authorize the final pin release before its shared Oxia clients close. */
     boolean releaseCheckpointPinForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
         permit.requireOriginalRoot(graph.oxia());
-        synchronized (this) { return releaseOwnedCheckpointPin(); }
+        synchronized (this) { return releaseRecoveryInputs() && releaseOwnedCheckpointPin(); }
     }
 
     private boolean releaseOwnedCheckpointPin() {

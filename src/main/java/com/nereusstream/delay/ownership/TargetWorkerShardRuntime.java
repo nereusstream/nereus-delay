@@ -96,6 +96,8 @@ public final class TargetWorkerShardRuntime
     private final SourceRecordConsumer actualSourceConsumer;
     private TargetOwnedBackendGroup recoveryBackend;
     private TargetOwnedBackendGroup priorRecoveryBackend;
+    private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
@@ -232,6 +234,7 @@ public final class TargetWorkerShardRuntime
         final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
         if (recoveryBackend != null) groups.add(recoveryBackend);
         if (priorRecoveryBackend != null && priorRecoveryBackend != recoveryBackend) groups.add(priorRecoveryBackend);
+        for (var backend : recoveryInputBackends) if (!groups.contains(backend)) groups.add(backend);
         for (var owner : publicationResources.values()) {
             final var group = owner.ownedBackendGroup();
             if (group != null && groups.stream().noneMatch(existing -> existing == group)) { groups.add(group); }
@@ -1562,6 +1565,16 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("recovery SDK owner cannot transfer to another Worker/Host");
         }
         recoveryBackend = actual;
+    }
+
+    synchronized void retainRecoveryInputBackend(TargetWorkerSourceStartup original, TargetOwnedBackendGroup actual) {
+        if (actual == null || actual == sourceBackendGroup || actual == recoveryBackend || actual == priorRecoveryBackend) return;
+        original.requireRecoveryInputBackend(actual);
+        actual.requireWorkerGraph(workClasses, resources);
+        if (publicationHost != null || !recoveryInputBackends.contains(actual) && recoveryInputBackends.size() == 2) {
+            throw new IllegalStateException("recovery input SDK owners cannot be replaced or added after Host transfer");
+        }
+        recoveryInputBackends.add(actual);
     }
 
     synchronized void retainPriorRecoveryBackend(TargetWorkerSourceStartup.PulsarPreparation original,

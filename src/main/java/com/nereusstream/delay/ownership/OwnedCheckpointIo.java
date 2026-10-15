@@ -63,6 +63,8 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     }
 
     public synchronized boolean ioExited() { return exited && view.ioExited(); }
+    /** The original queued method has exited; retained native/protection cleanup may still remain. */
+    public synchronized boolean operationExited() { return exited; }
 
     /** One explicit same-handle cleanup request on the original executor; never closes the shared client. */
     public synchronized void retryCleanup() {

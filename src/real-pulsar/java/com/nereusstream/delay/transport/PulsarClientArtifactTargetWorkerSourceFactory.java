@@ -84,6 +84,9 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation preparation;
         private GuardedConsumer<byte[]> consumer;
         private PulsarClientArtifactSourceRecordConsumer preparedSource;
+        private com.nereusstream.delay.ownership.TargetSourceRecoveryInputs.Provider recoveryProvider;
+        private long maximumRecoveryInputBytes;
+        private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
         private boolean failed;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 PulsarClientArtifactOwnedBackendGroup group, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
@@ -95,6 +98,17 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             this.topic = topic; this.subscription = subscription; this.timeout = timeout;
             this.maintenance = maintenance; this.identity = identity; this.time = time; this.clock = clock;
         }
+
+        /** Trusted composition-root provider; no reflected classes/scripts or preconstructed Source runtime. */
+        public synchronized void configureRecoveryProvider(
+                com.nereusstream.delay.ownership.TargetSourceRecoveryInputs.Provider provider, long maximumRetainedBytes) {
+            if (failed || worker != null || recoveryProvider != null || recoveryInputs != null
+                    || maximumRetainedBytes < 1 || maximumRetainedBytes == Long.MAX_VALUE
+                    || maximumRetainedBytes > startup.graph().config().resources().certifiedJvmHeapBytes()) {
+                throw new IllegalStateException("recovery provider requires one original finite startup configuration");
+            }
+            recoveryProvider = Objects.requireNonNull(provider); maximumRecoveryInputBytes = maximumRetainedBytes;
+        }
         /** Explicit driver turn; subscribe/native proof waits retain their original finite SDK bounds. */
         public synchronized java.util.Optional<TargetWorkerShardRuntime> advance() {
             if (failed) throw new IllegalStateException("original P1 Source opening failed");
@@ -102,6 +116,19 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             try {
                 startup.requirePulsarOpeningAuthority();
                 if (!group.finishStartup()) return java.util.Optional.empty();
+                if (recoveryProvider != null && startup.needsPulsarRecovery()) {
+                    final var owner = preparation == null ? identity : startup.currentPulsarOwnerIdentity();
+                    if (recoveryInputs == null || !Arrays.equals(recoveryInputs.owner().canonicalBytes(), owner.canonicalBytes())) {
+                        recoveryInputs = startup.openRecoveryInputs(recoveryProvider, owner, maximumRecoveryInputBytes);
+                    }
+                    final var ready = recoveryInputs.ready();
+                    if (ready.isEmpty()) return java.util.Optional.empty();
+                    final var inputs = ready.orElseThrow();
+                    if (!startRecovery(inputs.credential(), inputs.maximumFrameBytes(), inputs::requireSourceCurrent,
+                            inputs.journal(), inputs.journal() == null ? null : inputs::requireJournalCurrent)) {
+                        return java.util.Optional.empty();
+                    }
+                }
                 if (startup.pulsarRecoveryPending()) startup.runRecoveryTurn();
                 if (preparation == null) {
                     final var current = startup.preparePulsarSource();
