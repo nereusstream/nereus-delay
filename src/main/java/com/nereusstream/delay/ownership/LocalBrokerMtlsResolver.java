@@ -242,6 +242,7 @@ public final class LocalBrokerMtlsResolver {
     /** Dedicated Target recovery input. Call only on the original pre-reserved, bounded startup I/O owner. */
     public TargetRecoveryReceipt resolveTargetRecovery(Path authorizationFile,
             com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+            com.nereusstream.delay.protocol.OwnerIdentity currentOwner, byte[] actualTenantScope,
             TargetRecoveryCredentialAuthorization.Trust trust, Supplier<TrustedUtcIntervalEvidence> time,
             TargetDestinationSdkBudget.Client originalSdkBudget, Runnable ownedIoGuard) {
         // This is captured-input capacity, in addition to the actual producer/reader envelope supplied by its owner.
@@ -259,6 +260,7 @@ public final class LocalBrokerMtlsResolver {
                     Math.min(limits.maximumFileBytes(), TargetRecoveryCredentialAuthorization.MAX_BYTES));
             final var authorization = TargetRecoveryCredentialAuthorization.decode(input.bytes());
             authorization.requireMapping(mapping);
+            authorization.requireRuntimeScope(currentOwner,actualTenantScope);
             trust.verify(authorization, time.get());
             if (!Arrays.equals(policyDigest, authorization.policyDigest())) throw unavailable();
             final var reference = REFERENCE.matcher(new String(authorization.reference(), StandardCharsets.US_ASCII));

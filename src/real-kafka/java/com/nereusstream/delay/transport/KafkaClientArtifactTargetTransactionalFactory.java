@@ -229,11 +229,21 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
         private final byte[] image;
         private Fence(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
                 TargetChannelIdentity channel, OwnerIdentity owner, byte[] actualSdk, Runnable rights) {
+            this(mapping,channel,owner,actualSdk,rights,null,null);
+        }
+        // Only the actual typed recovery opening supplies material/Store context; old v1 images are not reinterpreted.
+        Fence(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+                TargetChannelIdentity channel, OwnerIdentity owner, byte[] actualSdk, Runnable rights,
+                byte[] recoveryMaterial, byte[] runtimeContext) {
             this.mapping = mapping; this.channel = channel; this.rights = rights;
+            if ((recoveryMaterial == null) != (runtimeContext == null)
+                    || recoveryMaterial != null && (recoveryMaterial.length == 0 || recoveryMaterial.length > 65536
+                        || runtimeContext.length == 0 || runtimeContext.length > 65536))
+                throw new IllegalArgumentException("recovery fence requires bounded actual material and runtime context");
             rights.run();
             final var id = java.util.UUID.randomUUID();
             image = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
-                com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, 1);
+                com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, recoveryMaterial == null ? 1 : 2);
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, mapping.mappingId());
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 3, channel.canonicalBytes());
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 4, owner.canonicalBytes());
@@ -242,6 +252,10 @@ public final class KafkaClientArtifactTargetTransactionalFactory {
                         com.nereusstream.delay.protocol.Bytes.utf8(KafkaClientArtifactTargetReceiptReader.REQUIRED_K1_SOURCE_COMMIT));
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 7, java.nio.ByteBuffer.allocate(16)
                         .putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array());
+                if (recoveryMaterial != null) {
+                    com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 8, recoveryMaterial);
+                    com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 9, runtimeContext);
+                }
             });
         }
         public TargetChannelIdentity channel() { return channel; }

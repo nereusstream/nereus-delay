@@ -260,6 +260,85 @@ public final class TargetPublishOutcomeStore {
         }, authority);
     }
 
+    /** Private original pending-slot snapshot, including the actual Store/cut used for one recovery opening. */
+    public static final class KafkaRecoveryPending {
+        private final com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping;
+        private final TargetQuotaAttemptBudget attempt;
+        private final TargetExternalEvidenceStore.Adoption adoption;
+        private final com.nereusstream.delay.store.StoreMetadata store;
+        private final com.nereusstream.delay.protocol.SourcePosition cut;
+        private final long nativeSequence, sourceSequence;
+        private KafkaRecoveryPending(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+                TargetQuotaAttemptBudget attempt, TargetExternalEvidenceStore.Adoption adoption, TargetStoreBackend.Reader reader) {
+            this.mapping = mapping; this.attempt = attempt; this.adoption = adoption; store = reader.metadata();
+            cut = Objects.requireNonNull(reader.source()); nativeSequence = reader.nativeSequence(); sourceSequence = reader.sourceSequence();
+        }
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() { return mapping; }
+        public TargetQuotaAttemptBudget.Phase phase() { return attempt.phase(); }
+        public byte[] tenantScope() { return attempt.tenantScope(); }
+        public TargetExternalEvidenceStore.Adoption adoption() { return adoption; }
+        public void requireUnknown(KafkaUnknown unknown) {
+            if (phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
+                    || !Arrays.equals(mapping.canonicalBytes(), unknown.mapping().canonicalBytes())
+                    || !Arrays.equals(attempt.canonicalBytes(), unknown.budget().canonicalBytes()))
+                throw new IllegalStateException("K2 evidence differs from the actual pending UNKNOWN obligation");
+        }
+        public byte[] contextImage() {
+            return com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
+                com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, 1);
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, store.encode());
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 3, cut.canonicalBytes());
+                com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 4, nativeSequence);
+                com.nereusstream.delay.protocol.CanonicalProtobuf.uint64Bits(out, 5, sourceSequence);
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 6, Bytes.sha256(mapping.canonicalBytes()));
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 7, Bytes.sha256(attempt.canonicalBytes()));
+            });
+        }
+        public void requireContinuation(KafkaRecoveryPending actual) {
+            if (!Arrays.equals(mapping.canonicalBytes(), actual.mapping.canonicalBytes())
+                    || !Arrays.equals(store.encode(), actual.store.encode()) || actual.cut.compareTo(cut) < 0
+                    || Long.compareUnsigned(actual.nativeSequence, nativeSequence) < 0
+                    || Long.compareUnsigned(actual.sourceSequence, sourceSequence) < 0
+                    || phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN && actual.phase() != phase()) {
+                throw new IllegalStateException("K2 recovery changed original mapping/Store or regressed its pending Source cut");
+            }
+        }
+    }
+
+    /** Actual retained Admission, pending slot and unreleased obligation; no expiry check on the historical SEND lease. */
+    public KafkaRecoveryPending readKafkaRecoveryPending(BoundedReadBudget budget, SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original, TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(budget, reader -> {
+            final var first = admissionProof(reader, admission);
+            original.requireOriginal(admission, first.mutation().source());
+            final var adoption = TargetExternalEvidenceStore.readAdoption(reader, original, scope, lineage);
+            final var body = original.admission();
+            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT}, body.publishAttemptId());
+            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(
+                    required(reader, ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (attempt.resolvedAt() != null || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                    && attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
+                    || !Arrays.equals(attempt.tenantScope(), scope.tenantScope()) || !attempt.allocated().equals(body.allocated())
+                    || !generation(reader, body.locator()).runtime().attemptObligations().contains(body.obligation())) {
+                throw new IllegalStateException("K2 recovery lacks its original unresolved Source obligation");
+            }
+            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+            slot.requirePending(original);
+            if (!slot.mutation().equals(first.mutation()) || !Arrays.equals(slot.recoveryLineage(), lineage))
+                throw new IllegalStateException("K2 recovery changed its original pending slot");
+            if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                attempt.mutation().requireAfter(first.mutation()); requireUnknownProof(reader, attempt);
+            }
+            else if (!attempt.mutation().equals(first.mutation())) throw new IllegalStateException("K2 admitted recovery changed its first Source stamp");
+            final var result = new KafkaRecoveryPending(original, attempt, adoption, reader);
+            reader.requireWithinElapsedBudget(); return result;
+        }, authority);
+    }
+
     /** Exact retained Source resolution and free stable slot; grants neither SEND nor Floor/accounting release. */
     public boolean kafkaMappingSettled(BoundedReadBudget budget, SystemMutation admission,
             com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original, TargetStoreBackend.ReadAuthority authority) {

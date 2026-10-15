@@ -3618,3 +3618,52 @@ succeeds. A later typed native owner must continue this generation, not begin it
 again or call releaseUnstarted while material cleanup remains. Actual Hold.close
 is retryable and idempotent after success; a failed hold or budget close retains
 the original pointer and charge. No normal SDK factory fallback is introduced.
+
+Independent K2 recovery runtime binding (2026-10-16): the original v1 private
+same-ID Fence image remains unchanged. A new explicit v2 Fence retains fields
+2..7 (mapping ID, original channel, actual current Owner, loaded SDK JAR SHA256,
+exact K1 source commit and per-opening UUID) and adds field 8: the dedicated
+recovery material receipt's safe public evidence projection; field 9: the actual
+opening pending-Store context. Each added image is nonempty and at most 65536
+bytes. The context is a closed internal v1 image: 1 version=1; 2 actual
+StoreMetadata.encode(); 3 actual Source cut canonical bytes; 4 uint64-bit native
+sequence; 5 uint64-bit Source sequence; 6 original mapping canonical SHA256;
+7 actual unresolved attempt-budget canonical SHA256. Neither image is a new
+Source/Outcome/mapping wire type or caller-issued permission. Existing recovery
+observation images carry the explicit v2 Fence in their original nested field;
+old v1 evidence is not relabeled or reinterpreted.
+
+KafkaRecoveryPending is privately constructed only after one actual guarded
+native read has verified the original Admission first result/POSITION, exact
+retained mapping/pending stable slot/unreleased obligation and external evidence
+owners, plus the initial UNKNOWN first result when applicable. Continuation keeps
+the same Store identity and exact mapping, permits monotonic Source/native cuts
+and ADMITTED-to-UNKNOWN transition, and rejects UNKNOWN rollback. The actual
+Worker Owner/session and current pending slot remain live conditions. Registered
+recovery and any other unexited SDK with the same stable producer identity are
+mutually exclusive; an actual normal publication flight cannot be selected for
+recovery. Already registered resource-bound reads do not grant new ordinary
+turns, Source writes or new SDK registration during checkpoint admission closure.
+
+Target recovery authorization also compares its signed deployment/tenant to the
+actual Owner and actual Source attempt tenant before acquiring the new hold or
+loading private material. Historical execution Profile/binding/attestation
+verification remains separate from current independent recovery material and
+from original catalog/anchor/management continuity. New typed recovery startup
+performs guarded metadata and initTransactions only, with guards before and
+after each call; it exposes no DestinationPublishAdapter, raw producer, anchor
+sampler or prepareBinding. Actual read_committed recovery retains the original
+post-fence fixed U/contiguous nextOffsets/LSO/log-start and positive/negative
+rules. Close waits original opening/poll/reader/native cleanup before releasing
+new material/SDK reservation. Loss, timeout, cancellation or close is not absence.
+
+The configured K1 Source Opening reuses the same process's ready CONTROL backing
+and original protection digest for openReceiptRecovery. Configured service
+closure requires a distinct recovery material receipt for recovery-only owners;
+an ordinary SEND receipt is insufficient. The runtime's ResolutionAuthority
+checks actual private observation and current exact UNKNOWN; evidenceImage
+returns the safe scan/Fence bytes to the original protected evidence provider.
+It grants no SERVICE signature, Source mutation, Artifact issuance or archive
+rights. Durable public proof/ref retention, full SERVICE/Source resolution
+composition and the typed new-work handoff remain required integration work;
+necessary compilation alone does not certify them or real Broker recovery.

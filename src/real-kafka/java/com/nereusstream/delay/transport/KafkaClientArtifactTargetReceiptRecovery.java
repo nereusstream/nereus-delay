@@ -65,12 +65,23 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
             KafkaClientArtifactTargetReceiptReader.Protection protection,
             KafkaClientArtifactTargetTransactionalFactory.Limits limits, int maximumTurns,
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client readerBudget) {
+        this(mapping, resource.fence().orElseThrow(() -> new IllegalStateException("recovery lacks actual same-ID fencing")),
+                () -> resource.fence().orElseThrow(() -> new IllegalStateException("fencing resource is unavailable")),
+                readerConfiguration, protection, limits, maximumTurns, readerBudget);
+    }
+
+    /** Typed recovery resource supplies only its private fence/current-use gate, never a business transport. */
+    KafkaClientArtifactTargetReceiptRecovery(TargetKafkaReceiptMapping mapping,
+            KafkaClientArtifactTargetTransactionalFactory.Fence actualFence, Runnable resourceCurrent,
+            Map<String,Object> readerConfiguration, KafkaClientArtifactTargetReceiptReader.Protection protection,
+            KafkaClientArtifactTargetTransactionalFactory.Limits limits, int maximumTurns,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client readerBudget) {
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
         if (maximumTurns <= 0) { throw new IllegalArgumentException("recovery requires a finite positive turn bound"); }
         this.maximumTurns = maximumTurns;
-        fence = resource.fence().orElseThrow(() -> new IllegalStateException("recovery lacks actual same-ID fencing"));
+        fence = Objects.requireNonNull(actualFence,"actual same-ID fencing");
         rights = () -> {
-            resource.fence().orElseThrow(() -> new IllegalStateException("fencing resource is unavailable")).requireCurrent(mapping);
+            resourceCurrent.run(); fence.requireCurrent(mapping);
             protection.requireCurrent(mapping, mapping.admission().kafkaReceipt().scanStartOffset());
         };
         rights.run();

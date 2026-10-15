@@ -204,6 +204,7 @@ public final class TargetWorkerShardRuntime
         default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
         default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
         default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
+        default LocalBrokerMtlsResolver.TargetRecoveryReceipt recoveryCredentialReceipt() { return null; }
     }
     /** One original resource-preparation operation, separately retained after its old SDK has closed. */
     public interface PublicationMaintenance {
@@ -299,6 +300,18 @@ public final class TargetWorkerShardRuntime
             synchronized (worker) {
                 channel.requireExactFrozenIdentity(mapping.admission().channel()); requireOriginal();
                 final var actual = worker.target.readExternalEvidenceAdoption(budget, mapping, clock);
+                requireOriginal(); return actual;
+            }
+        }
+        public com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaRecoveryPending readRecoveryPending(
+                BoundedReadBudget budget, SystemMutation admission,
+                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+            synchronized (worker) {
+                channel.requireExactFrozenIdentity(mapping.admission().channel()); requireOriginal();
+                if (!original.recoveryOnly() || worker.publishRuntime != null
+                        && worker.publishRuntime.ownsAttempt(mapping.admission().publishAttemptId()))
+                    throw new IllegalStateException("K2 recovery cannot fence the current normal publication flight");
+                final var actual = worker.target.readKafkaRecoveryPending(budget, admission, mapping, clock);
                 requireOriginal(); return actual;
             }
         }
@@ -434,6 +447,12 @@ public final class TargetWorkerShardRuntime
             requirePublishRecoveryOwner(clock);
             budget.requireWorker(workClasses,resources);
             publicationResources.entrySet().removeIf(entry->entry.getValue().closed());
+            for (var retained : publicationResources.values()) {
+                if ((actual.recoveryOnly() || retained.recoveryOnly()) && actual.channelIdentity() != null
+                        && retained.channelIdentity() != null && java.util.Arrays.equals(
+                                actual.channelIdentity().context().producerIdentity(), retained.channelIdentity().context().producerIdentity()))
+                    throw new IllegalStateException("K2 recovery and another SDK cannot own the same stable producer identity");
+            }
             if(publicationResources.size()>=budget.maximumClients()||publicationResources.putIfAbsent(identity,actual)!=null)
                 throw new IllegalStateException("publication resource generation is already owned or its window is exhausted");
             host = publicationHost;
@@ -1014,7 +1033,8 @@ public final class TargetWorkerShardRuntime
             publishRuntime.requireJournal(journalBackend.journal());
         }
         requirePublicationResourcesReady();
-        if (publicationResources.values().stream().anyMatch(owner -> !owner.closed() && owner.credentialReceipt() == null)) {
+        if (publicationResources.values().stream().anyMatch(owner -> !owner.closed()
+                && (owner.recoveryOnly() ? owner.recoveryCredentialReceipt() == null : owner.credentialReceipt() == null))) {
             throw new IllegalStateException("new Target service requires actual resolved mTLS publication material");
         }
         if (!publishRuntime.available()) {

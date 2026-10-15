@@ -666,3 +666,20 @@ hold。hold直至实际SDK/晚到I/O/cleanup退出后显式关闭，授权过期
 上述私有pending-runtime receipt、typed无SEND SDK/resource/service接线与公共证据保留
 链，不能将loader编译视为旧lease过期已可端到端恢复。具体实际authority实例仍须由
 原可信root提供，没有默认noop/true；材料/hold缺失拒绝。只必要编译，集中验证后置。
+
+
+2026-10-16独立恢复裁决的runtime落实：新增typed无SEND原SDK资源和实际Source
+pending snapshot，原Worker登记先于material/native分配。同stable producer identity
+在原SDK实际退出前不能登记竞争恢复/正常SDK，实际本地publish flight也不可被反向
+fence。材料加载前另核签名deployment/tenant与actual Owner/Source tenant；可信配置
+自身一致不替代实际realm绑定。原Profile/binding只作历史合法性，新材料独立当前
+授权/hold；每个guarded metadata/initTransactions和poll持续核Owner/pending/材料/
+原catalog/anchor连续保护。私有Fence显式v2嵌入安全恢复公共证据和实际Store/cut/
+预算快照，旧v1原语义不变；scanner仍按原固定U及完整Source Outcome契约。
+
+已接K1 accepted Source Opening同process management的openReceiptRecovery和通用
+Root factory；Host通过原PublicationResources保留实际opening/SDK/reader/cleanup，
+当前恢复receipt不能由普通SEND材料代替。actual private observation有原resolution
+authority/evidenceImage入口，但不因此授SERVICE签名、Source写入、归档或新SEND。
+公共证据durable provider/ref、完整SERVICE/Source结果组装和typed恢复后的正常工作
+接续仍继续开发；真实部署authority/材料仍是必填前提，全部集中验证及29义务不减。

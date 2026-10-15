@@ -128,6 +128,11 @@ public final class TargetRecoveryCredentialAuthorization {
                 || number(13) != binding.receiptPartition()
                 || value(15).length != 0 && !Arrays.equals(value(15), Bytes.sha256(mapping.canonicalBytes()))) throw unavailable();
     }
+    /** Actual Source/Owner providers supply these values; a separately valid deployment authorization cannot cross realms. */
+    public void requireRuntimeScope(OwnerIdentity currentOwner, byte[] actualTenantScope) {
+        if (!Arrays.equals(value(2), Objects.requireNonNull(currentOwner).deploymentId())
+                || !Arrays.equals(value(5), actualTenantScope)) throw unavailable();
+    }
     @Override public String toString() { return "PrivateTargetRecoveryAuthorization"; }
     private static IllegalStateException unavailable() { return new IllegalStateException("Target recovery credential unavailable"); }
 

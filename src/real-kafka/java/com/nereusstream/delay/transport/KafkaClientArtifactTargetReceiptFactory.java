@@ -90,6 +90,18 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 resolver, profiles, trust, catalog, controlPublisher, budget, time, reads, ownerClock);
     }
 
+    /** Independent current recovery material; result cannot publish, sample a new anchor or expose a raw producer. */
+    public static KafkaClientArtifactTargetRecoveryRuntime openRecovery(TargetWorkerSourceStartup startup,
+            TargetWorkerShardRuntime worker, byte[] channelDigest, Path configuration, RecoveryAdmission originalAdmission,
+            Path authorization, LocalBrokerMtlsResolver resolver,
+            com.nereusstream.delay.ownership.TargetRecoveryCredentialAuthorization.Trust recoveryTrust,
+            ProfileCatalog profiles, CredentialAttestationTrustSet historicalTrust,
+            OxiaSyncTargetKafkaReceiptProtectionCatalog catalog, TargetDestinationSdkBudget budget,
+            Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier clock) throws IOException {
+        return KafkaClientArtifactTargetRecoveryRuntime.create(startup,worker,channelDigest,load(configuration),originalAdmission,
+                authorization,resolver,recoveryTrust,profiles,historicalTrust,catalog,budget,time,reads,clock);
+    }
+
     static Opening openLoaded(TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker,
             TargetWorkerPublicationDispatch dispatch, byte[] channelDigest, Configuration config,
             RecoveryAdmission originalAdmission, LocalBrokerMtlsResolver resolver, ProfileCatalog profiles,

@@ -825,3 +825,15 @@ mapping/Store cut/Owner/session/SDK opening，禁止caller自造或跨会话复�
 prepareBinding/anchor/newAdmission/slot/SEND/commit均不授予。每个native调用与证据
 交付前持续核权限、原pending/Owner/连续保护；授权到期阻止新动作，原句柄/UNKNOWN/
 费用/hold保留到真实退出。ordinary SEND路径继续核原lease，没有自动恢复fallback。
+
+
+2026-10-16恢复runtime私有绑定已接actual Source：KafkaRecoveryPending在同一次
+guarded native read核原首结果/slot/未释放义务/外部证据owner，捕获Store identity
+与cut、native/source sequence。持续原Owner/session、exact原mapping/slot及单调
+cut重核后才执行guarded lookup/同ID fencing/receipt poll；normal flight和仍未退出
+的同stable producer SDK禁止并行。新授权deployment/tenant另与实际Owner/Source
+tenant核对，不能仅因另一个Trust对象自身一致而跨realm。
+独立typed资源没有业务SEND/anchor/raw producer返回面。内部Fence v2保留v1原字段，
+新增当前恢复公共证明与actual Store/cut上下文；外层Source首结果及mapping编码不变。
+public resolution authority仍需实际UNKNOWN及private scan observation，持久归档/
+SERVICE Source结果与正常新工作接续尚未闭合；组件编译不证明端到端恢复或整包完成。

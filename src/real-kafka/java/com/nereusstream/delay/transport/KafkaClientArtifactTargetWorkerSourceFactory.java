@@ -321,6 +321,24 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     sdkBudget, time, reads, clock);
         }
 
+        /** Uses independent signed Target recovery purpose and the same process's ready CONTROL backing. */
+        public KafkaClientArtifactTargetRecoveryRuntime openReceiptRecovery(Path configuration, byte[] channelDigest,
+                KafkaClientArtifactTargetReceiptFactory.RecoveryAdmission originalAdmission, Path authorization,
+                LocalBrokerMtlsResolver resolver, com.nereusstream.delay.ownership.TargetRecoveryCredentialAuthorization.Trust recoveryTrust,
+                com.nereusstream.delay.runtime.ProfileCatalog profiles,
+                com.nereusstream.delay.runtime.CredentialAttestationTrustSet historicalTrust,
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) throws java.io.IOException {
+            startup.requireReceiptManagement(management);
+            final var config=KafkaClientArtifactTargetReceiptFactory.load(configuration);
+            if(!java.util.Arrays.equals(config.protectionDigest(),management.protection(channelDigest).digest()))
+                throw new IllegalArgumentException("K2 recovery protection differs from the original process backing");
+            final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original K1 Source Worker is unavailable");original=worker;}
+            return KafkaClientArtifactTargetRecoveryRuntime.create(startup,original,channelDigest,config,originalAdmission,
+                    authorization,resolver,recoveryTrust,profiles,historicalTrust,management.catalog(),sdkBudget,time,reads,clock);
+        }
+
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
         public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {
