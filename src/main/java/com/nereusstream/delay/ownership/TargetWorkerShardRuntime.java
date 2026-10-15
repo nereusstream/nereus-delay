@@ -194,6 +194,8 @@ public final class TargetWorkerShardRuntime
         boolean settleClose();
         boolean closed();
         boolean readyForPublishing();
+        default boolean recoveryOnly() { return false; }
+        default boolean readyForRecovery() { return false; }
         default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
         default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
         default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
@@ -201,6 +203,57 @@ public final class TargetWorkerShardRuntime
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
     private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
     private OwnedTargetJournal journalBackend;
+    private java.util.OptionalLong emptyPublicationSourceSequence = java.util.OptionalLong.empty();
+
+    synchronized void requirePublicationResource(PublicationResources original) {
+        final var channel = Objects.requireNonNull(original.channelIdentity(), "original channel identity");
+        if (publicationResources.get(com.nereusstream.delay.protocol.Bytes.hex(channel.digest())) != original) {
+            throw new IllegalArgumentException("publication resource is not this Worker's original registered SDK owner");
+        }
+    }
+
+    synchronized com.nereusstream.delay.adapter.PulsarAttemptJournal requireOwnedPublishing(
+            OwnedSourceSystemWriter writer, TargetWorkerPublicationDispatch dispatch,
+            TargetWorkerPublishingConfiguration configuration) {
+        requirePublishRecoveryOwner(configuration.ownerClock()); dispatch.requireWorker(this);
+        if (publishRuntime != null || journalSettlement != null || publishRecoveryMaintenance != null
+                || writer.sourceWriterWorker() != this || writer.resourcesTerminated()
+                || systemWriterBackends.values().stream().noneMatch(original -> original == writer)) {
+            throw new IllegalStateException("publishing requires fresh dependencies and this Worker's original Source appender");
+        }
+        if (publicationResources.values().stream().noneMatch(owner -> !owner.closed())) {
+            emptyPublicationSourceSequence = java.util.OptionalLong.of(
+                    target.emptyPublicationSourceSequence(configuration.reads().get(), configuration.ownerClock()));
+        }
+        requirePublicationResourcesReady();
+        for (var owner : publicationResources.values()) {
+            if (owner.closed() || owner.recoveryOnly()) continue;
+            final var channel = Objects.requireNonNull(owner.channelIdentity(), "actual publication channel");
+            if (!configuration.supports(channel.context().kind())
+                    || !(owner instanceof com.nereusstream.delay.adapter.DestinationPublishAdapter actual)) {
+                throw new IllegalStateException("configured publisher does not cover its actual channel SDK owner");
+            }
+            dispatch.mux().requireEndpoint(channel, actual);
+        }
+        if (!configuration.supports(com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER)) return null;
+        if (journalBackend == null || journalBackend.journalWorker() != this) {
+            throw new IllegalStateException("managed publishing requires its original registered owned Journal");
+        }
+        return journalBackend.journal();
+    }
+
+    private void requirePublicationResourcesReady() {
+        if (publicationResources.values().stream().noneMatch(owner -> !owner.closed())) {
+            if (emptyPublicationSourceSequence.isEmpty() || emptyPublicationSourceSequence.getAsLong() != store.shardMutationSequence()) {
+                throw new IllegalStateException("empty publication startup lacks its actual unchanged Source channel absence proof");
+            }
+            return;
+        }
+        if (publicationResources.values().stream().anyMatch(owner -> !owner.closed()
+                        && !(owner.recoveryOnly() ? owner.readyForRecovery() : owner.readyForPublishing()))) {
+            throw new IllegalStateException("configured service has absent or unfinished actual publication/recovery resources");
+        }
+    }
 
     public void registerJournalBackend(OwnedTargetJournal original, TargetDestinationSdkBudget budget, LongSupplier clock) {
         final TargetWorkerHostRuntime host;
@@ -767,10 +820,7 @@ public final class TargetWorkerShardRuntime
     void requirePublishingStartupClosure() {
         final var runtime = Objects.requireNonNull(publishRuntime, "configured Target publisher");
         runtime.requireConfiguredEndpoints();
-        if(runtime.hasKafkaReceiptEndpoint() && (publicationResources.values().stream().noneMatch(owner->!owner.closed()&&owner.readyForPublishing())
-                ||publicationResources.values().stream().anyMatch(owner->!owner.closed()&&!owner.readyForPublishing()))) {
-            throw new IllegalStateException("K2 Claim startup requires actual SDK resource ownership");
-        }
+        if (runtime.hasKafkaReceiptEndpoint()) requirePublicationResourcesReady();
         if (runtime.requiresJournal()) {
             Objects.requireNonNull(journalSettlement, "configured retained Source/Journal cleanup");
         }
@@ -795,10 +845,7 @@ public final class TargetWorkerShardRuntime
             }
             publishRuntime.requireJournal(journalBackend.journal());
         }
-        if (publicationResources.values().stream().noneMatch(owner -> !owner.closed() && owner.readyForPublishing())
-                || publicationResources.values().stream().anyMatch(owner -> !owner.closed() && !owner.readyForPublishing())) {
-            throw new IllegalStateException("configured service has absent or unfinished actual publication resources");
-        }
+        requirePublicationResourcesReady();
         if (publicationResources.values().stream().anyMatch(owner -> !owner.closed() && owner.credentialReceipt() == null)) {
             throw new IllegalStateException("new Target service requires actual resolved mTLS publication material");
         }

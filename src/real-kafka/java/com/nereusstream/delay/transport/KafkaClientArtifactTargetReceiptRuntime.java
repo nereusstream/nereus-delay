@@ -5,6 +5,7 @@ import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
+import com.nereusstream.delay.adapter.TargetDestinationMux;
 import com.nereusstream.delay.adapter.TargetOrdinaryPublishRequest;
 import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight;
 import com.nereusstream.delay.ownership.CheckpointInputFuture;
@@ -104,6 +105,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery.Turn> recoveryTurn;
     private KafkaClientArtifactTargetReceiptRecovery recovery;
     private boolean stopping, registered, ready, closed;
+    private TargetDestinationMux dispatch;
 
     /** Construct on the caller's startup I/O path after actual CONTROL provision and Provider creation. */
     public KafkaClientArtifactTargetReceiptRuntime(TargetWorkerShardRuntime worker, TargetChannelIdentity channel,
@@ -209,6 +211,18 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     }
 
     public BoundedDestinationPublishAdapter adapter(WorkClassExecutionRegistry classes){return new BoundedDestinationPublishAdapter(this,physicalAdmission,classes,io);}
+    /** Joins the original process mux only after actual K2 startup; cold recovery resources never acquire SEND routing. */
+    public synchronized void bindDispatch(com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch owner) {
+        owner.requireWorker(worker);
+        if (!ready || stopping || closed || original != null || owner.physical() != physicalAdmission) {
+            throw new IllegalStateException("K2 dispatch requires its actual ready SEND resource and original physical window");
+        }
+        if (dispatch != null) {
+            if (dispatch != owner.mux()) throw new IllegalStateException("K2 original dispatch cannot be replaced");
+            dispatch.requireEndpoint(channel, this); return;
+        }
+        owner.mux().register(channel, this); dispatch = owner.mux();
+    }
     @Override public CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request){return CompletableFuture.completedFuture(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE,null));}
     @Override public CompletionStage<DestinationPublishResult> publishTargetOrdinary(TargetOrdinaryPublishRequest request,TargetOrdinaryPublishPreflight gate){
         synchronized(this){if(!ready||stopping||original!=null)return CompletableFuture.completedFuture(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE,null));}
@@ -247,6 +261,8 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     }
     @Override public synchronized boolean closed(){return closed;}
     @Override public synchronized boolean readyForPublishing(){return ready&&!stopping&&original==null;}
+    @Override public boolean recoveryOnly() { return original != null; }
+    @Override public synchronized boolean readyForRecovery() { return ready && !stopping && original != null; }
     @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return provider.credentialReceipt(); }
     private Map<String,Object> securedReaders() {
         return provider.credentialReceipt() == null ? readerConfiguration
@@ -271,6 +287,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
             if(!transport.closeCompleted()||recovery!=null&&!recovery.closeCompleted())return false;
         }
         if(registered){physicalAdmission.unregisterTargetChannel(channel);registered=false;}
+        if(dispatch!=null){dispatch.unregister(channel,this);dispatch=null;}
         closed=true;return true;
     }
     @Override public void close(){if(!settleClose())throw new IllegalStateException("K2 native cleanup remains owned and pending");}

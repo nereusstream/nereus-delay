@@ -77,6 +77,7 @@ public final class TargetWorkerProcessRuntime {
     private ThreadPoolExecutor io;
     private BoundedAsyncMetricExporter metrics;
     private SystemWriterAppendBudget systemWriters;
+    private TargetWorkerPublicationDispatch publicationDispatch;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
@@ -270,6 +271,20 @@ public final class TargetWorkerProcessRuntime {
         return systemWriters;
     }
 
+    synchronized TargetWorkerPublicationDispatch publicationDispatch(TargetWorkerSourceStartup original,
+            TargetWorkerPublicationDispatch.Configuration requested) {
+        requireSourceAssemblyAdmission(original);
+        if (publicationDispatch == null) publicationDispatch = new TargetWorkerPublicationDispatch(requested,
+                new Assembly(configuration.worker(), classes, resources, io, oxia), metrics);
+        publicationDispatch.requireConfiguration(requested);
+        return publicationDispatch;
+    }
+
+    synchronized void requirePublicationDispatch(TargetWorkerSourceStartup original, TargetWorkerPublicationDispatch expected) {
+        requireSourceAssemblyAdmission(original);
+        if (publicationDispatch != expected) throw new IllegalArgumentException("publication dispatch belongs to another original process");
+    }
+
     /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
     public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
         Objects.requireNonNull(request);
@@ -442,6 +457,7 @@ public final class TargetWorkerProcessRuntime {
                 final var usage = systemWriters.usage();
                 if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
             }
+            if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();
                 if (!partialSharedOpening.cleanupComplete()) return;

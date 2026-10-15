@@ -54,6 +54,12 @@ public final class TargetDestinationMux implements DestinationPublishAdapter {
         return entry.adapter();
     }
 
+    public synchronized void requireEndpoint(TargetChannelIdentity channel, DestinationPublishAdapter original) {
+        if (endpoint(channel) != original) throw new IllegalStateException("Target dispatch lacks its original channel SDK owner");
+    }
+
+    public synchronized boolean empty() { return channels.isEmpty(); }
+
     private static CompletionStage<DestinationPublishResult> unavailable() {
         return CompletableFuture.completedFuture(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }

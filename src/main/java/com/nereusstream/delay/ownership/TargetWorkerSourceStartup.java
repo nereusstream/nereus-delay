@@ -92,6 +92,7 @@ public final class TargetWorkerSourceStartup {
     private long recoveryInputBytesLimit;
     private RecoveryInputsOpening currentRecoveryInputs;
     private boolean serviceJournalHandoffComplete;
+    private TargetWorkerPublicationDispatch publicationDispatch;
 
     /** A provider must register its actual SDK owner before it can allocate/open native Journal resources. */
     public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
@@ -1109,6 +1110,58 @@ public final class TargetWorkerSourceStartup {
     public synchronized SystemWriterAppendBudget systemWriterBudget() {
         requireCurrent();
         return process.systemWriterBudget(this);
+    }
+
+    public synchronized TargetWorkerPublicationDispatch publicationDispatch(TargetWorkerPublicationDispatch.Configuration configuration) {
+        requireCurrent();
+        publicationDispatch = process.publicationDispatch(this, configuration);
+        return publicationDispatch;
+    }
+
+    /** Actual BASELINE/managed opening over this Root's private Worker and shared physical/routing owner. */
+    public TargetDestinationChannelRuntime openPublicationChannel(TargetWorkerPublicationDispatch dispatch,
+            com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            com.nereusstream.delay.protocol.CanonicalTargetPartition physical,
+            TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
+            long maximumPhysicalBytes, TargetDestinationChannelRuntime.Open factory,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) {
+        try (var construction = beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent(); process.requirePublicationDispatch(this, dispatch);
+            synchronized (this) { publicationDispatch = dispatch; }
+            final var result = new TargetDestinationChannelRuntime(worker, channel, physical, budget, cost,
+                    dispatch.physical(), dispatch.mux(), graph.classes(), graph.resources(), graph.io(), reads,
+                    owner.clock(), maximumPhysicalBytes, factory);
+            construction.requireCurrent();
+            return result;
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
+    }
+
+    public boolean finishPublicationChannel(TargetDestinationChannelRuntime original) {
+        try {
+            final TargetWorkerPublicationDispatch dispatch;
+            synchronized (this) {
+                requireAdmittedWorker(worker);
+                dispatch = Objects.requireNonNull(publicationDispatch, "original process dispatch");
+                worker.requirePublicationResource(original); original.requireDispatch(worker, dispatch);
+            }
+            if (!original.finishStartup()) return false;
+            dispatch.mux().requireEndpoint(original.channelIdentity(), original);
+            return true;
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
+    }
+
+    /** Builds the actual single-flight driver and its mandatory recovery/Journal maintenance, never a supplied runtime. */
+    public TargetPulsarPublishRuntime configurePublishing(OwnedSourceSystemWriter writer,
+            TargetWorkerPublishingConfiguration configuration) {
+        try (var construction = beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();
+            final var dispatch = Objects.requireNonNull(publicationDispatch, "original process publication dispatch");
+            process.requirePublicationDispatch(this, dispatch);
+            final var journal = worker.requireOwnedPublishing(writer, dispatch, configuration);
+            final var result = configuration.install(worker, writer, journal, dispatch, graph.io());
+            construction.requireCurrent();
+            return result;
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
     public synchronized SourceAssignment acceptedAssignment() {

@@ -44,6 +44,7 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
     }
 
     private final TargetChannelIdentity channel;
+    private final TargetWorkerShardRuntime worker;
     private final DestinationPhysicalAdmission physical;
     private final TargetDestinationMux mux;
     private final ThreadPoolExecutor io;
@@ -65,6 +66,7 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
             ThreadPoolExecutor io, Supplier<BoundedReadBudget> reads, LongSupplier clock,
             long maximumPhysicalBytes, Open factory) {
         this.channel = Objects.requireNonNull(channel, "channel");
+        this.worker = Objects.requireNonNull(worker, "worker");
         this.physical = Objects.requireNonNull(physical, "physical pool");
         this.mux = Objects.requireNonNull(mux, "Worker dispatch");
         this.io = Objects.requireNonNull(io, "bounded I/O pool");
@@ -118,6 +120,10 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         if (stopping) { throw new IllegalStateException("Target channel is stopping"); }
         if (ready) { return true; }
         if (initializing || opening == null) { return false; }
+        if (!opening.operationExited()) { return false; }
+        final var result = opening.receipt();
+        if (!result.isDone()) { return false; }
+        result.join();
         if (!opening.ioExited()) { return false; }
         adapter = opening.completedValue().orElseThrow(() -> new IllegalStateException("SDK opening failed",
                 CheckpointInputFuture.ownedFailure(opening.receipt())));
@@ -137,6 +143,11 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
         return adapter == null ? openingBackend : adapter.ownedBackendGroup();
     }
     @Override public TargetChannelIdentity channelIdentity() { return channel; }
+    void requireDispatch(TargetWorkerShardRuntime expected, TargetWorkerPublicationDispatch dispatch) {
+        if (worker != expected || physical != dispatch.physical() || mux != dispatch.mux()) {
+            throw new IllegalArgumentException("channel runtime differs from its original Worker/process dispatch");
+        }
+    }
     @Override public LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
 
     private synchronized DestinationPublishAdapter current() { return ready && !stopping ? adapter : null; }

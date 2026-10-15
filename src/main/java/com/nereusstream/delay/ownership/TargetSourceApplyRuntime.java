@@ -1071,6 +1071,22 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(Objects.requireNonNull(ownerClock, "ownerClock"));
     }
 
+    /** Startup-only absence of both current slots and retained identities, under the original native read/Owner guard. */
+    synchronized long emptyPublicationSourceSequence(BoundedReadBudget budget, LongSupplier clock) {
+        requireGcOwner(clock);
+        final long sequence = backend.guardedRead(budget, reader -> {
+            for (int tag : new int[] {com.nereusstream.delay.store.TargetKeyCodec.CHANNEL_IDENTITY_TAG,
+                    com.nereusstream.delay.store.TargetKeyCodec.CHANNEL_SLOT_TAG}) {
+                if (reader.first(com.nereusstream.delay.store.ColumnFamily.META, new byte[] {(byte) tag},
+                        new byte[] {(byte) (tag + 1)}, java.util.List.of()) != null) {
+                    throw new IllegalStateException("Source still has publication channel identities or current slots");
+                }
+            }
+            reader.requireWithinElapsedBudget(); return store.shardMutationSequence();
+        }, workerReads(clock));
+        requireGcOwner(clock); return sequence;
+    }
+
     synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requirePublicationChannel(
             com.nereusstream.delay.protocol.TargetChannelIdentity channel, boolean newWork, BoundedReadBudget reads, LongSupplier clock) {
         return readPublicationChannel(channel,newWork,false,reads,clock);
