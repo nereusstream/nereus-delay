@@ -2366,3 +2366,15 @@ signed image/durable seal保留到原Source handoff结清，不因receipt取消�
 计数归零。Worker结果只留私有已sealed Source/proof snapshot，无SERVICE signer，
 不能以任意DTO绕过原proof物理/逻辑计费。实际Source APPLIED自动Catalog adoption/
 重启reconcile和完整释放/退役继续，prepared use仍可能首次采用，不允许提前GC。
+
+
+2026-10-16 Catalog completion由真实Native APPLIED owner/ref/alias/Attempt/first/
+POSITION/slot产生的私有Adoption推动，actual Root I/O/当前读Owner权限保持，不
+以SDK内存Observation或bool替代。标ADOPTED不改变staging/adopted物理charge，也
+不释放proof/ref逻辑费。Source明确REJECTED只使原signed image可重备，原实物/
+prepared uses继续收费保留；不宣称全部uses永不能首次采用，更不授GC权限。
+maintenance不再为已见first重复handoff，完成/失败/cancel均须原IO退出；normal
+reopen与显式关闭先等adoption实际句柄，再退原SDK/material窗口。重启live
+checkpoint provider在有限读预算内补记真实Native owners，不新建SDK或另计嵌入
+材料依赖。孤儿、所有Source/Checkpoint/Floor/共享引用到实际delete才退费的
+完整义务保持，集中状态不提升。

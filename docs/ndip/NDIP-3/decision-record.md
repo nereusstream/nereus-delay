@@ -781,3 +781,17 @@ continuation，Stop/取消/拒绝/cleanup不伪造退出，不借新retry句柄�
 退出再退SDK预算。修正新resolution签名logical ID按既有body注册规则，旧数据
 不改。部署key/config、实际APPLIED自动adoption/重启reconcile、完整正常接续/
 失权及Floor退役继续；只必要编译，全部完成/生产flags保持false。
+
+
+2026-10-16 Source completion落点：Root私有回调在真实first后原IO池核Native
+Adoption并CAS Catalog，Worker无Catalog I/O，不需旧SDK/material仍active。
+APPLIED必须exact owner/ref/alias/Attempt/first/POSITION/slot；REJECTED不采用，
+只凭真实不可变first重备signed image并按actual terminal first释放原queue image。
+状态区分RECONCILING/SOURCE_REJECTED，known first不重复handoff。normal reopen
+先等原completion，Stop也等adoption实际退出，不因view/cache变化提早退SDK。
+
+live admitted checkpoint provider可用当前Native实际记录补记Source/Catalog崩溃
+间隙，原Observer/credential无需存活，bootstrap仍历史验签。该只读跨原checkpoint
+不授新Source/SEND，不是孤儿扫描/never-adopted/退役权限。物理与逻辑费用保留；
+部署key/config、全Stop/失权/接续及保护Floor到实际删除仍开放，只必要编译与既有
+文档同步，全部完成/生产flags不提升。

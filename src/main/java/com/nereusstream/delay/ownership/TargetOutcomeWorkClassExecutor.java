@@ -98,6 +98,16 @@ public final class TargetOutcomeWorkClassExecutor {
     public Optional<SystemMutationResult> readApplied(final SystemMutation mutation, final LongSupplier ownerClock) {
         return worker.outcomeMutationResult(mutation, ownerClock);
     }
+    /** Only an actual immutable Native terminal first can release this exact queued image, including a rejection. */
+    synchronized void releaseTerminal(SystemMutation image,LongSupplier clock){
+        final var actual=worker.outcomeMutationResult(image,clock).orElseThrow(()->new IllegalStateException("Source terminal first is unavailable"));
+        if(actual.mutationType()!=image.type()||!Arrays.equals(actual.mutationId(),image.systemMutationId())||!Arrays.equals(actual.mutationHash(),image.mutationHash()))
+            throw new IllegalStateException("Source terminal first changed its exact mutation");
+        if(pending!=null){
+            if(!Arrays.equals(pending.mutation.encodeFrame(),image.encodeFrame()))throw new IllegalStateException("Source completion selects another pending image");
+            pending=null;
+        }
+    }
 
     public static final class Submission {
         private final SystemMutation mutation;

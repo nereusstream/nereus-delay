@@ -244,6 +244,8 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 if(successor==null){
                     worker.requirePublicationOwner(inputs.owner(),inputs.clock());
                     if(!worker.kafkaMappingSettled(inputs.reads().get(),inputs.admission(),inputs.mapping(),inputs.clock()))return false;
+                    if(worker.publishRecoveryRetainsAttempt(inputs.mapping().admission().publishAttemptId()))return false;
+                    if(!recovery.settleArchivedSource())return false;
                     if(!recovery.settleClose())return false;
                     if(!worker.publicationChannelOpen(inputs.channel(),inputs.reads().get(),inputs.clock())){retired=true;return true;}
                     successor=createNewWorkSuccessor(startup,worker,dispatch,publisher,inputs,construction);

@@ -48,6 +48,10 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery.Turn> poll;
     private OwnedCheckpointIo<Boolean> closing;
     private OwnedCheckpointIo<TargetPublishRecoveryMaintenance.Prepared> archiving;
+    private OwnedCheckpointIo<java.util.Optional<TargetRecoveryEvidenceStore.Adoption>> adopting;
+    private SystemMutation adoptionImage;
+    private TargetArchivedKafkaResolution adoptionResolution;
+    private volatile Throwable adoptionFailure;
     private ArchiveInputs archiveInputs;
     private ResolutionFlight resolutionFlight;
     private volatile Opened opened;
@@ -363,6 +367,9 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         if(archiveInputs!=null&&(archiveInputs.issuer!=issuer||archiveInputs.trust!=proofTrust||archiveInputs.signer!=sourceSigner||archiveInputs.contexts!=contexts))
             throw new IllegalStateException("K2 archive cannot replace its original Root signing/history/context owners");
         archiveInputs=inputs;
+        if(archiving==null&&adopting!=null&&adopting.ioExited()&&adopting.completedValue().filter(java.util.Optional::isEmpty).isPresent()){
+            adopting=null;adoptionImage=null;adoptionResolution=null;adoptionFailure=null;
+        }
         if(archiving!=null){
             archiving.retryCleanup();
             if(!archiving.ioExited()||archiving.completedValue().isPresent())return archiving.receipt();
@@ -381,12 +388,68 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
             if(!Arrays.equals(at.canonicalBytes(),decision.context().observedAt().canonicalBytes()))
                 throw new IllegalArgumentException("K2 Source decision must retain its actual trusted observation interval");
             actual.requireSame(nativeReads.readKafkaUnknown(reads.get(),admission,clock));current.run();
-            final var sealed=TargetArchivedKafkaResolution.prepare(actual,publication,decision.service(),decision.code(),decision.context(),sourceSigner,catalog,proofTrust,current);
+            final var sealed=TargetArchivedKafkaResolution.prepare(actual,publication,decision.service(),decision.code(),decision.context(),sourceSigner,catalog,proofTrust,current,this::completeArchivedSource);
             actual.requireSame(nativeReads.readKafkaUnknown(reads.get(),admission,clock));current.run();
             return new TargetPublishRecoveryMaintenance.Prepared(admission,owner,sealed.context(),TargetPublishRecoveryMaintenance.Resolution.archived(sealed));
         },()->{},io);
         return archiving.receipt();
     }
+
+    /** Runs after actual Source first observation; it deliberately does not require the old pending/material permission. */
+    private synchronized CompletableFuture<java.util.Optional<TargetRecoveryEvidenceStore.Adoption>> completeArchivedSource(TargetArchivedKafkaResolution exact){
+        final var image=exact.mutation();exact.prepared().requireExact(image);
+        if(adoptionImage!=null&&!Arrays.equals(adoptionImage.encodeFrame(),image.encodeFrame()))
+            throw new IllegalStateException("K2 completion selects another exact prepared Source image");
+        if(adopting!=null){
+            adopting.retryCleanup();if(!adopting.ioExited()||adopting.completedValue().isPresent())return adopting.receipt();
+        }
+        if(stopping||closed)throw new IllegalStateException("original K2 completion resource stopped");
+        adoptionImage=image;adoptionResolution=exact;adoptionFailure=null;
+        adopting=OwnedCheckpointIo.submit(guard->{
+            final Runnable current=()->{guard.run();nativeReads.requireOwner(owner,clock);};current.run();
+            final var result=nativeReads.recoveryOutcomeResult(exact.prepared(),image,clock)
+                    .orElseThrow(()->new IllegalStateException("recovery Source first is not yet available"));
+            if(result.mutationType()!=image.type()||!Arrays.equals(result.mutationId(),image.systemMutationId())||!Arrays.equals(result.mutationHash(),image.mutationHash()))
+                throw new IllegalStateException("recovery completion changed actual Source first identity");
+            if(result.applyStatus()==ApplyStatus.REJECTED){
+                current.run();
+                synchronized(this){
+                    if(archiving!=null&&!archiving.ioExited()||resolutionFlight!=null&&resolutionFlight.continuations!=0)
+                        throw new IllegalStateException("rejected recovery image still has original preparation I/O");
+                    // The immutable actual REJECTED first permits a fresh signed image; the physical proof/intents remain retained.
+                    archiving=null;resolutionFlight=null;
+                }
+                return java.util.Optional.empty();
+            }
+            if(result.applyStatus()!=ApplyStatus.APPLIED)throw new IllegalStateException("recovery Source first is not definitive");
+            final var proof=nativeReads.readRecoveryAdoption(reads.get(),exact.prepared(),image,clock);exact.requireAdoption(proof);
+            current.run();catalog.adoptRecovery(proof);current.run();return java.util.Optional.of(proof);
+        },()->{},io);
+        final var original=adopting;
+        original.receipt().whenComplete((value,failure)->{synchronized(this){if(adopting==original&&failure!=null)adoptionFailure=failure;}});
+        return adopting.receipt();
+    }
+    /** Normal reopening must not close the original SDK before its sealed Source result has been reconciled. */
+    boolean settleArchivedSource(){
+        final TargetArchivedKafkaResolution exact;
+        synchronized(this){
+            if(adopting!=null&&adopting.ioExited()&&adopting.completedValue().isPresent())return true;
+            if(archiving==null){
+                if(adopting==null)return true;
+                exact=Objects.requireNonNull(adoptionResolution,"original completion image after rejected preparation reset");
+            }else{
+                if(!archiving.ioExited())return false;
+                final var prepared=archiving.completedValue();if(prepared.isEmpty())return true;
+                exact=Objects.requireNonNull(prepared.orElseThrow().resolution().archived());
+            }
+        }
+        if(nativeReads.recoveryOutcomeResult(exact.prepared(),exact.mutation(),clock).isEmpty())return false;
+        final var completion=completeArchivedSource(exact);
+        if(!CheckpointInputFuture.ioExited(completion))return false;
+        try{final var actual=completion.join();actual.ifPresent(exact::requireAdoption);return true;}
+        catch(RuntimeException failure){adoptionFailure=failure.getCause()==null?failure:failure.getCause();return false;}
+    }
+    public java.util.Optional<Throwable> pendingAdoptionFailure(){return java.util.Optional.ofNullable(adoptionFailure);}
 
     /** Only this actual native owner can construct an input accepted by the privileged proof signer. */
     public ArchiveObservation captureArchiveObservation(PublishEvidence evidence){
@@ -446,6 +509,7 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     @Override public synchronized boolean settleClose(){
         stopping=true;ready=false;
         if(opening!=null){opening.requestStop();opening.retryCleanup();if(!opening.ioExited())return false;if(opened==null)opened=opening.completedValue().orElse(null);}
+        if(adopting!=null){adopting.requestStop();adopting.retryCleanup();if(!adopting.ioExited())return false;}
         if(archiving!=null){archiving.requestStop();archiving.retryCleanup();if(!archiving.ioExited())return false;}
         if(poll!=null){poll.requestStop();poll.retryCleanup();if(!poll.ioExited())return false;}
         if(readerOpening!=null){readerOpening.requestStop();readerOpening.retryCleanup();if(!readerOpening.ioExited())return false;
@@ -461,7 +525,7 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         return finishClosed();
     }
     private boolean finishClosed(){
-        closed=true;archiveInputs=null;archiving=null;resolutionFlight=null;observation=null;
+        closed=true;archiveInputs=null;archiving=null;adopting=null;adoptionImage=null;adoptionResolution=null;resolutionFlight=null;observation=null;
         return true;
     }
     private static final class Opened {

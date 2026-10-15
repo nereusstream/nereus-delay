@@ -3976,3 +3976,52 @@ automatic actual-Source-APPLIED Catalog adoption/reconciliation, complete normal
 resume/stop/lost-Owner behavior and protected retirement remain open integration
 work. No actual service/material/probe/Admin/Broker execution or activation is
 claimed. Central validation remains deferred.
+
+
+### Actual recovery Source completion and conservative Catalog reconciliation (2026-10-16)
+
+The actual Root archive entry now attaches SourceCompletion to its private
+TargetArchivedKafkaResolution. After reading the actual immutable Source first,
+maintenance waits for this original owned I/O completion; it does not perform
+Catalog I/O itself. APPLIED completion rereads actual Native owner/ref/Attempt
+alias, original mapping/Admission/anchor, resolved Attempt, Source first/POSITION
+and settled slot, then supplies the private Native Adoption to Catalog.adoptRecovery.
+Exact proof and adopting Source frame are checked again. The Native read requires
+current Worker/Store/Owner authority, not the observer's old SDK/material permission
+or a still-pending UNKNOWN. Catalog CAS keeps all physical charge and does not
+permit delete/refund. Missing facts, wrong image or unavailable I/O cannot become
+adoption from flags, a caller DTO or a no-ref result.
+
+A known first result suppresses repeated Source handoff while metadata completion
+is pending. Maintenance reports RECONCILING separately, clears pending only after
+actual completion exits, and reports SOURCE_REJECTED for a rejected image rather
+than SETTLED. A rejected Source first is independently reread by the Root; it never
+marks the object adopted. That immutable rejection permits dropping the cached
+signed image and preparing a fresh retry/time image against the retained selected
+proof. Original physical intents/seals remain retained; this is not orphan or
+never-adopted GC authority. The exact queued handoff is released only after another
+actual Native terminal-first lookup, so a rejected old image cannot poison the
+next handoff. The existing registered identity/hash rules are unchanged.
+
+Normal RecoveryReopen now requires the original archived image's Source completion
+before SDK/material close and ordinary successor creation. Pending/failed completion
+retains original handles and blocks that step; failures remain observable through
+maintenance or pendingAdoptionFailure. Explicit close also requests stop and waits
+for the actual adoption I/O to exit before releasing the SDK window. Completed
+private facts are cached; failed/cancelled detached views cannot fabricate exit.
+A rejected image whose preparation cache was cleared retains its exact completion
+input until retry completes. No new thread, queue, timer or physical SEND API is
+introduced.
+
+Same-process Source Opening also supplies a reconcilingReceiptRecoveryEvidenceAuthority
+for live admitted checkpoint collection after restart. Under bounded reads it
+fully authenticates the original Catalog blob/seal, obtains actual Native Adoption
+and idempotently marks Catalog metadata before returning the historical snapshot.
+It needs no old recovery SDK/credential and accepts later slot progression when
+the original facts remain retained. It is a read-only Native operation allowed
+during the original periodic checkpoint; it does not admit new Source/SEND work.
+Bootstrap image authentication must use history-only authority until the Worker
+is admitted. This collector covers actual retained Native owners, not orphan
+staging intents or a global retirement sweep. Full deployment key/configuration,
+all normal/stop/lost-Owner interleavings, protected Floor/retirement and centralized
+Broker/recovery/fault validation remain mandatory open work.

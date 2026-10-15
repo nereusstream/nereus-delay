@@ -377,6 +377,26 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             };
         }
 
+        /** Live admitted checkpoint collection also reconciles post-crash APPLIED proofs; bootstrap image audit uses history-only authority. */
+        public com.nereusstream.delay.store.TargetCheckpointDependencies.RecoveryEvidenceAuthority reconcilingReceiptRecoveryEvidenceAuthority(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.ownership.TargetRecoveryProofTrust proofTrust,
+                java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads){
+            startup.requireReceiptManagement(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            java.util.Objects.requireNonNull(proofTrust);java.util.Objects.requireNonNull(reads);
+            return (owner,input)->{
+                startup.requireReceiptManagement(management);
+                final var budget=java.util.Objects.requireNonNull(reads.get(),"bounded original reconciliation reads");
+                if(!budget.beforeRead()||!budget.tryCharge(com.nereusstream.delay.protocol.Bytes.utf8(owner.reference().exactKey()).length,
+                        Math.toIntExact(owner.reference().canonicalValueBytes())))throw budget.incomplete();
+                final var actual=management.catalog().retainedRecovery(owner,input.image(),proofTrust);
+                final var applied=original.readRecoveryEvidenceAdoption(budget,actual,input.image(),clock);
+                management.catalog().adoptRecovery(applied);startup.requireReceiptManagement(management);
+                return actual;
+            };
+        }
+
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(
                 KafkaClientArtifactTargetRecoveryRuntime recovery,

@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import java.util.Arrays;
 import java.util.Objects;
@@ -48,7 +49,7 @@ public final class TargetPublishRecoveryExecutor {
         }
         final var proof = worker.readRecoveryAdmission(budget, admission, ownerClock);
         final var submission = new Submission(admission, recoveryOwner,
-                outcomes.createRecoveryUnknown(proof, recoveryOwner, context), false);
+                outcomes.createRecoveryUnknown(proof, recoveryOwner, context), false,null);
         pending = submission;
         handoff(submission, ownerClock);
         return submission;
@@ -74,7 +75,7 @@ public final class TargetPublishRecoveryExecutor {
         }
         // External authority ran outside the Store view; re-read exact pending facts before accepting the image.
         proof.requireSame(worker.readKafkaUnknown(reads, admission, clock));
-        final var submission = new Submission(admission, owner, mutation, true);
+        final var submission = new Submission(admission, owner, mutation, true,resolution.archived());
         pending = submission;
         handoff(submission, clock);
         return submission;
@@ -82,21 +83,40 @@ public final class TargetPublishRecoveryExecutor {
 
     /** Reuses the original signed bytes even if the Source append or queue acceptance was uncertain. */
     public synchronized void retryHandoff(final LongSupplier ownerClock) {
-        handoff(Objects.requireNonNull(pending, "pending recovery"), ownerClock);
+        final var submission=Objects.requireNonNull(pending,"pending recovery");
+        if(submission.observed==null)handoff(submission,ownerClock);
     }
 
     public synchronized boolean settleApplied(final LongSupplier ownerClock) {
         final var submission = Objects.requireNonNull(pending, "pending recovery");
-        final var result = source.readApplied(submission.mutation, ownerClock).orElse(null);
+        final var result = submission.observed!=null?submission.observed:source.readApplied(submission.mutation, ownerClock).orElse(null);
         if (result == null) {
             return false;
         }
-        if (result.applyStatus() != ApplyStatus.APPLIED
+        if (result.applyStatus() != ApplyStatus.APPLIED&&submission.archived==null
                 || result.mutationType() != submission.mutation.type()
+                ||!Bytes.constantTimeEquals(result.mutationId(),submission.mutation.systemMutationId())
                 || !submission.resolution && result.stableCode() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN
                 || !Bytes.constantTimeEquals(result.mutationHash(), submission.mutation.mutationHash())) {
             throw new IllegalStateException("Target recovery hold lacks its exact applied Source first result");
         }
+        submission.observed=result;
+        if(submission.archived!=null){
+            try{
+                if(submission.completion==null)submission.completion=submission.archived.completeSource();
+                CheckpointInputFuture.retryCleanup(submission.completion);
+                if(!CheckpointInputFuture.ioExited(submission.completion))return false;
+                final var adopted=submission.completion.join();
+                if(result.applyStatus()==ApplyStatus.APPLIED){
+                    submission.archived.requireAdoption(adopted.orElseThrow(()->new IllegalStateException("APPLIED recovery lacks actual Native adoption")));
+                }else if(adopted.isPresent())throw new IllegalStateException("REJECTED recovery cannot adopt external proof");
+            }catch(RuntimeException failure){
+                submission.failure=failure.getCause()==null?failure:failure.getCause();
+                if(CheckpointInputFuture.ioExited(submission.completion))submission.completion=null;
+                return false;
+            }
+        }
+        source.releaseTerminal(submission.mutation,ownerClock);
         pending = null;
         return true;
     }
@@ -115,18 +135,24 @@ public final class TargetPublishRecoveryExecutor {
         private final OwnerIdentity owner;
         private final SystemMutation mutation;
         private final boolean resolution;
+        private final TargetArchivedKafkaResolution archived;
+        private SystemMutationResult observed;
+        private java.util.concurrent.CompletableFuture<Optional<com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption>> completion;
         private volatile TargetOutcomeWorkClassExecutor.Submission handoff;
         private volatile Throwable failure;
 
-        private Submission(SystemMutation admission, OwnerIdentity owner, SystemMutation mutation, boolean resolution) {
+        private Submission(SystemMutation admission, OwnerIdentity owner, SystemMutation mutation, boolean resolution,TargetArchivedKafkaResolution archived) {
             this.admission = admission;
             this.owner = owner;
             this.mutation = mutation;
             this.resolution = resolution;
+            this.archived=archived;
         }
 
         public SystemMutation mutation() { return mutation; }
         public Optional<TargetOutcomeWorkClassExecutor.Submission> handoff() { return Optional.ofNullable(handoff); }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        public boolean awaitingCompletion(){return observed!=null&&archived!=null;}
+        public boolean rejected(){return observed!=null&&observed.applyStatus()==ApplyStatus.REJECTED;}
     }
 }

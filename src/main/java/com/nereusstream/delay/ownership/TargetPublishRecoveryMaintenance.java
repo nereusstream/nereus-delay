@@ -14,7 +14,7 @@ import java.util.function.Supplier;
 /** One-row recovery turns and one caller-owned asynchronous history load; no extra thread, queue or SEND path. */
 public final class TargetPublishRecoveryMaintenance {
     public enum Status {
-        DISCOVERED, SCAN_YIELD, RESTART_SCAN, LOADING, SUBMITTED, WAITING_SOURCE, SETTLED, ALREADY_HANDLED, IDLE, FAILED
+        DISCOVERED, SCAN_YIELD, RESTART_SCAN, LOADING, SUBMITTED, WAITING_SOURCE, RECONCILING, SETTLED, SOURCE_REJECTED, ALREADY_HANDLED, IDLE, FAILED
     }
 
     /** Authenticated history and policy/key/time preparation must run outside the Store and maintenance thread. */
@@ -102,15 +102,16 @@ public final class TargetPublishRecoveryMaintenance {
             if (pending != null) {
                 if (executor.settleApplied(ownerClock)) {
                     final var mutation = pending.mutation();
+                    final boolean rejected=pending.rejected();
                     pending = null;
                     selected = null;
                     loading = null;
                     // Any Source/local delta can insert an earlier attempt; do not rebase an old cursor by guesswork.
                     cursor = null;
-                    return new Turn(Status.SETTLED, mutation, null);
+                    return new Turn(rejected?Status.SOURCE_REJECTED:Status.SETTLED, mutation, null);
                 }
                 executor.retryHandoff(ownerClock);
-                return new Turn(Status.WAITING_SOURCE, pending.mutation(), pending.failure().orElse(null));
+                return new Turn(pending.awaitingCompletion()?Status.RECONCILING:Status.WAITING_SOURCE,pending.mutation(),pending.failure().orElse(null));
             }
             if (selected == null) {
                 final var page = scanningKafkaUnknown
@@ -176,6 +177,10 @@ public final class TargetPublishRecoveryMaintenance {
 
     public synchronized Optional<SystemMutation> pendingMutation() {
         return pending == null ? Optional.empty() : Optional.of(pending.mutation());
+    }
+    public synchronized boolean retainsAttempt(byte[] attempt){
+        com.nereusstream.delay.protocol.Bytes.requireLength(attempt,32,"original recovery Attempt ID");
+        return selected!=null&&java.util.Arrays.equals(selected.attempt().publishAttemptId(),attempt);
     }
 
     private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }

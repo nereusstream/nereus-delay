@@ -907,3 +907,12 @@ Worker/catalog/protection、原UNKNOWN和实际trusted time必须匹配；不授
 owned opening/reader/poll/archive/continuation退出才释放原SDK/material，旧view
 不跟随新retry的句柄。APPLIED后的自动Catalog adoption/重启reconcile、完整正常
 接续/Stop/失权和受控Floor退役仍待实施与集中验证。
+
+
+2026-10-16 Source APPLIED后的补记只用当前Worker/Store/Owner的实际只读权限，
+不复用旧pending/恢复SDK材料权限。原Native Adoption与exact proof/frame核验后
+才Catalog ADOPTED，实际first被REJECTED绝不采用。normal SDK接续等待该原owned
+completion和实际SDK关闭；旧普通SEND授权不因此放宽。当前Root live checkpoint
+可据保留的原Native owner/first/POSITION补记，旧observer/credential失效不抹历史；
+bootstrap仍先完整历史认证再准入Worker。丢失Owner、Stop、重启/代次组合仍须
+集中验证和完整部署装配，不以补记或无ref推断可退役/删除。

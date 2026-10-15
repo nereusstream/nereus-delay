@@ -325,6 +325,20 @@ public final class TargetWorkerShardRuntime
                 final var actual=worker.target.readKafkaUnknown(budget,admission,clock);requireOriginal();return actual;
             }
         }
+        public Optional<com.nereusstream.delay.runtime.SystemMutationResult> recoveryOutcomeResult(
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot,SystemMutation image,LongSupplier clock){
+            synchronized(worker){
+                channel.requireExactFrozenIdentity(snapshot.verified().proof().mapping().admission().channel());snapshot.requireExact(image);requireOriginal();
+                final var actual=worker.target.outcomeMutationResult(image,clock);requireOriginal();return actual;
+            }
+        }
+        public com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption readRecoveryAdoption(BoundedReadBudget reads,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot,SystemMutation image,LongSupplier clock){
+            synchronized(worker){
+                channel.requireExactFrozenIdentity(snapshot.verified().proof().mapping().admission().channel());snapshot.requireExact(image);requireOriginal();
+                final var actual=worker.target.readRecoveryEvidenceAdoption(reads,snapshot,image,clock);requireOriginal();return actual;
+            }
+        }
     }
 
     public synchronized void registerPublicationMaintenance(PublicationResources original, PublicationMaintenance maintenance,
@@ -562,6 +576,13 @@ public final class TargetWorkerShardRuntime
             BoundedReadBudget reads, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
         requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
         return target.readExternalEvidenceAdoption(reads, mapping, clock);
+    }
+    /** Current admitted Root read for live checkpoint reconciliation; no old observer SDK/material is required. */
+    public synchronized com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption readRecoveryEvidenceAdoption(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot,
+            SystemMutation image,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.readRecoveryEvidenceAdoption(reads,snapshot,image,clock);
     }
 
     @Override
@@ -1125,6 +1146,13 @@ public final class TargetWorkerShardRuntime
         }
         // Recovery rechecks this Worker for each action; avoid Worker -> recovery -> Worker lock inversion.
         return recovery == null ? Optional.empty() : Optional.of(recovery.runTurn());
+    }
+    /** Scheduling-only retention check; actual Native Source settlement remains a separate requirement. */
+    public boolean publishRecoveryRetainsAttempt(byte[] attempt){
+        final TargetPublishRecoveryMaintenance recovery;
+        synchronized(this){requireRuntimeAdmitted();recovery=publishRecoveryMaintenance;}
+        // Do not take the maintenance monitor under the Worker monitor: its turns call back into this Worker.
+        return recovery!=null&&recovery.retainsAttempt(attempt);
     }
 
     synchronized void submitOutcomeAction(
