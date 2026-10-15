@@ -287,7 +287,9 @@ public final class TargetWorkerSourceStartup {
     }
 
     public synchronized Construction beginPulsarClientOpening() {
-        if (initializationRunning) throw new IllegalStateException("P1 client opening precedes its actual initial Store boundary");
+        if (initializationRunning || backend != null) {
+            throw new IllegalStateException("P1 client opening requires its actual initial Store boundary and original SDK owner");
+        }
         if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier)) {
             throw new IllegalStateException("P1 client opening changes the original Source kind");
         }

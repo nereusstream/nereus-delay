@@ -1,7 +1,10 @@
 package com.nereusstream.delay.transport;
 
+import com.nereusstream.delay.ownership.LocalBrokerMtlsResolver;
 import com.nereusstream.delay.ownership.SourceAssignment;
+import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
 import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
+import com.nereusstream.delay.ownership.TargetSourceRecoveryInputs;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.protocol.Bytes;
@@ -9,6 +12,7 @@ import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.SharedRocksDbResources;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
@@ -16,9 +20,65 @@ import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 
-/** Binds the guarded Pulsar source to an already activated Target Worker runtime. */
+/** Opens the configured guarded P1 Source and binds its actual activated Target Worker. */
 public final class PulsarClientArtifactTargetWorkerSourceFactory {
     private PulsarClientArtifactTargetWorkerSourceFactory() {}
+
+    /** Immutable deployment settings; transport credentials are resolved on the original startup call. */
+    public record SourceConfiguration(PulsarClientArtifactOwnedBackendGroup.Settings settings, byte[] sdkJar,
+            Path authorizationFile, byte[] signedRoute, TopicResourceGuard guard, String topic, String subscription,
+            Duration receiveTimeout, byte[] deploymentId, byte[] workerRunId, long maximumRecoveryInputBytes) {
+        public SourceConfiguration {
+            Objects.requireNonNull(settings); Objects.requireNonNull(guard);
+            Bytes.requireLength(sdkJar, 32, "P1 SDK artifact hash");
+            if (authorizationFile == null || !authorizationFile.isAbsolute()
+                    || signedRoute == null || signedRoute.length == 0 || signedRoute.length > 256 * 1024
+                    || topic == null || topic.isBlank() || topic.length() > 1024
+                    || subscription == null || subscription.isBlank() || subscription.length() > 512
+                    || receiveTimeout == null || receiveTimeout.toMillis() < 1 || receiveTimeout.toMillis() > 60_000
+                    || deploymentId == null || deploymentId.length == 0 || deploymentId.length > 512
+                    || workerRunId == null || workerRunId.length == 0 || workerRunId.length > 512
+                    || maximumRecoveryInputBytes < 1 || maximumRecoveryInputBytes == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("configured P1 Source requires bounded original deployment settings");
+            }
+            sdkJar = Bytes.copy(sdkJar); signedRoute = Bytes.copy(signedRoute);
+            deploymentId = Bytes.copy(deploymentId); workerRunId = Bytes.copy(workerRunId);
+            authorizationFile = authorizationFile.normalize();
+        }
+        @Override public byte[] sdkJar() { return Bytes.copy(sdkJar); }
+        @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
+        @Override public byte[] deploymentId() { return Bytes.copy(deploymentId); }
+        @Override public byte[] workerRunId() { return Bytes.copy(workerRunId); }
+    }
+
+    /** Resolves actual mTLS material and derives the Registry Owner from this root's acquired lease. */
+    public static Opening openConfiguredSource(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            SourceConfiguration configuration, LocalBrokerMtlsResolver resolver,
+            SourceTransportCredentialAuthorization.Trust trust, TargetSourceRecoveryInputs.Provider recoveryProvider,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
+            TargetWorkerShardRuntime.Maintenance maintenance, java.util.function.LongSupplier clock) {
+        Objects.requireNonNull(configuration); Objects.requireNonNull(resolver); Objects.requireNonNull(trust);
+        Objects.requireNonNull(recoveryProvider); Objects.requireNonNull(time);
+        try (var original = startup.beginPulsarClientOpening()) {
+            original.requireCurrent();
+            if (configuration.maximumRecoveryInputBytes() > startup.graph().config().resources().certifiedJvmHeapBytes()) {
+                throw new IllegalArgumentException("configured recovery input bytes exceed the Worker heap bound");
+            }
+            // Bounded file reads, PKIX and signature verification run without the Store/startup monitor.
+            final var receipt = resolver.resolveSource(configuration.authorizationFile(), configuration.signedRoute(), trust, time);
+            original.requireCurrent();
+            final var lease = startup.ownerLease();
+            final var identity = new com.nereusstream.delay.protocol.OwnerIdentity(configuration.deploymentId(),
+                    configuration.workerRunId(), lease.ownerEpoch(), lease.leaseToken());
+            final var opening = openVerifiedSource(original, startup, configuration.settings(), configuration.sdkJar(), receipt,
+                    configuration.guard(), configuration.topic(), configuration.subscription(), configuration.receiveTimeout(),
+                    time, budget, cost, maintenance, identity, clock);
+            opening.configureRecoveryProvider(recoveryProvider, configuration.maximumRecoveryInputBytes());
+            original.requireCurrent();
+            return opening;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
 
     /** Completes this process root's actual Source startup and retains its original SDK owner on failure. */
     public static TargetWorkerShardRuntime createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
@@ -48,24 +108,53 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
             java.util.function.LongSupplier clock) {
         try (var original = startup.beginPulsarClientOpening()) {
-            original.requireCurrent();
-            startup.requireCurrent();
-            Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
-            final var assignment = startup.acceptedAssignment();
-            if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)
-                    || !assignment.shardId().equals(receipt.authorization().shard()) || assignment.shardId().partition() < 0
-                    || !topic.equals(barrier.physicalTopic())
-                    || !Arrays.equals(guard.resourceIncarnation(), barrier.brokerResourceIncarnation())
-                    || receiveTimeout == null || receiveTimeout.toMillis() < 1 || receiveTimeout.toMillis() > 60_000) {
-                throw new IllegalArgumentException("P1 SDK opening changes its original accepted Source resource/time bound");
-            }
-            final var graph = startup.graph();
-            final var group = PulsarClientArtifactOwnedBackendGroup.openVerifiedSourceMtls(settings, sdkJar, receipt,
-                    time, startup::requirePulsarOpeningAuthority, budget, cost, graph.classes(), graph.resources(), graph.io());
-            startup.registerBackend(group);
-            startup.requireCurrent();
-            return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock);
+            return openVerifiedSource(original, startup, settings, sdkJar, receipt, guard, topic, subscription,
+                    receiveTimeout, time, budget, cost, maintenance, identity, clock);
         } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    private static Opening openVerifiedSource(com.nereusstream.delay.ownership.TargetWorkerSourceStartup.Construction original,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            PulsarClientArtifactOwnedBackendGroup.Settings settings, byte[] sdkJar, LocalBrokerMtlsResolver.SourceReceipt receipt,
+            TopicResourceGuard guard, String topic, String subscription, Duration receiveTimeout,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
+            TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
+            java.util.function.LongSupplier clock) {
+        original.requireCurrent();
+        startup.requireCurrent();
+        Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
+        final var assignment = startup.acceptedAssignment();
+        final var lease = startup.ownerLease();
+        receipt.authorization().requireAssignment(assignment);
+        if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)
+                || !Bytes.constantTimeEquals(identity.deploymentId(), receipt.authorization().deploymentId())
+                || identity.ownerEpoch() != lease.ownerEpoch()
+                || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())
+                || !assignment.shardId().equals(receipt.authorization().shard()) || assignment.shardId().partition() < 0
+                || !topic.equals(barrier.physicalTopic())
+                || !Arrays.equals(guard.resourceIncarnation(), barrier.brokerResourceIncarnation())
+                || receiveTimeout == null || receiveTimeout.toMillis() < 1 || receiveTimeout.toMillis() > 60_000) {
+            throw new IllegalArgumentException("P1 SDK opening changes its original accepted Source resource/time bound");
+        }
+        final var authorization = receipt.authorization();
+        final var resource = authorization.resource().pulsar();
+        if (!guard.authenticatedClusterId().equals(resource.authenticatedClusterId())
+                || guard.topicCreationTimestamp() != resource.physicalTopicCreationTimestamp()) {
+            throw new IllegalArgumentException("P1 Source guard differs from the signed deployment resource");
+        }
+        authorization.requireName(SourceTransportCredentialAuthorization.Operation.CONSUME, subscription);
+        final var now = time.get();
+        for (var role : java.util.List.of(SourceTransportCredentialAuthorization.Operation.CONSUME,
+                SourceTransportCredentialAuthorization.Operation.ACK, SourceTransportCredentialAuthorization.Operation.LOOKUP)) {
+            receipt.requireOperation(role, now);
+        }
+        final var graph = startup.graph();
+        final var group = PulsarClientArtifactOwnedBackendGroup.openVerifiedSourceMtls(settings, sdkJar, receipt,
+                time, startup::requirePulsarOpeningAuthority, budget, cost, graph.classes(), graph.resources(), graph.io());
+        startup.registerBackend(group);
+        startup.requireCurrent();
+        return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock);
     }
 
     public static final class Opening {

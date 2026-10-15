@@ -114,6 +114,7 @@ public final class SourceTransportCredentialAuthorization {
         return ByteBuffer.allocate(RouteIncarnation.LENGTH + 4).put(shard.routeIncarnation().bytes()).putInt(shard.partition()).array();
     }
     public ShardId shard() { return shard; }
+    public byte[] deploymentId() { return Bytes.copy(value(2)); }
     public BrokerResourceIdentity resource() { return resource; }
     public String physicalTopic() { return text(10, 1024, false); }
     public long credentialGeneration() { return number(13); }
