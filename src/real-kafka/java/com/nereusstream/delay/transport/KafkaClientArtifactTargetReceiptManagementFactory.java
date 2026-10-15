@@ -3,6 +3,7 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
+import com.nereusstream.delay.ownership.TargetReceiptControlHistory;
 import com.nereusstream.delay.ownership.TargetWorkerProcessRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.protocol.Bytes;
@@ -91,7 +92,6 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     || !Arrays.equals(receipts.getFirst().authority().canonicalBytes(), management.canonicalBytes()))
                 throw new IllegalArgumentException("receipt inventory lacks its original first management authorization or exceeds storage bounds");
             final var channels = new HashSet<String>(); final var resources = new HashSet<String>();
-            long inputBytes = management.canonicalBytes().length;
             for (var receipt : receipts) {
                 if (!Arrays.equals(management.image(), receipt.authority().image()) || !channels.add(Bytes.hex(receipt.channel())))
                     throw new IllegalArgumentException("duplicate/foreign original receipt channel deployment");
@@ -99,11 +99,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         receipt.slotsPerShard(), receipt.physicalPartition());
                 if (!resources.add(Bytes.hex(scoped.resource().canonicalBytes()) + "/" + Long.toUnsignedString(scoped.evidenceGeneration())))
                     throw new IllegalArgumentException("duplicate original receipt slot/evidence generation");
-                inputBytes = Math.addExact(inputBytes, receipt.authority().canonicalBytes().length);
             }
-            for (var entry : admin.entrySet()) inputBytes = Math.addExact(inputBytes,
-                    Math.addExact(Bytes.utf8(entry.getKey()).length, Bytes.utf8(entry.getValue()).length));
-            if (cost.amount(CapacityDimension.BUFFERED_BYTES) < inputBytes)
+            if (cost.amount(CapacityDimension.BUFFERED_BYTES) < retainedConfigurationBytes(management, admin, receipts))
                 throw new IllegalArgumentException("management cost omits its retained bounded deployment inputs");
             final var deployment = TargetKafkaReceiptManagementImage.decode(management.image());
             if (!Arrays.equals(KafkaClientArtifactTargetReceiptManagement.configurationFingerprint(new HashMap<>(admin)),
@@ -140,11 +137,49 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         f.requireComplete(); return result;
     }
 
+    private static long retainedConfigurationBytes(TargetKafkaReceiptControlArtifact management,
+            Map<String,String> admin, List<Receipt> receipts) {
+        long bytes = management.canonicalBytes().length;
+        for (var receipt : receipts) bytes = Math.addExact(bytes, receipt.authority().canonicalBytes().length);
+        for (var entry : admin.entrySet()) bytes = Math.addExact(bytes,
+                Math.addExact(Bytes.utf8(entry.getKey()).length, Bytes.utf8(entry.getValue()).length));
+        return bytes;
+    }
+
+    /** Concrete immutable original history from the trusted root; current operator authentication stays live and independent. */
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
+            TargetDestinationSdkBudget budget, Supplier<ControlAuthorizationContext> authenticatedOperator) throws IOException {
+        Objects.requireNonNull(authenticatedOperator, "original live CONTROL authenticator");
+        final var config = load(configuration);
+        final var captured = TargetReceiptControlHistory.prepare(controlHistory);
+        final long bytes = Math.addExact(captured.maximumRetainedBytes(),
+                retainedConfigurationBytes(config.management(), config.admin(), config.receipts()));
+        if (config.cost().amount(CapacityDimension.BUFFERED_BYTES) < bytes)
+            throw new IllegalArgumentException("management reservation omits its original CONTROL history inputs");
+        return openLoaded(root, config, budget, guard -> {
+            try {
+                final var history = TargetReceiptControlHistory.load(captured, guard);
+                for (var receipt : config.receipts()) {
+                    guard.run();
+                    final var required = scope(receipt.authority(), receipt.laneSlot(), receipt.slotGeneration(),
+                            receipt.slotsPerShard(), receipt.physicalPartition());
+                    history.requireReceipt(receipt.authority(), required.resource(), required.slotsPerShard(), required.physicalPartition());
+                }
+                return new TrustInputs(history, history, history, authenticatedOperator);
+            } catch (IOException failure) { throw new IllegalStateException("original CONTROL history materialization failed", failure); }
+        });
+    }
+
     /** No native SDK or request is created until this exact owner and cost have been retained by the original root. */
     public static Opening openConfigured(TargetWorkerProcessRuntime root, Path path,
             TargetDestinationSdkBudget budget, TrustInputs inputs) throws IOException {
-        final var config = load(path);
-        final var original = new Opening(root, config, budget, inputs);
+        Objects.requireNonNull(inputs, "original trusted CONTROL providers");
+        return openLoaded(root, load(path), budget, guard -> inputs);
+    }
+
+    private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
+            TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader) {
+        final var original = new Opening(root, config, budget, trustLoader);
         try (var construction = root.beginReceiptManagementConstruction(original, budget)) {
             original.registered = true;
             construction.requireCurrent(); original.start(construction.graph()); construction.requireCurrent(); return original;
@@ -195,7 +230,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private final TargetWorkerProcessRuntime root;
         private final Configuration config;
         private final TargetDestinationSdkBudget budget;
-        private final TrustInputs inputs;
+        private final java.util.function.Function<Runnable,TrustInputs> trustLoader;
         private final byte[] identity;
         private volatile OwnedCheckpointIo<Void> opening;
         private OwnedCheckpointIo<Boolean> closing;
@@ -212,9 +247,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile boolean stopping;
         private volatile boolean closed;
         private volatile Throwable failure;
-        private Opening(TargetWorkerProcessRuntime root, Configuration config, TargetDestinationSdkBudget budget, TrustInputs inputs) {
+        private Opening(TargetWorkerProcessRuntime root, Configuration config, TargetDestinationSdkBudget budget,
+                java.util.function.Function<Runnable,TrustInputs> trustLoader) {
             this.root = Objects.requireNonNull(root); this.config = config; this.budget = Objects.requireNonNull(budget);
-            this.inputs = Objects.requireNonNull(inputs);
+            this.trustLoader = Objects.requireNonNull(trustLoader);
             identity = TargetKafkaReceiptManagementImage.decode(config.management().image()).topicIdentity();
         }
         private void start(TargetWorkerProcessRuntime.Assembly graph) {
@@ -223,6 +259,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             opening = OwnedCheckpointIo.submit(guard -> {
                 try {
                     guard.run(); TargetSdkArtifactIdentity.requireExact(KafkaAdminClient.class, config.sdkJar());
+                    final var inputs = Objects.requireNonNull(trustLoader.apply(guard), "actual original CONTROL inputs");
+                    guard.run();
                     final var trust = new TargetKafkaReceiptProtectionTrust(graph.oxia().providers().registrations(),
                             inputs.keys(), inputs.actors(), inputs.scope(), (image, control, at) ->
                                     Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at));
