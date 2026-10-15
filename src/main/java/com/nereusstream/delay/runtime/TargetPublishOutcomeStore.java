@@ -276,6 +276,7 @@ public final class TargetPublishOutcomeStore {
         public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() { return mapping; }
         public TargetQuotaAttemptBudget.Phase phase() { return attempt.phase(); }
         public byte[] tenantScope() { return attempt.tenantScope(); }
+        public TargetQuotaAttemptBudget attempt() { return attempt; }
         public TargetExternalEvidenceStore.Adoption adoption() { return adoption; }
         public void requireUnknown(KafkaUnknown unknown) {
             if (phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN

@@ -56,6 +56,7 @@ public final class LocalBrokerMtlsResolver {
     private final Path root;
     private final Limits limits;
     private final byte[] serverTrustPem;
+    private final byte[] clientTrustPem;
     private final List<X509Certificate> clientRoots;
     private final byte[] policyDigest;
     private final EndpointPolicy endpoints;
@@ -92,12 +93,13 @@ public final class LocalBrokerMtlsResolver {
             if (endpoint.isBlank() || !endpoint.equals(endpoint.trim()) || endpoint.length() > 4096
                     || endpoint.chars().anyMatch(value -> value < 33 || value > 126)) { throw unavailable(); }
         }
-        private byte[] digest() {
-            return Bytes.sha256(CanonicalProtobuf.message(out -> {
+        private byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
                 for (var endpoint : kafkaBootstrapServers.stream().sorted().toList()) { CanonicalProtobuf.bytes(out, 1, Bytes.utf8(endpoint)); }
                 for (var endpoint : pulsarServiceUrls.stream().sorted().toList()) { CanonicalProtobuf.bytes(out, 2, Bytes.utf8(endpoint)); }
-            }));
+            });
         }
+        private byte[] digest() { return Bytes.sha256(canonicalBytes()); }
     }
 
     /** Loads the closed deployment schema before reading and verifying actual trust files. */
@@ -138,6 +140,7 @@ public final class LocalBrokerMtlsResolver {
             if (clientTrust.bytes().length + (long) serverTrust.bytes().length > limits.maximumTotalBytes()) { throw unavailable(); }
             for (var cert : clientRoots) { if (cert.getBasicConstraints() < 0) { throw unavailable(); } }
             serverTrustPem = serverTrust.bytes();
+            clientTrustPem = clientTrust.bytes();
             policyDigest = Bytes.sha256(Bytes.utf8("nereus-delay-local-mtls-offline-pkix-v1\0"),
                     clientTrust.bytes(), serverTrustPem, endpoints.digest());
             retainedBytes = clientTrust.bytes().length + (long) serverTrustPem.length;
@@ -297,7 +300,7 @@ public final class LocalBrokerMtlsResolver {
             final String scope = Bytes.hex(authorization.digest());
             final var snapshot = retain(id + '/' + version, loaded,
                     Map.of("target-recovery-authorization/" + scope, input, "target-recovery-evidence/" + scope, evidence));
-            return new TargetRecoveryReceipt(authorization, trust, hold, originalSdkBudget, snapshot, serverTrustPem, endpoints,
+            return new TargetRecoveryReceipt(authorization, trust, hold, originalSdkBudget, snapshot, serverTrustPem, clientTrustPem, endpoints,
                     retainedProofs(id + '/' + version,
                             List.of("target-recovery-authorization/" + scope, "target-recovery-evidence/" + scope)));
         } catch (Exception | Error failure) {
@@ -316,6 +319,52 @@ public final class LocalBrokerMtlsResolver {
     private int recoveryReadLimit(long remaining) {
         if (remaining <= 0) throw unavailable();
         return (int) Math.min(remaining, limits.maximumFileBytes());
+    }
+
+    /** Historical public crypto inputs. Call only after the enclosing purpose-signed proof has authenticated them. */
+    public static TargetRecoveryCredentialAuthorization verifyRecoveryArchiveInputs(byte[] encoded,
+            TargetRecoveryCredentialAuthorization.Trust originalTrust,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+            com.nereusstream.delay.protocol.OwnerIdentity observer,byte[] tenant,TrustedUtcIntervalEvidence observedAt) throws Exception {
+        if(encoded.length==0||encoded.length>com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_PROOF_BYTES)throw unavailable();
+        final var f=QueryCodecSupport.read(encoded,"public archived recovery material");
+        QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7},"public archived recovery material");
+        if(QueryCodecSupport.uint(f.get(0),1)!=1)throw unavailable();
+        final var a=TargetRecoveryCredentialAuthorization.decode(QueryCodecSupport.nested(f.get(1),2));
+        a.requireMapping(mapping);a.requireRuntimeScope(observer,tenant);originalTrust.verifyHistorical(a,observedAt);
+        final byte[] client=QueryCodecSupport.bytes(f.get(2),3),clientRoots=QueryCodecSupport.bytes(f.get(3),4),serverRoots=QueryCodecSupport.bytes(f.get(4),5);
+        final var endpoints=QueryCodecSupport.read(QueryCodecSupport.nested(f.get(5),6),"archived TLS endpoints");
+        final var kafka=new java.util.HashSet<String>();final var pulsar=new java.util.HashSet<String>();
+        for(var endpoint:endpoints){
+            final String literal=new String(QueryCodecSupport.bytes(endpoint,endpoint.number()),StandardCharsets.UTF_8);
+            if(endpoint.number()==1){if(!kafka.add(literal))throw unavailable();}
+            else if(endpoint.number()==2){if(!pulsar.add(literal))throw unavailable();}else throw unavailable();
+        }
+        final var policy=new EndpointPolicy(kafka,pulsar);
+        QueryCodecSupport.requireCanonical(QueryCodecSupport.bytes(f.get(5),6),policy.canonicalBytes(),"archived TLS endpoints");
+        if(!Arrays.equals(a.policyDigest(),Bytes.sha256(Bytes.utf8("nereus-delay-local-mtls-offline-pkix-v1\0"),clientRoots,serverRoots,policy.digest())))throw unavailable();
+        final var chain=certificates(client,32);final var roots=certificates(clientRoots,32);certificates(serverRoots,32);
+        for(var rootCert:roots)if(rootCert.getBasicConstraints()<0)throw unavailable();
+        requireCertificates(chain,roots,a.notBeforeEpochMs(),a.notAfterEpochMs());
+        if(!Arrays.equals(a.fingerprint(),Bytes.sha256(chain.getFirst().getEncoded())))throw unavailable();
+        final var p=QueryCodecSupport.read(QueryCodecSupport.nested(f.get(6),7),"archived recovery verifier public projection");
+        QueryCodecSupport.requireNumbers(p,new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15},"archived recovery verifier public projection");
+        final var reference=REFERENCE.matcher(new String(a.reference(),StandardCharsets.US_ASCII));
+        if(!reference.matches()||reference.group(1).equals("0".repeat(32))||reference.group(2).equals("0".repeat(32)))throw unavailable();
+        final var chainBytes=new ByteArrayOutputStream();for(var cert:chain)chainBytes.write(Bytes.lp32(cert.getEncoded()));
+        final byte[] expected=CanonicalProtobuf.message(out->{
+            CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,Bytes.hexToBytes(reference.group(1)));
+            CanonicalProtobuf.bytes(out,3,Bytes.hexToBytes(reference.group(2)));CanonicalProtobuf.bytes(out,4,a.bindingId());
+            CanonicalProtobuf.uint64Bits(out,5,a.credentialGeneration());CanonicalProtobuf.bytes(out,6,a.referenceDigest());
+            CanonicalProtobuf.bytes(out,7,a.fingerprint());CanonicalProtobuf.bytes(out,8,a.principalHash());
+            CanonicalProtobuf.bytes(out,9,Bytes.sha256(chainBytes.toByteArray()));
+            CanonicalProtobuf.bytes(out,10,Bytes.sha256(chain.getFirst().getPublicKey().getEncoded()));
+            CanonicalProtobuf.bytes(out,11,a.policyDigest());CanonicalProtobuf.bytes(out,12,a.scopeImageDigest());
+            CanonicalProtobuf.uint32(out,13,TargetRecoveryCredentialAuthorization.OPERATIONS);
+            CanonicalProtobuf.bytes(out,14,QueryCodecSupport.fixed(p.get(13),14,32));CanonicalProtobuf.bytes(out,15,a.evidenceDigest());
+        });
+        QueryCodecSupport.requireCanonical(QueryCodecSupport.bytes(f.get(6),7),expected,"archived recovery verifier public projection");
+        return a;
     }
 
     private static void requireTargetRecoveryEvidence(byte[] bytes, String id, String version,
@@ -436,6 +485,9 @@ public final class LocalBrokerMtlsResolver {
         requireCertificates(chain, lease.issuedAt().earliestEpochMs(), lease.validUntilEpochMs());
     }
     private void requireCertificates(List<X509Certificate> chain, long earliest, long until) throws Exception {
+        requireCertificates(chain,clientRoots,earliest,until);
+    }
+    private static void requireCertificates(List<X509Certificate> chain,List<X509Certificate> clientRoots,long earliest,long until) throws Exception {
         for (var cert : chain) {
             cert.checkValidity(new Date(earliest));
             cert.checkValidity(new Date(until));
@@ -552,16 +604,16 @@ public final class LocalBrokerMtlsResolver {
         private final TargetRecoveryCredentialAuthorization.Hold hold;
         private final TargetDestinationSdkBudget.Client budget;
         private final Version version;
-        private final byte[] serverTrust;
+        private final byte[] serverTrust, clientTrust;
         private final EndpointPolicy endpoints;
         private final List<FileImage> proofs;
         private boolean stopping, closed;
         private TargetRecoveryReceipt(TargetRecoveryCredentialAuthorization authorization,
                 TargetRecoveryCredentialAuthorization.Trust trust, TargetRecoveryCredentialAuthorization.Hold hold,
                 TargetDestinationSdkBudget.Client budget,
-                Version version, byte[] serverTrust, EndpointPolicy endpoints, List<FileImage> proofs) {
+                Version version, byte[] serverTrust, byte[] clientTrust, EndpointPolicy endpoints, List<FileImage> proofs) {
             this.authorization = authorization; this.trust = trust; this.hold = hold; this.budget = budget; this.version = version;
-            this.serverTrust = serverTrust; this.endpoints = endpoints; this.proofs = proofs;
+            this.serverTrust = serverTrust; this.clientTrust = clientTrust; this.endpoints = endpoints; this.proofs = proofs;
         }
         public TargetRecoveryCredentialAuthorization authorization() { return authorization; }
         public synchronized void requireCurrent(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
@@ -592,8 +644,41 @@ public final class LocalBrokerMtlsResolver {
                 CanonicalProtobuf.bytes(out, 10, authorization.policyDigest());
             });
         }
+        /** Original public crypto inputs for the protected archive; no private key, local path or raw probe request. */
+        public byte[] archivePublicInputs() {
+            final long bound=authorization.canonicalBytes().length+(long)version.certs().bytes().length+clientTrust.length
+                    +serverTrust.length+endpoints.canonicalBytes().length+2048L;
+            if(bound>com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_PROOF_BYTES)
+                throw unavailable();
+            final byte[] privateEvidence=proofs.get(1).bytes();
+            final var f=QueryCodecSupport.read(privateEvidence,"original private recovery verifier input");
+            final byte[] publicVerification=CanonicalProtobuf.message(out->{
+                CanonicalProtobuf.uint32(out,1,1);
+                for(int n=2;n<=10;n++){
+                    if(n==5)CanonicalProtobuf.uint64Bits(out,n,authorization.credentialGeneration());
+                    else CanonicalProtobuf.bytes(out,n,QueryCodecSupport.bytes(f.get(n-1),n));
+                }
+                CanonicalProtobuf.bytes(out,11,authorization.policyDigest());
+                CanonicalProtobuf.bytes(out,12,authorization.scopeImageDigest());
+                CanonicalProtobuf.uint32(out,13,TargetRecoveryCredentialAuthorization.OPERATIONS);
+                CanonicalProtobuf.bytes(out,14,QueryCodecSupport.fixed(f.get(14),15,32));
+                CanonicalProtobuf.bytes(out,15,authorization.evidenceDigest());
+            });
+            return CanonicalProtobuf.message(out->{
+                CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,authorization.canonicalBytes());
+                CanonicalProtobuf.bytes(out,3,version.certs().bytes());CanonicalProtobuf.bytes(out,4,clientTrust);
+                CanonicalProtobuf.bytes(out,5,serverTrust);CanonicalProtobuf.bytes(out,6,endpoints.canonicalBytes());
+                CanonicalProtobuf.bytes(out,7,publicVerification);
+            });
+        }
+        public void requireArchiveMemory(long bytes) {
+            if(bytes<1)throw unavailable();
+            final long[] cost=new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+            cost[com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_BYTES.wireValue()-1]=bytes;
+            budget.requireCovers(new com.nereusstream.delay.protocol.CapacityVector(cost));
+        }
         public long retainedBytes() {
-            return version.bytes() + serverTrust.length + proofs.stream().mapToLong(p -> p.bytes().length).sum();
+            return version.bytes() + serverTrust.length + clientTrust.length + proofs.stream().mapToLong(p -> p.bytes().length).sum();
         }
         public synchronized boolean closeCompleted() { return closed; }
         /** Caller must first prove actual native/late-I/O termination; expiry alone never releases protection. */

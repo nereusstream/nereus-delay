@@ -2307,3 +2307,18 @@ Source/Checkpoint/Floor/ProtectionSet及实际删除确认；确认不再引用�
 写owner/ref/alias和费用。当前v7 Source采用被明确拒绝，未新增任何owner/ref、
 账本或reserve释放行为；ledger/remainingAttemptCharge/Source batch及Checkpoint/
 Floor接线仍待实施。不能将本次4MiB上限当作旧Attempt已预留或用SDK窗口顶账。
+
+
+2026-10-16 Catalog Root schema2的RecoveryIntent共享原physicalBytes/physicalRecords/
+maximumPublications，预留ref+冻结owner+完整未来prepared-use/adoption窗口后才写blob；
+预留量不随当前引用数减少，staging/published不退款，UNKNOWN也不退款。物理对象
+按UTF8 key+完整raw signed value占用，Root容量增量独立加入原有限预算，Root仍不
+超过16MiB。未更改旧capacitySourceDigest/limits或把新对象塞进CONTROL kind。
+
+归档前检查原Attempt冻结accounting/allocated至少覆盖原anchor与恢复proof实际
+EVIDENCE实物；这是blob费用下限，不是完整Source采用准入。精确owner/ref/index
+STATE收费、唯一实物reserve转移、remainingAttemptCharge/独立ledger和新Admission
+有限上界尚待接线，未增加原冻结allocated/commitment、SDK顶账或自动补差。用途
+签名proof保存原Attempt及TargetQuotaIncarnation，后续不得借当前Owner重定价。
+当前Source仍拒绝v7，Catalog没有recovery ADOPTED/删除/退款入口；所有Source/
+Checkpoint/Floor/shared refs和prepared use确定终止后的实际删除义务保持。

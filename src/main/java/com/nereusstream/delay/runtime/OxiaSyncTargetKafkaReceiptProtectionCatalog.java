@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import com.nereusstream.delay.ownership.TargetRecoveryProofTrust;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.protocol.*;
 import io.oxia.client.api.GetResult;
@@ -143,32 +144,87 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             QueryCodecSupport.requireCanonical(b,i.encode(),"receipt publication intent");return i;
         }
     }
-    private record Root(Limits limits,Map<String,Management> topics,Map<String,Intent> publications) {
-        Root {topics=Map.copyOf(topics);publications=Map.copyOf(publications);validate(limits,topics,publications);}
-        Root topic(Management m){final var map=new TreeMap<>(topics);map.put(m.id(),m);return new Root(limits,map,publications);}
-        Root publication(Intent i){final var map=new TreeMap<>(publications);map.put(Bytes.hex(i.id),i);return new Root(limits,topics,map);}
+    private record RecoveryIntent(byte[] id,TargetRecoveryProofRef reference,TargetQuotaIncarnation frozenOwner,
+            int phase,List<PreparedUse> uses,byte[] adoptedSource){
+        RecoveryIntent{
+            id=Bytes.copy(id);Bytes.requireLength(id,32,"recovery publication discovery ID");
+            if(!Arrays.equals(id,recoveryId(reference.mappingId(),reference.evidenceId()))||phase<RESERVED||phase>ADOPTED
+                    ||(phase==ADOPTED?adoptedSource.length!=32:adoptedSource.length!=0)
+                    ||(phase<POSSIBLY_SOURCE?!uses.isEmpty():uses.isEmpty())
+                    ||frozenOwner.identity().kind()!=TargetQuotaIdentity.Kind.TARGET)throw new IllegalArgumentException("invalid recovery publication intent");
+            String previous=null;for(var use:uses){final String key=Bytes.hex(use.id);
+                if(previous!=null&&previous.compareTo(key)>=0)throw new IllegalArgumentException("recovery prepared uses are not unique and sorted");previous=key;}
+            Objects.requireNonNull(frozenOwner);uses=List.copyOf(uses);adoptedSource=Bytes.copy(adoptedSource);
+        }
+        byte[] encode(){return CanonicalProtobuf.message(out->{
+            CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,id);CanonicalProtobuf.bytes(out,3,reference.canonicalBytes());
+            CanonicalProtobuf.bytes(out,4,frozenOwner.canonicalBytes());CanonicalProtobuf.uint32(out,5,phase);
+            for(var use:uses)CanonicalProtobuf.bytes(out,6,use.bytes());CanonicalProtobuf.bytes(out,7,adoptedSource);
+        });}
+        long rootReserve(int maximumUses){
+            final var empty=new RecoveryIntent(id,reference,frozenOwner,RESERVED,List.of(),new byte[0]);
+            // Reserve all future uses and the Source adoption stamp before the first blob write.
+            return Math.addExact(empty.encode().length+64L,Math.multiplyExact(128L,maximumUses));
+        }
+        RecoveryIntent phase(int next){return new RecoveryIntent(id,reference,frozenOwner,next,uses,adoptedSource);}
+        RecoveryIntent bind(PreparedUse use,int maximum){
+            for(var old:uses)if(Arrays.equals(old.id,use.id)){requireExact(old.bytes(),use.bytes());return this;}
+            if(uses.size()>=maximum)throw new IllegalStateException("recovery prepared Source-use window exhausted");
+            final var copy=new ArrayList<>(uses);copy.add(use);copy.sort(Comparator.comparing(u->Bytes.hex(u.id)));
+            return new RecoveryIntent(id,reference,frozenOwner,phase==ADOPTED?ADOPTED:POSSIBLY_SOURCE,copy,adoptedSource);
+        }
+        static RecoveryIntent decode(byte[] encoded){
+            final var f=QueryCodecSupport.read(encoded,"recovery proof intent");if(f.size()<6)throw new IllegalArgumentException("incomplete recovery intent");
+            QueryCodecSupport.requireNumbers(f.subList(0,5),new int[]{1,2,3,4,5},"recovery proof intent");
+            if(QueryCodecSupport.uint(f.get(0),1)!=1)throw new IllegalArgumentException("unknown recovery intent version");
+            int n=5;final var uses=new ArrayList<PreparedUse>();
+            while(n<f.size()&&f.get(n).number()==6)uses.add(PreparedUse.decode(QueryCodecSupport.nested(f.get(n++),6)));
+            if(n+1!=f.size())throw new IllegalArgumentException("unknown recovery intent fields");
+            final var result=new RecoveryIntent(QueryCodecSupport.fixed(f.get(1),2,32),TargetRecoveryProofRef.decode(QueryCodecSupport.nested(f.get(2),3)),
+                    TargetQuotaIncarnation.decode(QueryCodecSupport.nested(f.get(3),4)),QueryCodecSupport.uint32(f.get(4),5),uses,QueryCodecSupport.bytes(f.get(n),7));
+            QueryCodecSupport.requireCanonical(encoded,result.encode(),"recovery proof intent");return result;
+        }
+    }
+    private record Root(int version,Limits limits,Map<String,Management> topics,Map<String,Intent> publications,Map<String,RecoveryIntent> recoveries) {
+        Root(Limits limits,Map<String,Management> topics,Map<String,Intent> publications){this(1,limits,topics,publications,Map.of());}
+        Root {topics=Map.copyOf(topics);publications=Map.copyOf(publications);recoveries=Map.copyOf(recoveries);validate(version,limits,topics,publications,recoveries);}
+        Root topic(Management m){final var map=new TreeMap<>(topics);map.put(m.id(),m);return new Root(version,limits,map,publications,recoveries);}
+        Root publication(Intent i){final var map=new TreeMap<>(publications);map.put(Bytes.hex(i.id),i);return new Root(version,limits,topics,map,recoveries);}
+        Root recovery(RecoveryIntent i){final var map=new TreeMap<>(recoveries);map.put(Bytes.hex(i.id),i);return new Root(2,limits,topics,publications,map);}
+        long reservedBytes(){long result=limits.rootReservedBytes();for(var i:recoveries.values())
+            result=Math.addExact(result,Math.max(0,i.rootReserve(limits.maximumPreparedReferences)-(4096L+128L*limits.maximumPreparedReferences)));return result;}
         byte[] bytes(){final var b=CanonicalProtobuf.message(o->{
-            CanonicalProtobuf.uint32(o,1,1);CanonicalProtobuf.uint64(o,2,limits.physicalBytes);CanonicalProtobuf.uint32(o,3,limits.physicalRecords);
+            CanonicalProtobuf.uint32(o,1,version);CanonicalProtobuf.uint64(o,2,limits.physicalBytes);CanonicalProtobuf.uint32(o,3,limits.physicalRecords);
             CanonicalProtobuf.uint32(o,4,limits.maximumPublications);CanonicalProtobuf.uint32(o,5,limits.maximumTopics);CanonicalProtobuf.uint32(o,6,limits.maximumPreparedReferences);
             CanonicalProtobuf.bytes(o,7,limits.capacitySourceDigest);
             for(var m:new TreeMap<>(topics).values())CanonicalProtobuf.bytes(o,8,m.bytes());
             for(var i:new TreeMap<>(publications).values())CanonicalProtobuf.bytes(o,9,i.encode());
-        });if(b.length>limits.rootReservedBytes())throw new IllegalArgumentException("receipt catalog root exceeds its reserved physical storage");return b;}
+            for(var i:new TreeMap<>(recoveries).values())CanonicalProtobuf.bytes(o,10,i.encode());
+        });if(b.length>reservedBytes()||b.length>MAX_ROOT_BYTES)throw new IllegalArgumentException("receipt catalog root exceeds its reserved physical storage");return b;}
         static Root decode(byte[] b){
             if(b.length==0||b.length>MAX_ROOT_BYTES)throw new IllegalArgumentException("invalid receipt capacity root length");
             final var f=QueryCodecSupport.read(b,"receipt capacity root");if(f.size()<7)throw new IllegalArgumentException("incomplete receipt capacity root");
             QueryCodecSupport.requireNumbers(f.subList(0,7),new int[]{1,2,3,4,5,6,7},"receipt capacity root");
-            if(QueryCodecSupport.uint(f.get(0),1)!=1)throw new IllegalArgumentException("unknown receipt capacity root version");
+            final int version=QueryCodecSupport.uint32(f.get(0),1);if(version!=1&&version!=2)throw new IllegalArgumentException("unknown receipt capacity root version");
             final var l=new Limits(QueryCodecSupport.uint(f.get(1),2),QueryCodecSupport.uint32(f.get(2),3),QueryCodecSupport.uint32(f.get(3),4),QueryCodecSupport.uint32(f.get(4),5),QueryCodecSupport.uint32(f.get(5),6),QueryCodecSupport.fixed(f.get(6),7,32));
             final var topics=new TreeMap<String,Management>();final var intents=new TreeMap<String,Intent>();int n=7;
             while(n<f.size()&&f.get(n).number()==8){var m=Management.decode(QueryCodecSupport.nested(f.get(n++),8));if(topics.put(m.id(),m)!=null)throw new IllegalArgumentException("duplicate managed topic");}
             while(n<f.size()&&f.get(n).number()==9){var i=Intent.decode(QueryCodecSupport.nested(f.get(n++),9));if(intents.put(Bytes.hex(i.id),i)!=null)throw new IllegalArgumentException("duplicate publication ID");}
-            if(n!=f.size())throw new IllegalArgumentException("unknown receipt root field");final var root=new Root(l,topics,intents);QueryCodecSupport.requireCanonical(b,root.bytes(),"receipt capacity root");return root;
+            final var recovery=new TreeMap<String,RecoveryIntent>();
+            if(version==2)while(n<f.size()&&f.get(n).number()==10){var i=RecoveryIntent.decode(QueryCodecSupport.nested(f.get(n++),10));if(recovery.put(Bytes.hex(i.id),i)!=null)throw new IllegalArgumentException("duplicate recovery discovery ID");}
+            if(n!=f.size())throw new IllegalArgumentException("unknown receipt root field");final var root=new Root(version,l,topics,intents,recovery);QueryCodecSupport.requireCanonical(b,root.bytes(),"receipt capacity root");return root;
         }
-        private static void validate(Limits l,Map<String,Management> topics,Map<String,Intent> publications){
-            if(topics.size()>l.maximumTopics||publications.size()>l.maximumPublications)throw new IllegalArgumentException("receipt catalog cardinality bound exceeded");
+        private static void validate(int version,Limits l,Map<String,Management> topics,Map<String,Intent> publications,Map<String,RecoveryIntent> recovery){
+            if(version!=1&&version!=2||version==1&&!recovery.isEmpty()||topics.size()>l.maximumTopics||publications.size()+(long)recovery.size()>l.maximumPublications)throw new IllegalArgumentException("receipt catalog cardinality bound exceeded");
             long bytes=l.rootReservedBytes();int records=1;final var keys=new HashSet<String>();
             for(var i:publications.values()){if(i.uses.size()>l.maximumPreparedReferences||!keys.add(i.key))throw new IllegalArgumentException("duplicate physical blob or prepared-use bound exceeded");bytes=Math.addExact(bytes,i.physicalBytes());records++;}
+            long extraRoot=0;
+            for(var i:recovery.values()){
+                if(i.uses.size()>l.maximumPreparedReferences||!keys.add(i.reference.exactKey()))throw new IllegalArgumentException("duplicate recovery key or prepared-use bound exceeded");
+                extraRoot=Math.addExact(extraRoot,Math.max(0,i.rootReserve(l.maximumPreparedReferences)-(4096L+128L*l.maximumPreparedReferences)));
+                bytes=Math.addExact(bytes,Math.addExact(i.reference.canonicalValueBytes(),Bytes.utf8(i.reference.exactKey()).length));records++;
+            }
+            bytes=Math.addExact(bytes,extraRoot);if(l.rootReservedBytes()+extraRoot>MAX_ROOT_BYTES)throw new IllegalStateException("recovery intent root window exhausted");
             if(bytes>l.physicalBytes||records>l.physicalRecords)throw new IllegalStateException("durable receipt control-storage capacity exhausted");
         }
     }
@@ -288,6 +344,142 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 throw new IllegalStateException("Source Admission has no exact durable prepared publication/retry binding");
             }
         }
+    }
+    /** Private proof of this Catalog's exact immutable publication, never proof of Source adoption. */
+    public static final class RecoveryPublication {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final TargetRecoveryProofTrust.Verified verified;
+        private RecoveryPublication(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,TargetRecoveryProofTrust.Verified verified){
+            this.catalog=catalog;this.verified=verified;
+        }
+        public TargetRecoveryProofTrust.Verified verified(){return verified;}
+        public TargetRecoveryProofRef reference(){return verified.reference();}
+    }
+    /** Actual durable prepared ID/hash/retry binding, obtained outside the native Store batch. */
+    public static final class PreparedRecovery {
+        private final RecoveryPublication publication;
+        private final PreparedUse use;
+        private PreparedRecovery(RecoveryPublication publication,PreparedUse use){this.publication=publication;this.use=use;}
+        public TargetRecoveryProofTrust.Verified verified(){return publication.verified;}
+        public void requireExact(SystemMutation prepared){
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.requireExact(use.bytes(),new PreparedUse(prepared.systemMutationId(),prepared.mutationHash(),prepared.retryUntilEpochMs()).bytes());
+            requireRecoveryBody(publication.verified,prepared);
+        }
+    }
+    /** Reserve responsibility before put; uncertain writes succeed only after exact authenticated reread. */
+    public RecoveryPublication publishRecoveryProof(TargetRecoveryProof proof,TargetRecoveryProofTrust proofTrust,Runnable current){
+        Objects.requireNonNull(current).run();
+        final byte[] value=proof.canonicalBytes();final String key=recoveryObjectKey(proof.digest());
+        final var verified=Objects.requireNonNull(proofTrust).verify(key,value);
+        final var desired=new RecoveryIntent(recoveryId(proof.mapping().mappingId(),proof.evidence().evidenceId()),
+                verified.reference(),proof.frozenOwner(),RESERVED,List.of(),new byte[0]);
+        requireRecoveryBlobBudget(proof,key);
+        update(root->{final var old=root.recoveries.get(Bytes.hex(desired.id));
+            if(old!=null){requireSameRecovery(old,desired);return root;}
+            return root.recovery(desired);},current);
+        final var existing=read(key);
+        if(existing==null){
+            try{session.run();current.run();client.put(key,value,Set.of(PutOption.IfRecordDoesNotExist));session.run();current.run();}
+            catch(KeyAlreadyExistsException|UnexpectedVersionIdException|RuntimeException uncertain){
+                current.run();final var actual=read(key);
+                if(actual==null)throw new IllegalStateException("recovery proof publication remains uncertain",uncertain);
+                requireExact(actual.value(),value);proofTrust.verify(key,actual.value()).requireExact(desired.reference);
+            }
+        }else{requireExact(existing.value(),value);proofTrust.verify(key,existing.value()).requireExact(desired.reference);}
+        final var actual=readRecovery(desired,proofTrust);current.run();
+        update(root->{final var old=Objects.requireNonNull(root.recoveries.get(Bytes.hex(desired.id)),"reserved recovery intent");
+            requireSameRecovery(old,desired);return old.phase>=PUBLISHED?root:root.recovery(old.phase(PUBLISHED));},current);
+        current.run();return new RecoveryPublication(this,actual);
+    }
+    /** Unique mapping/evidence discovery. A reservation without a blob/publication is never reconstructed as success. */
+    public Optional<RecoveryPublication> findRecoveryProof(TargetKafkaReceiptMapping mapping,PublishEvidence evidence,TargetRecoveryProofTrust proofTrust){
+        final var intent=readRoot().root.recoveries.get(Bytes.hex(recoveryId(mapping.mappingId(),evidence.evidenceId())));
+        if(intent==null)return Optional.empty();
+        if(intent.phase<PUBLISHED)throw new IllegalStateException("original recovery publication remains reserved/uncertain");
+        final var verified=readRecovery(intent,proofTrust);
+        requireExact(verified.proof().mapping().canonicalBytes(),mapping.canonicalBytes());
+        requireExact(verified.proof().evidence().canonicalBytes(),evidence.canonicalBytes());
+        return Optional.of(new RecoveryPublication(this,verified));
+    }
+    /** Crash/unknown-response continuation authenticates the selected actual blob; it never re-signs another observation. */
+    public RecoveryPublication resumeRecoveryProof(TargetKafkaReceiptMapping mapping,PublishEvidence evidence,
+            TargetRecoveryProofTrust proofTrust,Runnable current){
+        Objects.requireNonNull(current).run();final String id=Bytes.hex(recoveryId(mapping.mappingId(),evidence.evidenceId()));
+        final var original=Objects.requireNonNull(readRoot().root.recoveries.get(id),"original recovery reservation");
+        final var verified=readRecovery(original,proofTrust);
+        requireExact(verified.proof().mapping().canonicalBytes(),mapping.canonicalBytes());
+        requireExact(verified.proof().evidence().canonicalBytes(),evidence.canonicalBytes());current.run();
+        update(root->{final var actual=Objects.requireNonNull(root.recoveries.get(id),"original recovery reservation");
+            requireSameRecovery(actual,original);return actual.phase>=PUBLISHED?root:root.recovery(actual.phase(PUBLISHED));},current);
+        current.run();return new RecoveryPublication(this,verified);
+    }
+    /** Must complete before enqueueing the signed proof-bearing Source frame. */
+    public PreparedRecovery sealRecoveryPrepared(RecoveryPublication publication,SystemMutation prepared,TargetRecoveryProofTrust proofTrust,Runnable current){
+        requireOwnPublication(publication);requireRecoveryBody(publication.verified,prepared);Objects.requireNonNull(current).run();
+        final var ref=publication.reference();final byte[] id=recoveryId(ref.mappingId(),ref.evidenceId());
+        final var use=new PreparedUse(prepared.systemMutationId(),prepared.mutationHash(),prepared.retryUntilEpochMs());
+        // Reauthenticate actual stored bytes before extending the durable possible-Source window.
+        final var before=Objects.requireNonNull(readRoot().root.recoveries.get(Bytes.hex(id)),"original recovery publication");
+        readRecovery(before,proofTrust).requireExact(ref);
+        update(root->{final var intent=Objects.requireNonNull(root.recoveries.get(Bytes.hex(id)),"original recovery publication");
+            if(intent.phase<PUBLISHED||!intent.reference.equals(ref))throw new IllegalStateException("prepared recovery changed original publication");
+            return root.recovery(intent.bind(use,limits.maximumPreparedReferences));},current);
+        final var result=requireRecoveryPrepared(ref,prepared,proofTrust);current.run();return result;
+    }
+    /** Retained history does not depend on today's SDK, Owner or credentials; it still requires the exact durable seal. */
+    public PreparedRecovery requireRecoveryPrepared(TargetRecoveryProofRef ref,SystemMutation prepared,TargetRecoveryProofTrust proofTrust){
+        final var intent=Objects.requireNonNull(readRoot().root.recoveries.get(Bytes.hex(recoveryId(ref.mappingId(),ref.evidenceId()))),"original recovery intent");
+        final var use=new PreparedUse(prepared.systemMutationId(),prepared.mutationHash(),prepared.retryUntilEpochMs());
+        if(intent.phase<POSSIBLY_SOURCE||!intent.reference.equals(ref)
+                ||intent.uses.stream().noneMatch(old->Arrays.equals(old.bytes(),use.bytes())))
+            throw new IllegalStateException("recovery Source frame lacks exact durable prepared ID/hash/retry seal");
+        final var verified=readRecovery(intent,proofTrust);requireRecoveryBody(verified,prepared);
+        return new PreparedRecovery(new RecoveryPublication(this,verified),use);
+    }
+    private TargetRecoveryProofTrust.Verified readRecovery(RecoveryIntent intent,TargetRecoveryProofTrust proofTrust){
+        final var ref=intent.reference;final var actual=read(ref.exactKey());
+        if(actual==null)throw new IllegalStateException("original recovery proof blob is missing");
+        ref.requireObject(ref.proofDigest(),actual.value());
+        final var verified=Objects.requireNonNull(proofTrust).verify(ref.exactKey(),actual.value());verified.requireExact(ref);
+        requireExact(verified.proof().frozenOwner().canonicalBytes(),intent.frozenOwner.canonicalBytes());
+        if(!recoveryObjectKey(ref.proofDigest()).equals(ref.exactKey()))throw new IllegalStateException("recovery proof belongs to another catalog");
+        return verified;
+    }
+    private void requireOwnPublication(RecoveryPublication publication){
+        if(Objects.requireNonNull(publication).catalog!=this)throw new IllegalArgumentException("recovery publication belongs to another catalog");
+    }
+    private static void requireRecoveryBody(TargetRecoveryProofTrust.Verified verified,SystemMutation prepared){
+        final var body=switch(prepared.type()){
+            case PUBLISH_OUTCOME->PublishOutcomeBody.decode(prepared.canonicalBody());
+            case EVIDENCE_RESOLUTION->PublishOutcomeBody.decodeEvidenceResolution(prepared.canonicalBody());
+            default->throw new IllegalArgumentException("only proof-bearing Publish Outcome/Evidence Resolution can be sealed");
+        };
+        if(body.recoveryProof()==null)throw new IllegalArgumentException("recovery Source frame requires explicit body version and exact proof reference");
+        verified.requireExact(body.recoveryProof());final var proof=verified.proof();
+        requireExact(body.evidence(),proof.evidence().canonicalBytes());
+        if(!prepared.shardId().equals(proof.mapping().admission().shard())||!Arrays.equals(body.publishAttemptId(),verified.reference().attemptId())
+                ||!Arrays.equals(prepared.logicalOperationIdentity(),prepared.type()==SystemMutationType.PUBLISH_OUTCOME?
+                        body.initialLogicalOperationIdentity():body.evidenceResolutionLogicalOperationIdentity()))
+            throw new IllegalArgumentException("recovery Source frame changed original Shard/Attempt/logical identity");
+    }
+    private void requireRecoveryBlobBudget(TargetRecoveryProof proof,String key){
+        // This is the pre-publication blob floor. Native adoption separately requires all exact STATE row charges.
+        final var mapping=proof.mapping();final var anchor=retainedObject(anchorObjectKey(mapping.admission().kafkaReceipt().scanObservationDigest()),
+                mapping.admission().kafkaReceipt().scanObservationDigest());
+        final var accounting=proof.frozenOwner().accounting();
+        final var originalAnchor=accounting.externalEvidenceCharge(Bytes.utf8(anchorObjectKey(anchor.digest())).length,anchor.canonicalBytes().length);
+        final var recovery=accounting.externalEvidenceCharge(Bytes.utf8(key).length,proof.canonicalBytes().length);
+        if(!proof.attempt().allocated().covers(originalAnchor.add(recovery)))
+            throw new IllegalStateException("original frozen Attempt cannot pay anchor and recovery proof; keep UNKNOWN without archiving");
+    }
+    private String recoveryObjectKey(byte[] digest){Bytes.requireLength(digest,32,"recovery proof digest");return prefix+"/target-kafka-recovery-proof/"+Bytes.hex(digest);}
+    private static byte[] recoveryId(byte[] mapping,byte[] evidence){
+        Bytes.requireLength(mapping,32,"recovery mapping ID");Bytes.requireLength(evidence,32,"recovery evidence ID");
+        return Bytes.sha256(Bytes.utf8("nereus-delay-target-recovery-publication\0"),mapping,evidence);
+    }
+    private static void requireSameRecovery(RecoveryIntent actual,RecoveryIntent expected){
+        if(!actual.reference.equals(expected.reference)||!Arrays.equals(actual.frozenOwner.canonicalBytes(),expected.frozenOwner.canonicalBytes()))
+            throw new IllegalStateException("mapping/evidence already selected another exact recovery proof");
     }
     public void adopt(TargetExternalEvidenceStore.Adoption proof){
         final var mapping=proof.mapping();final byte[] id=SystemMutation.computeSystemMutationId(mapping.admission().shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,mapping.admission().publishAttemptId(),mapping.mutationHash());

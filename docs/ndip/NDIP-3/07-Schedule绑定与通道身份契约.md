@@ -862,3 +862,18 @@ hash/签名，新的exact ref亦被签入；v7须独立tuple/reader支持。当�
 仅解析成功替代durable证明；其余归档/Source/Checkpoint/Floor义务仍开放。
 历史恢复Auth验签只核原观察时间与原配置/issuer/key/scope，不要求旧generation
 今天仍active；新恢复I/O继续使用原active和实际current hold gate，二者不混用。
+
+
+2026-10-16独立恢复归档签发只能接actual runtime私有ArchiveObservation，观察来自
+当前Owner/pending/保护/材料仍有效的typed native扫描；SERVICE标签或任意DTO都
+不能签发。新观察schema3/4携有界逐段实际Fetch/processed continuation/时间折叠；
+旧普通入口schema1/2不改。proof完整保留原signed Admission/mapping/evidence、
+observer/时间、SDK source/JAR、冻结Attempt/incarnation/capability与公共材料。
+历史验证按原目的issuer/key/配置/时间和PKIX，旧Owner/凭据今天失效不抹除历史。
+
+Catalog先预留同物理Root/blob预算再写不可变实物、完整认证精确回读，然后签入
+Source ref并持久seal该frame的ID/hash/retry。mapping+evidence固定选择且冲突拒绝；
+崩溃续接只接受实际存储的原选中blob。publication/prepared snapshot均不等于实际
+Source adoption。部署Root及archive-aware Source链尚未接通，v7 Source仍拒绝，
+typed恢复已关闭旧内存resolution旁路。原子Native owner/ref、完整冻结费用、
+Checkpoint/Floor/保护退役仍必做；没有生产恢复可用或整包完成声明。

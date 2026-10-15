@@ -220,7 +220,7 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
             final var reserved=budget.reserve(identity+"/recovery-reader",configuration.settings().readerCost());
             try{readerOpening=OwnedCheckpointIo.submitResource(guard->{guard.run();requireCurrent();
                 return new KafkaClientArtifactTargetReceiptRecovery(mapping,opened.fence,this::requireOpenResource,opened.readers,
-                        this::requireRead,configuration.settings().limits(),maximumTurns,reserved);
+                        this::requireRead,configuration.settings().limits(),maximumTurns,reserved,true);
             },()->{},value->{try{value.close();}catch(RuntimeException|Error failure){throw new KafkaClientArtifactTargetCleanupFailure(failure,value::close);}},io);}
             catch(RuntimeException|Error failure){reserved.releaseUnstarted();throw failure;}
             readerOpening.receipt().whenComplete((value,failure)->{if(failure!=null){try{reserved.releaseUnstarted();}catch(IllegalStateException held){/* actual native reader retains charge */}}});
@@ -234,19 +234,53 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         return poll.receipt();
     }
 
-    /** Actual scan authentication for the existing SERVICE resolution pipeline; this grants no signing or Source write. */
+    /** Independent recovery requires a durably selected exact proof ref; memory observations cannot use the legacy path. */
     public TargetPublishRecoveryMaintenance.ResolutionAuthority resolutionAuthority() {
-        return (unknown,evidence)->{
-            if(!Arrays.equals(admission.canonicalEnvelope(),unknown.admission().canonicalEnvelope()))
-                throw new IllegalArgumentException("K2 resolution selects another original Admission");
-            requirePending().requireUnknown(unknown);
-            Objects.requireNonNull(observation,"actual guarded recovery observation").requireCurrent(evidence);
-        };
+        throw new IllegalStateException("independent K2 resolution requires archived proof and proof-bearing Source composition");
     }
     /** Safe public proof image for the original protected evidence provider, not a caller-issued Artifact/ref. */
     public byte[] evidenceImage(PublishEvidence evidence) {
         final var actual=Objects.requireNonNull(observation,"actual guarded recovery observation");
         actual.requireCurrent(evidence); return actual.canonicalBytes();
+    }
+
+    /** Only this actual native owner can construct an input accepted by the privileged proof signer. */
+    public ArchiveObservation captureArchiveObservation(PublishEvidence evidence){
+        requireOpenResource();requireCurrent();
+        final var actual=Objects.requireNonNull(observation,"actual complete recovery scan");actual.requireCurrent(evidence);
+        final var current=requirePending();
+        opened.material.requireArchiveMemory(Math.addExact(configuration.settings().producerBufferBytes(),
+                Math.addExact(opened.material.retainedBytes(),8L*TargetRecoveryProofRef.MAX_PROOF_BYTES)));
+        final var capability=Objects.requireNonNull(profiles.resolve(mapping.admission().publication().capabilityProfile()),"original capability semantic");
+        final var at=Objects.requireNonNull(time.get());
+        final var captured=new ArchiveObservation(this,mapping,admission,evidence,owner,at,current.tenantScope(),
+                actual.canonicalBytes(),opened.material.archivePublicInputs(),configuration.sdkJar(),capability,current.attempt(),current.adoption().anchor().primaryOwner());
+        actual.requireCurrent(evidence);requireCurrent();return captured;
+    }
+    public static final class ArchiveObservation{
+        private final KafkaClientArtifactTargetRecoveryRuntime original;
+        private final TargetKafkaReceiptMapping mapping;
+        private final SystemMutation admission;
+        private final PublishEvidence evidence;
+        private final OwnerIdentity owner;
+        private final TrustedUtcIntervalEvidence at;
+        private final byte[] tenant,observation,material,sdk;
+        private final ProfileSemanticEnvelope capability;
+        private final TargetQuotaAttemptBudget attempt;
+        private final TargetQuotaIncarnation frozenOwner;
+        private ArchiveObservation(KafkaClientArtifactTargetRecoveryRuntime original,TargetKafkaReceiptMapping mapping,
+                SystemMutation admission,PublishEvidence evidence,OwnerIdentity owner,TrustedUtcIntervalEvidence at,
+                byte[] tenant,byte[] observation,byte[] material,byte[] sdk,ProfileSemanticEnvelope capability,
+                TargetQuotaAttemptBudget attempt,TargetQuotaIncarnation frozenOwner){
+            this.original=original;this.mapping=mapping;this.admission=admission;this.evidence=evidence;this.owner=owner;this.at=at;
+            this.tenant=Bytes.copy(tenant);this.observation=Bytes.copy(observation);this.material=Bytes.copy(material);this.sdk=Bytes.copy(sdk);this.capability=capability;
+            this.attempt=attempt;this.frozenOwner=frozenOwner;
+        }
+        void requireCurrent(){original.requireOpenResource();original.requireCurrent();
+            Objects.requireNonNull(original.observation).requireCurrent(evidence);}
+        TrustedUtcIntervalEvidence currentTime(){requireCurrent();return Objects.requireNonNull(original.time.get());}
+        byte[] unsigned(AuthorIdentity issuer,int keyVersion){requireCurrent();return TargetRecoveryProof.unsigned(mapping,admission,evidence,
+                owner,at,sdk,KafkaClientArtifactTargetReceiptReader.REQUIRED_K1_SOURCE_COMMIT,observation,material,tenant,issuer,keyVersion,capability,attempt,frozenOwner);}
     }
 
     // Only the distinct normal-work composition entry can obtain the original context, never a recovery SEND capability.

@@ -3736,3 +3736,72 @@ requires actual current hold/permission. Historical signature validity grants no
 new recovery I/O, SDK or signing permission. Archive public inputs and historical
 proof provider verification remain to be connected. All central validation is
 still deferred.
+
+
+### Target K2 signed recovery object and Catalog staging (2026-10-16, implementation only)
+
+TargetRecoveryProof v1/algorithm1 is a closed 19-field, at-most-4MiB signed object:
+1 version; 2 full original mapping; 3 original signed Admission frame; 4 original
+PublishEvidence; 5 actual observer OwnerIdentity; 6 trusted observation interval;
+7 actual SDK JAR SHA-256; 8 full SDK source commit; 9 algorithm version; 10 full
+native observation; 11 public recovery material bundle; 12 tenant scope; 13 purpose
+approved SERVICE issuer; 14 signing-key version; 15 frozen capability semantic;
+16 actual unresolved Attempt snapshot; 17 original frozen TargetQuotaIncarnation;
+18 proof digest; 19 Ed25519 signature. Digest is SHA-256 of UTF8
+`nereus-delay-target-recovery-proof` plus NUL plus canonical fields1..17. Signature
+covers SHA-256 of UTF8 `nereus-delay-target-recovery-proof-signature` plus NUL,
+proof digest and u32be signing-key version. It contains no later Outcome Source
+position and no invented CONTROL provenance. Raw value SHA/length remain separate
+from the purpose digest in TargetRecoveryProofRef.
+
+Only actual typed runtime ArchiveObservation, with private construction and live
+pending/Owner/material/protection gates, enters the purpose signer. The explicit
+issuer/key approval and SDK commit/JAR pair are separate from generic SERVICE
+identity. Historical verification uses retained original material configuration,
+issuer/key/time, public client chain, original client/server trust PEM, canonical
+endpoint policy, signed recovery authorization and public verifier projection.
+The bundle is schema1 fields1..7; its projection is schema1 fields1..15 and
+retains probe/private-verifier digests, without private key, private-key digest,
+local filesystem path or raw secret/probe payload. The opaque local reference
+identifies the original material; it is not a credential file path. Historical
+verification does not require the old Owner, SDK or credential to be live today.
+
+Typed observations explicitly use positive schema3 / negative schema4; ordinary
+legacy constructors retain schemas1/2. Repeated segment entries retain actual
+Fetch metadata/body digest/SDK identity, processed next offset and time fold.
+Positive adds matched receipt wire key/value/time and exact offset/Fetch LSO
+correlation; negative checks the full contiguous prefix, first frozen HW=U,
+processed continuation/LSO, count, digest and max time through U. These are
+purpose-signed observations from the actual guarded SDK, not standalone Broker
+signatures. Typed scan transcript and archive serialization require the original
+bounded SDK memory reservation; exhaustion leaves UNKNOWN.
+
+Receipt capacity Root schema2 adds repeated field10 RecoveryIntent v1, fields
+1 version, 2 stable discovery ID, 3 exact proof ref, 4 frozen Target owner,
+5 phase, repeated6 prepared ID/hash/retry, 7 adopted Source digest (currently
+empty). Discovery ID is SHA-256 of UTF8 `nereus-delay-target-recovery-publication`
+plus NUL, mappingId and evidenceId. Object key is catalog prefix plus
+`/target-kafka-recovery-proof/` plus lowercase proof-digest hex. Schema1 remains
+byte-compatible and rejects field10. Schema2 is a new reader obligation; no
+activation or reader declaration is silently changed. Recovery and CONTROL
+objects share original bounded physical capacity/cardinality. The complete
+future prepared-use/adoption Root window is reserved before blob put, independent
+of the current number of uses. Staging and published objects remain charged.
+
+Reserve precedes immutable IfNotExists write, exact authenticated reread and
+PUBLISHED; a selected different proof for the same mapping/evidence rejects.
+A crash after a real blob write can resume only by authenticating that selected
+stored blob, never by reconstructing a new observation. Missing blobs remain
+uncertain. Source frame ID/hash/retry is durably sealed before enqueue; retained
+prepared snapshots require the exact signed body ref/evidence/Shard/Attempt.
+These tokens prove publication/seal, not Source adoption. No API marks recovery
+ADOPTED from caller DTOs. Original frozen Attempt must cover anchor plus recovery
+blob before publication; exact additional STATE charges/new Admission bounds
+and Native owner/ref adoption remain to be implemented. No raw object publication
+or seal by itself permits Source settlement, deletion or capacity refund.
+
+The actual deployment Root issuer/configuration and archive-aware Source pipeline
+are not yet connected. Source still refuses all generation7 adoption, and typed
+recovery refuses its former memory-only resolution authority. Native atomic
+owner/ref/fees/ledger, checkpoint/history/read bounds and protected retirement
+remain open. Necessary compilation only; centralized validation remains deferred.

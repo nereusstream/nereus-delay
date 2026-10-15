@@ -46,6 +46,8 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
     private final KafkaClientArtifactTargetReceiptReader reader;
     private final Runnable rights;
     private final int maximumTurns;
+    private final java.util.List<byte[]> transcript;
+    private long transcriptBytes;
     private int turns;
     private int segments;
     private long lastNextOffset;
@@ -76,7 +78,21 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
             Map<String,Object> readerConfiguration, KafkaClientArtifactTargetReceiptReader.Protection protection,
             KafkaClientArtifactTargetTransactionalFactory.Limits limits, int maximumTurns,
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client readerBudget) {
+        this(mapping,actualFence,resourceCurrent,readerConfiguration,protection,limits,maximumTurns,readerBudget,false);
+    }
+    KafkaClientArtifactTargetReceiptRecovery(TargetKafkaReceiptMapping mapping,
+            KafkaClientArtifactTargetTransactionalFactory.Fence actualFence,Runnable resourceCurrent,
+            Map<String,Object> readerConfiguration,KafkaClientArtifactTargetReceiptReader.Protection protection,
+            KafkaClientArtifactTargetTransactionalFactory.Limits limits,int maximumTurns,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client readerBudget,boolean archiveTranscript) {
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
+        transcript=archiveTranscript?new java.util.ArrayList<>():null;
+        if(archiveTranscript){
+            final long[] cost=new long[com.nereusstream.delay.protocol.CapacityDimension.COUNT];
+            cost[com.nereusstream.delay.protocol.CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(
+                    (long)limits.maximumBytes(),2L*com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_PROOF_BYTES);
+            Objects.requireNonNull(readerBudget,"reserved complete recovery transcript").requireCovers(new com.nereusstream.delay.protocol.CapacityVector(cost));
+        }
         if (maximumTurns <= 0) { throw new IllegalArgumentException("recovery requires a finite positive turn bound"); }
         this.maximumTurns = maximumTurns;
         fence = Objects.requireNonNull(actualFence,"actual same-ID fencing");
@@ -109,11 +125,17 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
             if (turn.status() == KafkaClientArtifactTargetReceiptReader.Status.PUBLISHED) {
                 final var actual = turn.observation();
                 final var image = CanonicalProtobuf.message(out -> {
-                    CanonicalProtobuf.uint32(out, 1, 1);
+                    CanonicalProtobuf.uint32(out, 1, transcript==null?1:3);
                     CanonicalProtobuf.bytes(out, 2, mapping.mappingId());
                     CanonicalProtobuf.bytes(out, 3, fence.canonicalBytes());
                     CanonicalProtobuf.bytes(out, 4, actual.evidence().canonicalBytes());
                     CanonicalProtobuf.bytes(out, 5, reader.rangeObservationImage().orElseThrow());
+                    if(transcript!=null){
+                        for(byte[] segment:transcript)CanonicalProtobuf.bytes(out,6,segment);
+                        CanonicalProtobuf.int64(out,7,actual.brokerPersistenceTime());
+                        CanonicalProtobuf.bytes(out,8,TargetKafkaReceiptWire.key(mapping));
+                        CanonicalProtobuf.bytes(out,9,TargetKafkaReceiptWire.value(mapping));
+                    }
                 });
                 reader.close();
                 observation = new Observation(mapping, actual.evidence(), image, rights);
@@ -129,7 +151,14 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
                 CanonicalProtobuf.int64(out, 1, start);
                 CanonicalProtobuf.int64(out, 2, next);
                 CanonicalProtobuf.bytes(out, 3, reader.rangeObservationImage().orElseThrow());
+                if(transcript!=null)CanonicalProtobuf.int64(out,4,reader.recoveryMaxBrokerTime());
             });
+            if(transcript!=null){
+                final long nextBytes=Math.addExact(transcriptBytes,segment.length+6L);
+                if(nextBytes>com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_PROOF_BYTES/2)
+                    throw new IllegalStateException("bounded complete recovery transcript exhausted");
+                transcript.add(segment);transcriptBytes=nextBytes;
+            }
             scanDigest = Bytes.sha256(scanDigest, Bytes.lp32(segment));
             segments++;
             lastNextOffset = next;
@@ -154,7 +183,7 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
                         }));
                 TargetKafkaReceiptWire.requireNotPublished(mapping, evidence);
                 final var image = CanonicalProtobuf.message(out -> {
-                    CanonicalProtobuf.uint32(out, 1, 2);
+                    CanonicalProtobuf.uint32(out, 1, transcript==null?2:4);
                     CanonicalProtobuf.bytes(out, 2, mapping.mappingId());
                     CanonicalProtobuf.bytes(out, 3, fence.canonicalBytes());
                     CanonicalProtobuf.int64(out, 4, receipt.scanStartOffset());
@@ -164,6 +193,7 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
                     CanonicalProtobuf.bytes(out, 8, scanDigest);
                     CanonicalProtobuf.uint32(out, 9, segments);
                     CanonicalProtobuf.bytes(out, 10, evidence.canonicalBytes());
+                    if(transcript!=null)for(byte[] part:transcript)CanonicalProtobuf.bytes(out,11,part);
                 });
                 reader.close();
                 observation = new Observation(mapping, evidence, image, rights);

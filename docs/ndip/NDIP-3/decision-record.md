@@ -720,3 +720,19 @@ Admission6；旧无marker body不变。Ref v1/type1独立命名空间，key上�
 bytes、proof上限4MiB，须另做真实容量/新Admission预留，不能推导旧预算已足够。
 当前只完成codec/required tuple与Source拒绝采用边界，完整历史proof snapshot、
 Catalog/Native首次原子owner-ref及账本未接通前不开放v7，也不提升任何完成flag。
+
+
+2026-10-16实现落点：独立proof v1/algorithm1闭合19字段，保存原mapping/signed
+Admission/evidence、实际observer/time/SDK、扫描及公有材料、tenant、目的issuer/
+key、capability/Attempt/冻结incarnation、digest/signature。typed新观察schema3/4
+保留有界逐段Fetch/continuation/time，旧普通schema1/2保持。签发只接actual runtime
+私有观察；历史核原目的key/time/material配置及PKIX，不核今天旧Owner/credential。
+
+同Catalog Root2/repeated10独立RecoveryIntent共享原物理预算，先预留全部未来
+引用窗口，再不可变写/精确认证回读。固定mapping+evidence发现ID，冲突拒绝；崩溃
+只对实际原选中blob完整认证后续接。Source frame ID/hash/retry seal先于enqueue，
+私有publication/prepared token不等于Source APPLIED，不提供DTO式ADOPTED/GC入口。
+归档前原Attempt必须至少支付anchor+proof实物，完整Native STATE收费仍待实现。
+部署Root/signing配置、Source完整原子owner/ref/账本、Admission预算及Checkpoint/
+Floor退役继续；v7 Source采用与typed旧内存resolution均拒绝。此为实现进展而非
+包或全目标完成，集中验证后置，所有完成/生产flags保持false。

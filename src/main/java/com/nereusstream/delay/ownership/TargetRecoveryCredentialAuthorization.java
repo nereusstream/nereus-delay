@@ -111,6 +111,7 @@ public final class TargetRecoveryCredentialAuthorization {
     public byte[] principalHash() { return Bytes.copy(value(21)); }
     public byte[] policyDigest() { return Bytes.copy(value(22)); }
     public byte[] evidenceDigest() { return Bytes.copy(value(25)); }
+    String historyScope() { return Bytes.hex(value(2))+":"+Bytes.hex(value(3))+":"+Long.toUnsignedString(number(4))+":"+Bytes.hex(value(5)); }
     public long notBeforeEpochMs() { return verifiedAt.earliestEpochMs(); }
     public long notAfterEpochMs() { return number(24); }
     public void requireTime(TrustedUtcIntervalEvidence time) {
@@ -183,6 +184,7 @@ public final class TargetRecoveryCredentialAuthorization {
             this.authority = Objects.requireNonNull(authority, "actual recovery material/permission authority");
         }
         public void invalidate() { active = false; }
+        String historyScope() { return Bytes.hex(deployment)+":"+Bytes.hex(configuration)+":"+Long.toUnsignedString(generation)+":"+Bytes.hex(tenant); }
         void verify(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time) throws Exception {
             if (!active) throw unavailable();
             verifyHistorical(a,time);
