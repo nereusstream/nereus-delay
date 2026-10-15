@@ -3471,3 +3471,44 @@ checked before/after, without claiming a cross-record transaction. Response
 loss accepts only the exact replacement. Failure never deletes either record;
 the original intent and actual protection remain for the owning lifecycle.
 External pin providers keep their lifecycle; a Root cannot rewrite their pin.
+
+
+### Target checkpoint install provenance v1 (2026-10-15)
+
+`TargetCheckpointInstallIntent` is local attempt provenance, not installation,
+Owner, Catalog, Source or Pin authority. Its closed canonical protobuf fields are:
+
+| Field | Meaning |
+| --- | --- |
+| 1 | version `uint32 = 1` |
+| 2 | complete original `RecoveryPin` canonical bytes, at most 4 KiB |
+| 3 | nonzero target incarnation UUID bytes[16], also the attempt ID |
+| 4 | nonzero source Store incarnation bytes[16], distinct from field 3 |
+| 5 | nonzero original dbIdentity bytes[32] |
+| 6 | original complete SourcePosition canonical bytes, at most 4 KiB |
+| 7 | target Store format `uint32 = 2` |
+| 8 | phase `uint32`: 1 INTENT, 2 PUBLISHED |
+| 9 | SHA-256(domain, canonical fields 1–8), bytes[32] |
+
+The domain is UTF-8 `nereus-delay-target-checkpoint-install-intent-v1\0`.
+Total bytes are bounded at 16 KiB; unknown fields, versions, phases and
+noncanonical bytes reject. The original pin must reference CATALOG_CHECKPOINT,
+whose manifest hash/checkpoint/lineage and complete Shard/Owner/session remain
+immutable across the phase update. New Owners establish their own current Pin;
+this original record does not renew or replace current authority.
+
+The managed path is shard-root/install-intents/<target-uuid>.intent. Exclusive
+no-follow creation, file fsync and directory fsync precede the first candidate
+copy. A common root FileLock protects Target publication; its handle remains
+owned until the original native Store exits. There are at most 63 retained
+entries plus one publication temporary file; limit exhaustion fails closed.
+INTENT→PUBLISHED changes only field 8/digest using an exact original reread,
+fsynced temporary image and atomic rename/directory fsync, after ACTIVE is durable
+and before returning the installed Store. An idempotent PUBLISHED retry fsyncs
+again. PUBLISHED means install publication only. RecoveryInstallState/phase enum,
+Source/Worker/Pin bytes and format-1 open/restore encodings remain unchanged.
+
+Normal Target open requires valid ACTIVE and rejects incomplete intent; fresh
+initialization uses explicit createTarget. No orphan scan grants publication.
+Exact-UUID crash repair and precise restored-content comparison remain required
+implementation work; old no-intent residues are preserved and not adopted.

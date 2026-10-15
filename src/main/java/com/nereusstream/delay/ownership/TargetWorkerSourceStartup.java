@@ -834,7 +834,7 @@ public final class TargetWorkerSourceStartup {
             lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), publication,
                     owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
             requireCurrent();
-            store = ShardStore.openTarget(graph.config().store(), assignment.shardId(), graph.resources());
+            store = ShardStore.createTarget(graph.config().store(), assignment.shardId(), graph.resources());
             requireCurrent();
             var prepared = TargetStoreBootstrap.prepareWithControlSnapshot(store, initial.scope(), initial.lineage(),
                     new TargetStoreBackend.WriteLimits(graph.config().source().records(), graph.config().source().bytes()),

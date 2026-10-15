@@ -568,3 +568,23 @@ reader eligibility。Source/Worker canonical bytes 不改，新格式同步协�
 定位 consumer及原 opening/cleanup，不再 subscribe/seek；失败/重连走显式有界续代。
 完成条件是启动、恢复、连续续代及重启链源码贯通；组件编译不关闭包1。集中验证后置、
 四包/29切片和所有完成 flags 保持，不使用 Fast。
+
+
+## 2026-10-15：STAGED repair 的持久来源与发布互斥
+
+主会话裁定：必须在首次复制/改写候选DB前耐久化有界独立版本intent，绑定原published
+Manifest/lineage/Source/dbIdentity、目标UUID及原Owner/session/Pin。旧无intent残留保留
+并拒绝接续，不补造来源。intent只是出处/阶段证据；repair仍需当前真实Owner/session、
+Catalog和新Owner自己的精确有效Pin/Floor/Source保护，origin不改写也不要求旧权威复活。
+
+所有Target ACTIVE发布入口共用真实跨进程root安装互斥；普通open只按有效ACTIVE，
+fresh明确进入，不扫描选唯一/最新目录。repair只看intent UUID的restore-tmp或incarnations
+路径，双份/冲突/无法证明未暴露则拒绝。原image必须重新下载完整认证，逐CF/key/value
+有界核对，仅允许按阶段计算出的精确metadata改写，不能整体跳过META/runtime/recovery。
+
+顺序为intent耐久→认证复制/精确metadata与WAL sync→move/父目录fsync→当前保护重验→
+ACTIVE与父目录fsync→PUBLISHED耐久→交出INSTALLED Store；PUBLISHED不是Owner ACTIVE。
+同UUID ACTIVE且receipt未完成走独立完整重核/收尾，外来ACTIVE或已PUBLISHED却缺ACTIVE
+拒绝，未知发布保留并重读。坏候选保留失败，不修到相等、不删除未知/竞争目录；故障
+保留原句柄、计费、Pin和termination责任，native关闭不等于残留磁盘已清退。本次只
+开发与必要编译，测试/Broker及真实repair/删除后置；四包/29及总完成flags不提升。

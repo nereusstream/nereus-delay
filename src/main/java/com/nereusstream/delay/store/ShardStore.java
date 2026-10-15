@@ -101,6 +101,7 @@ public final class ShardStore implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     /** First close fences all Store operations; native teardown may be retried. */
     private boolean closeStarted;
+    private TargetShardInstall targetInstall;
 
     private boolean defaultColumnFamilyClosed;
     private boolean dbClosed;
@@ -210,7 +211,65 @@ public final class ShardStore implements AutoCloseable {
      */
     public static ShardStore openTarget(
             final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
-        return openFormat(config, shardId, resources, 2);
+        return openTargetFormat(config, shardId, resources, false);
+    }
+
+    /** Explicit fresh initialization; existing or unfinished Target state requires its protected recovery path. */
+    public static ShardStore createTarget(
+            final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
+        return openTargetFormat(config, shardId, resources, true);
+    }
+
+    private static ShardStore openTargetFormat(ShardStoreConfig config, ShardId shardId,
+            SharedRocksDbResources resources, boolean fresh) {
+        resources.requireConfig(config);
+        TargetShardInstall exclusion = null;
+        ShardStore opened = null;
+        try {
+            final Path root = prepareShardRoot(config, shardId);
+            exclusion = TargetShardInstall.acquire(root);
+            Path db = existingActiveDbPath(root);
+            if (fresh) {
+                if (db != null || Files.exists(root.resolve("ACTIVE.tmp"), LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException("fresh Target initialization has existing ACTIVE evidence");
+                }
+                for (var name : List.of("incarnations", "restore-tmp", "install-intents")) {
+                    final Path directory = root.resolve(name);
+                    if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) continue;
+                    if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+                        throw new IOException("unsafe Target initialization state directory");
+                    }
+                    try (var entries = Files.newDirectoryStream(directory)) {
+                        if (entries.iterator().hasNext()) throw new IOException("fresh Target initialization cannot adopt unfinished state");
+                    }
+                }
+                db = root.resolve("incarnations").resolve(UUID.randomUUID().toString()).resolve("db");
+            } else if (db == null) throw new IOException("Target open requires a valid ACTIVE pointer; orphan adoption requires protected repair");
+            if (Files.isSymbolicLink(root.resolve("install-intents"))) {
+                throw new IOException("Target install intent directory must not be a symbolic link");
+            }
+            if (!fresh && Files.exists(root.resolve("install-intents").resolve(storeUuidFromPath(db) + ".intent"), LinkOption.NOFOLLOW_LINKS)
+                    && !exclusion.read(storeUuidFromPath(db)).published()) {
+                throw new IOException("Target ACTIVE publication still requires protected install completion");
+            }
+            opened = openAtPath(config, shardId, db, resources, null, true, true, 2);
+            if (fresh) {
+                forceIncarnationBeforeActivePointer(db);
+                if (Files.exists(root.resolve("ACTIVE"), LinkOption.NOFOLLOW_LINKS)) throw new IOException("another Target ACTIVE appeared");
+                writeActivePointer(root, storeUuidFromPath(db));
+            }
+            opened.targetInstall = exclusion; exclusion = null;
+            return opened;
+        } catch (IOException | RocksDBException | RuntimeException | Error failure) {
+            if (opened != null) closeForRestoreCleanup(opened, failure);
+            if (exclusion != null) {
+                final var cleanup = new TargetInstallCleanup(exclusion, opened);
+                try { cleanup.release(); } catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+                if (!cleanup.cleanupComplete()) failure.addSuppressed(cleanup);
+            }
+            if (failure instanceof Error fatal) throw fatal;
+            throw new IllegalStateException("cannot open original Target Store", failure);
+        }
     }
 
     /**
@@ -839,7 +898,13 @@ public final class ShardStore implements AutoCloseable {
         Throwable primaryFailure = null;
         boolean returningInstalled = false;
         TargetCheckpointRootVerifier.LedgerProof targetProof = null;
+        TargetShardInstall targetExclusion = null;
+        com.nereusstream.delay.protocol.TargetCheckpointInstallIntent installIntent = null;
         try {
+            if (target != null) {
+                targetExclusion = TargetShardInstall.acquire(shardRoot);
+                target.protection().run();
+            }
             if (downloadPermit == null) {
                 resources.acquireCheckpointDownloadSlot();
                 downloadSlotAcquired = true;
@@ -861,10 +926,18 @@ public final class ShardStore implements AutoCloseable {
             }
             ensureRealDirectoryPath(shardRoot.resolve("incarnations"));
             ensureRealDirectoryPath(shardRoot.resolve("restore-tmp"));
-            ensureRealDirectoryPath(restoreRoot);
             if (hasActiveDb(shardRoot)) {
                 throw new IOException("cannot restore while an active shard DB exists: " + shardRoot);
             }
+            if (target != null) {
+                target.protection().run();
+                validateRecoveryPin(shardId, manifest, catalog, pin);
+                installIntent = new com.nereusstream.delay.protocol.TargetCheckpointInstallIntent(pin, uuidBytes(storeUuid),
+                        uuidBytes(manifest.sourceStoreIncarnation()), manifest.dbIdentity(), manifest.appliedShardLogPosition(), false);
+                targetExclusion.create(installIntent);
+                target.protection().run();
+            }
+            ensureRealDirectoryPath(restoreRoot);
             copyTree(checkpointPath, stagedDb);
             // The source inventory is a pre-copy admission check. Re-inventory
             // the private copy as well so a truncated file, copy failure, or
@@ -974,6 +1047,12 @@ public final class ShardStore implements AutoCloseable {
             }
             deleteTree(restoreRoot);
             writeActivePointer(shardRoot, storeUuid);
+            if (target != null) {
+                target.protection().run();
+                validateRecoveryPin(shardId, manifest, catalog, pin);
+                targetExclusion.markPublished(installIntent);
+                installed.targetInstall = targetExclusion; targetExclusion = null;
+            }
             returningInstalled = true;
             return installed;
         } catch (IOException | RocksDBException exception) {
@@ -987,7 +1066,7 @@ public final class ShardStore implements AutoCloseable {
                     staged,
                     prepared,
                     installed,
-                    primaryFailure);
+                    primaryFailure, target != null);
             throw (IllegalStateException) primaryFailure;
         } catch (RuntimeException exception) {
             // A failed staged open/metadata validation can surface as a
@@ -1009,7 +1088,7 @@ public final class ShardStore implements AutoCloseable {
                     staged,
                     prepared,
                     installed,
-                    primaryFailure);
+                    primaryFailure, target != null);
             throw (IllegalStateException) primaryFailure;
         } catch (Error exception) {
             // Native/JVM errors are still allowed to escape, but once the
@@ -1028,10 +1107,26 @@ public final class ShardStore implements AutoCloseable {
                         staged,
                         prepared,
                         installed,
-                        primaryFailure);
+                        primaryFailure, target != null);
             }
             throw exception;
         } finally {
+            Throwable targetCleanupFailure = null;
+            if (targetExclusion != null) {
+                final var cleanup = new TargetInstallCleanup(targetExclusion, staged, prepared, installed);
+                try { cleanup.release(); }
+                catch (RuntimeException | Error cleanupFailure) {
+                    if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
+                    else targetCleanupFailure = cleanupFailure;
+                }
+                if (!cleanup.cleanupComplete()) {
+                    if (primaryFailure != null) primaryFailure.addSuppressed(cleanup);
+                    else {
+                        if (targetCleanupFailure != null) cleanup.addSuppressed(targetCleanupFailure);
+                        targetCleanupFailure = cleanup;
+                    }
+                }
+            }
             if (downloadPermit != null) {
                 try {
                     downloadPermit.close();
@@ -1061,6 +1156,7 @@ public final class ShardStore implements AutoCloseable {
                     }
                 }
             }
+            if (targetCleanupFailure != null) throwUnchecked(targetCleanupFailure);
         }
     }
 
@@ -1107,7 +1203,7 @@ public final class ShardStore implements AutoCloseable {
             final ShardStore staged,
             final ShardStore prepared,
             final ShardStore installed,
-            final Throwable failure) {
+            final Throwable failure, final boolean preserveTargetCandidate) {
         // A failed close fences the Store but may leave a native handle open
         // for a later retry. Never delete a directory while one of these
         // restore probes still owns that directory; doing so would turn a
@@ -1121,6 +1217,8 @@ public final class ShardStore implements AutoCloseable {
         if (!stagedSafe || !preparedSafe || !activeDbSafe) {
             failure.addSuppressed(new RestoreNativeCleanup(staged, prepared, installed));
         }
+        // Intent-bound Target candidates remain diagnostic/recovery evidence. Native exit is not disk retirement.
+        if (preserveTargetCandidate) return;
         if (activeDbMoved && activeDbSafe && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
             try {
                 deleteTree(activeDb);
@@ -1156,6 +1254,33 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Original partial restore probes remain reachable after failed native teardown; no ACTIVE directory is deleted here. */
+    private static final class TargetInstallCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient TargetShardInstall exclusion;
+        private final transient ShardStore[] stores;
+        private boolean released;
+        private TargetInstallCleanup(TargetShardInstall exclusion, ShardStore... stores) {
+            super("original Target install exclusion/native handles remain owned"); this.exclusion = exclusion; this.stores = stores;
+        }
+        private synchronized void release() {
+            for (var store : stores) if (store != null && !store.isClosed()) return;
+            if (!released) {
+                try { exclusion.close(); released = true; }
+                catch (IOException failure) { throw new IllegalStateException("cannot release original Target install exclusion", failure); }
+            }
+        }
+        @Override public synchronized boolean cleanupComplete() { return released; }
+        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            try {
+                for (var store : stores) if (store != null && !store.isClosed()) store.close();
+                release();
+                return released ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                        : java.util.concurrent.CompletableFuture.failedFuture(this);
+            } catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+        }
+    }
+
     public static final class RestoreNativeCleanup extends IllegalStateException
             implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
@@ -3550,6 +3675,11 @@ public final class ShardStore implements AutoCloseable {
                     closeFailure = appendCloseFailure(closeFailure, failure);
                 }
             }
+            if (targetInstall != null) {
+                try { targetInstall.close(); targetInstall = null; }
+                catch (IOException failure) { closeFailure = appendCloseFailure(closeFailure,
+                        new IllegalStateException("cannot release original Target install exclusion", failure)); }
+            }
         }
         if (closeFailure == null
                 && defaultColumnFamilyClosed
@@ -3557,6 +3687,7 @@ public final class ShardStore implements AutoCloseable {
                 && dbOptionsClosed
                 && dbSlotReleased
                 && (!ownsShardSlot || ownedShardSlotReleased)
+                && targetInstall == null
                 && closedColumnFamilyHandles.size() == ColumnFamily.values().length
                 && allOptionsClosed()) {
             closed.set(true);
