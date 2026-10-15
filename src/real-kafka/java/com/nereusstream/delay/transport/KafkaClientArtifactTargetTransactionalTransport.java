@@ -97,7 +97,7 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
         Objects.requireNonNull(gate, "last ownership gate");
         final Pending accepted;
         synchronized(this){
-            if(closed.get()||!busy.compareAndSet(false,true))return CompletableFuture.completedFuture(
+            if(closed.get()||fence!=null||!busy.compareAndSet(false,true))return CompletableFuture.completedFuture(
                     DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE,null));
             accepted=new Pending();pending=accepted;
         }
@@ -239,6 +239,7 @@ public final class KafkaClientArtifactTargetTransactionalTransport implements De
 
     public Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
 
+    /** A same-ID recovery fence permanently seals this resource against business SEND. */
     synchronized void installFence(KafkaClientArtifactTargetTransactionalFactory.Fence actual) {
         if (fence != null || closed.get() || busy.get()) { throw new IllegalStateException("Fence cannot replace an active resource"); }
         fence = Objects.requireNonNull(actual, "actual same-ID fencing observation");
