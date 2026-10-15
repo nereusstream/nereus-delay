@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.TargetSourceApplyRuntime;
 import com.nereusstream.delay.ownership.TargetSourceRecoveryInputs;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -64,6 +65,48 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             authorizationFile = authorizationFile.normalize(); signedRoute = Bytes.copy(signedRoute);
         }
         @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
+    }
+
+    public record SourceDeployment(SourceConfiguration source, com.nereusstream.delay.protocol.CapacityVector cost) {
+        public SourceDeployment { Objects.requireNonNull(source); Objects.requireNonNull(cost); }
+    }
+
+    public static SourceDeployment loadSourceDeployment(Path path) throws java.io.IOException {
+        final var f = TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final String cluster = f.text("client.clusterId");
+        final var settings = new PulsarClientArtifactOwnedBackendGroup.Settings(f.text("client.allocationId"),
+                f.text("client.serviceUrl"), cluster, f.integer("client.ioThreads"), f.integer("client.listenerThreads"),
+                f.integer("client.connectionsPerBroker"), f.integer("client.maximumConnections"),
+                f.integer("client.maximumUsers"), f.number("client.memoryBytes"), f.integer("client.operationTimeoutMs"),
+                f.integer("client.maximumLookupRedirects"));
+        final var guard = new TopicResourceGuard(cluster, f.hex("source.resourceIncarnation", 32, 32),
+                f.unsigned64("source.physicalTopicCreationTimestamp"));
+        final var source = new SourceConfiguration(settings, f.hex("sdk.sha256", 32, 32),
+                f.absolutePath("source.authorizationFile"), f.image("source.signedRouteFile", 256 * 1024), guard,
+                f.text("source.topic"), f.text("source.subscription"), Duration.ofMillis(f.number("source.receiveTimeoutMs")),
+                f.hex("source.deploymentId", 1, 512), f.hex("source.workerRunId", 1, 512),
+                f.number("recovery.maximumInputBytes"));
+        final var result = new SourceDeployment(source, f.capacity("source.cost."));
+        f.requireComplete(); return result;
+    }
+
+    public static SystemWriterConfiguration loadSystemWriterConfiguration(Path path) throws java.io.IOException {
+        final var f = TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final var result = new SystemWriterConfiguration(f.text("writer.allocationId"),
+                Duration.ofMillis(f.number("writer.timeoutMs")), f.absolutePath("writer.authorizationFile"),
+                f.image("writer.signedRouteFile", 256 * 1024), f.capacity("writer.cost."));
+        f.requireComplete(); return result;
+    }
+
+    public static Opening openConfiguredSource(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            Path path, LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
+            TargetSourceRecoveryInputs.Provider recoveryProvider,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget,
+            TargetWorkerShardRuntime.Maintenance maintenance, java.util.function.LongSupplier clock) throws java.io.IOException {
+        final var deployment = loadSourceDeployment(path);
+        return openConfiguredSource(startup, deployment.source(), resolver, trust, recoveryProvider, time,
+                budget, deployment.cost(), maintenance, clock);
     }
 
     /** Resolves actual mTLS material and derives the Registry Owner from this root's acquired lease. */
@@ -207,6 +250,11 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         }
 
         /** Reuses the final actually positioned consumer and its original shared client/material after Source recovery. */
+        public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
+                SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {
+            openSystemWriter(loadSystemWriterConfiguration(path), resolver, trust);
+        }
+
         public synchronized void openSystemWriter(SystemWriterConfiguration configuration, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) {
             if (failed || worker == null || systemWriter != null || consumer == null || preparedSource == null) {

@@ -100,6 +100,30 @@ public final class LocalBrokerMtlsResolver {
         }
     }
 
+    /** Loads the closed deployment schema before reading and verifying actual trust files. */
+    public static LocalBrokerMtlsResolver load(Path configuration) throws IOException {
+        final var f = TargetWorkerRuntimeConfigLoader.loadFields(configuration);
+        final Path root = f.absolutePath("credentialRoot"), clientTrust = f.absolutePath("clientTrustFile"),
+                serverTrust = f.absolutePath("serverTrustFile");
+        final var limits = new Limits(f.integer("maximumFileBytes"), f.integer("maximumTotalBytes"),
+                f.integer("maximumCertificates"), f.integer("maximumVersions"), f.number("maximumRetainedBytes"));
+        final int kafkaCount = f.integer("endpoints.kafkaCount"), pulsarCount = f.integer("endpoints.pulsarCount");
+        if ((long) kafkaCount + pulsarCount < 1 || (long) kafkaCount + pulsarCount > 128) {
+            throw new IllegalArgumentException("mTLS endpoint inventory requires one finite explicit deployment set");
+        }
+        final var kafka = new java.util.HashSet<String>();
+        final var pulsar = new java.util.HashSet<String>();
+        for (int i = 0; i < kafkaCount; i++) {
+            if (!kafka.add(f.text("endpoints.kafka." + i))) throw new IllegalArgumentException("duplicate Kafka TLS endpoint");
+        }
+        for (int i = 0; i < pulsarCount; i++) {
+            if (!pulsar.add(f.text("endpoints.pulsar." + i))) throw new IllegalArgumentException("duplicate Pulsar TLS endpoint");
+        }
+        final var endpoints = new EndpointPolicy(kafka, pulsar);
+        f.requireComplete();
+        return new LocalBrokerMtlsResolver(root, clientTrust, serverTrust, limits, endpoints);
+    }
+
     /** Trust files are deployment inputs, separate from the client fingerprint; they are loaded once without symlinks. */
     public LocalBrokerMtlsResolver(Path credentialRoot, Path clientTrustFile, Path serverTrustFile,
             Limits limits, EndpointPolicy endpoints) {

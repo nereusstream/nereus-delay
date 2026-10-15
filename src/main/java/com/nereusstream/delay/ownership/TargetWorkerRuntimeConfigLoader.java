@@ -49,22 +49,11 @@ public final class TargetWorkerRuntimeConfigLoader {
         return TargetWorkerChannelInventory.Limits.load(readValues(path));
     }
 
+    /** Same closed file parser for the actual SDK modules' explicit deployment schemas. */
+    public static Fields loadFields(Path path) throws IOException { return new Fields(readValues(path)); }
+
     private static Map<String, String> readValues(Path path) throws IOException {
-        final var file = Objects.requireNonNull(path, "configuration path").toAbsolutePath().normalize();
-        final var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        if (!before.isRegularFile() || before.size() > MAX_CONFIGURATION_BYTES) {
-            throw new IOException("Target Worker configuration requires a bounded ordinary file");
-        }
-        final byte[] image;
-        try (var input = Files.newInputStream(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
-            image = input.readNBytes(MAX_CONFIGURATION_BYTES + 1);
-        }
-        final var after = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        if (image.length > MAX_CONFIGURATION_BYTES || !after.isRegularFile() || image.length != before.size()
-                || before.size() != after.size() || !Objects.equals(before.fileKey(), after.fileKey())
-                || !before.lastModifiedTime().equals(after.lastModifiedTime())) {
-            throw new IOException("Target Worker configuration changed during bounded loading");
-        }
+        final byte[] image = loadBoundedImage(path, MAX_CONFIGURATION_BYTES);
         final var decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(image));
         final var properties = new ClosedProperties();
@@ -72,6 +61,29 @@ public final class TargetWorkerRuntimeConfigLoader {
         final var values = new HashMap<String, String>();
         properties.forEach((key, value) -> values.put((String) key, (String) value));
         return values;
+    }
+
+    /** Reads a bounded deployment image; authentication remains with the original Route/material verifier. */
+    public static byte[] loadBoundedImage(Path path, int maximumBytes) throws IOException {
+        if (maximumBytes < 1 || maximumBytes > MAX_CONFIGURATION_BYTES) {
+            throw new IllegalArgumentException("deployment image must use a finite supported file bound");
+        }
+        final var file = Objects.requireNonNull(path, "configuration path").toAbsolutePath().normalize();
+        final var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (!before.isRegularFile() || before.size() > maximumBytes) {
+            throw new IOException("Target Worker configuration requires a bounded ordinary file");
+        }
+        final byte[] image;
+        try (var input = Files.newInputStream(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            image = input.readNBytes(maximumBytes + 1);
+        }
+        final var after = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (image.length > maximumBytes || !after.isRegularFile() || image.length != before.size()
+                || before.size() != after.size() || !Objects.equals(before.fileKey(), after.fileKey())
+                || !before.lastModifiedTime().equals(after.lastModifiedTime())) {
+            throw new IOException("Target Worker configuration changed during bounded loading");
+        }
+        return image;
     }
 
     public static TargetWorkerProcessRuntime.Configuration loadService(Map<String, String> values) {
@@ -197,14 +209,14 @@ public final class TargetWorkerRuntimeConfigLoader {
         return config;
     }
 
-    private static final class Fields {
+    public static final class Fields {
         private final Map<String, String> remaining;
 
-        Fields(Map<String, String> values) {
+        private Fields(Map<String, String> values) {
             remaining = new HashMap<>(Objects.requireNonNull(values, "values"));
         }
 
-        String text(String key) {
+        public String text(String key) {
             final String value = remaining.remove(key);
             if (value == null || value.isBlank() || !value.equals(value.trim())) {
                 throw new IllegalArgumentException("missing or malformed configuration: " + key);
@@ -212,7 +224,7 @@ public final class TargetWorkerRuntimeConfigLoader {
             return value;
         }
 
-        long number(String key) {
+        public long number(String key) {
             final String value = text(key);
             if (!value.chars().allMatch(Character::isDigit)) {
                 throw new IllegalArgumentException("configuration requires an explicit decimal bound: " + key);
@@ -226,7 +238,7 @@ public final class TargetWorkerRuntimeConfigLoader {
             }
         }
 
-        int integer(String key) {
+        public int integer(String key) {
             final long value = number(key);
             if (value >= Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("configuration count is unbounded: " + key);
@@ -234,7 +246,57 @@ public final class TargetWorkerRuntimeConfigLoader {
             return Math.toIntExact(value);
         }
 
-        void requireComplete() {
+        public byte[] hex(String key, int minimumBytes, int maximumBytes) {
+            if (minimumBytes < 1 || maximumBytes < minimumBytes || maximumBytes > 2048) {
+                throw new IllegalArgumentException("invalid deployment byte field bound");
+            }
+            final String value = text(key);
+            if ((value.length() & 1) != 0 || value.length() / 2 < minimumBytes || value.length() / 2 > maximumBytes) {
+                throw new IllegalArgumentException("deployment hex field exceeds its byte bound: " + key);
+            }
+            try { return java.util.HexFormat.of().parseHex(value); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("invalid deployment hex field: " + key); }
+        }
+
+        /** Protocol identities may use the entire uint64 range; resource bounds still use number(). */
+        public long unsigned64(String key) {
+            final String value = text(key);
+            if (!value.matches("[0-9]{1,20}")) throw new IllegalArgumentException("deployment identity requires uint64: " + key);
+            try { return Long.parseUnsignedLong(value); }
+            catch (NumberFormatException invalid) { throw new IllegalArgumentException("deployment uint64 overflows: " + key); }
+        }
+
+        public Path absolutePath(String key) {
+            final Path value = Path.of(text(key));
+            if (!value.isAbsolute()) throw new IllegalArgumentException("deployment file requires an absolute path: " + key);
+            return value.normalize();
+        }
+
+        public byte[] image(String key, int maximumBytes) throws IOException {
+            return loadBoundedImage(absolutePath(key), maximumBytes);
+        }
+
+        public CapacityVector capacity(String prefix) {
+            final long[] amounts = new long[CapacityDimension.COUNT];
+            for (var dimension : CapacityDimension.values()) amounts[dimension.wireValue() - 1] = number(prefix + dimension.name());
+            return new CapacityVector(amounts);
+        }
+
+        public Map<String, String> prefixed(String prefix, int maximumFields) {
+            if (prefix.isEmpty() || maximumFields < 1 || maximumFields > MAX_CONFIGURATION_FIELDS) {
+                throw new IllegalArgumentException("invalid finite deployment field prefix");
+            }
+            final var result = new HashMap<String, String>();
+            for (String key : java.util.List.copyOf(remaining.keySet())) {
+                if (!key.startsWith(prefix)) continue;
+                final String name = key.substring(prefix.length());
+                if (name.isBlank() || result.size() >= maximumFields) throw new IllegalArgumentException("deployment field prefix is empty or full");
+                result.put(name, text(key));
+            }
+            return Map.copyOf(result);
+        }
+
+        public void requireComplete() {
             if (!remaining.isEmpty()) {
                 throw new IllegalArgumentException("unknown Target Worker configuration keys: "
                         + remaining.keySet().stream().sorted().toList());

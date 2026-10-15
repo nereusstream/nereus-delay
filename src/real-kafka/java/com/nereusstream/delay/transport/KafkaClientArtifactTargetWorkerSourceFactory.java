@@ -8,6 +8,7 @@ import com.nereusstream.delay.ownership.TargetSourceRecoveryInputs;
 import com.nereusstream.delay.ownership.TargetWorkerShardFactory;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
+import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
@@ -88,6 +89,53 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
         @Override public byte[] deploymentId() { return Bytes.copy(deploymentId); }
         @Override public byte[] workerRunId() { return Bytes.copy(workerRunId); }
+    }
+
+    public record SourceDeployment(SourceConfiguration source, CapacityVector cost) {
+        public SourceDeployment { Objects.requireNonNull(source); Objects.requireNonNull(cost); }
+    }
+
+    /** Literal configuration only; the original Root supplies the accepted Shard and all live authority. */
+    public static SourceDeployment loadSourceDeployment(Path path, com.nereusstream.delay.protocol.ShardId shard)
+            throws java.io.IOException {
+        final var f = TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final var settings = new KafkaClientArtifactOwnedSourceBackend.Settings(f.text("source.allocationId"),
+                f.text("source.clusterId"), java.util.UUID.fromString(f.text("source.topicId")), Objects.requireNonNull(shard),
+                f.text("source.topic"), Duration.ofMillis(f.number("source.pollTimeoutMs")),
+                Duration.ofMillis(f.number("source.operationTimeoutMs")), f.integer("source.maximumConnections"),
+                f.integer("source.fetchBytes"));
+        final var recovery = new RecoveryReader(f.text("recovery.allocationId"),
+                Duration.ofMillis(f.number("recovery.pollTimeoutMs")), f.integer("recovery.maximumConnections"),
+                f.capacity("recovery.cost."));
+        final var source = new SourceConfiguration(settings, f.prefixed("kafka.", 64), f.hex("sdk.sha256", 32, 32),
+                f.absolutePath("source.authorizationFile"), f.image("source.signedRouteFile", 256 * 1024),
+                f.hex("source.deploymentId", 32, 32), f.hex("source.workerRunId", 1, 512),
+                f.number("recovery.maximumInputBytes"), recovery);
+        final var result = new SourceDeployment(source, f.capacity("source.cost."));
+        f.requireComplete(); return result;
+    }
+
+    public static SystemWriterConfiguration loadSystemWriterConfiguration(Path path) throws java.io.IOException {
+        final var f = TargetWorkerRuntimeConfigLoader.loadFields(path);
+        final var settings = new KafkaClientArtifactOwnedSystemWriter.Settings(f.text("writer.allocationId"),
+                f.integer("writer.maximumBrokers"), f.number("writer.bufferBytes"), f.integer("writer.socketBytes"),
+                Duration.ofMillis(f.number("writer.timeoutMs")));
+        final var result = new SystemWriterConfiguration(settings, f.prefixed("kafka.", 64),
+                f.absolutePath("writer.authorizationFile"), f.image("writer.signedRouteFile", 256 * 1024),
+                f.capacity("writer.cost."));
+        f.requireComplete(); return result;
+    }
+
+    /** File-backed entry reaches the same actual Source factory with no caller-supplied runtime or Owner. */
+    public static Opening openConfiguredSource(TargetWorkerSourceStartup startup, Path path,
+            LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
+            TargetSourceRecoveryInputs.Provider recoveryProvider,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget,
+            TargetWorkerShardRuntime.Maintenance maintenance, java.util.function.LongSupplier clock) throws java.io.IOException {
+        final var deployment = loadSourceDeployment(path, startup.acceptedAssignment().shardId());
+        return openConfiguredSource(startup, deployment.source(), resolver, trust, recoveryProvider, time,
+                budget, deployment.cost(), maintenance, clock);
     }
 
     /** Resolves actual signed Source-use/mTLS material under the original Root lease and construction call. */
@@ -225,6 +273,11 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         }
 
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
+        public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
+                SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {
+            openSystemWriter(loadSystemWriterConfiguration(path), resolver, trust);
+        }
+
         public synchronized void openSystemWriter(SystemWriterConfiguration configuration, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) {
             if (failed || worker == null || systemWriter != null) {
