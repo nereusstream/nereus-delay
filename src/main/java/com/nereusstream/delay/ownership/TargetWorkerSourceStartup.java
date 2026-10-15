@@ -11,6 +11,7 @@ import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Arrays;
 import java.util.function.LongSupplier;
 
 /** One original process-owned Source bootstrap, Store, lease and SDK handoff; no Source ACK is performed here. */
@@ -47,6 +48,7 @@ public final class TargetWorkerSourceStartup {
     private final TargetWorkerProcessRuntime process;
     private final TargetWorkerProcessRuntime.Assembly graph;
     private final Owner owner;
+    private WorkerAssignmentAuthority.Publication publication;
     private final Initial initial;
     private final TargetQuotaScope scope;
     private final TargetWorkerSourceRuntimeFactory.Content content;
@@ -81,11 +83,293 @@ public final class TargetWorkerSourceStartup {
     private Thread constructionThread;
     private long lastNow = -1;
     private Throwable firstFailure;
+    private PulsarPreparation pulsarPreparation;
+    private boolean initialCommitted;
+    private com.nereusstream.delay.protocol.OwnerIdentity registryIdentity;
+
+    /** Only this startup can issue a receipt for its unexposed Source/runtime and actual Store barrier. */
+    public synchronized Optional<PulsarPreparation> preparePulsarSource() {
+        process.requireSourceAssemblyAdmission(this);
+        if (pulsarPreparation != null) {
+            pulsarPreparation.requireCurrent();
+            return Optional.of(pulsarPreparation);
+        }
+        requireRecoveryReaderCurrent();
+        if (initializationRunning || constructionThread != null || worker != null || firstFailure != null
+                || !(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier)) {
+            throw new IllegalStateException("P1 preparation requires its original unexposed startup");
+        }
+        if (recovery != null) {
+            if (!recovery.coordinator().sourceReadyForReactivation()
+                    || recoverySource == null || !recoverySource.cleanupComplete()) return Optional.empty();
+            recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
+            if (!recovery.coordinator().authorityIoExited()) return Optional.empty();
+        } else {
+            return Optional.empty();
+        }
+        if (activation != null) {
+            activation.runtime().fence(); activation.runtime().retryAuthorityCleanup();
+            if (!activation.runtime().authorityIoExited()) return Optional.empty();
+        }
+        final var current = graph.oxia().providers().leases().current(assignment.shardId()).orElseThrow();
+        if (!lease.sameIdentity(current) || current.state() != ShardLifecycleState.ACQUIRING
+                && current.state() != ShardLifecycleState.CATCHING_UP
+                && current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+            throw new IllegalStateException("Source preparation lost its original pre-fence Owner");
+        }
+        final var reads = TargetWorkerSourceRuntimeFactory.startupReads(graph.oxia(), owner.tenant(), publication,
+                owner.workerId(), store, assignment, lease, content.reads(), owner.clock());
+        final long sequence = store.latestSequenceNumber();
+        TargetStoreBootstrap.reopen(store, scope,
+                new TargetStoreBackend.WriteLimits(graph.config().source().records(), graph.config().source().bytes()),
+                graph.config().checkpoint().newReadBudget(nanos), reads, graph.config().checkpoint().ledger());
+        final var cut = Objects.requireNonNull(store.appliedShardLogPosition());
+        if (!assignment.activationBarrier().reachedBy(cut)) return Optional.empty();
+        pulsarPreparation = new PulsarPreparation(this, publication, current, cut, sequence);
+        try { pulsarPreparation.fenceOriginal(); }
+        catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
+        return Optional.of(pulsarPreparation);
+    }
+
+    /** SDK preparation only; a frozen Owner never becomes an ordinary Source/Store authority. */
+    public synchronized void requirePulsarOpeningAuthority() {
+        if (pulsarPreparation == null) requireCurrent();
+        else pulsarPreparation.requireCurrent();
+    }
+
+    public synchronized Construction beginPulsarClientOpening() {
+        if (initializationRunning) throw new IllegalStateException("P1 client opening precedes its actual initial Store boundary");
+        if (!(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier)) {
+            throw new IllegalStateException("P1 client opening changes the original Source kind");
+        }
+        return beginConstruction(false);
+    }
+
+    public synchronized Construction beginPulsarConsumerOpening(PulsarPreparation original) {
+        if (original != pulsarPreparation || constructionThread != null || worker != null) {
+            throw new IllegalStateException("prepared P1 consumer construction belongs to another original call");
+        }
+        original.requireCurrent();
+        final var current = Thread.currentThread();
+        final var construction = new Construction(this, current, original);
+        constructionThread = current;
+        return construction;
+    }
+
+    public synchronized boolean needsPulsarRecovery() {
+        requirePulsarOpeningAuthority();
+        return store != null && !storeClosed && activation == null && recovery == null;
+    }
+
+    public synchronized boolean pulsarRecoveryPending() {
+        requirePulsarOpeningAuthority();
+        return recovery != null && recoverySource != null && activation == null;
+    }
+
+    public static final class PulsarPreparation {
+        private final TargetWorkerSourceStartup startup;
+        private final WorkerAssignmentAuthority.Publication originalPublication;
+        private final OwnerLease originalLease;
+        private final com.nereusstream.delay.protocol.SourcePosition cut;
+        private final long sequence;
+        private OwnerLease fencedLease;
+        private ShardStore.FrozenSourceCut frozen;
+        private final TargetWorkerSourceRuntimeFactory.Recovery previousRecovery;
+        private final TargetWorkerRecoverySource previousReader;
+        private final com.nereusstream.delay.protocol.RecoveryPin previousPin;
+        private WorkerAssignment successor;
+        private WorkerAssignmentAuthority.Publication published;
+        private OwnerLease acquired;
+        private com.nereusstream.delay.protocol.RecoveryPin replacementPin;
+        private boolean openedSuccessor;
+        private PulsarPreparation(TargetWorkerSourceStartup startup, WorkerAssignmentAuthority.Publication publication,
+                OwnerLease lease, com.nereusstream.delay.protocol.SourcePosition cut, long sequence) {
+            this.startup = startup; originalPublication = publication; originalLease = lease; this.cut = cut; this.sequence = sequence;
+            previousRecovery = startup.recovery; previousReader = startup.recoverySource; previousPin = startup.checkpointPin;
+        }
+        private void fenceOriginal() {
+            final var leases = startup.graph.oxia().providers().leases();
+            fencedLease = leases.transitionOrRead(originalLease, ShardLifecycleState.FENCED)
+                    .orElseThrow(() -> new IllegalStateException("original Source fence CAS was not observed"));
+            if (!originalLease.sameIdentity(fencedLease) || fencedLease.state() != ShardLifecycleState.FENCED) {
+                throw new IllegalStateException("Source fence changed the original Owner identity");
+            }
+            startup.lease = fencedLease;
+            frozen = startup.store.freezeTargetSourceCut(cut, sequence);
+            requireCurrent();
+        }
+        public com.nereusstream.delay.protocol.SourcePosition position() { requireCurrent(); return cut; }
+        public SourceAssignment assignment() { requireCurrent(); return originalPublication.assignment().sourceAssignment(); }
+        void requirePriorBackend(TargetOwnedBackendGroup actual) {
+            requireCurrent();
+            if (previousReader == null || !previousReader.cleanupComplete() || previousReader.backend() != actual) {
+                throw new IllegalArgumentException("backend is not the original retired preparation reader's SDK owner");
+            }
+        }
+        /** Advances one original consumer/authority handoff; the consumer supplies actual SDK facts, never publication authority. */
+        public boolean advanceOwner(SourceRecordConsumer prepared) {
+            synchronized (startup) {
+                requireCurrent();
+                if (prepared.ownedBackendGroup() != startup.backend || startup.backend == null) {
+                    throw new IllegalArgumentException("prepared P1 consumer belongs to another original SDK owner");
+                }
+                final var barrier = prepared.preparedPulsarBarrier(this);
+                if (successor == null) {
+                    final var previous = originalPublication.assignment();
+                    final var id = java.util.UUID.randomUUID();
+                    final byte[] assignmentId = Bytes.concat(Bytes.u64beBits(id.getMostSignificantBits()), Bytes.u64beBits(id.getLeastSignificantBits()));
+                    final var source = new SourceAssignment(previous.sourceAssignment().shardId(), assignmentId,
+                            nextEpoch(previous.sourceAssignment().assignmentEpoch()), barrier);
+                    new PulsarSourceReactivation(previous.routeSnapshotDigest(), previous.sourceAssignment(), source);
+                    successor = new WorkerAssignment(previous.workerId(), source, nextEpoch(previous.placementEpoch()),
+                            previous.capacityEnvelopeDigest(), previous.routeSnapshotDigest());
+                } else if (!successor.sourceAssignment().activationBarrier().equals(barrier)) {
+                    throw new IllegalStateException("prepared P1 connection changed after the original successor intent");
+                }
+                if (openedSuccessor) return true;
+                if (published == null) {
+                    frozen.closeOriginal();
+                    if (!frozen.originalClosed()) return false;
+                    startup.storeClosed = true;
+                    final var providers = startup.graph.oxia().providers();
+                    final var route = new RouteSourceAssignmentResolver(providers.routes()).exactResolved(startup.owner.tenant(),
+                            originalLease.shardId().routeIncarnation(), originalLease.shardId().partition(),
+                            originalLease.sourceAssignmentId(), originalLease.sourceAssignmentEpoch()).routeSnapshot();
+                    final var transition = new PulsarSourceReactivation(originalPublication.assignment().routeSnapshotDigest(),
+                            originalPublication.assignment().sourceAssignment(), successor.sourceAssignment());
+                    final var coordinator = new PulsarSourceReactivationCoordinator(providers.routes(), providers.assignments(), providers.leases());
+                    published = coordinator.publishSuccessor(new PulsarSourceReactivationCoordinator.FencedPlan(
+                            originalPublication, originalLease, fencedLease, transition, route), successor, this::requireCurrent);
+                    startup.publication = published; startup.leaseReleased = true;
+                }
+                prepared.preparedPulsarBarrier(this);
+                if (acquired == null) {
+                    acquired = TargetWorkerSourceRuntimeFactory.acquire(startup.graph.oxia(),
+                            startup.owner.tenant(), published, startup.owner.workerId(), startup.owner.ownerId(),
+                            startup.owner.leaseDurationMs(), startup.owner.clock());
+                    startup.assignment = successor.sourceAssignment(); startup.lease = acquired; startup.leaseReleased = false;
+                }
+                if (!replacePin()) return false;
+                if (!openedSuccessor) {
+                    final var reopened = ShardStore.openTarget(startup.graph.config().store(), originalLease.shardId(), startup.graph.resources());
+                    startup.store = reopened; startup.storeClosed = false;
+                    if (!Arrays.equals(frozen.storeIncarnation(), reopened.metadata().storeIncarnation())
+                            || !Bytes.constantTimeEquals(cut.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes())) {
+                        throw new IllegalStateException("successor Store changed the original positioned incarnation/cut");
+                    }
+                    startup.activation = null; startup.failedAssembly = null;
+                    startup.recovery = null; startup.recoverySource = null;
+                    startup.recoveryCleanupFailure = null;
+                    openedSuccessor = true;
+                }
+                requireCurrent();
+                return true;
+            }
+        }
+
+        private boolean replacePin() {
+            if (previousPin == null) return true;
+            final var catalog = startup.checkpointCatalog;
+            if (startup.ownsCheckpointPin) {
+                if (replacementPin == null) {
+                    final var floor = catalog.currentFloorRef().orElseThrow();
+                    final var id = java.util.UUID.randomUUID();
+                    replacementPin = new com.nereusstream.delay.protocol.RecoveryPin(
+                            Bytes.concat(Bytes.u64beBits(id.getMostSignificantBits()), Bytes.u64beBits(id.getLeastSignificantBits())),
+                            previousPin.shard(), new com.nereusstream.delay.protocol.OwnerIdentity(
+                                    previousPin.owner().deploymentId(), previousPin.owner().workerRunId(), acquired.ownerEpoch(), acquired.leaseToken()),
+                            previousPin.candidate(), floor, floor.catalogGeneration(), startup.graph.oxia().providers().sessionIdentity());
+                }
+                final var actual = catalog.replaceRecoveryPin(previousPin, replacementPin);
+                if (!replacementPin.equals(actual)) throw new IllegalStateException("successor pin changed its exact request");
+            } else {
+                final var actual = catalog.activeRecoveryPin().orElseThrow();
+                if (actual.equals(previousPin)) return false;
+                if (!actual.shard().equals(previousPin.shard()) || !actual.candidate().equals(previousPin.candidate())
+                        || actual.owner().ownerEpoch() != acquired.ownerEpoch()
+                        || !Bytes.constantTimeEquals(actual.owner().leaseFencingDigest(), acquired.leaseToken())
+                        || !Bytes.constantTimeEquals(actual.oxiaSessionIdentityDigest(), acquired.sessionIdentity())) {
+                    throw new IllegalStateException("external successor pin lacks its actual new Owner/candidate/session");
+                }
+                replacementPin = actual;
+            }
+            startup.checkpointPin = replacementPin; startup.checkpointPinConfirmed = true;
+            return true;
+        }
+
+        private static long nextEpoch(long epoch) {
+            if (epoch == -1L) throw new IllegalStateException("Source reactivation epoch exhausted");
+            return epoch + 1;
+        }
+        /** FENCED permits only this frozen-cut/SDK preparation check, never an ordinary Store write guard. */
+        public void requireCurrent() {
+            synchronized (startup) {
+                startup.process.requireSourceAssemblyAdmission(startup);
+                if (startup.stopping || startup.firstFailure != null || startup.pulsarPreparation != this || frozen == null) {
+                    throw new IllegalStateException("original P1 preparation is not available");
+                }
+                final var providers = startup.graph.oxia().providers();
+                final var publication = providers.assignments().current(originalLease.shardId()).orElseThrow();
+                final var current = providers.leases().current(originalLease.shardId());
+                long now = startup.owner.clock().getAsLong();
+                if (!(published == null ? originalPublication : published).sameIdentity(publication)
+                        || now < 0 || now < startup.lastNow
+                        || !Bytes.constantTimeEquals(originalLease.sessionIdentity(), providers.sessionIdentity())) {
+                    throw new IllegalStateException("P1 preparation lost its original publication/Owner/session/time");
+                }
+                if (published == null) {
+                    final var actual = current.orElseThrow();
+                    if (!fencedLease.sameIdentity(actual) || actual.state() != ShardLifecycleState.FENCED || !actual.validAt(now)) {
+                        throw new IllegalStateException("P1 preparation lost its exact fenced Owner");
+                    }
+                } else if (acquired == null) {
+                    if (current.isPresent()) throw new IllegalStateException("another Owner entered the successor acquisition gap");
+                } else {
+                    final var actual = current.orElseThrow();
+                    if (!acquired.sameIdentity(actual) || !actual.validAt(now)
+                            || actual.state() != ShardLifecycleState.ACQUIRING && actual.state() != ShardLifecycleState.CATCHING_UP
+                                && actual.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
+                        throw new IllegalStateException("P1 preparation lost its actual successor Owner");
+                    }
+                }
+                startup.lastNow = now;
+                frozen.requireCurrent();
+                previousRecovery.coordinator().requireSourcePreparationProtection();
+                if (startup.checkpointCatalog != null) {
+                    final var actual = startup.checkpointCatalog.activeRecoveryPin().orElseThrow();
+                    if (!startup.ownsCheckpointPin && acquired != null && !actual.equals(previousPin) && replacementPin == null) {
+                        if (!actual.shard().equals(previousPin.shard()) || !actual.candidate().equals(previousPin.candidate())
+                                || actual.owner().ownerEpoch() != acquired.ownerEpoch()
+                                || !Bytes.constantTimeEquals(actual.owner().leaseFencingDigest(), acquired.leaseToken())
+                                || !Bytes.constantTimeEquals(actual.oxiaSessionIdentityDigest(), acquired.sessionIdentity())) {
+                            throw new IllegalStateException("external pin changed outside the actual successor Owner/candidate/session");
+                        }
+                        replacementPin = actual;
+                    }
+                    if (!actual.equals(previousPin) && (replacementPin == null || !actual.equals(replacementPin))) {
+                        throw new IllegalStateException("P1 preparation lost its original or exact replacement pin");
+                    }
+                    if (startup.checkpointPinConfirmed && replacementPin != null && startup.checkpointPin.equals(replacementPin)
+                            && !actual.equals(replacementPin)) throw new IllegalStateException("confirmed successor pin was lost");
+                }
+            }
+        }
+    }
+
+    public synchronized com.nereusstream.delay.protocol.OwnerIdentity currentPulsarOwnerIdentity() {
+        requirePulsarOpeningAuthority();
+        if (pulsarPreparation != null && pulsarPreparation.acquired == null) {
+            throw new IllegalStateException("P1 successor Owner has not been acquired");
+        }
+        final var original = Objects.requireNonNull(registryIdentity, "original verified registry identity");
+        return new com.nereusstream.delay.protocol.OwnerIdentity(original.deploymentId(), original.workerRunId(),
+                lease.ownerEpoch(), lease.leaseToken());
+    }
 
     TargetWorkerSourceStartup(TargetWorkerProcessRuntime process, TargetWorkerProcessRuntime.Assembly graph,
             Owner owner, Initial initial, TargetWorkerSourceRuntimeFactory.Content content,
             SourceReplaySuccessor successor, LongSupplier nanos) {
-        this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner);
+        this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner); this.publication = owner.publication();
         this.initial = Objects.requireNonNull(initial); this.content = Objects.requireNonNull(content);
         this.scope = initial.scope();
         this.successor = Objects.requireNonNull(successor); this.nanos = nanos;
@@ -94,7 +378,7 @@ public final class TargetWorkerSourceStartup {
     TargetWorkerSourceStartup(TargetWorkerProcessRuntime process, TargetWorkerProcessRuntime.Assembly graph,
             Owner owner, TargetQuotaScope scope, TargetWorkerSourceRuntimeFactory.Content content,
             SourceReplaySuccessor activeSuccessor, LongSupplier nanos) {
-        this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner);
+        this.process = process; this.graph = graph; this.owner = Objects.requireNonNull(owner); this.publication = owner.publication();
         this.initial = null; this.scope = Objects.requireNonNull(scope); this.content = Objects.requireNonNull(content);
         this.successor = Objects.requireNonNull(activeSuccessor); this.nanos = nanos;
         if (scope.target() != null) throw new IllegalArgumentException("Source reopen requires its original Shard scope");
@@ -204,9 +488,9 @@ public final class TargetWorkerSourceStartup {
 
     private void acquireExisting(boolean openStore) {
         try {
-            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
+            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), publication, owner.workerId());
             TargetWorkerSourceRuntimeFactory.requireScope(graph.oxia(), owner.tenant(), assignment, scope);
-            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(),
+            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), publication,
                     owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
             requireCurrent();
             if (openStore) store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
@@ -275,12 +559,12 @@ public final class TargetWorkerSourceStartup {
     /** The cut is obtained under the acquired Owner and an actual bounded root/physical audit. */
     public synchronized com.nereusstream.delay.protocol.SourcePosition auditedRecoveryCut() {
         requireRecoveryReaderCurrent();
-        if (initial != null || store == null || activation != null || recovery != null || worker != null
+        if (initial != null && !initialCommitted || store == null || activation != null || recovery != null || worker != null
                 || constructionThread != Thread.currentThread()) {
             throw new IllegalStateException("recovery cut requires its original startup construction and acquired Store");
         }
         final var reads = TargetWorkerSourceRuntimeFactory.startupReads(graph.oxia(), owner.tenant(),
-                owner.publication(), owner.workerId(), store, assignment, lease, content.reads(), owner.clock());
+                publication, owner.workerId(), store, assignment, lease, content.reads(), owner.clock());
         final var config = graph.config();
         com.nereusstream.delay.runtime.TargetStoreBootstrap.reopen(store, scope,
                 new com.nereusstream.delay.store.TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes()),
@@ -304,7 +588,7 @@ public final class TargetWorkerSourceStartup {
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
         final Construction original;
         synchronized (this) {
-            if (initial != null || initializationRunning || store == null
+            if (initial != null && !initialCommitted || initializationRunning || store == null
                     || recoverySource != null && recoverySource != source || recovery != null || activation != null) {
                 throw new IllegalStateException("original same-DB recovery is unavailable or already started");
             }
@@ -312,20 +596,27 @@ public final class TargetWorkerSourceStartup {
         }
         try (original) {
             original.requireCurrent();
+            if (identity.ownerEpoch() != lease.ownerEpoch() || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())
+                    || registryIdentity != null && (!Arrays.equals(registryIdentity.deploymentId(), identity.deploymentId())
+                            || !Arrays.equals(registryIdentity.workerRunId(), identity.workerRunId()))) {
+                throw new IllegalArgumentException("Source recovery changed its actual Owner or deployment/worker run identity");
+            }
+            registryIdentity = identity;
             Objects.requireNonNull(source).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
                     graph.classes(), graph.resources());
             synchronized (this) { recoverySource = source; }
             source.replayCursor().requireGuarded();
             recovery = checkpointCatalog == null ? TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
-                    graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
+                    graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
                     source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
                     sourceProtection, journalProtection, owner.clock(), nanos)
                     : TargetWorkerSourceRuntimeFactory.recoverInstalled(graph.oxia(), graph.config(), graph.classes(),
-                            graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
+                            graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
                             source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) {
                 recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
+                if (pulsarPreparation == null) recovery.coordinator().deferForSourceReactivation();
             }
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
@@ -339,12 +630,25 @@ public final class TargetWorkerSourceStartup {
     public OwnerRecoveryTurn runRecoveryTurn() {
         final Construction original;
         synchronized (this) {
+            if (pulsarPreparation != null && recovery == pulsarPreparation.previousRecovery) {
+                pulsarPreparation.requireCurrent();
+                return recovery.coordinator().pausedSourceReactivationTurn();
+            }
             if (recovery == null || recoverySource == null || activation != null) throw new IllegalStateException("original recovery is not pending");
             original = beginConstruction(false);
         }
         try (original) {
             original.requireCurrent();
             var turn = recovery.coordinator().runTurn();
+            if (recovery.coordinator().sourceReadyForReactivation()) {
+                synchronized (this) { lease = recovery.coordinator().sourcePreparationLease(); }
+                try { recoverySource.close(); }
+                catch (RuntimeException | Error failure) {
+                    synchronized (this) { if (recoveryCleanupFailure == null) recoveryCleanupFailure = failure; }
+                }
+                if (recoverySource.cleanupComplete()) recovery.coordinator().releaseReaderForSourceReactivation(recoverySource);
+                return turn;
+            }
             if (turn.complete()) {
                 synchronized (this) { lease = recovery.coordinator().activeLease(); }
                 try { recoverySource.close(); }
@@ -362,7 +666,7 @@ public final class TargetWorkerSourceStartup {
 
     void initialize() {
         try {
-            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
+            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), publication, owner.workerId());
             if (!assignment.shardId().equals(initial.scope().shard())) {
                 throw new IllegalArgumentException("initial grant belongs to another accepted Source Shard");
             }
@@ -376,7 +680,7 @@ public final class TargetWorkerSourceStartup {
             } else if (initial.entry().sourceConnectionGeneration() != null || initial.entry().guardAttestationDigest() != null) {
                 throw new IllegalArgumentException("initial Kafka grant carries a foreign connection proof");
             }
-            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(),
+            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), publication,
                     owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
             requireCurrent();
             store = ShardStore.openTarget(graph.config().store(), assignment.shardId(), graph.resources());
@@ -393,8 +697,10 @@ public final class TargetWorkerSourceStartup {
                     @Override public void close() { original.close(); }
                 };
             });
+            initialCommitted = true;
+            if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) return;
             activation = TargetWorkerSourceRuntimeFactory.initialize(graph.oxia(), graph.config(), graph.classes(),
-                    graph.resources(), committed, store, owner.tenant(), owner.publication(), owner.workerId(), lease,
+                    graph.resources(), committed, store, owner.tenant(), publication, owner.workerId(), lease,
                     successor, content, owner.clock(), nanos);
             lease = activation.runtime().snapshotDrainLease();
         } catch (RuntimeException | Error failure) {
@@ -410,10 +716,12 @@ public final class TargetWorkerSourceStartup {
     public synchronized void requireCurrent() {
         process.requireSourceAssemblyAdmission(this);
         if (stopping || firstFailure != null) throw new IllegalStateException("Source startup is stopped or failed");
-        var accepted = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
+        var accepted = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), publication, owner.workerId());
         var current = graph.oxia().providers().leases().current(accepted.shardId()).orElseThrow();
         long now = owner.clock().getAsLong();
         if (assignment == null || !assignment.sameIdentity(accepted) || lease == null || !lease.sameIdentity(current)
+                || current.state() == ShardLifecycleState.FENCED || current.state() == ShardLifecycleState.FAILED
+                || current.state() == ShardLifecycleState.UNASSIGNED
                 || !Bytes.constantTimeEquals(current.sessionIdentity(), graph.oxia().providers().sessionIdentity())
                 || !current.validAt(now) || now < 0 || now < lastNow
                 || (recoverySource == null ? current.state() != lease.state()
@@ -423,6 +731,7 @@ public final class TargetWorkerSourceStartup {
             throw new IllegalStateException("Source startup lost its actual assignment/session/Owner/time authority");
         }
         lastNow = now;
+        if (checkpointCatalog != null && checkpointPinConfirmed) requireCheckpointPin();
     }
 
     public synchronized TargetWorkerSourceRuntimeFactory.Activated activation() {
@@ -442,7 +751,7 @@ public final class TargetWorkerSourceStartup {
 
     /** Actual reader factories own their original call until the cursor or native opening cleanup is retained. */
     public synchronized Construction beginRecoveryReaderConstruction() {
-        if (initial != null || initializationRunning || store == null || recoverySource != null
+        if (initial != null && !initialCommitted || initializationRunning || store == null || recoverySource != null
                 || recoveryOpeningCleanup != null || recovery != null || activation != null) {
             throw new IllegalStateException("original recovery reader construction is unavailable");
         }
@@ -496,14 +805,19 @@ public final class TargetWorkerSourceStartup {
     public static final class Construction implements AutoCloseable {
         private final TargetWorkerSourceStartup startup;
         private final Thread original;
+        private final PulsarPreparation preparation;
         private boolean closed;
-        private Construction(TargetWorkerSourceStartup startup, Thread original) { this.startup = startup; this.original = original; }
+        private Construction(TargetWorkerSourceStartup startup, Thread original) { this(startup, original, null); }
+        private Construction(TargetWorkerSourceStartup startup, Thread original, PulsarPreparation preparation) {
+            this.startup = startup; this.original = original; this.preparation = preparation;
+        }
         public void requireCurrent() {
             synchronized (startup) {
                 if (closed || Thread.currentThread() != original || startup.constructionThread != original) {
                     throw new IllegalStateException("Source construction lost its original call ownership");
                 }
-                startup.requireCurrent();
+                if (preparation == null) startup.requireCurrent();
+                else preparation.requireCurrent();
             }
         }
         @Override public void close() {
@@ -532,6 +846,9 @@ public final class TargetWorkerSourceStartup {
             activation().requireGraph(graph.classes(), graph.resources(), store());
             actual.requireSourceStartup(activation.runtime(), store);
             if (recoverySource != null) actual.retainRecoveryBackend(recoverySource.backend());
+            if (pulsarPreparation != null && pulsarPreparation.previousReader != null) {
+                actual.retainPriorRecoveryBackend(pulsarPreparation, pulsarPreparation.previousReader.backend());
+            }
             if (worker != null || backend == null || actual.sourceBackendGroup() != backend
                     || !actual.shardId().equals(assignment.shardId())) {
                 throw new IllegalStateException("Source Worker does not own its original SDK/Store graph");
@@ -590,6 +907,18 @@ public final class TargetWorkerSourceStartup {
             if (recovery != null) {
                 recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
                 if (!recovery.coordinator().authorityIoExited()) return false;
+            }
+            if (pulsarPreparation != null) {
+                final var prior = pulsarPreparation.previousRecovery;
+                prior.coordinator().stopAuthorityPreparation(); prior.coordinator().retryAuthorityCleanup();
+                if (!prior.coordinator().authorityIoExited()) return false;
+                final var reader = pulsarPreparation.previousReader;
+                reader.close(); if (!reader.cleanupComplete()) return false;
+                final var oldBackend = reader.backend();
+                final var currentReaderBackend = recoverySource == null ? null : recoverySource.backend();
+                if (oldBackend != null && oldBackend != backend && oldBackend != currentReaderBackend) {
+                    oldBackend.closeBeforeHostBinding(); if (!oldBackend.resourcesTerminated()) return false;
+                }
             }
             if (recoveryOpeningCleanup != null) {
                 if (recoveryOpeningBackend != null) {
@@ -650,6 +979,11 @@ public final class TargetWorkerSourceStartup {
         if (!ownsCheckpointPin || checkpointPinReleased) return true;
         try {
             final var current = checkpointCatalog.activeRecoveryPin();
+            if (pulsarPreparation != null && pulsarPreparation.replacementPin != null && current.isPresent()
+                    && current.orElseThrow().equals(pulsarPreparation.replacementPin)) {
+                checkpointCatalog.releaseRecoveryPin(pulsarPreparation.replacementPin);
+                checkpointPinReleased = true; return true;
+            }
             if (current.isEmpty() || !current.get().equals(checkpointPin)) {
                 // Old protection is gone, including after response loss or a new owner's pin; never delete the successor.
                 checkpointPinReleased = true; return true;

@@ -3576,6 +3576,43 @@ public final class ShardStore implements AutoCloseable {
         closeStarted = true;
     }
 
+    /** Actual commit-barrier receipt; it permits only inspection/teardown of this original frozen Store. */
+    public synchronized FrozenSourceCut freezeTargetSourceCut(SourcePosition expected, long expectedSequence) {
+        ensureOpen();
+        final SourcePosition actual = appliedShardLogPosition();
+        if (metadata.storeFormatVersion() != 2 || actual == null || expected == null
+                || !Arrays.equals(actual.canonicalBytes(), expected.canonicalBytes())
+                || db.getLatestSequenceNumber() != expectedSequence) {
+            throw new IllegalStateException("Source cut changed before its original Store commit barrier");
+        }
+        final var frozen = new FrozenSourceCut(this, actual, expectedSequence, metadata.storeIncarnation());
+        fenceForUncleanClose();
+        return frozen;
+    }
+
+    public static final class FrozenSourceCut {
+        private final ShardStore original;
+        private final SourcePosition position;
+        private final long sequence;
+        private final byte[] incarnation;
+        private FrozenSourceCut(ShardStore original, SourcePosition position, long sequence, byte[] incarnation) {
+            this.original = original; this.position = position; this.sequence = sequence; this.incarnation = Bytes.copy(incarnation);
+        }
+        public SourcePosition position() { return position; }
+        public byte[] storeIncarnation() { return Bytes.copy(incarnation); }
+        public void requireCurrent() {
+            synchronized (original) {
+                if (!original.closeStarted || !original.cleanCloseAttempted || original.writeOutcomeUncertain
+                        || !Arrays.equals(incarnation, original.metadata.storeIncarnation())
+                        || !original.dbClosed && original.db.getLatestSequenceNumber() != sequence) {
+                    throw new IllegalStateException("original frozen Source cut is no longer retained");
+                }
+            }
+        }
+        public void closeOriginal() { requireCurrent(); original.close(); }
+        public boolean originalClosed() { return original.isClosed(); }
+    }
+
     private boolean allOptionsClosed() {
         for (boolean closedOption : closedColumnFamilyOptions) {
             if (!closedOption) {

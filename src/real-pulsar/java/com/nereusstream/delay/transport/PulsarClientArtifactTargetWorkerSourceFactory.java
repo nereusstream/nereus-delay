@@ -47,11 +47,11 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget, com.nereusstream.delay.protocol.CapacityVector cost,
             TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
             java.util.function.LongSupplier clock) {
-        try (var original = startup.beginWorkerConstruction()) {
+        try (var original = startup.beginPulsarClientOpening()) {
             original.requireCurrent();
             startup.requireCurrent();
             Objects.requireNonNull(maintenance); Objects.requireNonNull(identity); Objects.requireNonNull(time); Objects.requireNonNull(clock);
-            final var assignment = startup.activation().assignment();
+            final var assignment = startup.acceptedAssignment();
             if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)
                     || !assignment.shardId().equals(receipt.authorization().shard()) || assignment.shardId().partition() < 0
                     || !topic.equals(barrier.physicalTopic())
@@ -61,7 +61,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             }
             final var graph = startup.graph();
             final var group = PulsarClientArtifactOwnedBackendGroup.openVerifiedSourceMtls(settings, sdkJar, receipt,
-                    time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
+                    time, startup::requirePulsarOpeningAuthority, budget, cost, graph.classes(), graph.resources(), graph.io());
             startup.registerBackend(group);
             startup.requireCurrent();
             return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock);
@@ -81,6 +81,9 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         private final java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time;
         private final java.util.function.LongSupplier clock;
         private TargetWorkerShardRuntime worker;
+        private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation preparation;
+        private GuardedConsumer<byte[]> consumer;
+        private PulsarClientArtifactSourceRecordConsumer preparedSource;
         private boolean failed;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 PulsarClientArtifactOwnedBackendGroup group, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
@@ -97,15 +100,35 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             if (failed) throw new IllegalStateException("original P1 Source opening failed");
             if (worker != null) return java.util.Optional.of(worker);
             try {
-                startup.requireCurrent();
+                startup.requirePulsarOpeningAuthority();
                 if (!group.finishStartup()) return java.util.Optional.empty();
+                if (startup.pulsarRecoveryPending()) startup.runRecoveryTurn();
+                if (preparation == null) {
+                    final var current = startup.preparePulsarSource();
+                    if (current.isEmpty()) return java.util.Optional.empty();
+                    preparation = current.orElseThrow();
+                }
+                if (preparedSource == null) {
+                    try (var original = startup.beginPulsarConsumerOpening(preparation)) {
+                        original.requireCurrent();
+                        consumer = PulsarClientArtifactSourceConsumerFactory.createVerifiedSource(
+                                group, receipt, guard, topic, subscription, time);
+                        preparedSource = PulsarClientArtifactSourceRecordConsumer.prepareTarget(consumer, guard,
+                                preparation.assignment().shardId(), topic, timeout, preparation);
+                        original.requireCurrent(); receipt.requireActive(time.get());
+                    }
+                }
+                if (!preparation.advanceOwner(preparedSource) || !startup.activationReady()) return java.util.Optional.empty();
                 try (var original = startup.beginWorkerConstruction()) {
                     original.requireCurrent();
-                    final var consumer = PulsarClientArtifactSourceConsumerFactory.createVerifiedSource(
-                            group, receipt, guard, topic, subscription, time);
                     final var graph = startup.graph();
-                    worker = createVerifiedSource(group, consumer, guard, topic, timeout, startup.activation(),
-                            graph.classes(), startup.store(), graph.resources(), maintenance, identity, time, clock);
+                    final var activation = startup.activation();
+                    requireCurrentGuardProof(consumer, guard, (PulsarActivationBarrier) activation.assignment().activationBarrier(),
+                            topic, activation.assignment().shardId().partition());
+                    worker = TargetWorkerShardFactory.create(preparedSource, activation.assignment(), graph.classes(),
+                            startup.store(), graph.resources(), activation.runtime(), maintenance);
+                    group.bindSourceCredential(consumer, worker, activation.assignment(), startup.currentPulsarOwnerIdentity(), time, clock);
+                    worker.bindActualSourceSuccessor(activation);
                     startup.admitWorker(worker);
                 }
                 return java.util.Optional.of(worker);
@@ -115,6 +138,22 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                 if (failure instanceof Error fatal) throw fatal;
                 throw new IllegalStateException("original P1 Source subscribe failed", failure);
             }
+        }
+
+        /** Explicit provider phase before initial preparation and again under the newly acquired successor Owner. */
+        public synchronized boolean startRecovery(
+                com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt recoveryCredential,
+                int maximumFrameBytes, Runnable sourceProtection,
+                com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable journalProtection) {
+            if (failed || worker != null) throw new IllegalStateException("original P1 opening no longer accepts recovery");
+            try {
+                if (!group.finishStartup() || !startup.needsPulsarRecovery()) return false;
+                final var reader = PulsarClientArtifactRecoverySourceCursor.openForStartup(startup, group, guard,
+                        recoveryCredential, timeout, maximumFrameBytes, time, sourceProtection);
+                final var owner = preparation == null ? identity : startup.currentPulsarOwnerIdentity();
+                startup.startRecovery(reader, owner, journal, sourceProtection, journalProtection);
+                return true;
+            } catch (RuntimeException | Error failure) { failed = true; startup.retain(failure); throw failure; }
         }
     }
 

@@ -88,6 +88,10 @@ public interface RecoveryCatalogAuthority {
         throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
     }
 
+    default RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+        throw new UnsupportedOperationException("atomic Owner-bound RecoveryPin replacement is not implemented");
+    }
+
     /** Releases exactly the pin value that was created by this authority. */
     default void releaseRecoveryPin(final RecoveryPin pin) {
         throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");

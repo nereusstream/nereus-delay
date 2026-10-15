@@ -238,6 +238,12 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         backend.releaseRecoveryPin(Objects.requireNonNull(pin, "pin"));
     }
 
+    @Override public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+        final var actual = backend.replaceRecoveryPin(Objects.requireNonNull(expected), Objects.requireNonNull(replacement));
+        if (!replacement.equals(actual)) throw new IllegalStateException("RecoveryPin replacement changed its exact request");
+        return actual;
+    }
+
     @Override
     public Optional<RecoveryPin> activeRecoveryPin() {
         return Objects.requireNonNull(backend.activeRecoveryPin(), "Oxia RecoveryPin result");
@@ -481,6 +487,10 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
         default void releaseRecoveryPin(final RecoveryPin pin) {
             throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
+        }
+
+        default RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+            throw new UnsupportedOperationException("atomic Owner-bound RecoveryPin replacement is not implemented");
         }
 
         default Optional<RecoveryPin> activeRecoveryPin() {

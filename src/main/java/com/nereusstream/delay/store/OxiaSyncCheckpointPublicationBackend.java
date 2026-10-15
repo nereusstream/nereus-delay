@@ -416,6 +416,13 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         pinStore.release(Objects.requireNonNull(pin, "pin"));
     }
 
+    @Override public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+        return pinStore.replace(expected, replacement, () -> {
+            final RecoveryCatalog catalog = RecoveryCatalog.fromSnapshot(read().state().catalog());
+            catalog.createRecoveryPin(replacement);
+        }, () -> read().state().catalog().catalogGeneration());
+    }
+
     @Override
     public Optional<RecoveryPin> activeRecoveryPin() {
         return pinStore.active();

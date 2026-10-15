@@ -60,6 +60,56 @@ public final class TargetOwnerRecoveryCoordinator {
     private TargetSourceAuthorityPreparation authorityPreparation;
     private TargetWorkerRecoverySource boundReader;
     private SourcePosition boundReaderCut;
+    private boolean deferForSourceReactivation;
+    private boolean sourceReadyForReactivation;
+    private boolean reactivationReaderReleased;
+    private com.nereusstream.delay.scheduler.WorkClassTask lastSourceAction;
+
+    synchronized void releaseReaderForSourceReactivation(TargetWorkerRecoverySource reader) {
+        if (!sourceReadyForReactivation || reader != boundReader || !reader.cleanupComplete()) {
+            throw new IllegalStateException("original paused reader has not actually exited");
+        }
+        reactivationReaderReleased = true;
+    }
+
+    synchronized void deferForSourceReactivation() {
+        if (turnNumber != 0 || replay != null || boundReader == null
+                || !(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier)) {
+            throw new IllegalStateException("P1 reactivation pause requires its original bound startup reader");
+        }
+        deferForSourceReactivation = true;
+    }
+
+    synchronized boolean sourceReadyForReactivation() {
+        if (!sourceReadyForReactivation) return false;
+        requireCatalog(); requireLease(false);
+        if (lastSourceAction != null && workClasses.state(lastSourceAction).isPresent()) return false;
+        if (pending != null || pendingEntry != null || completedRoot == null
+                || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
+            throw new IllegalStateException("Source reactivation pause lost its actual audited cut");
+        }
+        return true;
+    }
+
+    synchronized OwnerLease sourcePreparationLease() {
+        if (!sourceReadyForReactivation()) throw new IllegalStateException("Source replay is not paused for reactivation");
+        return lease;
+    }
+
+    /** Retained read protections only; the caller must separately hold the private frozen Owner/Store receipt. */
+    synchronized void requireSourcePreparationProtection() {
+        if (!sourceReadyForReactivation || !reactivationReaderReleased || pending != null || pendingEntry != null
+                || lastSourceAction != null && workClasses.state(lastSourceAction).isPresent()) {
+            throw new IllegalStateException("original Source action/reader has not actually left its pause");
+        }
+        completionProtection.run();
+        if (catalog != null) catalog.validatePublishedRestoreCandidate(manifest);
+    }
+
+    synchronized OwnerRecoveryTurn pausedSourceReactivationTurn() {
+        requireSourcePreparationProtection();
+        return new OwnerRecoveryTurn(List.of(), false, turnNumber);
+    }
 
     synchronized void bindReader(TargetWorkerRecoverySource reader, SourcePosition cut) {
         if (turnNumber != 0 || replay != null || boundReader != null) {
@@ -198,6 +248,10 @@ public final class TargetOwnerRecoveryCoordinator {
                 requireLease(true);
                 return new OwnerRecoveryTurn(List.of(), true, turnNumber);
             }
+            if (sourceReadyForReactivation) {
+                requireCatalog(); requireLease(false);
+                return new OwnerRecoveryTurn(List.of(), false, turnNumber);
+            }
             requireCatalog();
             while (true) {
                 if (pending == null && assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
@@ -235,6 +289,7 @@ public final class TargetOwnerRecoveryCoordinator {
                         turnNumber = turn; return new OwnerRecoveryTurn(outcomes, false, turn);
                     }
                     pending = sourceApply.submitRecovery(pendingEntry, clock);
+                    lastSourceAction = pending.task();
                 }
                 Throwable dispatchFailure = null;
                 try {
@@ -312,6 +367,15 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     private boolean finish() {
+        if (deferForSourceReactivation) {
+            beginReplay();
+            requireCatalog();
+            completedRoot = reopenAtCurrentCut();
+            requireLease(false);
+            if (replay != null) replay.fence();
+            sourceReadyForReactivation = true;
+            return false;
+        }
         if (claimTakeover == null) {
             final var current = requireLease(true);
             if (current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) { beginReplay(); }
@@ -384,7 +448,7 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     private void requireCatalog() {
-        final var held = complete ? completionProtection : protection;
+        final var held = complete || reactivationReaderReleased ? completionProtection : protection;
         held.run();
         if (catalog == null) { return; }
         catalog.validatePublishedRestoreCandidate(manifest);

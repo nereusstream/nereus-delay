@@ -42,6 +42,12 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     private SourceConnectionProof inFlightProof;
     private PulsarSourcePosition lastAcknowledged;
     private SourceConnectionProof lastAckProof;
+    private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation preparation;
+    private SourceConnectionProof preparedProof;
+    private PulsarSourcePosition preparedCut;
+    private PulsarSourcePosition deliveredPrevious;
+    private PulsarSourcePosition deliveredCurrent;
+    private boolean activeSuccessorBound;
     private volatile boolean closed;
     private final boolean target;
     private final PulsarClientArtifactOwnedBackendGroup backend;
@@ -63,6 +69,27 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             final Duration receiveTimeout) {
         return new PulsarClientArtifactSourceRecordConsumer(consumer, expectedGuard, shard, physicalTopic,
                 receiveTimeout, true);
+    }
+
+    static PulsarClientArtifactSourceRecordConsumer prepareTarget(GuardedConsumer<byte[]> consumer,
+            TopicResourceGuard guard, ShardId shard, String topic, Duration timeout,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation original) {
+        original.requireCurrent();
+        if (!(original.position() instanceof PulsarSourcePosition cut) || !cut.shardId().equals(shard)) {
+            throw new IllegalArgumentException("prepared P1 source changes its actual frozen cut");
+        }
+        final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, guard, topic, shard,
+                Optional.of(cut), timeout);
+        original.requireCurrent();
+        final var source = new PulsarClientArtifactSourceRecordConsumer(consumer, guard, shard, topic, timeout, true);
+        if (source.backend == null) throw new IllegalStateException("prepared Source must retain its actual SDK backend");
+        source.preparation = original; source.preparedCut = cut; source.preparedProof = source.requireProof();
+        if (source.preparedProof.generation() != positioned.connectionGeneration()
+                || !Bytes.constantTimeEquals(source.preparedProof.digest(), positioned.attestationDigest())) {
+            throw new IllegalStateException("prepared P1 connection changed after its original seek");
+        }
+        source.deliveredPrevious = cut;
+        return source;
     }
 
     private PulsarClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[]> consumer,
@@ -112,6 +139,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
 
     private synchronized Optional<PolledSourceRecord> pollOpen() {
         ensureOpen();
+        if (preparation != null && !activeSuccessorBound) throw new IllegalStateException("prepared P1 Source cannot deliver before actual activation");
         if (inFlight != null) {
             throw new IllegalStateException("previous Pulsar source record has not been ACKED");
         }
@@ -160,6 +188,16 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                     afterReceive.attestation(),
                     afterReceive.generation(),
                     afterReceive.digest(), target);
+            if (activeSuccessorBound) {
+                final var position = (PulsarSourcePosition) entry.position();
+                if (deliveredCurrent != null && position.compareTo(deliveredCurrent) < 0) {
+                    throw new IllegalStateException("original P1 delivery sequence regressed");
+                }
+                if (deliveredCurrent == null || !Bytes.constantTimeEquals(deliveredCurrent.canonicalBytes(), position.canonicalBytes())) {
+                    deliveredPrevious = deliveredCurrent == null ? preparedCut : deliveredCurrent;
+                    deliveredCurrent = position;
+                }
+            }
             buffered = null;
             bufferedProof = null;
             inFlight = message;
@@ -193,6 +231,40 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     }
 
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
+
+    @Override public synchronized com.nereusstream.delay.protocol.PulsarActivationBarrier preparedPulsarBarrier(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation original) {
+        ensureOpen();
+        if (preparation != original || preparedProof == null || activeSuccessorBound || inFlight != null || buffered != null
+                || !preparedProof.equals(requireProof())) {
+            throw new IllegalStateException("P1 preparation lost its original unexposed native consumer/proof");
+        }
+        original.requireCurrent();
+        final var old = (com.nereusstream.delay.protocol.PulsarActivationBarrier) original.assignment().activationBarrier();
+        if (!Bytes.constantTimeEquals(old.resourceGuardAttestationDigest(), preparedProof.digest())) {
+            throw new IllegalStateException("prepared P1 resource attestation changed");
+        }
+        return new com.nereusstream.delay.protocol.PulsarActivationBarrier(old.shardId(), old.brokerResourceIncarnation(),
+                old.physicalTopic(), old.ledgerId(), old.entryId(), old.normalizedLastBatchIndex(), old.batchSize(),
+                preparedProof.generation(), preparedProof.digest(), old.empty());
+    }
+
+    @Override public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
+        preparedPulsarBarrier(Objects.requireNonNull(preparation, "original P1 preparation"));
+        if (!Bytes.constantTimeEquals(preparedCut.canonicalBytes(), Objects.requireNonNull(resumeAfter).canonicalBytes())) {
+            throw new IllegalArgumentException("active P1 Store cut differs from its original native positioning");
+        }
+        activeSuccessorBound = true;
+        return (previous, current) -> {
+            synchronized (PulsarClientArtifactSourceRecordConsumer.this) {
+                ensureOpen();
+                return inFlight != null && inFlightProof != null && preparedProof.equals(requireProof())
+                        && inFlightProof.equals(preparedProof) && deliveredPrevious != null && deliveredCurrent != null
+                        && Bytes.constantTimeEquals(deliveredPrevious.canonicalBytes(), previous.canonicalBytes())
+                        && Bytes.constantTimeEquals(deliveredCurrent.canonicalBytes(), current.canonicalBytes());
+            }
+        };
+    }
 
     @Override
     public synchronized CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {

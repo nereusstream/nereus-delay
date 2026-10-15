@@ -95,6 +95,7 @@ public final class TargetWorkerShardRuntime
     private final TargetOwnedBackendGroup sourceBackendGroup;
     private final SourceRecordConsumer actualSourceConsumer;
     private TargetOwnedBackendGroup recoveryBackend;
+    private TargetOwnedBackendGroup priorRecoveryBackend;
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
@@ -230,6 +231,7 @@ public final class TargetWorkerShardRuntime
     synchronized java.util.List<TargetOwnedBackendGroup> publicationBackendGroups() {
         final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
         if (recoveryBackend != null) groups.add(recoveryBackend);
+        if (priorRecoveryBackend != null && priorRecoveryBackend != recoveryBackend) groups.add(priorRecoveryBackend);
         for (var owner : publicationResources.values()) {
             final var group = owner.ownedBackendGroup();
             if (group != null && groups.stream().noneMatch(existing -> existing == group)) { groups.add(group); }
@@ -1560,6 +1562,17 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("recovery SDK owner cannot transfer to another Worker/Host");
         }
         recoveryBackend = actual;
+    }
+
+    synchronized void retainPriorRecoveryBackend(TargetWorkerSourceStartup.PulsarPreparation original,
+            TargetOwnedBackendGroup actual) {
+        if (actual == null || actual == sourceBackendGroup || actual == recoveryBackend) return;
+        original.requirePriorBackend(actual);
+        actual.requireWorkerGraph(workClasses, resources);
+        if (publicationHost != null || priorRecoveryBackend != null && priorRecoveryBackend != actual) {
+            throw new IllegalStateException("previous Source preparation SDK owner cannot be replaced");
+        }
+        priorRecoveryBackend = actual;
     }
 
     public TargetOwnedBackendGroup sourceBackendGroup() { return sourceBackendGroup; }

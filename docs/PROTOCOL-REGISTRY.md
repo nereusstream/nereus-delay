@@ -3447,3 +3447,27 @@ grants no ACK, active apply, assignment or serving authority. Each entry must
 be the actual reader delivery with an unchanged native proof. Active/public
 paths retain strict assignment generation checks. The full frozen-cut/final
 consumer/successor-Owner chain and centralized validation remain incomplete.
+
+
+### P1 frozen-source preparation and atomic pin substitution (2026-10-15)
+
+No persistent Source/Worker/Pin encoding or lifecycle enum is changed. A private
+startup receipt binds the real audited C/native sequence, original publication,
+exact fenced Owner/session and original Store commit barrier. FENCED permits
+only retained preparation evidence/teardown, not ordinary writes or ACTIVE.
+A Target-only recovery pause remains CATCHING_UP with complete=false until
+reader/action/content cleanup is proven; existing strict components retain
+normal completion. The actual final consumer is positioned once before the
+explicit authority-record v2 successor is published; temporary reader proof
+cannot be reused as active proof.
+
+The ephemeral singleton RecoveryPin supports exact-version substitution in
+one current SDK session: same Shard/candidate, different pinId, higher Owner
+and a complete newly constructed OwnerIdentity. Both expected and replacement
+must match the caller's actual session. Replacement bytes must fit the existing
+4 KiB pin-record bound before put; the put uses IfVersionIdEquals and
+AsEphemeralRecord. The catalog/candidate is revalidated and catalog generation
+checked before/after, without claiming a cross-record transaction. Response
+loss accepts only the exact replacement. Failure never deletes either record;
+the original intent and actual protection remain for the owning lifecycle.
+External pin providers keep their lifecycle; a Root cannot rewrite their pin.

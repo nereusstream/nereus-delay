@@ -19,6 +19,12 @@ public interface SourceRecordConsumer extends AutoCloseable {
     /** Only an actually owned SDK group may participate in the Host's backend-failure lifecycle. */
     default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
 
+    /** Only an actual prepared SDK adapter may attest its current post-seek connection for the frozen startup. */
+    default com.nereusstream.delay.protocol.PulsarActivationBarrier preparedPulsarBarrier(
+            TargetWorkerSourceStartup.PulsarPreparation preparation) {
+        throw new IllegalStateException("Source adapter has no original prepared P1 connection");
+    }
+
     /** Actual active adapter delivery proof, bound before polling at the exact durable Store cut. */
     default SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
         throw new IllegalStateException("source adapter does not own an active delivery successor proof");

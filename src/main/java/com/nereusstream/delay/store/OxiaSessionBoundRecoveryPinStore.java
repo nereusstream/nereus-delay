@@ -11,6 +11,7 @@ import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -125,6 +126,50 @@ final class OxiaSessionBoundRecoveryPinStore {
             }
         }
         throw new IllegalStateException("RecoveryPin release CAS did not converge");
+    }
+
+    /** Atomically substitutes a complete new Owner-bound pin; neither record is deleted on uncertainty. */
+    RecoveryPin replace(RecoveryPin expected, RecoveryPin replacement, Runnable validateRequest,
+            LongSupplier currentCatalogGeneration) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(replacement);
+        requireCallerSession(expected); requireCallerSession(replacement);
+        if (!expected.shard().equals(replacement.shard()) || !expected.candidate().equals(replacement.candidate())
+                || Arrays.equals(expected.pinId(), replacement.pinId())
+                || Long.compareUnsigned(replacement.owner().ownerEpoch(), expected.owner().ownerEpoch()) <= 0) {
+            throw new IllegalArgumentException("RecoveryPin replacement must retain the candidate under a new Owner/pin identity");
+        }
+        final byte[] encodedReplacement = replacement.canonicalBytes();
+        if (encodedReplacement.length == 0 || encodedReplacement.length > MAX_PIN_BYTES) {
+            throw new IllegalArgumentException("RecoveryPin replacement exceeds its encoded record bound");
+        }
+        validateRequest.run();
+        final PinRecord current = readPinRecord();
+        if (current != null && current.pin().equals(replacement)) {
+            requireCatalogGeneration(replacement, currentCatalogGeneration); return current.pin();
+        }
+        if (current == null || !current.pin().equals(expected)) {
+            throw new IllegalStateException("RecoveryPin replacement lost its exact previous protection");
+        }
+        try {
+            final PutResult result = client.put(pinRecordKey, encodedReplacement,
+                    Set.of(PutOption.IfVersionIdEquals(current.version().versionId()), PutOption.AsEphemeralRecord));
+            validatePinPutResult(result, replacement);
+            final var observed = requirePinRecord(readPinRecord(), replacement);
+            requireCatalogGeneration(replacement, currentCatalogGeneration);
+            return observed.pin();
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
+            final var observed = readPinRecord();
+            if (observed != null && observed.pin().equals(replacement)) {
+                requireCatalogGeneration(replacement, currentCatalogGeneration); return observed.pin();
+            }
+            throw new IllegalStateException("RecoveryPin replacement CAS lost", conflict);
+        } catch (RuntimeException responseFailure) {
+            final var observed = readPinRecord();
+            if (observed != null && observed.pin().equals(replacement)) {
+                requireCatalogGeneration(replacement, currentCatalogGeneration); return observed.pin();
+            }
+            throw responseFailure;
+        }
     }
 
     Optional<RecoveryPin> active() {
