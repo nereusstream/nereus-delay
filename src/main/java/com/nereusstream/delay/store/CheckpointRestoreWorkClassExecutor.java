@@ -49,7 +49,7 @@ public final class CheckpointRestoreWorkClassExecutor {
         try {
             restoreCoordinator.requireRestoreSubmission(request.request(), request.pin(), request.target());
             submission.complete(RestoreOutcome.succeeded(
-                    restoreCoordinator.restore(request.request(), request.pin(), request.target())));
+                    restoreCoordinator.restore(request.request(), request.pin(), request.target(), request.repairTarget())));
         } catch (RuntimeException failure) {
             submission.complete(RestoreOutcome.failed(failure));
         } catch (Error failure) {
@@ -68,17 +68,28 @@ public final class CheckpointRestoreWorkClassExecutor {
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
                         output, 3, request.pin().canonicalBytes());
             }
+            if (request.repairTarget() != null) {
+                final var id = request.repairTarget();
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 4, java.nio.ByteBuffer.allocate(16)
+                        .putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array());
+            }
         });
     }
 
     public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin,
-            ShardStore.TargetRestoreAuthentication target) {
+            ShardStore.TargetRestoreAuthentication target, java.util.UUID repairTarget) {
         public RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin) {
-            this(request, pin, null);
+            this(request, pin, null, null);
+        }
+        public RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin, ShardStore.TargetRestoreAuthentication target) {
+            this(request, pin, target, null);
         }
 
         public RestoreRequest {
             Objects.requireNonNull(request, "request");
+            if (repairTarget != null && (target == null || repairTarget.equals(new java.util.UUID(0, 0)))) {
+                throw new IllegalArgumentException("repair requires its exact nonzero UUID and Target authentication");
+            }
         }
     }
 

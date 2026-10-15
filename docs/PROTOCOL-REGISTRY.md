@@ -3510,5 +3510,13 @@ Source/Worker/Pin bytes and format-1 open/restore encodings remain unchanged.
 
 Normal Target open requires valid ACTIVE and rejects incomplete intent; fresh
 initialization uses explicit createTarget. No orphan scan grants publication.
-Exact-UUID crash repair and precise restored-content comparison remain required
-implementation work; old no-intent residues are preserved and not adopted.
+Exact-UUID crash repair now uses the original CHECKPOINT path, authenticates a
+new private original-image download, and compares every business CF/key/value
+against that image. Only FIXED 2/4/6/7/8/9 and RECOVERY 1–4 may differ, and their
+complete tuple must equal one of the eight actual original install/close stages;
+fields cannot be mixed across stages. Moved and already-ACTIVE candidates require
+the corresponding later stages. Private read-only inspection grants no writes or
+Owned Store authority. No intent encoding changes are introduced by repair.
+Old no-intent residues remain preserved and cannot be adopted; PUBLISHED uses
+ordinary protected INSTALLED recovery. All crash, identity, Native, resource and
+Broker validation remains deferred.

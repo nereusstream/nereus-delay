@@ -59,7 +59,13 @@ public final class CheckpointRestoreCoordinator {
 
     ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin,
             final ShardStore.TargetRestoreAuthentication authentication) {
+        return restore(request, pin, authentication, null);
+    }
+
+    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin,
+            final ShardStore.TargetRestoreAuthentication authentication, final UUID repairTarget) {
         requireRestoreSubmission(request, pin, authentication);
+        if (repairTarget != null && authentication == null) throw new IllegalArgumentException("Target repair needs original image authentication");
         if (authentication != null) {
             authentication.protection().run();
             ShardStore.validateRecoveryPin(shardId, request.manifest(), catalog, pin);
@@ -91,7 +97,10 @@ public final class CheckpointRestoreCoordinator {
                 throw new IllegalStateException("checkpoint downloader returned an invalid target directory");
             }
             validateDownloadedInventory(materialized, request.manifest());
-            restored = authentication == null
+            restored = repairTarget != null
+                    ? ShardStore.repairTargetFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
+                            request.manifest(), catalog, pin, limits, downloadPermit, authentication, repairTarget)
+                    : authentication == null
                     ? ShardStore.restoreFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
                             request.manifest(), catalog, pin, limits, downloadPermit)
                     : ShardStore.restoreTargetFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
@@ -107,16 +116,45 @@ public final class CheckpointRestoreCoordinator {
                     failure.addSuppressed(new RestoredStoreCleanup(restored));
                 }
             }
-            try {
-                deleteTree(attemptRoot);
-            } catch (RuntimeException | Error cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
+            if (pendingCleanup(failure, null, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
+                failure.addSuppressed(new DownloadTreeCleanup(attemptRoot, failure));
+            } else {
+                try { deleteTree(attemptRoot); }
+                catch (RuntimeException | Error cleanupFailure) { failure.addSuppressed(cleanupFailure); }
             }
             throw failure;
         } finally {
             if (downloadPermit != null) {
                 downloadPermit.close();
             }
+        }
+    }
+
+    private static boolean pendingCleanup(Throwable failure, Throwable excluded, java.util.Set<Throwable> seen) {
+        if (failure == null || failure == excluded || !seen.add(failure)) return false;
+        if (failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) return true;
+        if (pendingCleanup(failure.getCause(), excluded, seen)) return true;
+        for (var child : failure.getSuppressed()) if (pendingCleanup(child, excluded, seen)) return true;
+        return false;
+    }
+
+    /** The private original-image tree cannot be deleted while a retained inspection/reference native owner remains. */
+    private static final class DownloadTreeCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient Path originalTree;
+        private final transient Throwable originalFailure;
+        private boolean deleted;
+        private DownloadTreeCleanup(Path tree, Throwable failure) {
+            super("original checkpoint download tree awaits native cleanup"); originalTree = tree; originalFailure = failure;
+        }
+        @Override public synchronized boolean cleanupComplete() { return deleted; }
+        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            if (pendingCleanup(originalFailure, this, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
+                return java.util.concurrent.CompletableFuture.failedFuture(this);
+            }
+            try { deleteTree(originalTree); deleted = true; return java.util.concurrent.CompletableFuture.completedFuture(null); }
+            catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
         }
     }
 

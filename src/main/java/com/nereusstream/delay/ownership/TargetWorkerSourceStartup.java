@@ -656,10 +656,34 @@ public final class TargetWorkerSourceStartup {
             com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
             com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
         if (!ownsCheckpointPin || !checkpointPinConfirmed) throw new IllegalStateException("original owned pin is not confirmed");
-        restoreCheckpoint(request, checkpointPin, checkpointCatalog, downloader, images, protection);
+        queueCheckpoint(null, request, checkpointPin, checkpointCatalog, downloader, images, protection);
+    }
+
+    /** Uses the newly acquired Owner's current Pin while retaining the intent's immutable original provenance. */
+    public synchronized void repairCheckpoint(java.util.UUID exactTarget,
+            com.nereusstream.delay.store.CheckpointDownloadRequest request,
+            com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
+            com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
+        if (!ownsCheckpointPin || !checkpointPinConfirmed) throw new IllegalStateException("original owned pin is not confirmed");
+        queueCheckpoint(Objects.requireNonNull(exactTarget), request, checkpointPin, checkpointCatalog, downloader, images, protection);
+    }
+
+    public synchronized void repairCheckpoint(java.util.UUID exactTarget,
+            com.nereusstream.delay.store.CheckpointDownloadRequest request,
+            com.nereusstream.delay.protocol.RecoveryPin pin, com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
+            com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
+        queueCheckpoint(Objects.requireNonNull(exactTarget), request, pin, catalog, downloader, images, protection);
     }
 
     public synchronized void restoreCheckpoint(com.nereusstream.delay.store.CheckpointDownloadRequest request,
+            com.nereusstream.delay.protocol.RecoveryPin pin, com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
+            com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
+        queueCheckpoint(null, request, pin, catalog, downloader, images, protection);
+    }
+
+    private void queueCheckpoint(java.util.UUID repairTarget, com.nereusstream.delay.store.CheckpointDownloadRequest request,
             com.nereusstream.delay.protocol.RecoveryPin pin, com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
             com.nereusstream.delay.store.CheckpointDownloadAdapter downloader,
             com.nereusstream.delay.store.TargetCheckpointRootVerifier.ImageAuthority images, Runnable protection) {
@@ -686,7 +710,7 @@ public final class TargetWorkerSourceStartup {
         checkpointCatalog = catalog; checkpointPin = pin;
         try {
             restoreSubmission = executor.submit(new com.nereusstream.delay.store.CheckpointRestoreWorkClassExecutor.RestoreRequest(
-                    request, pin, authentication));
+                    request, pin, authentication, repairTarget));
         } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
     }
 
@@ -1040,6 +1064,7 @@ public final class TargetWorkerSourceStartup {
         stopping = true;
         try {
             if (!recoveryInputOperationsExited(true)) return false;
+            if (restoreSubmission == null && !ShardStore.retryTargetOpeningCleanup(firstFailure)) return false;
             if (restoreSubmission != null) {
                 if (graph.classes().state(restoreSubmission.task()).orElse(null)
                         == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.RUNNING
