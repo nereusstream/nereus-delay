@@ -803,3 +803,10 @@ live admitted checkpoint provider可用当前Native实际记录补记Source/Cata
 引用但保留历史验证语义。Opening仅包装原history/bootstrap/live collector，
 不向Worker暴露私钥/factory，不自动激活tuple/Artifact/reader。必要编译之外
 继续后置集中验证，完整部署、接续/Stop/失权及保护Floor/退役义务不收窄。
+
+2026-10-16有限池cleanup暂满以原caller turn继续：保留实际旧handle/cleanup义务/
+费用，成功接受新task才替换跟踪，不另建重试队列/线程或在Host tick内inline close。
+适用于共享OwnedCheckpointIo retry和实际BASELINE/P1 adapter、K2 receipt/typed
+recovery close提交；shutdown及真实close失败不按暂满处理。正常successor仍等实际
+退出，不放宽原UNKNOWN/Owner/Source/保护条件。必要编译之外验证继续后置，完整
+服务装配和所有包/29切片及退役义务保持。

@@ -2386,3 +2386,9 @@ checkpoint provider在有限读预算内补记真实Native owners，不新建SDK
 有限I/O池，不增加client或线程。停止禁新签名，原Worker/SDK与owned I/O退出、
 管理native close实际完成后清新私钥引用并退原allocation。该进程输入内存份额
 不支付EVIDENCE/STATE或Catalog物理费，不改变原冻结Target reserve和退费契约。
+
+2026-10-16清理任务被活I/O池暂满拒绝不构成实际close/no-start原生退出证明：
+保持原cleanup句柄和SDK/material费用，下一轮再投。原生退出条件未满足时仍不
+注销physical/mux或开normal successor。OwnedCheckpointIo只在新cleanup task实际
+接受后换句柄；shutdown仍报错。没有新增队列/线程/费用项，也不改变外部proof/
+Native owner/ref、prepared uses、共享保护或实际delete后退费义务。

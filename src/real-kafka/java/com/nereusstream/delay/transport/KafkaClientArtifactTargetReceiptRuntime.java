@@ -284,7 +284,11 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
         if(transport!=null){
             if(closing==null||closing.ioExited()){
                 if(transport.closeCompleted()&&(recovery==null||recovery.closeCompleted()))closing=null;
-                else{closing=OwnedCheckpointIo.submit(ignored->{if(recovery!=null)recovery.close();transport.close();return transport.closeCompleted();},()->{},io);return false;}
+                else{
+                    try{closing=OwnedCheckpointIo.submit(ignored->{if(recovery!=null)recovery.close();transport.close();return transport.closeCompleted();},()->{},io);}
+                    catch(java.util.concurrent.RejectedExecutionException full){if(io.isShutdown())throw full;}
+                    return false;
+                }
             }
             if(closing!=null&&!closing.ioExited())return false;
             if(!transport.closeCompleted()||recovery!=null&&!recovery.closeCompleted())return false;

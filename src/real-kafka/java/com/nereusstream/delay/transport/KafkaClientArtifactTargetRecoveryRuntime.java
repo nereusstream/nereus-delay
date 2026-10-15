@@ -518,7 +518,9 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         if(opened!=null){
             if(closing==null||closing.ioExited()){
                 if(opened.closed&&(reader==null||reader.closeCompleted()))return finishClosed();
-                closing=OwnedCheckpointIo.submit(ignored->{if(reader!=null)reader.close();opened.close();return true;},()->{},io);return false;
+                try{closing=OwnedCheckpointIo.submit(ignored->{if(reader!=null)reader.close();opened.close();return true;},()->{},io);}
+                catch(java.util.concurrent.RejectedExecutionException full){if(io.isShutdown())throw full;}
+                return false;
             }
             return false;
         }

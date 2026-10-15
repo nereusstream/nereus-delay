@@ -205,7 +205,8 @@ public final class TargetDestinationChannelRuntime implements DestinationPublish
             if (cleanup == null || cleanup.ioExited()) {
                 if (cleanup != null && cleanup.completedValue().orElse(false)) { adapterClosed = true; }
                 else {
-                    cleanup = OwnedCheckpointIo.submit(ignored -> { adapter.close(); return true; }, () -> {}, io);
+                    try { cleanup = OwnedCheckpointIo.submit(ignored -> { adapter.close(); return true; }, () -> {}, io); }
+                    catch (java.util.concurrent.RejectedExecutionException full) { if (io.isShutdown()) { throw full; } }
                     return false;
                 }
             }

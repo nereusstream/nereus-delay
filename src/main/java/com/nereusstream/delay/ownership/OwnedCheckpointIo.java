@@ -73,12 +73,19 @@ public final class OwnedCheckpointIo<T> implements Runnable {
             return;
         }
         if (cleanupAttempt != null && !cleanupIdle()) { return; }
-        cleanupCompletion = null;
-        cleanupAttempt = submit(ignored -> {
-            final var closing = Objects.requireNonNull(cleanup.retryCleanup(), "cleanup future");
-            synchronized (this) { cleanupCompletion = closing; }
-            return closing;
-        }, () -> {}, executor);
+        try {
+            final var next = submit(ignored -> {
+                final var closing = Objects.requireNonNull(cleanup.retryCleanup(), "cleanup future");
+                synchronized (this) { cleanupCompletion = closing; }
+                return closing;
+            }, () -> {}, executor);
+            // The task cannot publish its completion under this monitor before this assignment.
+            cleanupCompletion = null;
+            cleanupAttempt = next;
+        } catch (java.util.concurrent.RejectedExecutionException full) {
+            if (executor.isShutdown()) { throw full; }
+            // No task was accepted. Keep the previous exited handle and original cleanup obligation.
+        }
     }
 
     private synchronized boolean cleanupIdle() {
