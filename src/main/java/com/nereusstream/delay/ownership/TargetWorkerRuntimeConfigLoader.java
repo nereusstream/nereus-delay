@@ -45,6 +45,10 @@ public final class TargetWorkerRuntimeConfigLoader {
         return TargetWorkerPublicationDispatch.Configuration.load(readValues(path));
     }
 
+    public static TargetWorkerChannelInventory.Limits loadChannelInventory(Path path) throws IOException {
+        return TargetWorkerChannelInventory.Limits.load(readValues(path));
+    }
+
     private static Map<String, String> readValues(Path path) throws IOException {
         final var file = Objects.requireNonNull(path, "configuration path").toAbsolutePath().normalize();
         final var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);

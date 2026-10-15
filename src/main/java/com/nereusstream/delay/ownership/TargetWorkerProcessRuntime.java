@@ -78,6 +78,9 @@ public final class TargetWorkerProcessRuntime {
     private BoundedAsyncMetricExporter metrics;
     private SystemWriterAppendBudget systemWriters;
     private TargetWorkerPublicationDispatch publicationDispatch;
+    private record ChannelInputs(TargetWorkerChannelInventory inventory, long bytes) {}
+    private final java.util.Map<TargetWorkerSourceStartup, ChannelInputs> channelInputs = new java.util.IdentityHashMap<>();
+    private long channelInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
@@ -285,6 +288,22 @@ public final class TargetWorkerProcessRuntime {
         if (publicationDispatch != expected) throw new IllegalArgumentException("publication dispatch belongs to another original process");
     }
 
+    synchronized void reserveChannelInventory(TargetWorkerSourceStartup source, TargetWorkerChannelInventory original) {
+        requireSourceAssemblyAdmission(source);
+        final long bytes = Math.addExact(original.limits().maximumRetainedBytes(), original.limits().readBytes());
+        final long next = Math.addExact(channelInputBytes, bytes);
+        if (channelInputs.containsKey(source) || next > configuration.worker().resources().certifiedJvmHeapBytes()) {
+            throw new IllegalStateException("original channel input reservations exceed the process heap envelope");
+        }
+        channelInputs.put(source, new ChannelInputs(original, bytes)); channelInputBytes = next;
+    }
+
+    synchronized void releaseChannelInventory(TargetWorkerSourceStartup source, TargetWorkerChannelInventory original) {
+        final var retained = channelInputs.get(source);
+        if (retained == null || retained.inventory() != original) throw new IllegalStateException("channel input release changed its original owner");
+        channelInputs.remove(source); channelInputBytes = Math.subtractExact(channelInputBytes, retained.bytes());
+    }
+
     /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
     public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
         Objects.requireNonNull(request);
@@ -457,6 +476,7 @@ public final class TargetWorkerProcessRuntime {
                 final var usage = systemWriters.usage();
                 if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
             }
+            if (!channelInputs.isEmpty() || channelInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

@@ -203,7 +203,17 @@ public final class TargetWorkerShardRuntime
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
     private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
     private OwnedTargetJournal journalBackend;
-    private java.util.OptionalLong emptyPublicationSourceSequence = java.util.OptionalLong.empty();
+    private TargetWorkerChannelInventory channelInventory;
+
+    synchronized TargetWorkerChannelInventory newChannelInventory(TargetWorkerChannelInventory.Limits limits,
+            LongSupplier clock, LongSupplier nanos) {
+        requirePublishRecoveryOwner(clock); return target.newChannelInventory(limits, clock, nanos);
+    }
+    synchronized void retainChannelInventory(TargetWorkerChannelInventory original) {
+        original.requireOwner(target);
+        if (channelInventory != null && channelInventory != original) throw new IllegalStateException("original channel inventory cannot be replaced");
+        channelInventory = original;
+    }
 
     synchronized void requirePublicationResource(PublicationResources original) {
         final var channel = Objects.requireNonNull(original.channelIdentity(), "original channel identity");
@@ -221,10 +231,7 @@ public final class TargetWorkerShardRuntime
                 || systemWriterBackends.values().stream().noneMatch(original -> original == writer)) {
             throw new IllegalStateException("publishing requires fresh dependencies and this Worker's original Source appender");
         }
-        if (publicationResources.values().stream().noneMatch(owner -> !owner.closed())) {
-            emptyPublicationSourceSequence = java.util.OptionalLong.of(
-                    target.emptyPublicationSourceSequence(configuration.reads().get(), configuration.ownerClock()));
-        }
+        requireChannelInventoryCoverage();
         requirePublicationResourcesReady();
         for (var owner : publicationResources.values()) {
             if (owner.closed() || owner.recoveryOnly()) continue;
@@ -242,10 +249,32 @@ public final class TargetWorkerShardRuntime
         return journalBackend.journal();
     }
 
+    private void requireChannelInventoryCoverage() {
+        final var inventory = Objects.requireNonNull(channelInventory, "complete original Source channel inventory");
+        inventory.requireOwner(target);
+        final var open = new java.util.HashSet<String>();
+        for (var entry : inventory.entries()) {
+            if (!entry.currentOpen()) continue;
+            final String id = com.nereusstream.delay.protocol.Bytes.hex(entry.identity().digest());
+            open.add(id);
+            final var sdk = publicationResources.get(id);
+            if (sdk == null || sdk.closed() || sdk.recoveryOnly() || !sdk.readyForPublishing()) {
+                throw new IllegalStateException("current OPEN Source channel lacks its actual SEND SDK owner");
+            }
+            entry.identity().requireExactFrozenIdentity(Objects.requireNonNull(sdk.channelIdentity()));
+        }
+        for (var sdk : publicationResources.values()) {
+            if (!sdk.closed() && !sdk.recoveryOnly()
+                    && !open.contains(com.nereusstream.delay.protocol.Bytes.hex(Objects.requireNonNull(sdk.channelIdentity()).digest()))) {
+                throw new IllegalStateException("actual SEND SDK owner is absent from the current OPEN Source inventory");
+            }
+        }
+    }
+
     private void requirePublicationResourcesReady() {
         if (publicationResources.values().stream().noneMatch(owner -> !owner.closed())) {
-            if (emptyPublicationSourceSequence.isEmpty() || emptyPublicationSourceSequence.getAsLong() != store.shardMutationSequence()) {
-                throw new IllegalStateException("empty publication startup lacks its actual unchanged Source channel absence proof");
+            if (channelInventory == null || channelInventory.hasOpenChannels()) {
+                throw new IllegalStateException("idle publication startup lacks its complete unchanged Source channel inventory");
             }
             return;
         }
@@ -833,6 +862,7 @@ public final class TargetWorkerShardRuntime
                 || !sourceBackendGroup.sourceCredentialsReady(this)) {
             throw new IllegalStateException("configured service requires its actual owned Source and Host");
         }
+        requireChannelInventoryCoverage();
         requirePublishingStartupClosure();
         if (!target.hasAuthorityPreparation()) {
             throw new IllegalStateException("configured service requires complete bounded Source content/history preparation");

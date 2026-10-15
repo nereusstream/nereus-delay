@@ -93,6 +93,8 @@ public final class TargetWorkerSourceStartup {
     private RecoveryInputsOpening currentRecoveryInputs;
     private boolean serviceJournalHandoffComplete;
     private TargetWorkerPublicationDispatch publicationDispatch;
+    private TargetWorkerChannelInventory channelInventory;
+    private boolean channelInputsReleased;
 
     /** A provider must register its actual SDK owner before it can allocate/open native Journal resources. */
     public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
@@ -369,6 +371,10 @@ public final class TargetWorkerSourceStartup {
             if (input.original == null || input.closed) continue;
             try { input.original.close(); input.closed = true; }
             catch (RuntimeException | Error failure) { retain(failure); released = false; }
+        }
+        if (released && channelInventory != null && !channelInputsReleased) {
+            channelInventory.releaseAfterExit();
+            process.releaseChannelInventory(this, channelInventory); channelInputsReleased = true;
         }
         return released;
     }
@@ -1116,6 +1122,34 @@ public final class TargetWorkerSourceStartup {
         requireCurrent();
         publicationDispatch = process.publicationDispatch(this, configuration);
         return publicationDispatch;
+    }
+
+    public TargetWorkerChannelInventory beginChannelInventory(TargetWorkerChannelInventory.Limits limits) {
+        try (var construction = beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();
+            synchronized (this) {
+                if (channelInventory != null) {
+                    if (!channelInventory.limits().equals(limits)) throw new IllegalStateException("original inventory limits cannot be replaced");
+                    return channelInventory;
+                }
+                final var original = worker.newChannelInventory(limits, owner.clock(), nanos);
+                process.reserveChannelInventory(this, original);
+                channelInventory = original;
+                return original;
+            }
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
+    }
+
+    public TargetWorkerChannelInventory.Turn advanceChannelInventory() {
+        try (var construction = beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();
+            final TargetWorkerChannelInventory original;
+            synchronized (this) { original = Objects.requireNonNull(channelInventory, "original channel inventory"); }
+            final var turn = original.runTurn();
+            construction.requireCurrent();
+            if (turn.status() == TargetWorkerChannelInventory.Status.COMPLETE) worker.retainChannelInventory(original);
+            return turn;
+        } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
     /** Actual BASELINE/managed opening over this Root's private Worker and shared physical/routing owner. */
