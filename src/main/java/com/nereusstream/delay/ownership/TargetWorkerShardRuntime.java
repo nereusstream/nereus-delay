@@ -200,6 +200,20 @@ public final class TargetWorkerShardRuntime
     }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
     private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
+    private OwnedTargetJournal journalBackend;
+
+    public void registerJournalBackend(OwnedTargetJournal original, TargetDestinationSdkBudget budget, LongSupplier clock) {
+        final TargetWorkerHostRuntime host;
+        synchronized (this) {
+            requirePublishRecoveryOwner(clock); budget.requireWorker(workClasses, resources);
+            if (original.journalWorker() != this || journalBackend != null) {
+                throw new IllegalStateException("the original managed Journal cannot be replaced");
+            }
+            original.ownedBackendGroup().requireWorkerGraph(workClasses, resources);
+            journalBackend = original; host = publicationHost;
+        }
+        if (host != null) host.registerPublicationBackend(this, original.ownedBackendGroup());
+    }
     public void registerSystemWriterBackend(String identity, OwnedSourceSystemWriter backend,
             TargetDestinationSdkBudget budget, LongSupplier clock) {
         final TargetWorkerHostRuntime host;
@@ -232,8 +246,9 @@ public final class TargetWorkerShardRuntime
 
     synchronized java.util.List<TargetOwnedBackendGroup> publicationBackendGroups() {
         final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
-        if (recoveryBackend != null) groups.add(recoveryBackend);
-        if (priorRecoveryBackend != null && priorRecoveryBackend != recoveryBackend) groups.add(priorRecoveryBackend);
+        if (journalBackend != null) groups.add(journalBackend.ownedBackendGroup());
+        if (recoveryBackend != null && !groups.contains(recoveryBackend)) groups.add(recoveryBackend);
+        if (priorRecoveryBackend != null && !groups.contains(priorRecoveryBackend)) groups.add(priorRecoveryBackend);
         for (var backend : recoveryInputBackends) if (!groups.contains(backend)) groups.add(backend);
         for (var owner : publicationResources.values()) {
             final var group = owner.ownedBackendGroup();
@@ -251,6 +266,21 @@ public final class TargetWorkerShardRuntime
                     "target-publication-resources/"+entry.getKey(),1));
         }
         return Optional.empty();
+    }
+
+    @Override public Optional<WorkClassTask> settlePendingJournalResourcesForDrain() {
+        final OwnedTargetJournal original;
+        synchronized (this) {
+            original = journalBackend;
+            if (original == null) return Optional.empty();
+            if (publishRuntime != null && !publishRuntime.available()
+                    || journalSettlement != null && !journalSettlement.completedForSource(store.shardMutationSequence())) {
+                return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                        "target-journal-final-settlement/" + shardId, 1));
+            }
+        }
+        return original.settleClose() ? Optional.empty() : Optional.of(new WorkClassTask(
+                com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL, "target-journal-close/" + shardId, 1));
     }
 
     /** Actual native Store/Source/Oxia assignment-session guard for external publication resources; never SEND permission. */
@@ -758,7 +788,13 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("configured service requires complete bounded Source content/history preparation");
         }
         Objects.requireNonNull(publishRecoveryMaintenance, "configured retained Admission/UNKNOWN recovery");
-        if (publishRuntime.requiresJournal()) { requirePulsarStartupClosure(); }
+        if (publishRuntime.requiresJournal()) {
+            requirePulsarStartupClosure();
+            if (journalBackend == null || !journalBackend.readyForJournal()) {
+                throw new IllegalStateException("configured service requires its actual owned managed Journal");
+            }
+            publishRuntime.requireJournal(journalBackend.journal());
+        }
         if (publicationResources.values().stream().noneMatch(owner -> !owner.closed() && owner.readyForPublishing())
                 || publicationResources.values().stream().anyMatch(owner -> !owner.closed() && !owner.readyForPublishing())) {
             throw new IllegalStateException("configured service has absent or unfinished actual publication resources");
@@ -1359,6 +1395,9 @@ public final class TargetWorkerShardRuntime
         }
         if(publicationResources.values().stream().anyMatch(owner->!owner.closed()))
             throw new IllegalStateException("Target Worker cannot pause live publication resources");
+        if (journalBackend != null && !journalBackend.closed()) {
+            throw new IllegalStateException("Target Worker cannot pause a live managed Journal");
+        }
         sourceAndMaintenancePaused = true;
         preparedCheckpointCut = null;
     }
@@ -1620,6 +1659,7 @@ public final class TargetWorkerShardRuntime
             }
             if (!owner.settleClose()) { return Optional.empty(); }
         }
+        if (journalBackend != null && !journalBackend.settleClose()) return Optional.empty();
         return Optional.of(drainCoordinator.exitForReplay(request, clock, sourceBackendGroup));
     }
 

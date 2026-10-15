@@ -235,6 +235,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                     }
                 }
                 if (!preparation.advanceOwner(preparedSource) || !startup.activationReady()) return java.util.Optional.empty();
+                if (!startup.prepareServiceJournalHandoff()) return java.util.Optional.empty();
                 try (var original = startup.beginWorkerConstruction()) {
                     original.requireCurrent();
                     final var graph = startup.graph();

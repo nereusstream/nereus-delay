@@ -563,6 +563,15 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         }
     }
 
+    /** A failed/frozen shared SDK can retire resources but cannot authorize another normal writer opening. */
+    void requireNormalJournalHandoff(PulsarClient original) {
+        synchronized (gate) {
+            if (client != original || !ready || frozen || sdkTerminated || firstFailure != null) {
+                throw new IllegalStateException("normal Journal handoff lost its original live shared SDK owner", firstFailure);
+            }
+        }
+    }
+
     /** Startup seek/proof waits use the existing native registration, including before a replay cursor takes it. */
     static NativeRead beginNativeRead(Object value) {
         final var group = findNative(value);
@@ -604,6 +613,16 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     <T> T nativeSend(Supplier<T> send) {
         synchronized (gate) {
             if (!ready || host == null || frozen) { throw new IllegalStateException("P1 Host has frozen native SEND/ACK"); }
+            return send.get();
+        }
+    }
+
+    <T> T recoveryJournalSend(Producer<?> producer, Supplier<T> send) {
+        synchronized (gate) {
+            final var use = use(producer);
+            if (!ready || host != null || frozen || use == null || use.firstClose != null) {
+                throw new IllegalStateException("original pre-Host recovery Journal SEND is unavailable");
+            }
             return send.get();
         }
     }

@@ -634,6 +634,17 @@ Target compares canonical field8 scope before resource/partition/evidence genera
 or System Mutation type is allocated. Older closed decoders reject the Target field set; activation
 must use the Target-aware reader/artifact tuple and cannot rewrite protected legacy cursors in place.
 
+Target Journal startup writer handoff (2026-10-16; runtime lifecycle, no wire-format change):
+original recovery, successor recovery and active service reopen the same resource/producer identity
+with Exclusive. The frozen original-Owner phase and the fully recovered same-Owner service phase
+use separate private root close permissions. Only the exact producer's original first-close success,
+original application/send/reader exit and continuing held protections permit the next opening and
+full replay. Shared SDK termination is fault cleanup, never normal handoff authority. Writer seal/close
+releases neither input holds, Source/history/Pin protections, UNKNOWN nor persistent sequence/charges;
+original SDK allocations remain charged until their actual owner terminates. The active Journal's
+normal close remains after final Source/Journal settlement and required checkpoint. Implementation
+is compilation-only; complete provider/service assembly and centralized recovery validation remain open.
+
 Target Journal PUBLISHED evidence keeps PublishEvidenceKind14 and its existing fields1..9/optional10,
 with a Target cursor at field1. Static binding checks Target producer scope, source-Shard Journal
 partition, evidence generation, prepared request hash and Producer hash. The retained Journal verifier

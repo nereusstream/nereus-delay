@@ -478,6 +478,14 @@ public final class TargetOwnerRecoveryCoordinator {
         return completedRoot;
     }
 
+    /** Full recovery/Claim completion, distinct from the first paused Source reactivation cut. */
+    synchronized boolean readyForJournalHandoff() {
+        if (!complete || sourceReadyForReactivation || pending != null || pendingEntry != null
+                || lastSourceAction != null && workClasses.state(lastSourceAction).isPresent()) return false;
+        completedRoot(); requireCatalog();
+        return authorityIoExited();
+    }
+
     /** Builds an active Source runtime only from the final, still-current recovery audit and held authorities. */
     public synchronized TargetSourceApplyRuntime activeRuntime() {
         // The legacy branch keeps its original reader-bound successor and therefore still requires that reader.

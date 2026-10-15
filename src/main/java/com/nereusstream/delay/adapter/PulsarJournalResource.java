@@ -31,6 +31,13 @@ public record PulsarJournalResource(
         return Bytes.copy(resourceIncarnation);
     }
 
+    public boolean sameIdentity(PulsarJournalResource other) {
+        return other != null && authenticatedClusterId.equals(other.authenticatedClusterId)
+                && java.util.Arrays.equals(resourceIncarnation, other.resourceIncarnation)
+                && physicalTopic.equals(other.physicalTopic)
+                && physicalTopicCreationTimestamp == other.physicalTopicCreationTimestamp && partition == other.partition;
+    }
+
     /** Returns this Journal identity in the Registry's typed resource value. */
     public PulsarJournalGenerationResource protocolResource(final long evidenceGeneration) {
         return new PulsarJournalGenerationResource(

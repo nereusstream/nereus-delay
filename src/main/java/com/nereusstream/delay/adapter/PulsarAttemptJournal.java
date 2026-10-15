@@ -51,6 +51,7 @@ public final class PulsarAttemptJournal {
     private final long maximumRecordBytes;
     private long recordBytes;
     private volatile boolean writeUncertain;
+    private boolean writerSealed;
     private volatile long evidenceRevision;
     private final ShardId shard;
     private final DurableAppender appender;
@@ -113,8 +114,19 @@ public final class PulsarAttemptJournal {
         this.journalResource = journalResource;
     }
 
+    /** Seals only this original appender; retained records/protections and UNKNOWN remain unchanged. */
+    public synchronized void sealWriter(DurableAppender original) {
+        if (appender != original) throw new IllegalArgumentException("Journal seal belongs to another original appender");
+        writerSealed = true;
+    }
+
+    private void requireWriterOpen() {
+        if (writerSealed) throw conflict("original Journal writer is sealed");
+    }
+
     /** Allocates and durably appends the next sequence mapping in one local turn. */
     public synchronized AppendResult appendNext(final ProducerKey producer, final AttemptIdentity identity) {
+        requireWriterOpen();
         Objects.requireNonNull(producer, "producer");
         requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
@@ -135,6 +147,7 @@ public final class PulsarAttemptJournal {
     /** Allocates the current H3 mapping without the retired clock-shift field. */
     public synchronized AppendResult appendNextCurrent(
             final ProducerKey producer, final CurrentAttemptIdentity identity) {
+        requireWriterOpen();
         Objects.requireNonNull(producer, "producer");
         requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
@@ -156,6 +169,7 @@ public final class PulsarAttemptJournal {
      * repeated exact mapping is idempotent and does not append a second record.
      */
     public synchronized AppendResult appendMapped(final Mapping mapping) {
+        requireWriterOpen();
         Objects.requireNonNull(mapping, "mapping");
         return appendMappedInternal(mapping);
     }
@@ -168,6 +182,7 @@ public final class PulsarAttemptJournal {
      * or any different mapping field is an integrity failure.
      */
     public synchronized AppendResult appendOrReuse(final ProducerKey producer, final AttemptIdentity identity) {
+        requireWriterOpen();
         Objects.requireNonNull(producer, "producer");
         requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
@@ -194,6 +209,7 @@ public final class PulsarAttemptJournal {
     /** Reuses or allocates an exact current H3 mapping for one attempt. */
     public synchronized AppendResult appendOrReuseCurrent(
             final ProducerKey producer, final CurrentAttemptIdentity identity) {
+        requireWriterOpen();
         Objects.requireNonNull(producer, "producer");
         requireProducerNamespace(producer);
         Objects.requireNonNull(identity, "identity");
@@ -277,6 +293,7 @@ public final class PulsarAttemptJournal {
 
     /** Appends the durable retirement marker required before a later sequence. */
     public synchronized AppendResult retireNotPublished(final byte[] mappingId) {
+        requireWriterOpen();
         Bytes.requireLength(mappingId, HASH_LENGTH, "mappingId");
         final MappingState state = mappings.get(Bytes.hex(mappingId));
         if (state == null) {
@@ -300,6 +317,7 @@ public final class PulsarAttemptJournal {
 
     /** Durably marks Producer ownership before invoking the physical SEND. */
     public synchronized AppendResult markOwnershipStarted(final byte[] mappingId) {
+        requireWriterOpen();
         final MappingState state = requireMapping(mappingId);
         if (state.published || state.retired || state.resolvedNotPublishedRecord != null) {
             throw conflict("terminal mapping cannot enter ownership");
@@ -319,6 +337,7 @@ public final class PulsarAttemptJournal {
 
     /** Durably records an authenticated Broker publication for the exact mapping. */
     public synchronized AppendResult markPublished(final byte[] mappingId) {
+        requireWriterOpen();
         final MappingState state = requireMapping(mappingId);
         if (state.retired || state.resolvedNotPublishedRecord != null) {
             throw conflict("negative terminal mapping cannot become published");
@@ -355,6 +374,7 @@ public final class PulsarAttemptJournal {
         final var protection = Objects.requireNonNull(Objects.requireNonNull(authority, "authority")
                 .requireAuthenticated(mapping, source), "held settlement rights");
         synchronized (this) {
+            requireWriterOpen();
             requireShard(mapping);
             requireWritable();
             protection.run();
@@ -396,6 +416,7 @@ public final class PulsarAttemptJournal {
 
     /** Marks ownership for an exact mapping, including its immutable body fence. */
     public synchronized AppendResult markOwnershipStarted(final Mapping mapping) {
+        requireWriterOpen();
         Objects.requireNonNull(mapping, "mapping");
         requireShard(mapping);
         final MappingState state = requireMapping(mapping.mappingId());
@@ -407,6 +428,7 @@ public final class PulsarAttemptJournal {
 
     /** Marks authenticated publication for an exact mapping, including its body fence. */
     public synchronized AppendResult markPublished(final Mapping mapping) {
+        requireWriterOpen();
         Objects.requireNonNull(mapping, "mapping");
         requireShard(mapping);
         final MappingState state = requireMapping(mapping.mappingId());
@@ -418,6 +440,7 @@ public final class PulsarAttemptJournal {
 
     /** Replays one already-durable Journal record during local recovery. */
     public synchronized void replay(final JournalRecord record) {
+        requireWriterOpen();
         if (record.kind() == RecordKind.RESOLVED_NOT_PUBLISHED) {
             throw conflict("Target negative replay requires independent Source/history authentication");
         }
@@ -441,6 +464,7 @@ public final class PulsarAttemptJournal {
         final var protection = Objects.requireNonNull(Objects.requireNonNull(authority, "Source/history authority")
                 .requireAuthenticated(record), "negative replay protection");
         synchronized (this) {
+            requireWriterOpen();
             evidenceRevision = Math.incrementExact(evidenceRevision);
             try {
                 protection.run();
@@ -1022,6 +1046,7 @@ public final class PulsarAttemptJournal {
             throw conflict("Target SEND requires the durable ownership-marker entrance");
         }
         synchronized (this) {
+            requireWriterOpen();
             requireShard(mapping);
             final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
             if (state == null
@@ -1049,6 +1074,7 @@ public final class PulsarAttemptJournal {
         Objects.requireNonNull(mapping, "mapping");
         Objects.requireNonNull(sender, "sender");
         synchronized (this) {
+            requireWriterOpen();
             requireShard(mapping);
             final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
             if (state == null
@@ -1220,6 +1246,7 @@ public final class PulsarAttemptJournal {
     }
 
     private void requireWritable() {
+        requireWriterOpen();
         if (writeUncertain) {
             throw conflict("Target Journal append is uncertain; reconstruct from complete authoritative replay");
         }

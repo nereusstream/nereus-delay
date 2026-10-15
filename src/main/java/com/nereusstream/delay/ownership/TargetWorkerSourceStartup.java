@@ -90,6 +90,8 @@ public final class TargetWorkerSourceStartup {
     private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private long recoveryInputBytesLimit;
+    private RecoveryInputsOpening currentRecoveryInputs;
+    private boolean serviceJournalHandoffComplete;
 
     /** A provider must register its actual SDK owner before it can allocate/open native Journal resources. */
     public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
@@ -123,6 +125,9 @@ public final class TargetWorkerSourceStartup {
         recoveryInputBytesLimit = maximumRetainedBytes;
         long remainingBytes = maximumRetainedBytes;
         for (var prior : recoveryInputs) {
+            if (prior.writer != null && !prior.handoffConfirmed) {
+                throw new IllegalStateException("original recovery Journal writer has not normally closed before successor opening");
+            }
             if (!Arrays.equals(prior.owner.deploymentId(), expectedOwner.deploymentId())
                     || !Arrays.equals(prior.owner.workerRunId(), expectedOwner.workerRunId())) {
                 throw new IllegalArgumentException("recovery provider changed its deployment/worker run identity");
@@ -131,12 +136,12 @@ public final class TargetWorkerSourceStartup {
         }
         if (remainingBytes < 1) throw new IllegalStateException("the original recovery input byte reservation is still occupied");
         final long allocationBytes = remainingBytes;
-        final var opening = new RecoveryInputsOpening(this, provider, expectedOwner, maximumRetainedBytes, allocationBytes);
+        final var opening = new RecoveryInputsOpening(this, provider, expectedOwner, assignment, maximumRetainedBytes, allocationBytes);
         final SourceAssignment originalAssignment = assignment;
         recoveryInputs.add(opening);
         try {
             opening.io = OwnedCheckpointIo.submit(guard -> {
-                final var value = Objects.requireNonNull(provider.load(expectedOwner, originalAssignment, allocationBytes, guard));
+                final var value = Objects.requireNonNull(provider.load(opening, expectedOwner, originalAssignment, allocationBytes, guard));
                 synchronized (this) { opening.original = value; opening.retainedBytes = value.retainedBytes(); }
                 guard.run(); opening.requireValue(); guard.run();
                 return value;
@@ -149,16 +154,21 @@ public final class TargetWorkerSourceStartup {
         private final TargetWorkerSourceStartup startup;
         private final TargetSourceRecoveryInputs.Provider provider;
         private final com.nereusstream.delay.protocol.OwnerIdentity owner;
+        private final SourceAssignment assignment;
         private final long maximumBytes;
         private final long allocationBytes;
         private long retainedBytes;
         private OwnedCheckpointIo<TargetSourceRecoveryInputs> io;
         private TargetSourceRecoveryInputs original;
         private boolean closed;
+        private TargetSourceRecoveryInputs.JournalWriter writer;
+        private JournalHandoff handoff;
+        private boolean handoffConfirmed;
         private RecoveryInputsOpening(TargetWorkerSourceStartup startup, TargetSourceRecoveryInputs.Provider provider,
-                com.nereusstream.delay.protocol.OwnerIdentity owner, long maximumBytes, long allocationBytes) {
+                com.nereusstream.delay.protocol.OwnerIdentity owner, SourceAssignment assignment,
+                long maximumBytes, long allocationBytes) {
             this.startup = startup; this.provider = provider; this.owner = owner; this.maximumBytes = maximumBytes;
-            this.allocationBytes = allocationBytes;
+            this.allocationBytes = allocationBytes; this.assignment = assignment;
         }
         public Optional<TargetSourceRecoveryInputs> ready() {
             synchronized (startup) {
@@ -172,6 +182,39 @@ public final class TargetWorkerSourceStartup {
             }
         }
         public com.nereusstream.delay.protocol.OwnerIdentity owner() { return owner; }
+        public SourceAssignment assignment() { return assignment; }
+        public TargetWorkerSourceStartup startup() { return startup; }
+        /** Retain the actual writer and its SDK cleanup before any native opening can begin. */
+        public void retainJournalWriter(TargetSourceRecoveryInputs.JournalWriter actual) {
+            synchronized (startup) {
+                startup.requireCurrent(); Objects.requireNonNull(actual).requireBinding(this);
+                if (closed || handoff != null || writer != null && writer != actual
+                        || !startup.recoveryInputs.contains(this)
+                        || actual.backend() != startup.backend && !startup.recoveryInputBackends.contains(actual.backend())) {
+                    throw new IllegalStateException("recovery Journal writer lacks its exact original opening/SDK owner");
+                }
+                writer = actual;
+                for (var prior : startup.recoveryInputs) {
+                    if (prior == this || prior.writer == null) continue;
+                    if (!prior.writer.producerName().equals(writer.producerName())
+                            || !prior.writer.resource().sameIdentity(writer.resource())) {
+                        throw new IllegalArgumentException("successor Journal changed its original resource/producer identity");
+                    }
+                }
+                requireJournalOpening(actual);
+            }
+        }
+        public void requireJournalOpening(TargetSourceRecoveryInputs.JournalWriter actual) {
+            synchronized (startup) {
+                startup.requireCurrent();
+                if (writer != actual || closed || handoff != null
+                        || !assignment.sameIdentity(startup.assignment) || owner.ownerEpoch() != startup.lease.ownerEpoch()
+                        || !Bytes.constantTimeEquals(owner.leaseFencingDigest(), startup.lease.leaseToken())) {
+                    throw new IllegalStateException("original recovery Journal opening is no longer admitted");
+                }
+                actual.requireBinding(this);
+            }
+        }
         private void requireValue() {
             synchronized (startup) {
                 final var value = Objects.requireNonNull(original, "original input hold");
@@ -179,9 +222,13 @@ public final class TargetWorkerSourceStartup {
                         || value.credential() == null || value.maximumFrameBytes() < 1
                         || value.maximumFrameBytes() > startup.graph.config().maximumSourceFrameBytes()
                         || value.retainedBytes() < 0 || value.retainedBytes() != retainedBytes || retainedBytes > allocationBytes
-                        || value.journal() != null && value.journalBackend() == null) {
+                        || value.journal() != null && (value.journalBackend() == null || writer == null
+                                || value.journalWriter() != writer || writer.journal() != value.journal()
+                                || writer.backend() != value.journalBackend())
+                        || value.journal() == null && (writer != null || value.journalWriter() != null)) {
                     throw new IllegalStateException("provider changed its actual Owner/credential/frame/hold bound");
                 }
+                if (writer != null) writer.requireBinding(this);
                 if (value.journalBackend() != null && value.journalBackend() != startup.backend
                         && !startup.recoveryInputBackends.contains(value.journalBackend())) {
                     throw new IllegalStateException("provider did not retain its actual Journal SDK owner before opening");
@@ -196,6 +243,101 @@ public final class TargetWorkerSourceStartup {
                 if (bytes > maximumBytes) throw new IllegalStateException("two Owner input holds exceed their aggregate bound");
                 value.requireSourceCurrent();
                 if (value.journal() != null) value.requireJournalCurrent();
+            }
+        }
+    }
+
+    /** Private root-issued close permission; no apply/ACK/append authority and no hold release. */
+    public static final class JournalHandoff {
+        private final RecoveryInputsOpening input;
+        private final PulsarPreparation preparation;
+        private final long sequence;
+        private final com.nereusstream.delay.protocol.SourcePosition cut;
+        private JournalHandoff(RecoveryInputsOpening input, PulsarPreparation preparation) {
+            this.input = input; this.preparation = preparation;
+            sequence = input.startup.store.latestSequenceNumber(); cut = input.startup.store.appliedShardLogPosition();
+        }
+        public void requireWriter(TargetSourceRecoveryInputs.JournalWriter actual) {
+            final var startup = input.startup;
+            synchronized (startup) {
+                if (input.handoff != this || input.writer != actual || input.closed || startup.worker != null
+                        || startup.constructionThread != null || input.io == null || !input.io.operationExited() || !input.io.ioExited()) {
+                    throw new IllegalStateException("Journal handoff belongs to another original recovery writer");
+                }
+                actual.requireBinding(input);
+                if (preparation != null) {
+                    if (startup.pulsarPreparation != preparation || preparation.previousInputs != input) {
+                        throw new IllegalStateException("Journal handoff lost its exact frozen preparation");
+                    }
+                    preparation.requireCurrent();
+                } else {
+                    startup.requireRecoveryReaderCurrent();
+                    if (startup.currentRecoveryInputs != input || startup.activation == null || startup.recovery == null
+                            || !startup.recovery.coordinator().readyForJournalHandoff()
+                            || startup.recoverySource == null || !startup.recoverySource.cleanupComplete()) {
+                        throw new IllegalStateException("service Journal handoff requires complete original Source/Claim recovery");
+                    }
+                }
+                if (startup.storeClosed || startup.store.latestSequenceNumber() != sequence
+                        || !Arrays.equals(cut.canonicalBytes(), startup.store.appliedShardLogPosition().canonicalBytes())) {
+                    throw new IllegalStateException("Journal handoff changed its original Store cut");
+                }
+                for (var held : startup.recoveryInputs) if (held.original != null) held.requireValue();
+            }
+        }
+    }
+
+    private boolean settleRecoveryJournal(RecoveryInputsOpening input, PulsarPreparation preparation) {
+        try {
+            final JournalHandoff permit;
+            synchronized (this) {
+                if (input == null) return true; // Component path with no deployment recovery input hold.
+                input.requireValue();
+                if (input.handoffConfirmed) return true;
+                if (input.writer == null) { input.handoffConfirmed = true; return true; }
+                if (input.handoff == null) input.handoff = new JournalHandoff(input, preparation);
+                permit = input.handoff;
+                permit.requireWriter(input.writer);
+            }
+            // Native/Journal locks never run under the startup monitor.
+            final boolean complete = input.writer.closeForHandoff(permit);
+            synchronized (this) {
+                permit.requireWriter(input.writer);
+                if (complete) input.handoffConfirmed = true;
+                return complete;
+            }
+        } catch (RuntimeException | Error failure) { retain(failure); throw failure; }
+    }
+
+    /** Same-Owner second handoff, before the Worker/Host can admit business Source or publishing. */
+    public boolean prepareServiceJournalHandoff() {
+        try {
+            final RecoveryInputsOpening input;
+            synchronized (this) {
+                requireRecoveryReaderCurrent();
+                if (activation == null || constructionThread != null || worker != null) return false;
+                if (recovery != null) {
+                    recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
+                    if (!recovery.coordinator().readyForJournalHandoff()
+                            || recoverySource == null || !recoverySource.cleanupComplete()) return false;
+                }
+                input = currentRecoveryInputs;
+            }
+            if (!settleRecoveryJournal(input, null)) return false;
+            synchronized (this) { requireRecoveryReaderCurrent(); serviceJournalHandoffComplete = true; }
+            return true;
+        } catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
+    }
+
+    /** Active Journal must reopen the same physical namespace/producer after all normal recovery writer closes. */
+    public synchronized void requireActiveJournalOpening(com.nereusstream.delay.adapter.PulsarJournalResource resource, String producerName) {
+        requireCurrent();
+        if (!recoveryInputs.isEmpty() && !serviceJournalHandoffComplete) throw new IllegalStateException("service Journal handoff is pending");
+        for (var input : recoveryInputs) if (input.writer != null) {
+            input.requireValue();
+            if (!input.handoffConfirmed || !producerName.equals(input.writer.producerName())
+                    || !resource.sameIdentity(input.writer.resource())) {
+                throw new IllegalStateException("active Journal lacks the original normally closed recovery namespace/producer");
             }
         }
     }
@@ -328,6 +470,7 @@ public final class TargetWorkerSourceStartup {
         private final TargetWorkerSourceRuntimeFactory.Recovery previousRecovery;
         private final TargetWorkerRecoverySource previousReader;
         private final com.nereusstream.delay.protocol.RecoveryPin previousPin;
+        private final RecoveryInputsOpening previousInputs;
         private WorkerAssignment successor;
         private WorkerAssignmentAuthority.Publication published;
         private OwnerLease acquired;
@@ -337,6 +480,7 @@ public final class TargetWorkerSourceStartup {
                 OwnerLease lease, com.nereusstream.delay.protocol.SourcePosition cut, long sequence) {
             this.startup = startup; originalPublication = publication; originalLease = lease; this.cut = cut; this.sequence = sequence;
             previousRecovery = startup.recovery; previousReader = startup.recoverySource; previousPin = startup.checkpointPin;
+            previousInputs = startup.currentRecoveryInputs;
         }
         private void fenceOriginal() {
             final var leases = startup.graph.oxia().providers().leases();
@@ -359,6 +503,7 @@ public final class TargetWorkerSourceStartup {
         }
         /** Advances one original consumer/authority handoff; the consumer supplies actual SDK facts, never publication authority. */
         public boolean advanceOwner(SourceRecordConsumer prepared) {
+            if (!startup.settleRecoveryJournal(previousInputs, this)) return false;
             synchronized (startup) {
                 requireCurrent();
                 if (prepared.ownedBackendGroup() != startup.backend || startup.backend == null) {
@@ -777,6 +922,20 @@ public final class TargetWorkerSourceStartup {
                 throw new IllegalArgumentException("Source recovery changed its actual Owner or deployment/worker run identity");
             }
             registryIdentity = identity;
+            synchronized (this) {
+                if (!recoveryInputs.isEmpty()) {
+                    final var input = recoveryInputs.stream().filter(value -> Arrays.equals(value.owner.canonicalBytes(), identity.canonicalBytes()))
+                            .findFirst().orElseThrow(() -> new IllegalStateException("recovery lacks its exact per-Owner input opening"));
+                    input.requireValue();
+                    if (input.io == null || !input.io.operationExited() || !input.io.ioExited()) {
+                        throw new IllegalStateException("original recovery input opening has not exited");
+                    }
+                    if (input.original.journal() != journal || input.handoff != null) {
+                        throw new IllegalStateException("recovery changed or reopened its original Journal input");
+                    }
+                    currentRecoveryInputs = input;
+                }
+            }
             Objects.requireNonNull(source).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
                     graph.classes(), graph.resources());
             synchronized (this) { recoverySource = source; }
@@ -965,7 +1124,25 @@ public final class TargetWorkerSourceStartup {
 
     /** Original SDK factory construction is single flight and must return before the Store/lease can retire. */
     public synchronized Construction beginWorkerConstruction() {
+        if (!recoveryInputs.isEmpty() && !serviceJournalHandoffComplete) {
+            throw new IllegalStateException("recovery Journal normal close is required before Worker construction");
+        }
+        for (var input : recoveryInputs) input.requireValue();
         return beginConstruction(true);
+    }
+
+    /** Registers actual SDK resources before this root can expose the Worker to Host composition. */
+    public synchronized Construction beginWorkerResourceConstruction(TargetWorkerShardRuntime actual) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        if (constructionThread != null) throw new IllegalStateException("original resource construction is already owned");
+        final var current = Thread.currentThread();
+        constructionThread = current;
+        return new Construction(this, current);
+    }
+
+    public synchronized void requireAdmittedWorker(TargetWorkerShardRuntime actual) {
+        if (worker != actual || stopping || firstFailure != null) throw new IllegalStateException("actual Source Worker is unavailable");
+        graph.oxia().requireWorker(actual);
     }
 
     private synchronized Construction beginConstruction(boolean active) {
@@ -1023,6 +1200,10 @@ public final class TargetWorkerSourceStartup {
             if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) {
                 throw new IllegalStateException("original recovery input opening/cleanup is still pending");
             }
+            if (!recoveryInputs.isEmpty() && !serviceJournalHandoffComplete) {
+                throw new IllegalStateException("recovery Journal handoff is pending before Worker admission");
+            }
+            for (var input : recoveryInputs) input.requireValue();
             for (var inputBackend : recoveryInputBackends) actual.retainRecoveryInputBackend(this, inputBackend);
             if (recoverySource != null) actual.retainRecoveryBackend(recoverySource.backend());
             if (pulsarPreparation != null && pulsarPreparation.previousReader != null) {

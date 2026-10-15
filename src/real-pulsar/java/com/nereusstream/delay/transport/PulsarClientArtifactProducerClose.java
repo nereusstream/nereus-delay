@@ -64,6 +64,9 @@ final class PulsarClientArtifactProducerClose {
         return firstClose().thenRun(() -> { if (budget != null) { budget.closed(); } });
     }
 
+    /** Normal writer handoff must observe the original close, never substitute shared SDK termination. */
+    CompletableFuture<Void> normalCloseFuture() { return firstClose(); }
+
     private void observeBackendTermination() {
         if (group != null && group.producerBackendStopped(producer)) { confirmBackendStopped(); }
     }

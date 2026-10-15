@@ -114,6 +114,7 @@ public final class TargetWorkerHostRuntime {
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
 
         default Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){return Optional.empty();}
+        default Optional<WorkClassTask> settlePendingJournalResourcesForDrain(){return Optional.empty();}
 
         default boolean canPublishFinalCheckpoint() { return true; }
 
@@ -1764,6 +1765,9 @@ public final class TargetWorkerHostRuntime {
                     }
                 }
                 requireNormalDrain();
+                final var journalResources = shard.settlePendingJournalResourcesForDrain();
+                if (journalResources.isPresent()) return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION,
+                        sourceTurn, null, null, null, null, null, journalResources.orElseThrow());
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
                 return new ShardDrain(
                         shard.shardId(), map(drained.status()), sourceTurn, null, drained.pendingGcTask(), null);
