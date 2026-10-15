@@ -897,3 +897,13 @@ first/原输入/UNKNOWN/cursor和exact ref须闭合，拒绝结果不伪造adopt
 核心v7已改为显式tuple7与完整私有snapshot门禁，普通内存authority或legacy body
 不能替代；未自动激活任何reader/Artifact tuple。实际Root签发/归档/Source装配、
 新channel代次编排和Floor/保护退役继续实施，不能据本组件声明完整服务恢复。
+
+
+2026-10-16实际same-process Source Root可将typed恢复的真实scan经原Catalog用途
+签发/精确回读、SERVICE v7签名与prepared seal后交给现有maintenance。私有结果
+不暴露SERVICE签名factory，typed旧内存resolutionAuthority仍拒绝。Root startup/
+Worker/catalog/protection、原UNKNOWN和实际trusted time必须匹配；不授SEND或
+跨新channel代次能力。复用已选proof仍验完整历史，不能换成新签名覆盖。actual
+owned opening/reader/poll/archive/continuation退出才释放原SDK/material，旧view
+不跟随新retry的句柄。APPLIED后的自动Catalog adoption/重启reconcile、完整正常
+接续/Stop/失权和受控Floor退役仍待实施与集中验证。

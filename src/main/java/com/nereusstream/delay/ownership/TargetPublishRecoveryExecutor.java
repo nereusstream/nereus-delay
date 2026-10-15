@@ -65,9 +65,13 @@ public final class TargetPublishRecoveryExecutor {
             return pending;
         }
         final var proof = worker.readKafkaUnknown(reads, admission, clock);
-        resolution.authority().requireAuthenticated(proof, resolution.evidence());
-        final var mutation = resolution.signer().createKafkaResolution(proof, resolution.evidence(),
-                resolution.service(), resolution.stableCode(), context);
+        final SystemMutation mutation;
+        if(resolution.archived()!=null){
+            resolution.archived().requireUnknown(proof);mutation=resolution.archived().mutation();
+        }else{
+            resolution.authority().requireAuthenticated(proof, resolution.evidence());
+            mutation=resolution.signer().createKafkaResolution(proof,resolution.evidence(),resolution.service(),resolution.stableCode(),context);
+        }
         // External authority ran outside the Store view; re-read exact pending facts before accepting the image.
         proof.requireSame(worker.readKafkaUnknown(reads, admission, clock));
         final var submission = new Submission(admission, owner, mutation, true);

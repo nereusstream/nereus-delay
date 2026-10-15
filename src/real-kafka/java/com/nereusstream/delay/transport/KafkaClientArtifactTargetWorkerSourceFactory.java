@@ -339,6 +339,44 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     authorization,resolver,recoveryTrust,profiles,historicalTrust,management.catalog(),sdkBudget,time,reads,clock);
         }
 
+        /** Actual Root archive preparation; no purpose/service key is returned in the Worker result. */
+        public java.util.concurrent.CompletableFuture<com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared> prepareReceiptRecoveryResolution(
+                KafkaClientArtifactTargetRecoveryRuntime recovery,KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                KafkaClientArtifactTargetRecoveryProofIssuer issuer,com.nereusstream.delay.ownership.TargetRecoveryProofTrust proofTrust,
+                com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory sourceSigner,
+                KafkaClientArtifactTargetRecoveryRuntime.ResolutionContext contexts){
+            startup.requireReceiptManagement(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original K1 Source Worker is unavailable");original=worker;}
+            final var inputs=recovery.reopenInputs(startup,original);
+            if(inputs.catalog()!=management.catalog()||!java.util.Arrays.equals(inputs.config().protectionDigest(),management.protection(recovery.channelIdentity().digest()).digest()))
+                throw new IllegalArgumentException("K2 archive changed the actual same-process CONTROL backing");
+            return recovery.prepareArchivedResolution(issuer,proofTrust,sourceSigner,contexts);
+        }
+
+        /** Installs into existing publication recovery configuration; other rows and initial UNKNOWN holds use original history. */
+        public com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.History receiptRecoveryHistory(
+                KafkaClientArtifactTargetRecoveryRuntime recovery,KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                int maximumTurns,KafkaClientArtifactTargetRecoveryProofIssuer issuer,
+                com.nereusstream.delay.ownership.TargetRecoveryProofTrust proofTrust,
+                com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory sourceSigner,
+                KafkaClientArtifactTargetRecoveryRuntime.ResolutionContext contexts,
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.History originalHistory){
+            startup.requireReceiptManagement(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original K1 Source Worker is unavailable");original=worker;}
+            final var inputs=recovery.reopenInputs(startup,original);
+            if(inputs.catalog()!=management.catalog()||maximumTurns<1||!java.util.Arrays.equals(inputs.config().protectionDigest(),management.protection(recovery.channelIdentity().digest()).digest()))
+                throw new IllegalArgumentException("K2 recovery history changed actual Root/protection/bound");
+            java.util.Objects.requireNonNull(originalHistory);java.util.Objects.requireNonNull(issuer);java.util.Objects.requireNonNull(proofTrust);
+            java.util.Objects.requireNonNull(sourceSigner);java.util.Objects.requireNonNull(contexts);
+            return reference->{
+                if(reference.attempt().phase()!=com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.Phase.UNKNOWN
+                        ||!java.util.Arrays.equals(reference.attempt().publishAttemptId(),inputs.mapping().admission().publishAttemptId()))
+                    return originalHistory.load(reference);
+                startup.requireReceiptManagement(management);reference.requireImage(inputs.admission(),reference.source());
+                return recovery.recoverArchivedResolution(maximumTurns,issuer,proofTrust,sourceSigner,contexts);
+            };
+        }
+
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(
                 KafkaClientArtifactTargetRecoveryRuntime recovery,

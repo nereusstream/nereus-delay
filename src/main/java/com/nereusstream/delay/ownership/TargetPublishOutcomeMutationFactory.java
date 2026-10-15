@@ -132,7 +132,28 @@ public final class TargetPublishOutcomeMutationFactory {
                 evidence.canonicalBytes(), code, effect, context.disposition(), context.transfer(),
                 context.observedAt(), context.retryDecision());
         return SystemMutation.signed(actual.admission().shardId(), SystemMutationType.EVIDENCE_RESOLUTION,
-                context.retryUntilEpochMs(), actual.mapping().admission().publishAttemptId(), body,
+                context.retryUntilEpochMs(), PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity(), body,
                 service.canonicalBytes(), keyVersion, key);
+    }
+
+    /** Root-owned v7 signing accepts an actual authenticated publication, never a caller's recovery evidence DTO. */
+    public SystemMutation createKafkaResolutionWithRecoveryProof(
+            com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown unknown,
+            com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.RecoveryPublication publication,
+            AuthorIdentity service,StableCode code,WorkerPublishOutcomeMutationFactory.OutcomeContext context){
+        final var actual=Objects.requireNonNull(unknown,"actual Source UNKNOWN");final var verified=Objects.requireNonNull(publication).verified();
+        final var proof=verified.proof();final var evidence=proof.evidence();
+        if(Objects.requireNonNull(service).kind()!=AuthorIdentity.Kind.SERVICE
+                ||!Arrays.equals(actual.mapping().canonicalBytes(),proof.mapping().canonicalBytes())
+                ||!Arrays.equals(actual.admission().canonicalEnvelope(),proof.admission().canonicalEnvelope())
+                ||!Arrays.equals(context.transfer(),actual.mapping().admission().outcomeTransfer()))
+            throw new IllegalArgumentException("archived resolution changed original UNKNOWN/Admission/transfer/SERVICE scope");
+        final var cursor=com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(actual.mapping(),evidence);
+        final int effect=evidence.verificationStatus()==com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED?1:2;
+        final byte[] body=PublishOutcomeBody.encodeEvidenceResolutionWithRecoveryProof(actual.admission().shardId(),context.retryUntilEpochMs(),
+                actual.mapping().admission().publishAttemptId(),cursor,evidence.canonicalBytes(),code,effect,context.disposition(),context.transfer(),
+                context.observedAt(),context.retryDecision(),verified.reference());
+        return SystemMutation.signed(actual.admission().shardId(),SystemMutationType.EVIDENCE_RESOLUTION,context.retryUntilEpochMs(),
+                PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity(),body,service.canonicalBytes(),keyVersion,key);
     }
 }

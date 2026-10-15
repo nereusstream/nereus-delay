@@ -32,13 +32,28 @@ public final class TargetPublishRecoveryMaintenance {
 
     public record Resolution(com.nereusstream.delay.protocol.PublishEvidence evidence,
             com.nereusstream.delay.protocol.AuthorIdentity service, com.nereusstream.delay.protocol.StableCode stableCode,
-            TargetPublishOutcomeMutationFactory signer, ResolutionAuthority authority) {
+            TargetPublishOutcomeMutationFactory signer, ResolutionAuthority authority,TargetArchivedKafkaResolution archived) {
+        public Resolution(com.nereusstream.delay.protocol.PublishEvidence evidence,com.nereusstream.delay.protocol.AuthorIdentity service,
+                com.nereusstream.delay.protocol.StableCode code,TargetPublishOutcomeMutationFactory signer,ResolutionAuthority authority){
+            this(evidence,service,code,signer,authority,null);
+        }
+        public static Resolution archived(TargetArchivedKafkaResolution actual){
+            final var mutation=Objects.requireNonNull(actual).mutation();final var body=com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
+            return new Resolution(com.nereusstream.delay.protocol.PublishEvidence.decode(body.evidence()),
+                    com.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity()),body.stableCode(),null,null,actual);
+        }
         public Resolution {
             Objects.requireNonNull(evidence, "actual recovery evidence");
             Objects.requireNonNull(service, "actual SERVICE author");
             Objects.requireNonNull(stableCode, "result code");
-            Objects.requireNonNull(signer, "SERVICE signer");
-            Objects.requireNonNull(authority, "actual recovery authority");
+            if(archived==null){Objects.requireNonNull(signer,"SERVICE signer");Objects.requireNonNull(authority,"actual recovery authority");}
+            else{
+                final var mutation=archived.mutation();final var body=com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
+                archived.prepared().requireExact(mutation);
+                if(signer!=null||authority!=null||!java.util.Arrays.equals(evidence.canonicalBytes(),body.evidence())
+                        ||!java.util.Arrays.equals(service.canonicalBytes(),mutation.authorIdentity())||stableCode!=body.stableCode())
+                    throw new IllegalArgumentException("archived resolution must retain its exact sealed Source image without Worker signing keys");
+            }
             if (service.kind() != com.nereusstream.delay.protocol.AuthorIdentity.Kind.SERVICE) {
                 throw new IllegalArgumentException("recovery resolution requires its SERVICE identity");
             }

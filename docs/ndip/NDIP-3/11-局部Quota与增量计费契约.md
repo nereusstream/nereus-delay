@@ -2356,3 +2356,13 @@ EVIDENCE owner，不重复收原blob或嵌入的auth依赖费；checkpoint文件
 物理保留预算，原owner/ref与staging/adopted charge不因checkpoint而解除。
 Source核心v7只接受完整私有snapshot及显式tuple7，实际Root配置/服务链与保护
 Floor到真实删除的费用解除仍开放，SDK退出/单checkpoint不代替退役证明。
+
+
+2026-10-16归档Source准备沿用原SDK producer/reader预算和原有限IO池：实际archive
+或复用selected proof前均核BUFFERED复制窗口，不新增未计费IO线程/队列。原Root
+provider和scan turn bound固定，finite scan/memory不足保持UNKNOWN。successful
+signed image/durable seal保留到原Source handoff结清，不因receipt取消、排队失败
+或逻辑Stop伪造实际IO退出/SDK退款；close等待原archive操作与同池continuation
+计数归零。Worker结果只留私有已sealed Source/proof snapshot，无SERVICE signer，
+不能以任意DTO绕过原proof物理/逻辑计费。实际Source APPLIED自动Catalog adoption/
+重启reconcile和完整释放/退役继续，prepared use仍可能首次采用，不允许提前GC。

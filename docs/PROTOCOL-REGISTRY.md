@@ -3923,3 +3923,56 @@ provides core support, not implicit Artifact/reader/tuple activation or a servic
 startup claim. Deployment Root purpose key/configuration, archive/sign/seal/
 Source pipeline composition and protected Floor/retirement remain mandatory.
 All central tests/Broker/recovery/performance validation remain deferred.
+
+
+### K2 actual Root archive to sealed Source handoff (2026-10-16, implementation)
+
+TargetArchivedKafkaResolution has private construction from actual Source UNKNOWN,
+actual Catalog RecoveryPublication, Root SERVICE signer/context and durable
+PreparedRecovery seal. It contains the exact signed v7 Source image and immutable
+proof snapshot, without the SERVICE signing factory. Source signing derives
+proof/evidence from the private actual publication rather than a caller's
+PUBLISHED/NOT_PUBLISHED DTO. Catalog seal completes before this result is returned.
+The existing maintenance executor rechecks actual UNKNOWN before handoff and
+uses those same sealed bytes; it performs no Catalog I/O or SERVICE signing on
+the archive branch. Old non-archive construction remains available for its
+existing independently authenticated paths, and typed independent recovery still
+refuses its former memory-only resolutionAuthority entry.
+
+Actual same-process K1 Source Opening now provides prepareReceiptRecoveryResolution
+and receiptRecoveryHistory. They bind the original startup/Worker/catalog and
+exact protection digest to the original management backing. History decorates
+only the selected original UNKNOWN Attempt; initial ADMITTED holds and other
+rows use original history. SDK opening, finite typed recovery scan, publication
+selection, purpose signing/publication/reread, SERVICE result signing and seal
+run through the original finite I/O pool. No new thread, queue or SEND capability
+is added. The Source context must retain the actual trusted decision interval.
+
+A previously selected mapping/evidence proof is authenticated/resumed before a
+new signature is considered; different selected bytes never get overwritten.
+Missing reserved blobs remain uncertain. Exact successful prepared bytes are
+cached; uncertain handoff reuses them. Root signing/history/context owners and
+the reader's finite turn limit cannot be replaced mid-flight. Actual original
+SDK BUFFERED capacity must cover archive copies even on the retained-proof reuse
+branch; insufficient memory/finite scan/budget/policy keeps UNKNOWN.
+
+The composite future records actual opening/reader/poll/archive handles and each
+same-pool continuation. Already-completed futures cannot recursively grow the
+stack. Queue rejection, STOP and cleanup failure fail/retain the original flight;
+receipt cancellation does not cancel or fabricate native exit. Old views refer
+to their own captured handles, not a later retry's work. Resource close waits for
+actual archive I/O and queued/running continuations before releasing SDK/material.
+
+The SERVICE resolution factory now computes its registered logical identity via
+PublishOutcomeBody.evidenceResolutionLogicalOperationIdentity, including the
+existing legacy factory. Its former attempt-only argument was inconsistent with
+the already registered body identity and Source verifier. This fixes newly created
+images only; no persisted Source body, evidenceId, signature or result ID is
+rewritten or reinterpreted. The protocol identity rule itself is unchanged.
+
+These entry points require actual Root key/trust/context providers and explicit
+existing publishing configuration. Deployment file loading/key ownership,
+automatic actual-Source-APPLIED Catalog adoption/reconciliation, complete normal
+resume/stop/lost-Owner behavior and protected retirement remain open integration
+work. No actual service/material/probe/Admin/Broker execution or activation is
+claimed. Central validation remains deferred.

@@ -417,6 +417,13 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             requireSameRecovery(actual,original);return actual.phase>=PUBLISHED?root:root.recovery(actual.phase(PUBLISHED));},current);
         current.run();return new RecoveryPublication(this,verified);
     }
+    /** The actual Root reuses a durably selected observation before considering a new signature. */
+    public Optional<RecoveryPublication> resumeSelectedRecoveryProof(TargetKafkaReceiptMapping mapping,PublishEvidence evidence,
+            TargetRecoveryProofTrust proofTrust,Runnable current){
+        Objects.requireNonNull(current).run();
+        if(!readRoot().root.recoveries.containsKey(Bytes.hex(recoveryId(mapping.mappingId(),evidence.evidenceId()))))return Optional.empty();
+        return Optional.of(resumeRecoveryProof(mapping,evidence,proofTrust,current));
+    }
     /** Must complete before enqueueing the signed proof-bearing Source frame. */
     public PreparedRecovery sealRecoveryPrepared(RecoveryPublication publication,SystemMutation prepared,TargetRecoveryProofTrust proofTrust,Runnable current){
         requireOwnPublication(publication);requireRecoveryBody(publication.verified,prepared);Objects.requireNonNull(current).run();

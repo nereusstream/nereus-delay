@@ -315,6 +315,16 @@ public final class TargetWorkerShardRuntime
                 requireOriginal(); return actual;
             }
         }
+        public com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown readKafkaUnknown(
+                BoundedReadBudget budget,SystemMutation admission,LongSupplier clock){
+            synchronized(worker){
+                final var body=com.nereusstream.delay.protocol.TargetPublishAdmissionBody.decode(admission.canonicalBody());
+                channel.requireExactFrozenIdentity(body.channel());requireOriginal();
+                if(!original.recoveryOnly()||worker.publishRuntime!=null&&worker.publishRuntime.ownsAttempt(body.publishAttemptId()))
+                    throw new IllegalStateException("archival recovery cannot use a live normal publication flight");
+                final var actual=worker.target.readKafkaUnknown(budget,admission,clock);requireOriginal();return actual;
+            }
+        }
     }
 
     public synchronized void registerPublicationMaintenance(PublicationResources original, PublicationMaintenance maintenance,

@@ -47,9 +47,13 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery> readerOpening;
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery.Turn> poll;
     private OwnedCheckpointIo<Boolean> closing;
+    private OwnedCheckpointIo<TargetPublishRecoveryMaintenance.Prepared> archiving;
+    private ArchiveInputs archiveInputs;
+    private ResolutionFlight resolutionFlight;
     private volatile Opened opened;
     private volatile KafkaClientArtifactTargetReceiptRecovery.Observation observation;
     private KafkaClientArtifactTargetReceiptRecovery reader;
+    private int readerMaximumTurns;
     private volatile boolean ready, stopping, closed;
 
     /** Called only by the accepted Source startup, which reads the original mapping rather than accepting a caller DTO. */
@@ -216,7 +220,10 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
 
     public synchronized CompletableFuture<KafkaClientArtifactTargetReceiptRecovery.Turn> recoverOnce(int maximumTurns) {
         if(!ready||stopping)throw new IllegalStateException("K2 recovery SDK is not ready");
+        if(maximumTurns<1||readerOpening!=null&&readerMaximumTurns!=maximumTurns)
+            throw new IllegalArgumentException("K2 recovery scan must retain its original finite turn bound");
         if(readerOpening==null){
+            readerMaximumTurns=maximumTurns;
             final var reserved=budget.reserve(identity+"/recovery-reader",configuration.settings().readerCost());
             try{readerOpening=OwnedCheckpointIo.submitResource(guard->{guard.run();requireCurrent();
                 return new KafkaClientArtifactTargetReceiptRecovery(mapping,opened.fence,this::requireOpenResource,opened.readers,
@@ -244,19 +251,157 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         actual.requireCurrent(evidence); return actual.canonicalBytes();
     }
 
+    @FunctionalInterface
+    public interface ResolutionContext {
+        ResolutionDecision prepare(TargetPublishOutcomeStore.KafkaUnknown actual,PublishEvidence evidence,TrustedUtcIntervalEvidence at);
+    }
+    public record ResolutionDecision(AuthorIdentity service,StableCode code,WorkerPublishOutcomeMutationFactory.OutcomeContext context){
+        public ResolutionDecision{
+            if(Objects.requireNonNull(service).kind()!=AuthorIdentity.Kind.SERVICE)throw new IllegalArgumentException("actual SERVICE resolution identity required");
+            Objects.requireNonNull(code);Objects.requireNonNull(context);
+        }
+    }
+    private record ArchiveInputs(KafkaClientArtifactTargetRecoveryProofIssuer issuer,TargetRecoveryProofTrust trust,
+            TargetPublishOutcomeMutationFactory signer,ResolutionContext contexts){}
+    private static final class ResolutionFlight {
+        final ArchiveInputs inputs;final int maximumTurns;
+        final CompletableFuture<TargetPublishRecoveryMaintenance.Prepared> owned=new CompletableFuture<>();
+        CompletableFuture<TargetPublishRecoveryMaintenance.Prepared> view;
+        int continuations;
+        boolean stopping;
+        OwnedCheckpointIo<?> opening,readerOpening,poll,archiving;
+        ResolutionFlight(ArchiveInputs inputs,int maximumTurns){this.inputs=inputs;this.maximumTurns=maximumTurns;}
+    }
+
+    /** One original owned future drives SDK opening/finite scan/archive, retaining actual I/O/cleanup facts on detached views. */
+    CompletableFuture<TargetPublishRecoveryMaintenance.Prepared> recoverArchivedResolution(int maximumTurns,
+            KafkaClientArtifactTargetRecoveryProofIssuer issuer,TargetRecoveryProofTrust proofTrust,
+            TargetPublishOutcomeMutationFactory sourceSigner,ResolutionContext contexts){
+        final ResolutionFlight flight;
+        synchronized(this){
+            if(maximumTurns<1||stopping||closed)throw new IllegalStateException("live finite K2 archive recovery required");
+            final var inputs=new ArchiveInputs(Objects.requireNonNull(issuer),Objects.requireNonNull(proofTrust),Objects.requireNonNull(sourceSigner),Objects.requireNonNull(contexts));
+            if(resolutionFlight!=null){
+                final var prior=resolutionFlight;
+                if(prior.maximumTurns!=maximumTurns||!prior.inputs.equals(inputs))throw new IllegalStateException("K2 recovery flight changed its original Root configuration");
+                if(!CheckpointInputFuture.ioExited(prior.view)||!prior.owned.isCompletedExceptionally())return prior.view.copy();
+            }
+            flight=new ResolutionFlight(inputs,maximumTurns);
+            flight.view=CheckpointInputFuture.track(flight.owned,()->requestResolutionStop(flight),()->retryResolutionCleanup(flight),()->resolutionIoExited(flight));
+            resolutionFlight=flight;
+        }
+        driveResolution(flight);return flight.view.copy();
+    }
+    private void driveResolution(ResolutionFlight flight){
+        try{
+            final KafkaClientArtifactTargetReceiptRuntime.Turn state;
+            synchronized(this){
+                if(resolutionFlight!=flight||flight.stopping||stopping||closed)throw new IllegalStateException("original K2 recovery flight stopped");
+                state=advance();captureResolutionIo(flight);
+            }
+            if(state.status()==KafkaClientArtifactTargetReceiptRuntime.Status.FAILED)throw new IllegalStateException("K2 recovery opening failed",state.failure());
+            final CompletableFuture<?> waiting;
+            synchronized(this){
+                if(resolutionFlight!=flight||flight.stopping||stopping||closed)throw new IllegalStateException("original K2 recovery flight stopped");
+                if(!ready){waiting=Objects.requireNonNull(opening,"actual recovery opening").receipt();captureResolutionIo(flight);}
+                else if(observation!=null&&(poll==null||poll.ioExited())){
+                    final var inputs=flight.inputs;
+                    final var prepared=prepareArchivedResolution(inputs.issuer,inputs.trust,inputs.signer,inputs.contexts);
+                    captureResolutionIo(flight);
+                    continueResolution(flight,prepared,(value,failure)->{if(failure==null)flight.owned.complete(value);else flight.owned.completeExceptionally(failure);});return;
+                }else{
+                    final var scanning=recoverOnce(flight.maximumTurns);captureResolutionIo(flight);
+                    continueResolution(flight,scanning,(turn,failure)->{
+                        if(failure!=null)flight.owned.completeExceptionally(failure);
+                        else if(turn.status()==KafkaClientArtifactTargetReceiptRecovery.Status.BUDGET_EXHAUSTED)
+                            flight.owned.completeExceptionally(new IllegalStateException("K2 finite recovery scan exhausted; keep UNKNOWN"));
+                        else driveResolution(flight);
+                    });return;
+                }
+            }
+            continueResolution(flight,waiting,(value,failure)->{if(failure!=null)flight.owned.completeExceptionally(failure);else driveResolution(flight);});
+        }catch(RuntimeException|Error failure){flight.owned.completeExceptionally(failure);}
+    }
+    private <T> void continueResolution(ResolutionFlight flight,CompletableFuture<T> step,java.util.function.BiConsumer<T,Throwable> next){
+        synchronized(this){flight.continuations++;}
+        // An already-completed native future must not recursively grow the Java stack. Use the same finite pool.
+        try{
+            step.whenCompleteAsync((value,failure)->{
+                synchronized(this){if(flight.stopping||stopping||closed)throw new IllegalStateException("original K2 resolution continuation stopped");}
+                next.accept(value,failure);
+            },io).whenComplete((value,failure)->{
+                synchronized(this){flight.continuations--;}
+                if(failure!=null)flight.owned.completeExceptionally(failure);
+            });
+        }catch(RuntimeException rejected){
+            synchronized(this){flight.continuations--;}
+            flight.owned.completeExceptionally(rejected);
+        }
+    }
+    private void captureResolutionIo(ResolutionFlight flight){
+        flight.opening=opening;flight.readerOpening=readerOpening;flight.poll=poll;flight.archiving=archiving;
+    }
+    private synchronized boolean resolutionIoExited(ResolutionFlight flight){return(flight.opening==null||flight.opening.ioExited())
+            &&(flight.readerOpening==null||flight.readerOpening.ioExited())&&(flight.poll==null||flight.poll.ioExited())
+            &&(flight.archiving==null||flight.archiving.ioExited())&&flight.continuations==0;}
+    private synchronized void requestResolutionStop(ResolutionFlight flight){
+        flight.stopping=true;
+        if(flight.opening!=null)flight.opening.requestStop();if(flight.readerOpening!=null)flight.readerOpening.requestStop();
+        if(flight.poll!=null)flight.poll.requestStop();if(flight.archiving!=null)flight.archiving.requestStop();
+    }
+    private synchronized void retryResolutionCleanup(ResolutionFlight flight){
+        if(flight.opening!=null)flight.opening.retryCleanup();if(flight.readerOpening!=null)flight.readerOpening.retryCleanup();
+        if(flight.poll!=null)flight.poll.retryCleanup();if(flight.archiving!=null)flight.archiving.retryCleanup();
+    }
+
+    /** Same-process Root only. Actual scan must already exist; signing/catalog I/O use the original bounded pool. */
+    synchronized CompletableFuture<TargetPublishRecoveryMaintenance.Prepared> prepareArchivedResolution(
+            KafkaClientArtifactTargetRecoveryProofIssuer issuer,TargetRecoveryProofTrust proofTrust,
+            TargetPublishOutcomeMutationFactory sourceSigner,ResolutionContext contexts){
+        if(!ready||stopping||closed)throw new IllegalStateException("K2 archive requires the live original recovery resource");
+        final var inputs=new ArchiveInputs(Objects.requireNonNull(issuer),Objects.requireNonNull(proofTrust),Objects.requireNonNull(sourceSigner),Objects.requireNonNull(contexts));
+        if(archiveInputs!=null&&(archiveInputs.issuer!=issuer||archiveInputs.trust!=proofTrust||archiveInputs.signer!=sourceSigner||archiveInputs.contexts!=contexts))
+            throw new IllegalStateException("K2 archive cannot replace its original Root signing/history/context owners");
+        archiveInputs=inputs;
+        if(archiving!=null){
+            archiving.retryCleanup();
+            if(!archiving.ioExited()||archiving.completedValue().isPresent())return archiving.receipt();
+        }
+        if(observation==null||poll!=null&&!poll.ioExited())throw new IllegalStateException("K2 archive requires the complete exited native scan observation");
+        archiving=OwnedCheckpointIo.submit(guard->{
+            final Runnable current=()->{guard.run();requireCurrent();};current.run();
+            requireArchiveMemory();
+            final var actual=nativeReads.readKafkaUnknown(reads.get(),admission,clock);
+            final var evidence=Objects.requireNonNull(observation).evidence();
+            Objects.requireNonNull(observation).requireCurrent(evidence);
+            final var selected=catalog.resumeSelectedRecoveryProof(mapping,evidence,proofTrust,current);
+            final var publication=selected.orElseGet(()->catalog.publishRecoveryProof(issuer.sign(captureArchiveObservation(evidence)),proofTrust,current));
+            final var at=Objects.requireNonNull(time.get());
+            final var decision=Objects.requireNonNull(contexts.prepare(actual,publication.verified().proof().evidence(),at),"actual frozen retry/charge/time context");
+            if(!Arrays.equals(at.canonicalBytes(),decision.context().observedAt().canonicalBytes()))
+                throw new IllegalArgumentException("K2 Source decision must retain its actual trusted observation interval");
+            actual.requireSame(nativeReads.readKafkaUnknown(reads.get(),admission,clock));current.run();
+            final var sealed=TargetArchivedKafkaResolution.prepare(actual,publication,decision.service(),decision.code(),decision.context(),sourceSigner,catalog,proofTrust,current);
+            actual.requireSame(nativeReads.readKafkaUnknown(reads.get(),admission,clock));current.run();
+            return new TargetPublishRecoveryMaintenance.Prepared(admission,owner,sealed.context(),TargetPublishRecoveryMaintenance.Resolution.archived(sealed));
+        },()->{},io);
+        return archiving.receipt();
+    }
+
     /** Only this actual native owner can construct an input accepted by the privileged proof signer. */
     public ArchiveObservation captureArchiveObservation(PublishEvidence evidence){
         requireOpenResource();requireCurrent();
         final var actual=Objects.requireNonNull(observation,"actual complete recovery scan");actual.requireCurrent(evidence);
         final var current=requirePending();
-        opened.material.requireArchiveMemory(Math.addExact(configuration.settings().producerBufferBytes(),
-                Math.addExact(opened.material.retainedBytes(),8L*TargetRecoveryProofRef.MAX_PROOF_BYTES)));
+        requireArchiveMemory();
         final var capability=Objects.requireNonNull(profiles.resolve(mapping.admission().publication().capabilityProfile()),"original capability semantic");
         final var at=Objects.requireNonNull(time.get());
         final var captured=new ArchiveObservation(this,mapping,admission,evidence,owner,at,current.tenantScope(),
                 actual.canonicalBytes(),opened.material.archivePublicInputs(),configuration.sdkJar(),capability,current.attempt(),current.adoption().anchor().primaryOwner());
         actual.requireCurrent(evidence);requireCurrent();return captured;
     }
+    private void requireArchiveMemory(){opened.material.requireArchiveMemory(Math.addExact(configuration.settings().producerBufferBytes(),
+            Math.addExact(opened.material.retainedBytes(),8L*TargetRecoveryProofRef.MAX_PROOF_BYTES)));}
     public static final class ArchiveObservation{
         private final KafkaClientArtifactTargetRecoveryRuntime original;
         private final TargetKafkaReceiptMapping mapping;
@@ -301,17 +446,23 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     @Override public synchronized boolean settleClose(){
         stopping=true;ready=false;
         if(opening!=null){opening.requestStop();opening.retryCleanup();if(!opening.ioExited())return false;if(opened==null)opened=opening.completedValue().orElse(null);}
+        if(archiving!=null){archiving.requestStop();archiving.retryCleanup();if(!archiving.ioExited())return false;}
         if(poll!=null){poll.requestStop();poll.retryCleanup();if(!poll.ioExited())return false;}
         if(readerOpening!=null){readerOpening.requestStop();readerOpening.retryCleanup();if(!readerOpening.ioExited())return false;
             if(reader==null)reader=readerOpening.completedValue().orElse(null);}
+        if(resolutionFlight!=null&&resolutionFlight.continuations!=0)return false;
         if(opened!=null){
             if(closing==null||closing.ioExited()){
-                if(opened.closed&&(reader==null||reader.closeCompleted())){closed=true;return true;}
+                if(opened.closed&&(reader==null||reader.closeCompleted()))return finishClosed();
                 closing=OwnedCheckpointIo.submit(ignored->{if(reader!=null)reader.close();opened.close();return true;},()->{},io);return false;
             }
             return false;
         }
-        closed=true;return true;
+        return finishClosed();
+    }
+    private boolean finishClosed(){
+        closed=true;archiveInputs=null;archiving=null;resolutionFlight=null;observation=null;
+        return true;
     }
     private static final class Opened {
         private final Producer<byte[],byte[]> producer;

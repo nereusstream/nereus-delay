@@ -768,3 +768,16 @@ Source v7临时全面拒绝替换为显式tuple7+原签名+完整私有Catalog s
 走已有Native原子归属/费用；无内存旁路，无自动reader/Artifact/tuple激活。Root
 目的key/config与实际归档/Source pipeline、Floor/受控退役和集中验证仍开放，
 所有完成flags保持false。
+
+
+2026-10-16 Root实际归档准备：私有TargetArchivedKafkaResolution只在真实Native
+UNKNOWN、实际Catalog publication、SERVICE v7签名与durable seal完成后生成，
+maintenance拿原签名字节重读UNKNOWN再handoff，不做Catalog IO/不保留SERVICE
+signer。K1 Opening绑定原startup/Worker/catalog/protection，现有recoveryHistory
+只装饰匹配UNKNOWN，初始hold/其它row仍走原history。沿用原有限IO池推进SDK开/
+finite scan/原proof认证复用或签发发布/签Source/seal，原Root provider/scan
+bound固定，复用同样核原archive内存窗口。future追踪各原Native handles与同池
+continuation，Stop/取消/拒绝/cleanup不伪造退出，不借新retry句柄；close等实际
+退出再退SDK预算。修正新resolution签名logical ID按既有body注册规则，旧数据
+不改。部署key/config、实际APPLIED自动adoption/重启reconcile、完整正常接续/
+失权及Floor退役继续；只必要编译，全部完成/生产flags保持false。
