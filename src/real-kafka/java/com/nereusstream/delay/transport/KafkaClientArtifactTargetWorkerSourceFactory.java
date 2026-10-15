@@ -40,6 +40,31 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         }
     }
 
+    public record SystemWriterConfiguration(KafkaClientArtifactOwnedSystemWriter.Settings settings,
+            Map<String,String> operational, Path authorizationFile, byte[] signedRoute, CapacityVector cost) {
+        public SystemWriterConfiguration {
+            Objects.requireNonNull(settings); Objects.requireNonNull(cost);
+            if (authorizationFile == null || !authorizationFile.isAbsolute() || signedRoute == null
+                    || signedRoute.length == 0 || signedRoute.length > 256 * 1024) {
+                throw new IllegalArgumentException("K1 Source writer requires bounded original authorization/Route input");
+            }
+            authorizationFile = authorizationFile.normalize(); signedRoute = Bytes.copy(signedRoute);
+            operational = literalOperational(operational);
+        }
+        @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
+    }
+
+    private static Map<String,String> literalOperational(Map<String,String> operational) {
+        Objects.requireNonNull(operational);
+        if (operational.size() > 64) throw new IllegalArgumentException("K1 operational field bound exceeded");
+        operational.forEach((key, value) -> {
+            if (key == null || key.isBlank() || key.length() > 128 || value == null || value.length() > 4096) {
+                throw new IllegalArgumentException("K1 operational settings exceed their finite literal bound");
+            }
+        });
+        return Map.copyOf(operational);
+    }
+
     /** Immutable deployment values; no caller credential/Owner runtime is accepted by the configured entry. */
     public record SourceConfiguration(KafkaClientArtifactOwnedSourceBackend.Settings settings,
             Map<String, String> operational, byte[] sdkJar, Path authorizationFile, byte[] signedRoute,
@@ -55,12 +80,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     || recoveryReader.allocationId().equals(settings.allocationId())) {
                 throw new IllegalArgumentException("configured K1 Source requires bounded original deployment values");
             }
-            operational.forEach((key, value) -> {
-                if (key == null || key.isBlank() || key.length() > 128 || value == null || value.length() > 4096) {
-                    throw new IllegalArgumentException("K1 operational settings exceed their finite literal bound");
-                }
-            });
-            operational = Map.copyOf(operational); sdkJar = Bytes.copy(sdkJar); signedRoute = Bytes.copy(signedRoute);
+            operational = literalOperational(operational); sdkJar = Bytes.copy(sdkJar); signedRoute = Bytes.copy(signedRoute);
             deploymentId = Bytes.copy(deploymentId); workerRunId = Bytes.copy(workerRunId);
             authorizationFile = authorizationFile.normalize();
         }
@@ -161,7 +181,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                 receipt, time, startup::requireCurrent, budget, cost, graph.classes(), graph.resources(), graph.io());
         startup.registerBackend(owner);
         original.requireCurrent();
-        return new Opening(startup, owner, maintenance, identity, time, clock);
+        return new Opening(startup, owner, maintenance, identity, time, clock, sdkJar, budget);
     }
 
     public static final class Opening {
@@ -171,6 +191,9 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         private final com.nereusstream.delay.protocol.OwnerIdentity identity;
         private final java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time;
         private final java.util.function.LongSupplier clock;
+        private final byte[] sdkJar;
+        private final com.nereusstream.delay.ownership.TargetDestinationSdkBudget sdkBudget;
+        private KafkaClientArtifactOwnedSystemWriter systemWriter;
         private TargetWorkerShardRuntime worker;
         private boolean failed;
         private TargetSourceRecoveryInputs.Provider recoveryProvider;
@@ -184,8 +207,10 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                 KafkaClientArtifactOwnedSourceBackend owner, TargetWorkerShardRuntime.Maintenance maintenance,
                 com.nereusstream.delay.protocol.OwnerIdentity identity,
                 java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
-                java.util.function.LongSupplier clock) {
+                java.util.function.LongSupplier clock, byte[] sdkJar,
+                com.nereusstream.delay.ownership.TargetDestinationSdkBudget sdkBudget) {
             this.startup = startup; this.owner = owner; this.maintenance = maintenance;
+            this.sdkJar = Bytes.copy(sdkJar); this.sdkBudget = sdkBudget;
             this.identity = identity; this.time = time; this.clock = clock;
         }
         private void configureRecoveryProvider(TargetSourceRecoveryInputs.Provider provider, long maximumRetainedBytes,
@@ -197,6 +222,45 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             recoveryProvider = Objects.requireNonNull(provider); maximumRecoveryInputBytes = maximumRetainedBytes;
             recoveryReader = Objects.requireNonNull(reader); recoveryOperational = Map.copyOf(operational);
             recoverySdkJar = Bytes.copy(sdkJar); recoveryBudget = Objects.requireNonNull(budget);
+        }
+
+        /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
+        public synchronized void openSystemWriter(SystemWriterConfiguration configuration, LocalBrokerMtlsResolver resolver,
+                SourceTransportCredentialAuthorization.Trust trust) {
+            if (failed || worker == null || systemWriter != null) {
+                throw new IllegalStateException("original K1 Source writer requires its admitted Worker and one configuration");
+            }
+            try (var construction = startup.beginWorkerResourceConstruction(worker)) {
+                construction.requireCurrent();
+                final var graph = startup.graph();
+                final var lease = startup.ownerLease();
+                final var actualOwner = new com.nereusstream.delay.protocol.OwnerIdentity(identity.deploymentId(),
+                        identity.workerRunId(), lease.ownerEpoch(), lease.leaseToken());
+                final var receipt = Objects.requireNonNull(resolver).resolveSource(configuration.authorizationFile(),
+                        configuration.signedRoute(), Objects.requireNonNull(trust), time);
+                construction.requireCurrent();
+                receipt.authorization().requireAssignment(startup.acceptedAssignment());
+                if (!Bytes.constantTimeEquals(actualOwner.deploymentId(), receipt.authorization().deploymentId())) {
+                    throw new IllegalArgumentException("K1 system writer authorization changes the original deployment");
+                }
+                receipt.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
+                receipt.requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+                final Map<String,Object> operational = new java.util.HashMap<>(configuration.operational());
+                systemWriter = KafkaClientArtifactOwnedSystemWriter.open(configuration.settings(), operational, sdkJar,
+                        graph.config(), worker, startup.acceptedAssignment(), actualOwner, receipt, time, clock,
+                        sdkBudget, configuration.cost(), startup.systemWriterBudget(), graph.classes(), graph.resources(), graph.io());
+                construction.requireCurrent();
+            } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
+        }
+
+        /** Observes the original producer opening, retaining its failure even if partial native cleanup is pending. */
+        public synchronized java.util.Optional<KafkaClientArtifactOwnedSystemWriter> advanceSystemWriter() {
+            if (failed || systemWriter == null) throw new IllegalStateException("original K1 Source writer was not opened");
+            try {
+                if (!systemWriter.finishStartup()) return java.util.Optional.empty();
+                startup.requireAdmittedWorker(worker);
+                return java.util.Optional.of(systemWriter);
+            } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }
 
         /** Explicit driver turn; positioning/credential binding use the existing finite SDK timeout. */

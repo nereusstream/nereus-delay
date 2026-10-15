@@ -140,7 +140,11 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
 
     public boolean finishStartup() {
         synchronized (gate) {
-            if (frozen) throw new IllegalStateException("Source producer is frozen");
+            if (frozen) throw new IllegalStateException("Source producer is frozen", openingFailure());
+            if (!opening.operationExited()) return false;
+            final var result = opening.receipt();
+            if (!result.isDone()) return false;
+            result.join();
             if (!opening.ioExited()) return false;
             appender = opening.completedValue().orElseThrow(() -> new IllegalStateException("Source producer opening failed", openingFailure()));
             ready = true; return true;

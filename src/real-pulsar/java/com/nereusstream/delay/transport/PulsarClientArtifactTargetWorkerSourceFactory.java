@@ -51,6 +51,21 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         @Override public byte[] workerRunId() { return Bytes.copy(workerRunId); }
     }
 
+    public record SystemWriterConfiguration(String allocationId, Duration timeout, Path authorizationFile, byte[] signedRoute,
+            com.nereusstream.delay.protocol.CapacityVector cost) {
+        public SystemWriterConfiguration {
+            Objects.requireNonNull(cost);
+            if (allocationId == null || allocationId.isBlank() || allocationId.length() > 512
+                    || timeout == null || timeout.toMillis() < 1 || timeout.toMillis() > 60_000
+                    || authorizationFile == null || !authorizationFile.isAbsolute() || signedRoute == null
+                    || signedRoute.length == 0 || signedRoute.length > 256 * 1024) {
+                throw new IllegalArgumentException("P1 Source writer requires finite original allocation/time/authorization settings");
+            }
+            authorizationFile = authorizationFile.normalize(); signedRoute = Bytes.copy(signedRoute);
+        }
+        @Override public byte[] signedRoute() { return Bytes.copy(signedRoute); }
+    }
+
     /** Resolves actual mTLS material and derives the Registry Owner from this root's acquired lease. */
     public static Opening openConfiguredSource(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
             SourceConfiguration configuration, LocalBrokerMtlsResolver resolver,
@@ -154,7 +169,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                 time, startup::requirePulsarOpeningAuthority, budget, cost, graph.classes(), graph.resources(), graph.io());
         startup.registerBackend(group);
         startup.requireCurrent();
-        return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock);
+        return new Opening(startup, group, receipt, guard, topic, subscription, receiveTimeout, maintenance, identity, time, clock, budget);
     }
 
     public static final class Opening {
@@ -169,6 +184,8 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         private final com.nereusstream.delay.protocol.OwnerIdentity identity;
         private final java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time;
         private final java.util.function.LongSupplier clock;
+        private final com.nereusstream.delay.ownership.TargetDestinationSdkBudget sdkBudget;
+        private PulsarClientArtifactOwnedSystemWriter systemWriter;
         private TargetWorkerShardRuntime worker;
         private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation preparation;
         private GuardedConsumer<byte[]> consumer;
@@ -182,10 +199,47 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                 TopicResourceGuard guard, String topic, String subscription, Duration timeout,
                 TargetWorkerShardRuntime.Maintenance maintenance, com.nereusstream.delay.protocol.OwnerIdentity identity,
                 java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
-                java.util.function.LongSupplier clock) {
+                java.util.function.LongSupplier clock, com.nereusstream.delay.ownership.TargetDestinationSdkBudget sdkBudget) {
             this.startup = startup; this.group = group; this.receipt = receipt; this.guard = guard;
+            this.sdkBudget = sdkBudget;
             this.topic = topic; this.subscription = subscription; this.timeout = timeout;
             this.maintenance = maintenance; this.identity = identity; this.time = time; this.clock = clock;
+        }
+
+        /** Reuses the final actually positioned consumer and its original shared client/material after Source recovery. */
+        public synchronized void openSystemWriter(SystemWriterConfiguration configuration, LocalBrokerMtlsResolver resolver,
+                SourceTransportCredentialAuthorization.Trust trust) {
+            if (failed || worker == null || systemWriter != null || consumer == null || preparedSource == null) {
+                throw new IllegalStateException("original P1 Source writer requires its admitted Worker/final consumer and one configuration");
+            }
+            try (var construction = startup.beginWorkerResourceConstruction(worker)) {
+                construction.requireCurrent();
+                final var graph = startup.graph();
+                final var writerReceipt = Objects.requireNonNull(resolver).resolveSource(configuration.authorizationFile(),
+                        configuration.signedRoute(), Objects.requireNonNull(trust), time);
+                construction.requireCurrent();
+                final var actualOwner = startup.currentPulsarOwnerIdentity();
+                writerReceipt.authorization().requireAssignment(startup.acceptedAssignment());
+                if (!Bytes.constantTimeEquals(actualOwner.deploymentId(), writerReceipt.authorization().deploymentId())) {
+                    throw new IllegalArgumentException("P1 system writer authorization changes the original deployment");
+                }
+                writerReceipt.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
+                writerReceipt.requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+                systemWriter = PulsarClientArtifactOwnedSystemWriter.open(configuration.allocationId(), group, consumer,
+                        graph.config(), worker, startup.acceptedAssignment(), actualOwner, writerReceipt,
+                        configuration.timeout(), time, clock, sdkBudget, configuration.cost(), startup.systemWriterBudget(),
+                        graph.classes(), graph.resources(), graph.io());
+                construction.requireCurrent();
+            } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
+        }
+
+        public synchronized java.util.Optional<PulsarClientArtifactOwnedSystemWriter> advanceSystemWriter() {
+            if (failed || systemWriter == null) throw new IllegalStateException("original P1 Source writer was not opened");
+            try {
+                if (!systemWriter.finishStartup()) return java.util.Optional.empty();
+                startup.requireAdmittedWorker(worker);
+                return java.util.Optional.of(systemWriter);
+            } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }
 
         /** Trusted composition-root provider; no reflected classes/scripts or preconstructed Source runtime. */

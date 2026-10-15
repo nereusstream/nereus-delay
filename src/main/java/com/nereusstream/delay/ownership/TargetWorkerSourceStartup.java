@@ -471,6 +471,7 @@ public final class TargetWorkerSourceStartup {
         original.requireCurrent();
         final var current = Thread.currentThread();
         final var construction = new Construction(this, current, original);
+        process.beginSourceConstruction(this, construction);
         constructionThread = current;
         return construction;
     }
@@ -1104,6 +1105,12 @@ public final class TargetWorkerSourceStartup {
     }
     public TargetWorkerProcessRuntime.Assembly graph() { return graph; }
 
+    /** Original process-wide window; Source factories cannot replace pending generations or UNKNOWN appends. */
+    public synchronized SystemWriterAppendBudget systemWriterBudget() {
+        requireCurrent();
+        return process.systemWriterBudget(this);
+    }
+
     public synchronized SourceAssignment acceptedAssignment() {
         if (assignment == null) throw new IllegalStateException("original Source assignment has not been accepted");
         return assignment;
@@ -1162,8 +1169,10 @@ public final class TargetWorkerSourceStartup {
         requireCurrent(); requireAdmittedWorker(actual);
         if (constructionThread != null) throw new IllegalStateException("original resource construction is already owned");
         final var current = Thread.currentThread();
+        final var construction = new Construction(this, current);
+        process.beginSourceConstruction(this, construction);
         constructionThread = current;
-        return new Construction(this, current);
+        return construction;
     }
 
     public synchronized void requireAdmittedWorker(TargetWorkerShardRuntime actual) {
@@ -1176,6 +1185,7 @@ public final class TargetWorkerSourceStartup {
         if (worker != null || constructionThread != null) throw new IllegalStateException("Source Worker construction is already owned");
         final var original = Thread.currentThread();
         final var construction = new Construction(this, original);
+        process.beginSourceConstruction(this, construction);
         constructionThread = original;
         return construction;
     }
@@ -1203,7 +1213,10 @@ public final class TargetWorkerSourceStartup {
                 if (Thread.currentThread() != original || startup.constructionThread != original && !closed) {
                     throw new IllegalStateException("Source construction exit belongs to another original call");
                 }
-                if (!closed) { startup.constructionThread = null; closed = true; }
+                if (!closed) {
+                    startup.process.endSourceConstruction(this);
+                    startup.constructionThread = null; closed = true;
+                }
             }
         }
     }
@@ -1259,6 +1272,16 @@ public final class TargetWorkerSourceStartup {
         else if (firstFailure != failure) {
             for (var prior : firstFailure.getSuppressed()) if (prior == failure) return;
             firstFailure.addSuppressed(failure);
+        }
+    }
+
+    /** Resource observation can finish after Host composition; failure then uses that same original Host exit. */
+    public void failResourceStartup(Throwable failure) {
+        retain(failure);
+        final var actual = process.host();
+        if (actual.isPresent()) {
+            try { actual.orElseThrow().quarantineOwnedBackends(); }
+            catch (RuntimeException | Error cleanup) { if (cleanup != failure) retain(cleanup); }
         }
     }
 

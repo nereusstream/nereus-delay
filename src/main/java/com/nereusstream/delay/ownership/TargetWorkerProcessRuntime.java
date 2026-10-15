@@ -67,6 +67,8 @@ public final class TargetWorkerProcessRuntime {
     private final List<Thread> ioThreads = new ArrayList<>();
     private final java.util.Map<com.nereusstream.delay.protocol.ShardId, TargetWorkerSourceStartup> sources =
             new java.util.LinkedHashMap<>();
+    private final java.util.Set<TargetWorkerSourceStartup.Construction> sourceConstructions =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private SharedRocksDbResources resources;
     private SharedRocksDbResources.NativeOpeningFailure partialSharedOpening;
     private WorkClassExecutionRegistry classes;
@@ -74,6 +76,7 @@ public final class TargetWorkerProcessRuntime {
     private WorkerNativeResourceLedger.Reservation metricCost;
     private ThreadPoolExecutor io;
     private BoundedAsyncMetricExporter metrics;
+    private SystemWriterAppendBudget systemWriters;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
@@ -248,6 +251,25 @@ public final class TargetWorkerProcessRuntime {
         }
     }
 
+    synchronized void beginSourceConstruction(TargetWorkerSourceStartup original, TargetWorkerSourceStartup.Construction construction) {
+        requireSourceAssemblyAdmission(original);
+        if (sourceConstructions.size() >= configuration.worker().store().maxOwnedShards()
+                || !sourceConstructions.add(construction)) {
+            throw new IllegalStateException("original Source construction window is unavailable");
+        }
+    }
+
+    synchronized void endSourceConstruction(TargetWorkerSourceStartup.Construction original) {
+        if (!sourceConstructions.remove(original)) throw new IllegalStateException("Source construction lost its original process registration");
+    }
+
+    /** One original configured append window shared by all controlled Source producers in this process graph. */
+    synchronized SystemWriterAppendBudget systemWriterBudget(TargetWorkerSourceStartup original) {
+        requireSourceAssemblyAdmission(original);
+        if (systemWriters == null) systemWriters = configuration.worker().newSystemWriterBudget(classes, resources);
+        return systemWriters;
+    }
+
     /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
     public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
         Objects.requireNonNull(request);
@@ -299,6 +321,7 @@ public final class TargetWorkerProcessRuntime {
         synchronized (this) {
             requireAssemblyAdmission();
             if (!controlled.equals(List.copyOf(sources.values()))) throw new IllegalStateException("Source assembly changed");
+            if (!sourceConstructions.isEmpty()) throw new IllegalStateException("original Source construction has not exited before Host transfer");
             preparingHost = true; assemblyBorrowed = true;
         }
         try {
@@ -307,6 +330,15 @@ public final class TargetWorkerProcessRuntime {
                     classes, resources, original, checkpoints, checkpointClock, failures);
             synchronized (this) { host = prepared; }
             retryHostTransfer();
+            for (var source : controlled) {
+                final var failed = source.firstFailure();
+                if (failed.isPresent()) {
+                    final var failure = new IllegalStateException("original Source resource startup failed during Host transfer", failed.orElseThrow());
+                    try { prepared.quarantineOwnedBackends(); }
+                    catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                    throw failure;
+                }
+            }
             return prepared;
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerHostRuntime.CompositionFailure partial) {
@@ -406,6 +438,10 @@ public final class TargetWorkerProcessRuntime {
     public synchronized void retryCleanup() {
         if (!stopping || !dependenciesExited || resourcesClosed) return;
         try {
+            if (systemWriters != null) {
+                final var usage = systemWriters.usage();
+                if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
+            }
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();
                 if (!partialSharedOpening.cleanupComplete()) return;

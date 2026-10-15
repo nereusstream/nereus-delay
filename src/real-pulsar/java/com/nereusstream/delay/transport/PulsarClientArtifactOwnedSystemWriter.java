@@ -62,15 +62,15 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
         minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
         minimum[CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = configuration.maximumSourceFrameBytes();
         if (!cost.covers(new CapacityVector(minimum))) throw new IllegalArgumentException("P1 system writer cannot serve the configured Source frame");
+        final var client = group.nativeClientForFactory();
         final var allocation = pool.reserve(allocationId, cost);
         final SystemWriterAppendBudget.Writer writer;
         try { writer = writers.registerWriter(assignment.shardId()); }
         catch (RuntimeException | Error failed) { allocation.releaseUnstarted(); throw failed; }
         final var backend = new PulsarClientArtifactOwnedSystemWriter(worker, group, writer, allocation, timeout);
-        final var client = group.nativeClientForFactory();
         try {
             group.registerCleanup(backend, () -> {
-                synchronized (backend.gate) { return backend.activeAppends == 0 && backend.opening != null && backend.opening.ioExited(); }
+                synchronized (backend.gate) { return backend.activeAppends == 0 && backend.opening != null && backend.opening.operationExited(); }
             }, backend::resourcesTerminated, proof -> { proof.requireClient(client); writer.beginClose(); backend.nativeOpening.requestClose();
                 backend.nativeOpening.backendShutdownCompleted(group); backend.releaseNative(); });
             worker.registerSystemWriterBackend(allocationId, backend, pool, clock);
@@ -113,7 +113,11 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
     }
     public boolean finishStartup() {
         synchronized (gate) {
-            if (nativeClosed) throw new IllegalStateException("P1 Source writer is closed");
+            if (nativeClosed) throw new IllegalStateException("P1 Source writer is closed", CheckpointInputFuture.ownedFailure(opening.receipt()));
+            if (!opening.operationExited()) return false;
+            final var result = opening.receipt();
+            if (!result.isDone()) return false;
+            result.join();
             if (!opening.ioExited()) return false;
             appender = opening.completedValue().orElseThrow(() -> new IllegalStateException("P1 Source writer opening failed", CheckpointInputFuture.ownedFailure(opening.receipt())));
             ready = true; return true;
