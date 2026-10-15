@@ -6,6 +6,8 @@ import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
 import com.nereusstream.delay.ownership.TargetReceiptControlHistory;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
+import com.nereusstream.delay.ownership.TargetRecoveryCredentialAuthorization;
+import com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance;
 import com.nereusstream.delay.ownership.TargetWorkerProcessRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.protocol.Bytes;
@@ -164,12 +166,25 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
             Path currentPolicy, TargetDestinationSdkBudget budget,
             TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
+        return openConfigured(root, configuration, controlHistory, currentPolicy, null, List.of(), budget, authenticator);
+    }
+
+    /** Recovery proof purpose/key inputs share this original management owner, its cost and its I/O lifecycle. */
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
+            Path currentPolicy, Path recoveryArchive,
+            List<TargetRecoveryCredentialAuthorization.Trust> originalRecoveryMaterialHistory,
+            TargetDestinationSdkBudget budget, TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
         Objects.requireNonNull(authenticator, "original live CONTROL authenticator");
         final var config = load(configuration);
         final var captured = TargetReceiptControlHistory.prepare(controlHistory);
         final var policy = TargetReceiptCurrentManagement.prepare(currentPolicy);
+        final var recovery = recoveryArchive == null ? null : KafkaClientArtifactTargetRecoveryArchiveConfiguration.prepare(
+                recoveryArchive, config.catalogPrefix(), originalRecoveryMaterialHistory);
+        if (recovery == null && !originalRecoveryMaterialHistory.isEmpty())
+            throw new IllegalArgumentException("recovery material history requires its explicit archive configuration");
         final long bytes = Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
-                retainedConfigurationBytes(config.management(), config.admin(), config.receipts()));
+                Math.addExact(retainedConfigurationBytes(config.management(), config.admin(), config.receipts()),
+                        recovery == null ? 0 : recovery.maximumRetainedBytes()));
         if (config.cost().amount(CapacityDimension.BUFFERED_BYTES) < bytes)
             throw new IllegalArgumentException("management reservation omits its history/current-policy input bounds");
         return openLoaded(root, config, budget, guard -> {
@@ -184,7 +199,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
                 return new TrustInputs(history, history, history, current);
             } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
-        });
+        }, recovery);
     }
 
     /** No native SDK or request is created until this exact owner and cost have been retained by the original root. */
@@ -197,7 +212,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
 
     private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
             TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader) {
-        final var original = new Opening(root, config, budget, trustLoader);
+        return openLoaded(root, config, budget, trustLoader, null);
+    }
+
+    private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
+            TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader,
+            KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recovery) {
+        final var original = new Opening(root, config, budget, trustLoader, recovery);
         try (var construction = root.beginReceiptManagementConstruction(original, budget)) {
             original.registered = true;
             construction.requireCurrent(); original.start(construction.graph()); construction.requireCurrent(); return original;
@@ -257,6 +278,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile TargetDestinationSdkBudget.Client allocation;
         private volatile KafkaClientArtifactTargetReceiptManagement manager;
         private volatile OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs;
+        private volatile KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded recoveryArchive;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -266,9 +289,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile boolean closed;
         private volatile Throwable failure;
         private Opening(TargetWorkerProcessRuntime root, Configuration config, TargetDestinationSdkBudget budget,
-                java.util.function.Function<Runnable,TrustInputs> trustLoader) {
+                java.util.function.Function<Runnable,TrustInputs> trustLoader,
+                KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs) {
             this.root = Objects.requireNonNull(root); this.config = config; this.budget = Objects.requireNonNull(budget);
             this.trustLoader = Objects.requireNonNull(trustLoader);
+            this.recoveryInputs = recoveryInputs;
             identity = TargetKafkaReceiptManagementImage.decode(config.management().image()).topicIdentity();
         }
         private void start(TargetWorkerProcessRuntime.Assembly graph) {
@@ -278,6 +303,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 try {
                     guard.run(); TargetSdkArtifactIdentity.requireExact(KafkaAdminClient.class, config.sdkJar());
                     final var inputs = Objects.requireNonNull(trustLoader.apply(guard), "actual original CONTROL inputs");
+                    if (recoveryInputs != null) {
+                        try { recoveryArchive = KafkaClientArtifactTargetRecoveryArchiveConfiguration.load(recoveryInputs, guard); }
+                        catch (IOException rejected) { throw new IllegalStateException("original recovery signing input materialization failed", rejected); }
+                        if (stopping) recoveryArchive.requestStop();
+                    }
                     guard.run();
                     final var trust = new TargetKafkaReceiptProtectionTrust(graph.oxia().providers().registrations(),
                             inputs.keys(), inputs.actors(), inputs.scope(), (image, control, at) ->
@@ -308,7 +338,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     }
                     guard.run(); protections = Map.copyOf(active); publishers = Map.copyOf(restricted); prepared = true; return null;
                 } catch (RuntimeException | Error rejected) { failed(rejected); throw rejected; }
-            }, () -> {}, graph.io());
+            }, () -> { if (stopping) throw new IllegalStateException("original receipt management owner stopped"); }, graph.io());
         }
         private void failed(Throwable rejected) {
             synchronized (this) { if (failure != null) return; failure = rejected; }
@@ -331,8 +361,46 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             requireReady(); return Objects.requireNonNull(publishers.get(Bytes.hex(channelDigest)), "original configured receipt channel");
         }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+
+        private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded requireRecoveryArchive() {
+            requireReady();
+            return Objects.requireNonNull(recoveryArchive, "explicit original Root recovery signing configuration");
+        }
+
+        /** Only the history callback is exposed; purpose and Source private keys remain inside this Root owner. */
+        public TargetPublishRecoveryMaintenance.History receiptRecoveryHistory(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source, KafkaClientArtifactTargetRecoveryRuntime recovery,
+                int maximumTurns, KafkaClientArtifactTargetRecoveryRuntime.ResolutionContext contexts,
+                TargetPublishRecoveryMaintenance.History originalHistory) {
+            final var original = requireRecoveryArchive();
+            return Objects.requireNonNull(source).receiptRecoveryHistory(recovery, this, maximumTurns,
+                    original.issuer, original.trust, original.sourceSigner, original.contexts(contexts), originalHistory);
+        }
+
+        /** Bootstrap authenticates retained original proofs/seals; it neither claims adoption nor requires a live old SDK. */
+        public com.nereusstream.delay.store.TargetCheckpointDependencies.RecoveryEvidenceAuthority receiptRecoveryEvidenceAuthority(
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) {
+            final var original = requireRecoveryArchive(); Objects.requireNonNull(reads);
+            return (owner, input) -> {
+                requireReady(); final var budget = Objects.requireNonNull(reads.get(), "bounded original recovery proof reads");
+                if (!budget.beforeRead() || !budget.tryCharge(Bytes.utf8(owner.reference().exactKey()).length,
+                        Math.toIntExact(owner.reference().canonicalValueBytes()))) throw budget.incomplete();
+                final var retained = catalog.retainedRecovery(owner, input.image(), original.trust);
+                requireReady(); return retained;
+            };
+        }
+
+        /** After actual Worker admission, the existing Source provider may reconcile its proven APPLIED owners. */
+        public com.nereusstream.delay.store.TargetCheckpointDependencies.RecoveryEvidenceAuthority reconcilingReceiptRecoveryEvidenceAuthority(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) {
+            final var original = requireRecoveryArchive();
+            return Objects.requireNonNull(source).reconcilingReceiptRecoveryEvidenceAuthority(this, original.trust, reads);
+        }
+
         @Override public void requestStop() {
             stopping = true;
+            final var signing = recoveryArchive; if (signing != null) signing.requestStop();
             final var operation = opening; if (operation != null) operation.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
@@ -350,6 +418,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
+            final var signing = recoveryArchive;
+            if (signing != null) signing.close();
+            recoveryArchive = null; recoveryInputs = null;
             final var charge = allocation;
             if (charge != null) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }
             closed = true; return true;

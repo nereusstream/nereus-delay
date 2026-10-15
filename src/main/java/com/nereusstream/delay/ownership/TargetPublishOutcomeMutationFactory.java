@@ -6,9 +6,11 @@ import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
+import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionStore;
 import java.security.PrivateKey;
 import java.util.Arrays;
@@ -17,14 +19,35 @@ import java.util.Objects;
 /** Signs exact Target initial outcomes; context/physical authentication and source ordering remain external. */
 public final class TargetPublishOutcomeMutationFactory {
     private final int keyVersion;
-    private final PrivateKey key;
+    private volatile PrivateKey key;
+    private final java.util.function.Consumer<TrustedUtcIntervalEvidence> signingGuard;
 
     public TargetPublishOutcomeMutationFactory(int keyVersion, PrivateKey key) {
+        this(keyVersion, key, at -> {});
+    }
+
+    /** The owning Root checks its lifetime and the configured key window on both sides of signing. */
+    public TargetPublishOutcomeMutationFactory(int keyVersion, PrivateKey key,
+            java.util.function.Consumer<TrustedUtcIntervalEvidence> signingGuard) {
         if (keyVersion == 0) {
             throw new IllegalArgumentException("Target Outcome signing version is unassigned");
         }
         this.keyVersion = keyVersion;
         this.key = Objects.requireNonNull(key, "key");
+        this.signingGuard = Objects.requireNonNull(signingGuard, "original signing owner");
+    }
+
+    /** After the owner's I/O users exit, drop this factory's private key reference and prohibit further signing. */
+    public void invalidate() { key = null; }
+
+    private SystemMutation sign(ShardId shard, SystemMutationType type, long retryUntil,
+            byte[] logical, byte[] body, byte[] author, TrustedUtcIntervalEvidence at) {
+        signingGuard.accept(at);
+        final var original = key;
+        if (original == null) throw new IllegalStateException("Target Outcome signing owner closed");
+        final var signed = SystemMutation.signed(shard, type, retryUntil, logical, body, author, keyVersion, original);
+        signingGuard.accept(at);
+        return signed;
     }
 
     public SystemMutation create(
@@ -81,10 +104,10 @@ public final class TargetPublishOutcomeMutationFactory {
                 body.shard(), c.retryUntilEpochMs(), body.publishAttemptId(), effect, c.disposition(),
                 physical.stableCode(), effect == 3 ? null : physical.evidence(), c.transfer(),
                 c.observedAt(), c.retryDecision());
-        return SystemMutation.signed(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
+        return sign(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
                 body.publishAttemptId(), encoded,
                 AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
-                        owner.leaseFencingDigest()).canonicalBytes(), keyVersion, key);
+                        owner.leaseFencingDigest()).canonicalBytes(), c.observedAt());
     }
 
     /** Signs only the initial conservative hold, never a definitive result or new send/retry permission. */
@@ -108,10 +131,10 @@ public final class TargetPublishOutcomeMutationFactory {
                 || outcome.retryDecision().cause() != StableCode.RECOVERY_FIRST_SEND_UNCERTAIN) {
             throw new IllegalArgumentException("Target recovery requires typed UNCERTAIN_HOLD and its recovery cause");
         }
-        return SystemMutation.signed(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
+        return sign(body.shard(), SystemMutationType.PUBLISH_OUTCOME, c.retryUntilEpochMs(),
                 body.publishAttemptId(), encoded,
                 AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
-                        owner.leaseFencingDigest()).canonicalBytes(), keyVersion, key);
+                        owner.leaseFencingDigest()).canonicalBytes(), c.observedAt());
     }
 
     /** SERVICE resolution of actual Source UNKNOWN; independent history/evidence/retention rights are mandatory. */
@@ -131,9 +154,9 @@ public final class TargetPublishOutcomeMutationFactory {
                 context.retryUntilEpochMs(), actual.mapping().admission().publishAttemptId(), cursor,
                 evidence.canonicalBytes(), code, effect, context.disposition(), context.transfer(),
                 context.observedAt(), context.retryDecision());
-        return SystemMutation.signed(actual.admission().shardId(), SystemMutationType.EVIDENCE_RESOLUTION,
+        return sign(actual.admission().shardId(), SystemMutationType.EVIDENCE_RESOLUTION,
                 context.retryUntilEpochMs(), PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity(), body,
-                service.canonicalBytes(), keyVersion, key);
+                service.canonicalBytes(), context.observedAt());
     }
 
     /** Root-owned v7 signing accepts an actual authenticated publication, never a caller's recovery evidence DTO. */
@@ -153,7 +176,7 @@ public final class TargetPublishOutcomeMutationFactory {
         final byte[] body=PublishOutcomeBody.encodeEvidenceResolutionWithRecoveryProof(actual.admission().shardId(),context.retryUntilEpochMs(),
                 actual.mapping().admission().publishAttemptId(),cursor,evidence.canonicalBytes(),code,effect,context.disposition(),context.transfer(),
                 context.observedAt(),context.retryDecision(),verified.reference());
-        return SystemMutation.signed(actual.admission().shardId(),SystemMutationType.EVIDENCE_RESOLUTION,context.retryUntilEpochMs(),
-                PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity(),body,service.canonicalBytes(),keyVersion,key);
+        return sign(actual.admission().shardId(),SystemMutationType.EVIDENCE_RESOLUTION,context.retryUntilEpochMs(),
+                PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity(),body,service.canonicalBytes(),context.observedAt());
     }
 }

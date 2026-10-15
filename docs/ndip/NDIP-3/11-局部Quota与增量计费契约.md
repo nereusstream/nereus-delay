@@ -2378,3 +2378,11 @@ reopen与显式关闭先等adoption实际句柄，再退原SDK/material窗口。
 checkpoint provider在有限读预算内补记真实Native owners，不新建SDK或另计嵌入
 材料依赖。孤儿、所有Source/Checkpoint/Floor/共享引用到实际delete才退费的
 完整义务保持，集中状态不提升。
+
+2026-10-16 Root签发配置占用原management.cost.BUFFERED_BYTES中的独立输入份额：
+在原CONTROL history/current policy/configuration之外加recovery.maximumInputBytes，
+不足时在新key/identity文件读取前拒绝。引用文件最多1024 bytes，manifest的最低
+窗口覆盖编码/解析副本、路径和有界issuer/SDK/history索引；实际加载/签发沿原
+有限I/O池，不增加client或线程。停止禁新签名，原Worker/SDK与owned I/O退出、
+管理native close实际完成后清新私钥引用并退原allocation。该进程输入内存份额
+不支付EVIDENCE/STATE或Catalog物理费，不改变原冻结Target reserve和退费契约。

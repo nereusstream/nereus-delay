@@ -4025,3 +4025,12 @@ is admitted. This collector covers actual retained Native owners, not orphan
 staging intents or a global retirement sweep. Full deployment key/configuration,
 all normal/stop/lost-Owner interleavings, protected Floor/retirement and centralized
 Broker/recovery/fault validation remain mandatory open work.
+
+2026-10-16 deployment signing configuration adds no wire version/domain or automatic
+Artifact/reader activation. The existing receipt-management Root owns an explicit
+RECOVERY_PROOF issuer/SDK allowlist and a separate Source SERVICE key/window under
+its original input budget and I/O pool. Private/public key matching does not grant
+Source or material authority. Configured history/bootstrap/live-checkpoint wrappers
+keep signing factories out of Worker results. Stop disables new signing; historical
+verification remains valid and private key references are cleared after dependent
+I/O/native exit. Full deployment and Broker/recovery validation remain deferred.

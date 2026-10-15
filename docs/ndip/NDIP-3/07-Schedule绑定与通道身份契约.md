@@ -916,3 +916,10 @@ completion和实际SDK关闭；旧普通SEND授权不因此放宽。当前Root l
 可据保留的原Native owner/first/POSITION补记，旧observer/credential失效不抹历史；
 bootstrap仍先完整历史认证再准入Worker。丢失Owner、Stop、重启/代次组合仍须
 集中验证和完整部署装配，不以补记或无ref推断可退役/删除。
+
+2026-10-16 Root签发配置显式区分RECOVERY_PROOF目的issuer清单与Source SERVICE
+作者/key/window。两组私钥在原management owner/I/O/预算内加载并核公钥匹配，
+history包装器拒绝Source context换作者；不把SERVICE身份文件或匹配公钥视为
+Source apply授权。原独立RECOVERY material provider、Source key/tuple/Artifact/
+reader/Owner检查仍保留；停止签发不使原观察时刻的proof验签失效。该配置接线
+未替代真实部署/跨代/失权恢复验收。

@@ -795,3 +795,11 @@ live admitted checkpoint provider可用当前Native实际记录补记Source/Cata
 不授新Source/SEND，不是孤儿扫描/never-adopted/退役权限。物理与逻辑费用保留；
 部署key/config、全Stop/失权/接续及保护Floor到实际删除仍开放，只必要编译与既有
 文档同步，全部完成/生产flags不提升。
+
+2026-10-16部署签发输入沿原receipt management owner、预算和I/O池落地，不另建
+进程资源框架。RECOVERY_PROOF目的issuer/SDK清单和Source SERVICE key/window显式
+配置，原材料历史仍由实际Root provider提供；文件身份/公钥匹配不授Source或
+材料权限。预算先于新key文件读取，签名器前后检查停止/key窗口，关闭清新私钥
+引用但保留历史验证语义。Opening仅包装原history/bootstrap/live collector，
+不向Worker暴露私钥/factory，不自动激活tuple/Artifact/reader。必要编译之外
+继续后置集中验证，完整部署、接续/Stop/失权及保护Floor/退役义务不收窄。
