@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.protocol.*;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -187,36 +188,48 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         public Management management() { return management; }
         public boolean fresh() { return fresh; }
     }
-    public Installation beginManagement(TargetKafkaReceiptControlArtifact signed,ControlAuthorizationContext currentActor){
-        trust.requireManagementIssuer(signed,currentActor);
+    public Installation beginManagement(TargetKafkaReceiptControlArtifact signed){
+        try (var permission = trust.currentManagement(signed, Action.BEGIN_INSTALLATION)) {
+        permission.requireCurrent();
         final byte[] token = new byte[16]; new java.security.SecureRandom().nextBytes(token);
         final var desired=new Management(signed,INSTALLING,1,new byte[0],new byte[0],new byte[0],token);
         final var root=update(r->{var old=r.topics.get(desired.id());if(old!=null){
             if(!Arrays.equals(old.artifact.canonicalBytes(),signed.canonicalBytes()))throw new IllegalStateException("managed topic already has a different non-revivable epoch");return r;}
-            return r.topic(desired);});
+            return r.topic(desired);}, permission::requireCurrent);
         final var actual = root.topics.get(desired.id());
-        return new Installation(actual,Arrays.equals(actual.installationId,token));
+        permission.requireCurrent(); return new Installation(actual,Arrays.equals(actual.installationId,token));
+        }
     }
     public Optional<Management> findManagement(BrokerResourceIdentity topic){final var m=readRoot().root.topics.get(topicId(topic));if(m!=null)trust.requireManagementHistory(m.artifact);return Optional.ofNullable(m);}
     public Management management(BrokerResourceIdentity topic){return findManagement(topic).orElseThrow(()->new IllegalStateException("topic has no persistent deployment authorization"));}
-    public Management activateManagement(Installation installation,byte[] actualPolicy,ControlAuthorizationContext actor){
+    public Management activateManagement(Installation installation,byte[] actualPolicy){
         if (!installation.fresh) throw new IllegalStateException("historical INSTALLING cannot issue or adopt new Admin actions");
         final var original = installation.management.artifact;
-        trust.requireManagementIssuer(original,actor);final String id=topicId(TargetKafkaReceiptManagementImage.decode(original.image()).topic());
+        try (var permission = trust.currentManagement(original, Action.ACTIVATE_INSTALLATION)) {
+        permission.requireCurrent(); final String id=topicId(TargetKafkaReceiptManagementImage.decode(original.image()).topic());
         final var root=update(r->{final var prior=Objects.requireNonNull(r.topics.get(id),"INSTALLING management epoch");requireManagementExact(prior,original);
             if (!Arrays.equals(prior.installationId,installation.management.installationId)) throw new IllegalStateException("management installation changed its original Admin owner");
             if(prior.state==BROKEN)throw new IllegalStateException("old management epoch cannot become ACTIVE again");
             if(prior.state==ACTIVE){if(!Arrays.equals(prior.policy,actualPolicy))throw new IllegalStateException("ACTIVE epoch policy was replaced");return r;}
-            return r.topic(new Management(original,ACTIVE,Math.addExact(prior.revision,1),actualPolicy,new byte[0],new byte[0],prior.installationId));});return root.topics.get(id);
+            return r.topic(new Management(original,ACTIVE,Math.addExact(prior.revision,1),actualPolicy,new byte[0],new byte[0],prior.installationId));}, permission::requireCurrent); permission.requireCurrent(); return root.topics.get(id);
+        }
     }
-    public void breakManagement(TargetKafkaReceiptControlArtifact original,byte[] failure,byte[] signature,ControlAuthorizationContext actor){
-        trust.requireManagementIssuer(original,actor);trust.requireFailure(original,failure,signature);
+    public void breakManagement(TargetKafkaReceiptControlArtifact original,byte[] failure,byte[] signature){
+        trust.requireFailure(original,failure,signature);
+        try (var permission = trust.currentManagement(original, Action.BREAK_MANAGEMENT)) {
+        permission.requireCurrent();
         update(r->{final var prior=Objects.requireNonNull(r.topics.get(topicId(TargetKafkaReceiptManagementImage.decode(original.image()).topic())));requireManagementExact(prior,original);
-            return prior.state==BROKEN?r:r.topic(new Management(original,BROKEN,Math.addExact(prior.revision,1),prior.policy,failure,signature,prior.installationId));});
+            return prior.state==BROKEN?r:r.topic(new Management(original,BROKEN,Math.addExact(prior.revision,1),prior.policy,failure,signature,prior.installationId));}, permission::requireCurrent);
+        permission.requireCurrent(); }
     }
     public TargetKafkaReceiptControlArtifact publishProtection(TargetKafkaReceiptControlArtifact artifact){
-        trust.requireTrusted(artifact,artifact);requireActiveManagement(artifact.protection());writeArtifact(artifact,protectionObjectKey(artifact.protection()));
-        return requireActive(artifact.protection().resource(),artifact.protection().evidenceGeneration(),artifact.digest());
+        final var original = TargetKafkaReceiptControlArtifact.decode(artifact.protection().managementAuthorityImage());
+        try (var permission = trust.currentManagement(original, Action.PUBLISH_PROTECTION)) {
+            permission.requireCurrent(); trust.requireTrusted(artifact,artifact);requireActiveManagement(artifact.protection());
+            writeArtifact(artifact,protectionObjectKey(artifact.protection()), permission::requireCurrent, artifact.protection());
+            final var actual = requireActive(artifact.protection().resource(),artifact.protection().evidenceGeneration(),artifact.digest());
+            permission.requireCurrent(); return actual;
+        }
     }
     public Optional<TargetKafkaReceiptControlArtifact> findProtection(KafkaReceiptSlotResource resource,long generation){
         final String key=protectionKey(resource,generation);final var root=readRoot().root;final var intent=findByKey(root,key);
@@ -229,7 +242,12 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     }
     public TargetKafkaReceiptControlArtifact publishAnchor(TargetKafkaReceiptControlArtifact anchor,TargetKafkaReceiptControlArtifact protection,TargetKafkaReceiptBinding binding){
         anchor.requireAnchorBinding(protection,binding);requireActive(protection.protection().resource(),protection.protection().evidenceGeneration(),protection.digest());
-        trust.requireTrusted(anchor,protection);writeArtifact(anchor,anchorObjectKey(anchor.digest()));return requireAnchor(protection,binding);
+        final var original = TargetKafkaReceiptControlArtifact.decode(protection.protection().managementAuthorityImage());
+        try (var permission = trust.currentManagement(original, Action.PUBLISH_ANCHOR)) {
+            permission.requireCurrent(); trust.requireTrusted(anchor,protection);
+            writeArtifact(anchor,anchorObjectKey(anchor.digest()), permission::requireCurrent, protection.protection());
+            final var actual = requireAnchor(protection,binding); permission.requireCurrent(); return actual;
+        }
     }
     public TargetKafkaReceiptControlArtifact requireAnchor(TargetKafkaReceiptControlArtifact protection,TargetKafkaReceiptBinding binding){
         requireActive(protection.protection().resource(),protection.protection().evidenceGeneration(),binding.retentionProtectionDigest());
@@ -286,43 +304,55 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public void markBroken(KafkaReceiptSlotResource resource,long generation,byte[] originalDigest,byte[] evidence,byte[] signature){
         final String key=protectionKey(resource,generation);final var intent=Objects.requireNonNull(findByKey(readRoot().root,key));final var original=readArtifact(intent);
         if(!Arrays.equals(original.digest(),originalDigest))throw new IllegalArgumentException("failure changed original protection");trust.requireFailure(original,evidence,signature);
-        update(r->{final var i=Objects.requireNonNull(findByKey(r,key));if(i.brokenDigest.length!=0)return r;
-            return r.publication(new Intent(i.id,i.kind,i.key,i.digest,i.valueHash,i.bytes,i.controlId,i.controlDigest,i.shard,i.controlScope,i.phase,i.uses,i.adoptedSource,evidence,signature));});
+        final var management = TargetKafkaReceiptControlArtifact.decode(original.protection().managementAuthorityImage());
+        try (var permission = trust.currentManagement(management, Action.BREAK_PROTECTION)) {
+            permission.requireCurrent();
+            update(r->{final var i=Objects.requireNonNull(findByKey(r,key));if(i.brokenDigest.length!=0)return r;
+                return r.publication(new Intent(i.id,i.kind,i.key,i.digest,i.valueHash,i.bytes,i.controlId,i.controlDigest,i.shard,i.controlScope,i.phase,i.uses,i.adoptedSource,evidence,signature));}, permission::requireCurrent);
+            permission.requireCurrent();
+        }
     }
     public void releaseProtection(KafkaReceiptSlotResource resource,long generation){throw new IllegalStateException("release/orphan GC requires original Source retirement/Floor/query/shared-topic closure");}
     public String protectionObjectKey(TargetKafkaReceiptProtection image){return protectionKey(image.resource(),image.evidenceGeneration());}
     public String anchorObjectKey(byte[] digest){Bytes.requireLength(digest,32,"anchor digest");return prefix+"/target-kafka-receipt-anchor/"+Bytes.hex(digest);}
-    private void writeArtifact(TargetKafkaReceiptControlArtifact artifact,String key){
+    private void writeArtifact(TargetKafkaReceiptControlArtifact artifact,String key,Runnable current,TargetKafkaReceiptProtection protection){
+        current.run();
         final var request=(TargetChannelControlRequest)artifact.control().request().branch();final var c=request.channel().context();
         final var identity=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.TARGET,c.sourceShard(),c.accountingIncarnation(),c.target(),null);
         final byte[] id=Bytes.sha256(Bytes.utf8("nereus-delay-target-kafka-receipt-publication\0"),Bytes.u32be(artifact.kind()),artifact.digest(),Bytes.lp32(Bytes.utf8(key)),artifact.control().operationId());
         final var desired=new Intent(id,artifact.kind(),key,artifact.digest(),Bytes.sha256(artifact.canonicalBytes()),artifact.canonicalBytes().length,
             artifact.control().operationId(),Bytes.sha256(artifact.control().canonicalBytes()),shardBytes(c.sourceShard()),identity,RESERVED,List.of(),new byte[0],new byte[0],new byte[0]);
         // Capacity and original publication responsibility persist before any blob put. UNKNOWN never frees either.
-        update(r->{final var old=r.publications.get(Bytes.hex(id));if(old!=null){if(!samePublication(old,desired))throw new IllegalStateException("publication changed original exact object/scope");return r;}
-            if(findByKey(r,key)!=null)throw new IllegalStateException("external key already belongs to another publication");return r.publication(desired);});
+        update(r->{requireActiveManagement(r,protection);final var old=r.publications.get(Bytes.hex(id));if(old!=null){if(!samePublication(old,desired))throw new IllegalStateException("publication changed original exact object/scope");return r;}
+            if(findByKey(r,key)!=null)throw new IllegalStateException("external key already belongs to another publication");return r.publication(desired);},current);
         final byte[] value=artifact.canonicalBytes();final var existing=read(key);
-        if(existing==null){try{session.run();client.put(key,value,Set.of(PutOption.IfRecordDoesNotExist));session.run();}
-            catch(KeyAlreadyExistsException|UnexpectedVersionIdException|RuntimeException uncertain){final var actual=read(key);if(actual==null)throw new IllegalStateException("artifact publication remains uncertain",uncertain);requireExact(actual.value(),value);}}
+        if(existing==null){try{requireActiveManagement(protection);session.run();current.run();client.put(key,value,Set.of(PutOption.IfRecordDoesNotExist));session.run();current.run();}
+            catch(KeyAlreadyExistsException|UnexpectedVersionIdException|RuntimeException uncertain){current.run();final var actual=read(key);if(actual==null)throw new IllegalStateException("artifact publication remains uncertain",uncertain);requireExact(actual.value(),value);}}
         else requireExact(existing.value(),value);
         final var actual=read(key);if(actual==null)throw new IllegalStateException("artifact publication lacks exact durable reread");requireExact(actual.value(),value);
-        update(r->{final var i=Objects.requireNonNull(r.publications.get(Bytes.hex(id)));return i.phase>=PUBLISHED?r:r.publication(i.phase(PUBLISHED));});
+        update(r->{requireActiveManagement(r,protection);final var i=Objects.requireNonNull(r.publications.get(Bytes.hex(id)));return i.phase>=PUBLISHED?r:r.publication(i.phase(PUBLISHED));},current); current.run();
     }
     private record Observed(GetResult stored,Root root){}
     private Observed readRoot(){final var result=read(ledgerKey);final var root=result==null?new Root(limits,Map.of(),Map.of()):Root.decode(result.value());requireLimits(root.limits);return new Observed(result,root);}
-    private Root update(UnaryOperator<Root> operation){
-        for(int attempt=0;attempt<MAX_CAS_ATTEMPTS;attempt++){final var before=readRoot();requireLimits(before.root.limits);final var after=operation.apply(before.root);final byte[] desired=after.bytes();
-            if(before.stored!=null&&Arrays.equals(before.stored.value(),desired))return after;
-            try{session.run();final var result=client.put(ledgerKey,desired,before.stored==null?Set.of(PutOption.IfRecordDoesNotExist):Set.of(PutOption.IfVersionIdEquals(before.stored.version().versionId())));session.run();
+    private Root update(UnaryOperator<Root> operation){ return update(operation, session); }
+    private Root update(UnaryOperator<Root> operation,Runnable current){
+        for(int attempt=0;attempt<MAX_CAS_ATTEMPTS;attempt++){current.run();final var before=readRoot();requireLimits(before.root.limits);final var after=operation.apply(before.root);final byte[] desired=after.bytes();
+            if(before.stored!=null&&Arrays.equals(before.stored.value(),desired)){current.run();return after;}
+            try{session.run();current.run();final var result=client.put(ledgerKey,desired,before.stored==null?Set.of(PutOption.IfRecordDoesNotExist):Set.of(PutOption.IfVersionIdEquals(before.stored.version().versionId())));session.run();current.run();
                 if(result==null||!ledgerKey.equals(result.key())||result.version()==null)throw new IllegalStateException("receipt capacity CAS returned no exact key/version");}
             catch(KeyAlreadyExistsException|UnexpectedVersionIdException race){continue;}
-            catch(RuntimeException uncertain){final var observed=readRoot();if(observed.stored==null||!Arrays.equals(observed.stored.value(),desired))throw uncertain;return observed.root;}
-            final var observed=readRoot();if(observed.stored!=null&&Arrays.equals(observed.stored.value(),desired))return observed.root;
+            catch(RuntimeException uncertain){current.run();final var observed=readRoot();if(observed.stored==null||!Arrays.equals(observed.stored.value(),desired))throw uncertain;current.run();return observed.root;}
+            final var observed=readRoot();if(observed.stored!=null&&Arrays.equals(observed.stored.value(),desired)){current.run();return observed.root;}
             // A competing legitimate update may have advanced after this CAS; reapply idempotently, never overwrite it.
         }throw new IllegalStateException("receipt capacity CAS did not converge within configured bound");
     }
     private TargetKafkaReceiptControlArtifact readArtifact(Intent i){final var value=read(i.key);if(value==null||value.value().length!=i.bytes||!Arrays.equals(Bytes.sha256(value.value()),i.valueHash))throw new IllegalStateException("original external blob is missing/replaced");final var a=TargetKafkaReceiptControlArtifact.decode(value.value());if(a.kind()!=i.kind||!Arrays.equals(a.digest(),i.digest))throw new IllegalStateException("external object differs from original publication");return a;}
-    private void requireActiveManagement(TargetKafkaReceiptProtection p){final var topic=BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(p.resource().authenticatedClusterId(),p.resource().receiptTopicUuid()));final var m=management(topic);
+    private void requireActiveManagement(TargetKafkaReceiptProtection p){final var topic=BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(p.resource().authenticatedClusterId(),p.resource().receiptTopicUuid()));requireActiveManagement(management(topic),p);}
+    private void requireActiveManagement(Root root,TargetKafkaReceiptProtection p){
+        final var topic=BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(p.resource().authenticatedClusterId(),p.resource().receiptTopicUuid()));
+        requireActiveManagement(Objects.requireNonNull(root.topics.get(topicId(topic)),"original management epoch"),p);
+    }
+    private void requireActiveManagement(Management m,TargetKafkaReceiptProtection p){
         if(m.state!=ACTIVE||!Arrays.equals(m.artifact.canonicalBytes(),p.managementAuthorityImage())||!Arrays.equals(m.image().managementEpoch(),p.managementEpoch())||!Arrays.equals(m.policy,p.brokerPolicyImage()))throw new IllegalStateException("receipt protection has no original ACTIVE continuous topic-management epoch");}
     private GetResult read(String key){session.run();final var r=client.get(key);session.run();if(r!=null&&(!key.equals(r.key())||r.value()==null||r.version()==null||r.value().length==0||r.value().length>MAX_ROOT_BYTES))throw new IllegalStateException("receipt Registry read lacks exact bounded key/version/value");return r;}
     private void requireLimits(Limits l){if(l.physicalBytes!=limits.physicalBytes||l.physicalRecords!=limits.physicalRecords||l.maximumPublications!=limits.maximumPublications||l.maximumTopics!=limits.maximumTopics||l.maximumPreparedReferences!=limits.maximumPreparedReferences||!Arrays.equals(l.capacitySourceDigest,limits.capacitySourceDigest))throw new IllegalStateException("durable control-storage budget changed without its authenticated deployment transition");}

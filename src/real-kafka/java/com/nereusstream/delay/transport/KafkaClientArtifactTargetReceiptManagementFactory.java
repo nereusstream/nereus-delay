@@ -4,6 +4,8 @@ import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
 import com.nereusstream.delay.ownership.TargetReceiptControlHistory;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.ownership.TargetWorkerProcessRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.protocol.Bytes;
@@ -46,8 +48,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     /** Authentication still comes from original registered CONTROL history and the live operator resolver. */
     public record TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
             TargetKafkaReceiptProtectionTrust.HistoricalActor actors,
-            TargetKafkaReceiptProtectionTrust.ReceiptScope scope, Supplier<ControlAuthorizationContext> operator) {
-        public TrustInputs { Objects.requireNonNull(keys); Objects.requireNonNull(actors); Objects.requireNonNull(scope); Objects.requireNonNull(operator); }
+            TargetKafkaReceiptProtectionTrust.ReceiptScope scope, TargetReceiptCurrentManagement current) {
+        public TrustInputs { Objects.requireNonNull(keys); Objects.requireNonNull(actors); Objects.requireNonNull(scope); }
+        /** A bare projection is not a current whole-topic permission; retained only for source compatibility. */
+        public TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
+                TargetKafkaReceiptProtectionTrust.HistoricalActor actors, TargetKafkaReceiptProtectionTrust.ReceiptScope scope,
+                Supplier<ControlAuthorizationContext> legacyOperator) {
+            this(keys, actors, scope, (TargetReceiptCurrentManagement) null); Objects.requireNonNull(legacyOperator);
+        }
     }
 
     public record Receipt(TargetKafkaReceiptControlArtifact authority, int laneSlot, long slotGeneration,
@@ -146,16 +154,24 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         return bytes;
     }
 
-    /** Concrete immutable original history from the trusted root; current operator authentication stays live and independent. */
+    /** Old projections alone cannot establish current management authority. */
     public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
             TargetDestinationSdkBudget budget, Supplier<ControlAuthorizationContext> authenticatedOperator) throws IOException {
-        Objects.requireNonNull(authenticatedOperator, "original live CONTROL authenticator");
+        throw new IllegalArgumentException("current whole-topic policy and actual authenticator snapshot provider are mandatory");
+    }
+
+    /** Historical and current views have independent root inputs; current policy materialization stays on owned I/O. */
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
+            Path currentPolicy, TargetDestinationSdkBudget budget,
+            TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
+        Objects.requireNonNull(authenticator, "original live CONTROL authenticator");
         final var config = load(configuration);
         final var captured = TargetReceiptControlHistory.prepare(controlHistory);
-        final long bytes = Math.addExact(captured.maximumRetainedBytes(),
+        final var policy = TargetReceiptCurrentManagement.prepare(currentPolicy);
+        final long bytes = Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
                 retainedConfigurationBytes(config.management(), config.admin(), config.receipts()));
         if (config.cost().amount(CapacityDimension.BUFFERED_BYTES) < bytes)
-            throw new IllegalArgumentException("management reservation omits its original CONTROL history inputs");
+            throw new IllegalArgumentException("management reservation omits its history/current-policy input bounds");
         return openLoaded(root, config, budget, guard -> {
             try {
                 final var history = TargetReceiptControlHistory.load(captured, guard);
@@ -165,8 +181,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                             receipt.slotsPerShard(), receipt.physicalPartition());
                     history.requireReceipt(receipt.authority(), required.resource(), required.slotsPerShard(), required.physicalPartition());
                 }
-                return new TrustInputs(history, history, history, authenticatedOperator);
-            } catch (IOException failure) { throw new IllegalStateException("original CONTROL history materialization failed", failure); }
+                final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
+                return new TrustInputs(history, history, history, current);
+            } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
         });
     }
 
@@ -174,6 +191,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     public static Opening openConfigured(TargetWorkerProcessRuntime root, Path path,
             TargetDestinationSdkBudget budget, TrustInputs inputs) throws IOException {
         Objects.requireNonNull(inputs, "original trusted CONTROL providers");
+        Objects.requireNonNull(inputs.current(), "actual current whole-topic scope authority");
         return openLoaded(root, load(path), budget, guard -> inputs);
     }
 
@@ -263,19 +281,19 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     guard.run();
                     final var trust = new TargetKafkaReceiptProtectionTrust(graph.oxia().providers().registrations(),
                             inputs.keys(), inputs.actors(), inputs.scope(), (image, control, at) ->
-                                    Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at));
+                                    Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at), inputs.current());
                     final var original = config.management();
                     final var image = TargetKafkaReceiptManagementImage.decode(original.image());
                     for (var receipt : config.receipts()) {
                         guard.run(); final var authority = receipt.authority();
-                        trust.requireManagementIssuer(authority, inputs.operator().get());
+                        try (var permission = trust.currentManagement(authority, Action.OBSERVE)) { permission.requireCurrent(); }
                         trust.requireIssuerSignature(TargetKafkaReceiptControlArtifact.signManagement(image,
                                 authority.control(), authority.authorizedAt(), config.key()));
                     }
                     catalog = graph.oxia().providers().receiptProtectionCatalog(config.catalogPrefix(), trust, config.storage());
                     guard.run(); nativeStarted = true; allocation.beginConstruction();
                     manager = KafkaClientArtifactTargetReceiptManagement.open(new HashMap<>(config.admin()), image,
-                            config.key(), inputs.operator(), config.timeout(), config.maximumAcls(), config.maximumBrokers());
+                            config.key(), config.timeout(), config.maximumAcls(), config.maximumBrokers());
                     manager.attach(catalog, trust); guard.run();
                     final var active = new LinkedHashMap<String,TargetKafkaReceiptControlArtifact>();
                     final var restricted = new LinkedHashMap<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher>();

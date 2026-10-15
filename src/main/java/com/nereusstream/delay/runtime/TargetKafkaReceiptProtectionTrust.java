@@ -1,6 +1,8 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlOperationAuthorization;
 import com.nereusstream.delay.protocol.ControlRole;
@@ -40,9 +42,17 @@ public final class TargetKafkaReceiptProtectionTrust {
     private final HistoricalActor actors;
     private final ReceiptScope scope;
     private final Backing backing;
+    private final TargetReceiptCurrentManagement current;
 
     public TargetKafkaReceiptProtectionTrust(ControlTargetRegistrationAuthority registrations,
             TargetChannelControlVerifier.KeyAuthority keys, HistoricalActor actors, ReceiptScope scope, Backing backing) {
+        this(registrations, keys, actors, scope, backing, null);
+    }
+
+    public TargetKafkaReceiptProtectionTrust(ControlTargetRegistrationAuthority registrations,
+            TargetChannelControlVerifier.KeyAuthority keys, HistoricalActor actors, ReceiptScope scope, Backing backing,
+            TargetReceiptCurrentManagement current) {
+        this.current = current;
         this.registrations = Objects.requireNonNull(registrations, "original CONTROL registrations");
         this.keys = Objects.requireNonNull(keys, "original historical CONTROL keys");
         this.actors = Objects.requireNonNull(actors, "original authenticated actor history");
@@ -73,7 +83,12 @@ public final class TargetKafkaReceiptProtectionTrust {
             throw new IllegalArgumentException("receipt trust requires its original protection artifact");
         }
         requireArtifactHistory(artifact, protection);
-        backing.requireCurrent(protection.protection(), protection.control(), protection.authorizedAt());
+        final var management = TargetKafkaReceiptControlArtifact.decode(protection.protection().managementAuthorityImage());
+        try (var permission = currentManagement(management, Action.OBSERVE)) {
+            permission.requireCurrent();
+            backing.requireCurrent(protection.protection(), protection.control(), protection.authorizedAt());
+            permission.requireCurrent();
+        }
     }
 
     /** Original scope/signatures remain checkable on retained BROKEN evidence; this grants no current SEND/absence right. */
@@ -107,24 +122,27 @@ public final class TargetKafkaReceiptProtectionTrust {
         }
     }
 
-    public void requireManagementIssuer(TargetKafkaReceiptControlArtifact artifact, ControlAuthorizationContext currentActor) {
-        if (artifact.kind() != TargetKafkaReceiptControlArtifact.MANAGEMENT
-                || !Objects.requireNonNull(currentActor, "current authenticated operator").roleSet().contains(ControlRole.PLATFORM_OPERATOR)) {
-            throw new IllegalArgumentException("topic management requires its current authenticated PLATFORM_OPERATOR");
-        }
-        final var registered = registrations.find(artifact.control().operationId()).orElseThrow();
-        if (!Arrays.equals(registered.canonicalBytes(), artifact.control().canonicalBytes())) {
-            throw new IllegalArgumentException("management issuer lacks its exact original registered CONTROL operation");
-        }
-        ControlOperationAuthorization.authorize(artifact.control(), currentActor, ignored -> true);
+    /** Original evidence remains authenticatable even when no current operator/proof is available. */
+    public void requireManagementHistory(TargetKafkaReceiptControlArtifact artifact) {
+        if (artifact.kind() != TargetKafkaReceiptControlArtifact.MANAGEMENT)
+            throw new IllegalArgumentException("management history requires the original MANAGEMENT artifact");
+        final var prepared = artifact.control();
+        final var actor = Objects.requireNonNull(actors.resolve(prepared, artifact.authorizedAt()), "original deployment author");
+        final var registered = registrations.find(prepared.operationId()).orElseThrow();
+        if (!Arrays.equals(registered.canonicalBytes(), prepared.canonicalBytes())
+                || !actor.roleSet().contains(ControlRole.PLATFORM_OPERATOR))
+            throw new IllegalArgumentException("original management authorization is not registered PLATFORM_OPERATOR");
+        ControlOperationAuthorization.authorize(prepared, actor, ignored -> true);
         requireIssuerSignature(artifact);
         scope.requireManagementCovered(com.nereusstream.delay.protocol.TargetKafkaReceiptManagementImage.decode(artifact.image()),
-                artifact.control(), currentActor, artifact.authorizedAt());
+                prepared, actor, artifact.authorizedAt());
     }
 
-    public void requireManagementHistory(TargetKafkaReceiptControlArtifact artifact) {
-        final var originalActor = Objects.requireNonNull(actors.resolve(artifact.control(), artifact.authorizedAt()), "original deployment author");
-        requireManagementIssuer(artifact, originalActor);
+    /** A current action uses its own consistent authenticated policy view, never the historical author projection. */
+    public TargetReceiptCurrentManagement.Permit currentManagement(TargetKafkaReceiptControlArtifact original, Action action) {
+        requireManagementHistory(original);
+        if (current == null) throw new TargetReceiptCurrentManagement.Denied("current whole-topic authority is not configured");
+        return current.acquire(com.nereusstream.delay.protocol.TargetKafkaReceiptManagementImage.decode(original.image()), action);
     }
 
     public static byte[] signFailure(TargetKafkaReceiptControlArtifact original, byte[] evidence, PrivateKey key) {

@@ -731,6 +731,15 @@ cluster/topic UUID、capability、epoch、管理/Worker principals、部署根�
 权限隔离依据，不增加新的公共 ControlOperationKind 或逐级自授权 grant。
 管理组件与同 session-fenced catalog/trust 一次装配；Worker 仅收到 typed AnchorPublisher。
 
+2026-10-16进一步明确：历史MANAGEMENT只按原注册Prepared/Source/key/signature及原作者/
+角色/精确scope认证，不调用当前operator gate；当前管理动作另核对root真实认证器的
+一致subject/role/scope/version视图及同整topic、对应动作权限。不同获准actor或无关
+角色/scope投影变化不要求伪造为历史作者。current policy绑定原完整management image，
+包含controlScope/deploymentRoot/UUID/物理topic/epoch/capability/credentials/principals；
+PLATFORM角色、旧artifact bytes或一个scope hash均不足。副作用和catalog CAS前后重验，
+当前证明失效拒绝动作但不因此写BROKEN；物理连续性、不复活和原签名/私钥持有契约不变。
+此为授权核验边界，不改变上述持久image字段、Binding或Admission bytes。
+
 同一 catalog 的有界物理容量 root 先持久登记 INSTALLING 和本次 installationID，再发实际
 ACL/config Admin 操作，最后核对 exact UUID、整 topic 配置、完整有限 ACL 和原 capability
 前提，CAS/reread ACTIVE。历史 INSTALLING 或 BROKEN 不重发未收敛请求、不倒补连续性。

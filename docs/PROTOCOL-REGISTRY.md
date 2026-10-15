@@ -3316,6 +3316,14 @@ APPLIED authorization SourcePosition, artifact digest, Ed25519 signature[64]. Or
 CREATE/RENEW_TARGET_CHANNEL K2 registration, historical CONTROL key/PLATFORM_OPERATOR
 and explicit receipt scope are required. Management changes also require a current
 authenticated operator and the configured source-bound deployment root/credentials.
+Historical authorization is independent of current management authorization (2026-10-16).
+Retained/BROKEN history verifies its original registered Prepared, full Source point,
+key/signature, original actor/roles/scope; it never substitutes the current operator.
+A current action requires a separate live authenticated subject/policy view, PLATFORM_OPERATOR,
+and root-controlled permission for that exact whole-topic image and action. Current actor,
+role projection or scope may change without rewriting the historical author. Stale/revoked/
+unknown current proofs refuse the action; they alone do not mark physical protection BROKEN.
+The same original epoch, credential isolation and INSTALLING/BROKEN non-revival remain.
 This introduces no ControlOperationKind, Kafka wire operation or Worker issuer right.
 Original Prepared bytes are bounded by 128 KiB; anchor image by 4096 bytes; protection
 policy by 256 KiB; embedded signed management by 16 KiB. The overall bound is

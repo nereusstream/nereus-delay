@@ -588,3 +588,31 @@ ACTIVE与父目录fsync→PUBLISHED耐久→交出INSTALLED Store；PUBLISHED不
 拒绝，未知发布保留并重读。坏候选保留失败，不修到相等、不删除未知/竞争目录；故障
 保留原句柄、计费、Pin和termination责任，native关闭不等于残留磁盘已清退。本次只
 开发与必要编译，测试/Broker及真实repair/删除后置；四包/29及总完成flags不提升。
+
+
+## 2026-10-16：K2历史授权与当前整topic管理权限分别核验
+
+主会话裁定不将原Prepared作者的actor ID、整个role-set hash和tenant-resource-scope hash
+永久绑定为当前operator。历史MANAGEMENT严格核对原注册Prepared全bytes、原authorizedAt
+Source及其key/signature、HistoricalActor/原三哈希/原最低角色与历史ReceiptScope；
+历史验证不依赖当前身份、角色或当前scope是否仍可用，不授Admin/SEND/absence权限。
+ControlOperationAuthorization原语义和独立新CONTROL请求的真实当前作者/注册协议不变。
+
+当前动作另经root实际live authenticator的一致identity/policy snapshot；保有PLATFORM
+角色只是必要条件，还须自己的subject/role/scope/version证明覆盖同一完整management
+image和请求动作。受控immutable current policy可将当前scope/subject绑定到精确整topic
+及动作，不以一个hash、任意true回调、历史Prepared或自填context替代认证。image完整
+绑定tenant/controlScope、deploymentRoot、cluster/topic UUID/physical name、epoch、
+capability、credential fingerprint及principal隔离。stale/revoked/unknown拒绝；政策更新
+由可信配置/认证器版本接续，不静默重读任意mutable路径，不另建IAM服务或grant链。
+
+获准新operator可使用同一exact ACTIVE epoch；不改历史作者/Source/signature，不更换
+management image/credentials，不重跑Admin掩盖历史间隙。每个真实Admin副作用前后及
+后续ACTIVE publication/CAS前重验当前授权和原epoch。当前授权单纯失效仅拒绝当前动作，
+不冒称物理保护已BROKEN；真正物理策略/UUID/ACL连续性仍按原契约核验，INSTALLING不明
+请求与BROKEN不可复活。原key/signature、私钥持有preflight及Worker无Admin/key边界保留。
+
+实现以具体current scope loader/verifier接ManagementFactory、backing和catalog的begin/
+activate/break/protection/anchor写入；历史链不再调用current gate。此决定不单独关闭
+包1/29切片，仍只作必要编译，当前授权变化、错资源/动作、失效与历史独立性和不复活
+等有限交错留集中验证；不授权当前执行实际Admin、部署或迁退。

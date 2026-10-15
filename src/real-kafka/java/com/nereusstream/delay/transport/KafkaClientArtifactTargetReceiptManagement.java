@@ -1,6 +1,8 @@
 package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
+import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.ControlOperationKind;
 import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
@@ -71,7 +73,6 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
     private Throwable firstCloseFailure;
     private final TargetKafkaReceiptManagementImage deployment;
     private final PrivateKey configuredControlKey;
-    private final java.util.function.Supplier<ControlAuthorizationContext> currentOperator;
     private OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
     private TargetKafkaReceiptProtectionTrust trust;
     private final Duration timeout;
@@ -95,13 +96,19 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
             TargetKafkaReceiptManagementImage deployment, PrivateKey configuredControlKey,
             java.util.function.Supplier<ControlAuthorizationContext> currentOperator, Duration timeout,
             int maximumAcls, int maximumBrokers) {
+        Objects.requireNonNull(currentOperator, "legacy operator source; current permission requires attached scope authority");
+        return open(adminConfiguration, deployment, configuredControlKey, timeout, maximumAcls, maximumBrokers);
+    }
+
+    public static KafkaClientArtifactTargetReceiptManagement open(Map<String, Object> adminConfiguration,
+            TargetKafkaReceiptManagementImage deployment, PrivateKey configuredControlKey, Duration timeout,
+            int maximumAcls, int maximumBrokers) {
         Objects.requireNonNull(deployment, "configured source-bound deployment root");
         final var configuration = Map.copyOf(adminConfiguration);
         if (!Arrays.equals(configurationFingerprint(configuration), deployment.configuredCredentialFingerprint())) {
             throw new IllegalArgumentException("actual Admin configuration differs from the authenticated deployment root");
         }
         Objects.requireNonNull(configuredControlKey, "actual configured CONTROL private key");
-        Objects.requireNonNull(currentOperator, "actual authenticated CONTROL identity resolver");
         requireLimits(timeout, maximumAcls, maximumBrokers);
         // Configuration and the source-bound scope are mandatory. An externally constructed Admin cannot self-assert credentials.
         final KafkaAdminClient actual;
@@ -111,7 +118,7 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         }
         try {
             return new KafkaClientArtifactTargetReceiptManagement(actual, deployment, configuredControlKey,
-                    currentOperator, timeout, maximumAcls, maximumBrokers);
+                    timeout, maximumAcls, maximumBrokers);
         } catch (RuntimeException | Error failure) {
             try { actual.closeGuardedResources(timeout); }
             catch (RuntimeException | Error cleanup) {
@@ -140,11 +147,10 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
     }
 
     private KafkaClientArtifactTargetReceiptManagement(KafkaAdminClient admin, TargetKafkaReceiptManagementImage deployment,
-            PrivateKey key, java.util.function.Supplier<ControlAuthorizationContext> currentOperator, Duration timeout,
+            PrivateKey key, Duration timeout,
             int maximumAcls, int maximumBrokers) {
         this.admin = admin; this.deployment = Objects.requireNonNull(deployment, "configured source-bound deployment root");
         this.configuredControlKey = Objects.requireNonNull(key, "actual configured CONTROL private key");
-        this.currentOperator = Objects.requireNonNull(currentOperator, "actual authenticated CONTROL identity resolver");
         this.timeout = Objects.requireNonNull(timeout, "finite management deadline");
         this.maximumAcls = maximumAcls; this.maximumBrokers = maximumBrokers;
     }
@@ -189,13 +195,17 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         } finally { use.close(); }
         requireIo(io);
         return (actual,targetPhysicalTopic)->submit(io, guard->{
-            guard.run();requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());
+            final var management = TargetKafkaReceiptControlArtifact.decode(protection.protection().managementAuthorityImage());
+            try (var permission = trust.currentManagement(management, Action.PUBLISH_ANCHOR)) {
+            permission.requireCurrent(); guard.run();requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());
             if(!Arrays.equals(actual.protectionDigest(),protection.digest()))throw new IllegalArgumentException("sample belongs to another original epoch");
             final var binding=actual.binding(targetPhysicalTopic,protection.protection().slotsPerShard());
             final var signed=TargetKafkaReceiptControlArtifact.signAnchor(actual.canonicalBytes(),protection.digest(),
                     protection.control(),protection.authorizedAt(),originalControlKey);
             guard.run();catalog.publishAnchor(signed,protection,binding);
-            requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());guard.run();return binding;
+            requireCurrent(protection.protection(),protection.control(),protection.authorizedAt());
+            permission.requireCurrent(); guard.run();return binding;
+            }
         });
     }
 
@@ -218,9 +228,9 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         if (!Arrays.equals(management.image(), deployment.canonicalBytes())) {
             throw new IllegalStateException("configured deployment cannot replace a retained topic-management epoch");
         }
-        trust.requireManagementIssuer(management, operator());
+        try (var permission = trust.currentManagement(management, Action.OBSERVE)) { permission.requireCurrent(); }
         // The durable deployment/physical capacity reservation precedes all Admin effects.
-        final var installation = catalog.beginManagement(management, operator());
+        final var installation = catalog.beginManagement(management);
         final long deadline = System.nanoTime() + timeout.toNanos();
         if (!installation.fresh()) {
             if (installation.management().state() != OxiaSyncTargetKafkaReceiptProtectionCatalog.ACTIVE) {
@@ -229,36 +239,38 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
             final var original = catalog.findProtection(scope.resource(), scope.evidenceGeneration()).orElse(null);
             if (original != null) { requireCurrent(original.protection(), control, at); return original; }
             // Another slot may adopt the original healthy whole-topic epoch, without replaying management actions.
-            final var policy = observe(scope, deadline, true);
+            final var policy = observeAuthorized(management, scope, deadline, true);
             if (!Arrays.equals(policy, installation.management().policy())) {
                 breakEpoch(management, "ACTIVE topic policy changed");
                 throw new IllegalStateException("original ACTIVE topic policy continuity was lost");
             }
-            return catalog.publishProtection(TargetKafkaReceiptControlArtifact.signProtection(
-                    image(scope, management, policy), control, at, key));
+            return publishProtection(scope, management, policy, control, at);
         }
         // Observe UUID and declared isolation before mutation. Any interrupted/uncertain action holds this original epoch.
         try {
-        observe(scope, deadline, false);
+        observeAuthorized(management, scope, deadline, false);
         // Denies take precedence over legacy broad Worker allows. No existing ACL is deleted or broadened outside receipt use.
         final var acls = requiredWorkerAcls(scope.physicalTopic(), Set.copyOf(deployment.workerPrincipals()));
-        await(admin.createAcls(acls).all(), deadline);
-        trust.requireManagementIssuer(management, operator());
+        try (var permission = trust.currentManagement(management, Action.CREATE_ACLS)) {
+            requireInstalling(installation); permission.requireCurrent();
+            await(admin.createAcls(acls).all(), deadline);
+            requireInstalling(installation); permission.requireCurrent();
+        }
         final var resource = new ConfigResource(ConfigResource.Type.TOPIC, scope.physicalTopic());
         final var operations = REQUIRED_POLICY.entrySet().stream()
                 .map(e -> new AlterConfigOp(new ConfigEntry(e.getKey(), e.getValue()), AlterConfigOp.OpType.SET)).toList();
-        await(admin.incrementalAlterConfigs(Map.of(resource, operations)).all(), deadline);
-        trust.requireManagementIssuer(management, operator());
-        final var after = observe(scope, deadline, true);
-        catalog.activateManagement(installation, after, operator());
-        final var protectedImage = image(scope, management, after);
-        trust.requirePublisher(protectedImage, control, at);
-        final var signed = TargetKafkaReceiptControlArtifact.signProtection(protectedImage, control, at, key);
-        // Publication trust calls requireCurrent over this same real backing; a CAS/response alone is not success.
-        final var published = catalog.publishProtection(signed);
+        try (var permission = trust.currentManagement(management, Action.ALTER_CONFIGS)) {
+            requireInstalling(installation); permission.requireCurrent();
+            await(admin.incrementalAlterConfigs(Map.of(resource, operations)).all(), deadline);
+            requireInstalling(installation); permission.requireCurrent();
+        }
+        final var after = observeAuthorized(management, scope, deadline, true);
+        catalog.activateManagement(installation, after);
+        final var published = publishProtection(scope, management, after, control, at);
         requireCurrent(published.protection(), control, at);
         return published;
         } catch (RuntimeException | Error failed) {
+            if (failed instanceof TargetReceiptCurrentManagement.Denied) throw failed;
             try { breakEpoch(management, failed.getClass().getName()); }
             catch (RuntimeException hold) { failed.addSuppressed(hold); }
             throw failed;
@@ -284,14 +296,13 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
                 || !Arrays.equals(protection.managementEpoch(), deployment.managementEpoch())) {
             throw new IllegalStateException("receipt management continuity/root/credentials was lost");
         }
-        trust.requireManagementIssuer(original, operator());
         try {
-            final byte[] actual = observe(scope, System.nanoTime() + timeout.toNanos(), true);
+            final byte[] actual = observeAuthorized(original, scope, System.nanoTime() + timeout.toNanos(), true);
             if (!Arrays.equals(actual, managed.policy()) || !Arrays.equals(actual, protection.brokerPolicyImage())) {
                 throw new IllegalStateException("receipt policy/ACL/resource differs from its original continuous protection");
             }
-            trust.requireManagementIssuer(original, operator());
         } catch (RuntimeException failure) {
+            if (failure instanceof TargetReceiptCurrentManagement.Denied) throw failure;
             // Persist a break even if a later privileged action restores the current settings.
             try { breakEpoch(original, failure.getClass().getName()); }
             catch (RuntimeException held) { failure.addSuppressed(held); }
@@ -299,8 +310,38 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         }
     }
 
-    private ControlAuthorizationContext operator() {
-        return Objects.requireNonNull(currentOperator.get(), "actual current authenticated PLATFORM_OPERATOR");
+    private byte[] observeAuthorized(TargetKafkaReceiptControlArtifact original, Scope scope, long deadline, boolean healthy) {
+        try (var permission = trust.currentManagement(original, Action.OBSERVE)) {
+            permission.requireCurrent(); final var before = catalog.management(deployment.topic());
+            if ((before.state() != OxiaSyncTargetKafkaReceiptProtectionCatalog.INSTALLING
+                    && before.state() != OxiaSyncTargetKafkaReceiptProtectionCatalog.ACTIVE)
+                    || !Arrays.equals(before.artifact().canonicalBytes(), original.canonicalBytes()))
+                throw new IllegalStateException("original management epoch is no longer observable");
+            permission.requireCurrent(); final byte[] policy = observe(scope, deadline, healthy);
+            permission.requireCurrent(); final var after = catalog.management(deployment.topic());
+            if (before.state() != after.state() || before.revision() != after.revision()
+                    || !Arrays.equals(before.artifact().canonicalBytes(), after.artifact().canonicalBytes())
+                    || !Arrays.equals(before.installationId(), after.installationId()))
+                throw new IllegalStateException("original management epoch changed during observation");
+            permission.requireCurrent(); return policy;
+        }
+    }
+    private void requireInstalling(OxiaSyncTargetKafkaReceiptProtectionCatalog.Installation installation) {
+        final var actual = catalog.management(deployment.topic());
+        if (!installation.fresh() || actual.state() != OxiaSyncTargetKafkaReceiptProtectionCatalog.INSTALLING
+                || !Arrays.equals(actual.artifact().canonicalBytes(), installation.management().artifact().canonicalBytes())
+                || !Arrays.equals(actual.installationId(), installation.management().installationId()))
+            throw new IllegalStateException("original fresh management installation is no longer current");
+    }
+    private TargetKafkaReceiptControlArtifact publishProtection(Scope scope, TargetKafkaReceiptControlArtifact management,
+            byte[] policy, PreparedControlOperation control, SourcePosition at) {
+        try (var permission = trust.currentManagement(management, Action.PUBLISH_PROTECTION)) {
+            permission.requireCurrent(); final var image = image(scope, management, policy);
+            trust.requirePublisher(image, control, at);
+            final var signed = TargetKafkaReceiptControlArtifact.signProtection(image, control, at, configuredControlKey);
+            permission.requireCurrent(); final var actual = catalog.publishProtection(signed);
+            permission.requireCurrent(); return actual;
+        }
     }
     private void requireAttached(OxiaSyncTargetKafkaReceiptProtectionCatalog candidate,
             TargetKafkaReceiptProtectionTrust authority, PrivateKey key) {
@@ -311,8 +352,10 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
     private void breakEpoch(TargetKafkaReceiptControlArtifact original, String reason) {
         final byte[] failure = Bytes.sha256(Bytes.utf8("nereus-delay-target-kafka-receipt-management-loss\0"),
                 original.digest(), Bytes.utf8(reason));
-        catalog.breakManagement(original, failure, TargetKafkaReceiptProtectionTrust.signFailure(original, failure,
-                configuredControlKey), operator());
+        try (var permission = trust.currentManagement(original, Action.BREAK_MANAGEMENT)) {
+            permission.requireCurrent(); final var signed = TargetKafkaReceiptProtectionTrust.signFailure(original, failure, configuredControlKey);
+            permission.requireCurrent(); catalog.breakManagement(original, failure, signed); permission.requireCurrent();
+        }
     }
     /** No new caller is admitted after stop; nested verification of an already admitted method can finish. */
     private synchronized Use beginUse() {
