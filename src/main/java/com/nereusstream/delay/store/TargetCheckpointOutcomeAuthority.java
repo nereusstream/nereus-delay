@@ -115,7 +115,25 @@ public final class TargetCheckpointOutcomeAuthority implements TargetCheckpointD
                 throw new IllegalArgumentException("Outcome evidence changes original Admission/transfer/writer/cause");
             }
             final var evidence = PublishEvidence.decode(body.evidence());
-            if (admitted.nativePublication() != null) {
+            if(body.recoveryProof()!=null){
+                before();
+                final var snapshot=Objects.requireNonNull(evidenceContext.recoveryProof(),"original full recovery object/seal snapshot");
+                snapshot.requireExact(input.image());snapshot.verified().requireExact(body.recoveryProof());
+                final var proof=snapshot.verified().proof();
+                if(admitted.kafkaReceipt()==null||!Arrays.equals(proof.admission().canonicalEnvelope(),current.image().canonicalEnvelope())
+                        ||!Arrays.equals(proof.evidence().canonicalBytes(),body.evidence()))
+                    throw new IllegalStateException("checkpoint recovery snapshot changed original Admission/evidence");
+                final var owner=dependencies.recoveryEvidence().stream().filter(value->Arrays.equals(value.outcomeId(),input.image().systemMutationId()))
+                        .findFirst().orElseThrow(()->new IllegalStateException("APPLIED recovery Outcome lacks Native owner"));
+                owner.requireProof(proof);owner.requireSource(input.image(),input.source());
+                if(resolution){
+                    requireUnknown(admitted.publishAttemptId(),input);
+                    if(!Arrays.equals(body.evidenceCursor().canonicalBytes(),com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(proof.mapping(),evidence).canonicalBytes()))
+                        throw new IllegalStateException("checkpoint recovery resolution cursor changed original proof");
+                }
+            } else if(evidenceContext.recoveryProof()!=null){
+                throw new IllegalStateException("archived recovery cannot authenticate a legacy Outcome");
+            } else if (admitted.nativePublication() != null) {
                 final var publication = admitted.nativePublication();
                 if (body.sideEffect() == 1) { evidence.requireNativeTargetPublishedBinding(publication); }
                 else { evidence.requireNativeTargetNotPublishedBinding(publication); }

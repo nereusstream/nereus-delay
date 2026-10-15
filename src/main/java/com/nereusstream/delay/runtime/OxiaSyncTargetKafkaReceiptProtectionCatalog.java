@@ -440,6 +440,13 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         final var verified=readRecovery(intent,proofTrust);requireRecoveryBody(verified,prepared);
         return new PreparedRecovery(new RecoveryPublication(this,verified),use);
     }
+    /** Actual retained blob and original seal for a Native owner; today's Owner/material/SDK is irrelevant to history. */
+    public PreparedRecovery retainedRecovery(com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner owner,
+            SystemMutation outcome,TargetRecoveryProofTrust proofTrust){
+        owner.requireSource(outcome,owner.adoptedAt().source());
+        final var snapshot=requireRecoveryPrepared(owner.reference(),outcome,proofTrust);
+        owner.requireProof(snapshot.verified().proof());return snapshot;
+    }
     private TargetRecoveryProofTrust.Verified readRecovery(RecoveryIntent intent,TargetRecoveryProofTrust proofTrust){
         final var ref=intent.reference;final var actual=read(ref.exactKey());
         if(actual==null)throw new IllegalStateException("original recovery proof blob is missing");

@@ -49,6 +49,7 @@ public final class TargetCheckpointSemanticSnapshot {
     private final List<TargetCheckpointDependencies.ControlImage> controls;
     private final List<TargetCheckpointDependencies.OutcomeImage> outcomes;
     private final List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence;
+    private final List<TargetCheckpointDependencies.RecoveryEvidenceImage> recoveryEvidence;
     private final byte[] digest;
 
     private TargetCheckpointSemanticSnapshot(int version, StoreMetadata metadata, SourcePosition source,
@@ -70,8 +71,17 @@ public final class TargetCheckpointSemanticSnapshot {
             List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,
             List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence, Limits limits) {
-        if (version != 1 && version != 2 && version != 3 && version != 4 || version == 1 && !controls.isEmpty()
-                || version < 3 && !outcomes.isEmpty() || version < 4 && !externalEvidence.isEmpty()) {
+        this(version,metadata,source,mutationSequence,lineage,controlsDigest,dependenciesDigest,profiles,retries,trusts,
+                admissions,controls,outcomes,externalEvidence,List.of(),limits);
+    }
+    private TargetCheckpointSemanticSnapshot(int version,StoreMetadata metadata,SourcePosition source,long mutationSequence,
+            byte[] lineage,byte[] controlsDigest,byte[] dependenciesDigest,List<ProfileSemanticEnvelope> profiles,
+            List<RetryPolicySemantic> retries,List<PayloadProofTrustSetSemantic> trusts,
+            List<TargetCheckpointDependencies.AdmissionImage> admissions,List<TargetCheckpointDependencies.ControlImage> controls,
+            List<TargetCheckpointDependencies.OutcomeImage> outcomes,List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence,
+            List<TargetCheckpointDependencies.RecoveryEvidenceImage> recoveryEvidence,Limits limits){
+        if (version < 1 || version > 5 || version == 1 && !controls.isEmpty()
+                || version < 3 && !outcomes.isEmpty() || version < 4 && !externalEvidence.isEmpty()||version<5&&!recoveryEvidence.isEmpty()) {
             throw new IllegalArgumentException("invalid Target semantic snapshot version/control inputs");
         }
         this.version = version;
@@ -100,8 +110,9 @@ public final class TargetCheckpointSemanticSnapshot {
         this.controls = ordered(controls, value -> value.image().systemMutationId());
         this.outcomes = ordered(outcomes, value -> value.image().systemMutationId());
         this.externalEvidence = ordered(externalEvidence, value -> Bytes.utf8(value.exactKey()));
+        this.recoveryEvidence = ordered(recoveryEvidence,value->Bytes.utf8(value.exactKey()));
         if ((long) profiles.size() + retries.size() + trusts.size() + admissions.size()
-                + controls.size() + outcomes.size() + externalEvidence.size()
+                + controls.size() + outcomes.size() + externalEvidence.size()+recoveryEvidence.size()
                 > limits.maximumRecords()) {
             throw new IllegalArgumentException("Target semantic snapshot exceeds its record bound");
         }
@@ -191,7 +202,7 @@ public final class TargetCheckpointSemanticSnapshot {
                 protectionGuard);
         final var result = new TargetCheckpointSemanticSnapshot(Math.max(version, 2), metadata, source,
                 mutationSequence, lineage,
-                controlsDigest, dependenciesDigest, profiles, retries, trusts, admissions, checked, outcomes, externalEvidence, limits);
+                controlsDigest, dependenciesDigest, profiles, retries, trusts, admissions, checked, outcomes, externalEvidence,recoveryEvidence, limits);
         result.validateAgainst(dependencies, limits);
         protectionGuard.run();
         if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
@@ -207,7 +218,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var checked = dependencies.requireOutcomeImages(inputs, limits.maximumBytes(), budget, authority,
                 protectionGuard);
         final var result = new TargetCheckpointSemanticSnapshot(Math.max(version, 3), metadata, source, mutationSequence, lineage,
-                controlsDigest, dependenciesDigest, profiles, retries, trusts, admissions, controls, checked, externalEvidence, limits);
+                controlsDigest, dependenciesDigest, profiles, retries, trusts, admissions, controls, checked, externalEvidence,recoveryEvidence, limits);
         result.validateAgainst(dependencies, limits);
         protectionGuard.run();
         if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
@@ -229,12 +240,11 @@ public final class TargetCheckpointSemanticSnapshot {
         if(version<3)throw new IllegalArgumentException("external evidence requires original Admission/Control/Outcome closure");
         final var values=dependencies.resolveExternalEvidence(authority,budget,protectionGuard);
         if(values.isEmpty()){requireExternalEvidenceComplete(dependencies);return this;}
-        final var result=new TargetCheckpointSemanticSnapshot(4,metadata,source,mutationSequence,lineage,controlsDigest,
-                dependenciesDigest,profiles,retries,trusts,admissions,controls,outcomes,values,limits);
+        final var result=new TargetCheckpointSemanticSnapshot(Math.max(version,4),metadata,source,mutationSequence,lineage,controlsDigest,
+                dependenciesDigest,profiles,retries,trusts,admissions,controls,outcomes,values,recoveryEvidence,limits);
         result.validateAgainst(dependencies,limits);result.requireExternalEvidenceComplete(dependencies);return result;
     }
     public void requireExternalEvidenceComplete(TargetCheckpointDependencies dependencies) {
-        if(!dependencies.recoveryEvidence().isEmpty())throw new IllegalStateException("checkpoint requires complete purpose-signed recovery proof companion support");
         if(!dependencies.externalEvidence().isEmpty()&&version<4)throw new IllegalStateException("checkpoint publication lacks actual external object bytes");
         dependencies.requireExternalEvidenceImages(externalEvidence);
     }
@@ -246,19 +256,43 @@ public final class TargetCheckpointSemanticSnapshot {
                 externalEvidence.stream().map(v->Bytes.hex(v.canonicalBytes())).toList()))
             throw new IllegalStateException("checkpoint external evidence is not the authenticated retained catalog object");
     }
+    /** Schema5 retains each full purpose-signed recovery object exactly once, without changing schemas1..4. */
+    public TargetCheckpointSemanticSnapshot withRecoveryEvidence(TargetCheckpointDependencies dependencies,
+            TargetCheckpointDependencies.RecoveryEvidenceAuthority authority,BoundedReadBudget budget,Limits limits,Runnable guard){
+        if(version<3)throw new IllegalArgumentException("recovery proof companion requires complete original Outcomes");
+        requireExternalEvidenceComplete(dependencies);
+        final var actual=dependencies.resolveRecoveryEvidence(outcomes,authority,budget,guard);
+        if(actual.isEmpty()){requireRecoveryEvidenceComplete(dependencies);return this;}
+        final var result=new TargetCheckpointSemanticSnapshot(5,metadata,source,mutationSequence,lineage,controlsDigest,dependenciesDigest,
+                profiles,retries,trusts,admissions,controls,outcomes,externalEvidence,actual,limits);
+        result.validateAgainst(dependencies,limits);result.requireRecoveryEvidenceComplete(dependencies);return result;
+    }
+    public void requireRecoveryEvidenceComplete(TargetCheckpointDependencies dependencies){
+        if(!dependencies.recoveryEvidence().isEmpty()&&version<5)throw new IllegalStateException("checkpoint recovery owners require schema5/full raw proofs");
+        dependencies.requireRecoveryEvidenceImages(recoveryEvidence,outcomes);
+    }
+    public void authenticateRecoveryEvidence(TargetCheckpointDependencies dependencies,Limits limits,
+            TargetCheckpointDependencies.RecoveryEvidenceAuthority authority,BoundedReadBudget budget,Runnable guard){
+        validateAgainst(dependencies,limits);requireRecoveryEvidenceComplete(dependencies);
+        final var actual=ordered(dependencies.resolveRecoveryEvidence(outcomes,authority,budget,guard),value->Bytes.utf8(value.exactKey()));
+        if(!actual.stream().map(value->Bytes.hex(value.canonicalBytes())).toList().equals(
+                recoveryEvidence.stream().map(value->Bytes.hex(value.canonicalBytes())).toList()))
+            throw new IllegalStateException("checkpoint recovery proof differs from authenticated original raw Catalog object/seal");
+    }
 
     /** Exact image contents and closure still need historical publication, keys, pins and activation authority. */
     public void validateAgainst(TargetCheckpointDependencies dependencies, Limits limits) {
         if ((long) profiles.size() + retries.size() + trusts.size() + admissions.size()
-                + controls.size() + outcomes.size() + externalEvidence.size()
+                + controls.size() + outcomes.size() + externalEvidence.size()+recoveryEvidence.size()
                         > limits.maximumRecords()
                 || canonicalBytes().length > limits.maximumBytes()) {
             throw new IllegalArgumentException("Target semantic snapshot exceeds validation limits");
         }
         final var complete = dependencies.withAdmissionImages(admissions, limits.maximumAdmissionFrameBytes());
         if(version>=4)requireExternalEvidenceComplete(complete);
+        if(version>=5)requireRecoveryEvidenceComplete(complete);
         if (version >= 2) { complete.correlateControlImages(controls, limits.maximumBytes()); }
-        if (version == 3) { complete.correlateOutcomeImages(outcomes, limits.maximumBytes()); }
+        if (version >= 3) { complete.correlateOutcomeImages(outcomes, limits.maximumBytes()); }
         final var root = complete.root();
         if (!Arrays.equals(metadata.encode(), root.metadata().encode())
                 || !Arrays.equals(source.canonicalBytes(), root.source().canonicalBytes())
@@ -373,11 +407,12 @@ public final class TargetCheckpointSemanticSnapshot {
     public List<TargetCheckpointDependencies.OutcomeImage> outcomes() { return outcomes; }
 
     public List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence() { return externalEvidence; }
+    public List<TargetCheckpointDependencies.RecoveryEvidenceImage> recoveryEvidence(){return recoveryEvidence;}
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
             out.writeBytes(fields());
-            CanonicalProtobuf.bytes(out, version == 1 ? 12 : version == 2 ? 13 : version == 3 ? 14 : 15, digest);
+            CanonicalProtobuf.bytes(out,digestField(version), digest);
         });
     }
 
@@ -397,6 +432,7 @@ public final class TargetCheckpointSemanticSnapshot {
             for (final var control : controls) { CanonicalProtobuf.bytes(out, 12, control.canonicalBytes()); }
             for (final var outcome : outcomes) { CanonicalProtobuf.bytes(out, 13, outcome.canonicalBytes()); }
             for (final var image : externalEvidence) { CanonicalProtobuf.bytes(out,14,image.canonicalBytes()); }
+            for(final var image:recoveryEvidence){CanonicalProtobuf.bytes(out,15,image.canonicalBytes());}
         });
     }
 
@@ -416,7 +452,7 @@ public final class TargetCheckpointSemanticSnapshot {
             throw new IllegalArgumentException("invalid Target semantic snapshot field count");
         }
         final int version = QueryCodecSupport.uint32(fields.get(0), 1);
-        if (version != 1 && version != 2 && version != 3 && version != 4) {
+        if (version < 1 || version > 5) {
             throw new IllegalArgumentException("unsupported Target semantic snapshot version");
         }
         final var profiles = new ArrayList<ProfileSemanticEnvelope>();
@@ -426,6 +462,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var controls = new ArrayList<TargetCheckpointDependencies.ControlImage>();
         final var outcomes = new ArrayList<TargetCheckpointDependencies.OutcomeImage>();
         final var external = new ArrayList<TargetCheckpointDependencies.ExternalEvidenceImage>();
+        final var recovery = new ArrayList<TargetCheckpointDependencies.RecoveryEvidenceImage>();
         int index = 7;
         while (index < fields.size() && fields.get(index).number() == 8) {
             profiles.add(ProfileSemanticEnvelope.decode(QueryCodecSupport.bytes(fields.get(index++), 8)));
@@ -461,6 +498,9 @@ public final class TargetCheckpointSemanticSnapshot {
         while(version>=4&&index<fields.size()&&fields.get(index).number()==14){
             external.add(TargetCheckpointDependencies.ExternalEvidenceImage.decode(QueryCodecSupport.nested(fields.get(index++),14)));
         }
+        while(version>=5&&index<fields.size()&&fields.get(index).number()==15){
+            recovery.add(TargetCheckpointDependencies.RecoveryEvidenceImage.decode(QueryCodecSupport.nested(fields.get(index++),15)));
+        }
         if (index + 1 != fields.size()) {
             throw new IllegalArgumentException("unknown Target semantic snapshot fields");
         }
@@ -469,14 +509,16 @@ public final class TargetCheckpointSemanticSnapshot {
                 SourcePositionCodec.decode(QueryCodecSupport.bytes(fields.get(2), 3)),
                 QueryCodecSupport.uint64Bits(fields.get(3), 4), QueryCodecSupport.fixed(fields.get(4), 5, 16),
                 QueryCodecSupport.fixed(fields.get(5), 6, 32), QueryCodecSupport.fixed(fields.get(6), 7, 32),
-                profiles, retries, trusts, admissions, controls, outcomes, external, limits);
+                profiles, retries, trusts, admissions, controls, outcomes, external,recovery, limits);
         if (!Arrays.equals(result.digest, QueryCodecSupport.fixed(fields.get(index),
-                version == 1 ? 12 : version == 2 ? 13 : version == 3 ? 14 : 15, 32))) {
+                digestField(version), 32))) {
             throw new IllegalArgumentException("Target semantic snapshot digest mismatch");
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target semantic snapshot");
         return result;
     }
+    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;
+        default->throw new IllegalArgumentException("unknown Target semantic snapshot version");};}
 
     private static void before(BoundedReadBudget budget, Runnable guard) {
         guard.run();

@@ -271,8 +271,12 @@ public final class TargetPublishOutcomeVerifier {
                 || !mutation.verifySignature(authorized.writerKey())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        // Native owner/ref and exact fees exist, but full checkpoint/public-proof history composition is still required.
         if (body.recoveryProof() != null) {
+            final var context=authorized.evidenceContext();
+            if(context==null||context.recoveryProof()==null)
+                throw new IllegalStateException("proof-bearing Source requires complete authenticated original Catalog object/seal snapshot");
+            context.recoveryProof().requireExact(mutation);
+        } else if(authorized.evidenceContext()!=null&&authorized.evidenceContext().recoveryProof()!=null){
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final var observedAt = body.observedAt();

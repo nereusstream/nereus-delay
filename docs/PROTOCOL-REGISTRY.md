@@ -3870,3 +3870,56 @@ Without any recovery owners, prior digest bytes are unchanged. Existing semantic
 companions explicitly refuse publication with recovery owners until complete
 signed proof bytes/history support is connected. Native registration/compilation
 is not reader activation, end-to-end recovery or central validation.
+
+
+### Target checkpoint recovery-proof companion schema5 (2026-10-16, implementation)
+
+TargetCheckpointSemanticSnapshot schema5 preserves fields1..14 meanings from
+schema4 and adds repeated15 RecoveryEvidenceImage, ordered by exact UTF8 key.
+Each closed image has 1 full exact key and 2 complete raw purpose-signed
+TargetRecoveryProof canonical bytes. Snapshot digest moves to field16 for schema5
+and covers all preceding canonical fields in the existing snapshot domain.
+Schemas1/2/3/4 retain their original fields/digest positions and byte encoding;
+unknown versions/fields, duplicates, noncanonical ordering and incomplete raw
+proof inventories reject. No automatic companion upgrade occurs without actual
+recovery objects. Complete record/byte limits include the recovery images; each
+image is bounded by proof<=4MiB, key<=2048 plus framing. Original Admission frame
+bounds remain separate. Declared exact key/raw lengths are charged before
+initiating recovery-object I/O under the existing read/time/protection budget.
+
+RecoveryEvidenceAuthority returns only the Catalog's private PreparedRecovery
+snapshot for the actual Native owner and original signed Outcome image. Catalog
+retainedRecovery fully authenticates actual selected raw bytes, purpose issuer/
+SDK/original public material history and the exact original prepared ID/hash/
+retry seal. It does not require current old Owner/SDK/credential or Catalog
+ADOPTED, since Source may have committed before that conservative phase update.
+No DTO/length/digest-only provider or current in-memory Observation can replace
+this snapshot. Immutable companion data alone is never signature authority.
+
+The complete cut must correlate every retained Outcome first with its signed
+image. Each APPLIED proof-bearing Outcome has exactly its Native owner; each
+owner has exactly one matching raw proof and actual adopting Source/type/ID/hash,
+original Admission/frozen Target/evidence/ref and resolution cursor. Rejected
+proof-bearing inputs create no owner/raw-proof requirement. Extra, missing or
+orphan images/owners reject. Outcome image correlation now applies to every
+schema>=3, also closing the previously skipped schema4 correlation check.
+
+Configured semantic collection appends authenticated recovery objects after its
+original Controls/Outcomes/CONTROL-object stages. Candidate and Manifest/restore
+root checks require full recovery companion closure. The complete external-object
+audit accepts both original CONTROL and recovery authorities and reauthenticates
+actual bytes/seals; its old CONTROL-only overload rejects images with recovery
+owners. Outcome historical authentication uses the private exact snapshot and
+actual Native owner/Unknown first/cursor without a live SDK closure. Full image,
+Source/pin/Floor/history protection and trusted deployment authorities are still
+required; parsing a companion does not supply them.
+
+The provisional unconditional v7 rejection is replaced by the actual admission
+conditions: original Source signature and explicitly activated tuple7, plus full
+private Catalog object/seal snapshot and existing atomic Native owner/ref/fee/
+settlement path. A missing snapshot retains failure rather than committing a
+false definitive result; a legacy body cannot borrow an archive context. This
+provides core support, not implicit Artifact/reader/tuple activation or a service
+startup claim. Deployment Root purpose key/configuration, archive/sign/seal/
+Source pipeline composition and protected Floor/retirement remain mandatory.
+All central tests/Broker/recovery/performance validation remain deferred.

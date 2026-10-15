@@ -193,6 +193,84 @@ public final class TargetCheckpointDependencies {
         }
     }
 
+    /** Full historical authentication plus actual Catalog raw bytes/prepared seal, resolved outside Store I/O. */
+    @FunctionalInterface
+    public interface RecoveryEvidenceAuthority {
+        com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery resolve(
+                com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner original,OutcomeImage adoptingOutcome);
+    }
+    public record RecoveryEvidenceImage(String exactKey,com.nereusstream.delay.protocol.TargetRecoveryProof proof){
+        public RecoveryEvidenceImage{Objects.requireNonNull(proof).reference(Objects.requireNonNull(exactKey));}
+        public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
+            CanonicalProtobuf.bytes(out,1,Bytes.utf8(exactKey));CanonicalProtobuf.bytes(out,2,proof.canonicalBytes());
+        });}
+        public static RecoveryEvidenceImage decode(byte[] encoded){
+            if(encoded==null||encoded.length==0||encoded.length>com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_PROOF_BYTES
+                    +com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_KEY_BYTES+16)throw new IllegalArgumentException("invalid checkpoint recovery proof length");
+            final var reader=new CanonicalProtobuf.Reader(encoded,true);final var f=new java.util.ArrayList<CanonicalProtobuf.Reader.Field>(2);
+            while(reader.hasRemaining()){if(f.size()>=2)throw new IllegalArgumentException("unknown checkpoint recovery proof fields");f.add(reader.next());}
+            com.nereusstream.delay.protocol.QueryCodecSupport.requireNumbers(f,new int[]{1,2},"checkpoint recovery proof");
+            final var image=new RecoveryEvidenceImage(new String(com.nereusstream.delay.protocol.QueryCodecSupport.bytes(f.get(0),1),
+                    java.nio.charset.StandardCharsets.UTF_8),com.nereusstream.delay.protocol.TargetRecoveryProof.decode(
+                    com.nereusstream.delay.protocol.QueryCodecSupport.nested(f.get(1),2)));
+            com.nereusstream.delay.protocol.QueryCodecSupport.requireCanonical(encoded,image.canonicalBytes(),"checkpoint recovery proof");return image;
+        }
+    }
+    public List<RecoveryEvidenceImage> resolveRecoveryEvidence(List<OutcomeImage> outcomes,RecoveryEvidenceAuthority authority,
+            BoundedReadBudget budget,Runnable guard){
+        if(!recoveryEvidence.isEmpty())Objects.requireNonNull(authority,"original recovery proof history/Catalog authority");
+        final var byOutcome=new TreeMap<String,OutcomeImage>();for(var input:outcomes)
+            if(byOutcome.put(Bytes.hex(input.image().systemMutationId()),input)!=null)throw new IllegalArgumentException("duplicate adopting Outcome image");
+        final var values=new java.util.ArrayList<RecoveryEvidenceImage>();
+        for(var owner:recoveryEvidence){
+            final var input=Objects.requireNonNull(byOutcome.get(Bytes.hex(owner.outcomeId())),"recovery adopting signed Outcome image");
+            owner.requireSource(input.image(),input.source());beforeAuthentication(budget,guard);
+            // Check the complete declared raw-object bound before initiating external I/O or allocating its image.
+            if(!budget.tryCharge(Bytes.utf8(owner.reference().exactKey()).length,Math.toIntExact(owner.reference().canonicalValueBytes())))throw budget.incomplete();
+            final var actual=Objects.requireNonNull(authority.resolve(owner,input),"actual authenticated recovery object and seal");
+            guard.run();actual.requireExact(input.image());actual.verified().requireExact(owner.reference());owner.requireProof(actual.verified().proof());
+            values.add(new RecoveryEvidenceImage(owner.reference().exactKey(),actual.verified().proof()));afterAuthentication(budget,guard);
+        }
+        requireRecoveryEvidenceImages(values,outcomes);return List.copyOf(values);
+    }
+    /** Structural complete-cut correlation only; the authority above must still authenticate every actual signed object. */
+    public void requireRecoveryEvidenceImages(List<RecoveryEvidenceImage> images,List<OutcomeImage> outcomes){
+        final var byKey=new TreeMap<String,RecoveryEvidenceImage>();
+        for(var image:images)if(byKey.put(image.exactKey(),image)!=null)throw new IllegalArgumentException("duplicate checkpoint recovery proof key");
+        if(byKey.size()!=recoveryEvidence.size())throw new IllegalStateException("checkpoint lacks complete raw recovery proof bytes");
+        final var owners=new TreeMap<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner>();
+        for(var owner:recoveryEvidence){
+            final var image=Objects.requireNonNull(byKey.get(owner.reference().exactKey()),"original recovery proof image");owner.requireProof(image.proof());
+            if(owners.put(Bytes.hex(owner.outcomeId()),owner)!=null)throw new IllegalStateException("one Outcome owns multiple recovery proofs");
+        }
+        final var firstById=new TreeMap<String,TargetResultRecord>();
+        for(var first:outcomeResults)firstById.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()),first);
+        final var used=new java.util.HashSet<String>();
+        final var seen=new java.util.HashSet<String>();
+        for(var input:outcomes){
+            final String id=Bytes.hex(input.image().systemMutationId());
+            if(!seen.add(id))throw new IllegalArgumentException("duplicate recovery companion Outcome image");
+            final var first=Objects.requireNonNull(firstById.get(id),"actual retained Outcome first");
+            if(SystemMutationResult.decode(first.typedPayload()).applyStatus()!=com.nereusstream.delay.runtime.ApplyStatus.APPLIED)continue;
+            final var body=input.image().type()==SystemMutationType.PUBLISH_OUTCOME?
+                    com.nereusstream.delay.protocol.PublishOutcomeBody.decode(input.image().canonicalBody()):
+                    com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(input.image().canonicalBody());
+            if(body.recoveryProof()==null)continue;
+            final var owner=Objects.requireNonNull(owners.get(id),"APPLIED proof-bearing Outcome has no Native owner");
+            owner.requireSource(input.image(),input.source());
+            if(!owner.reference().equals(body.recoveryProof()))throw new IllegalStateException("Outcome replaced its exact recovery proof ref");
+            final var proof=byKey.get(owner.reference().exactKey()).proof();
+            if(!Arrays.equals(body.evidence(),proof.evidence().canonicalBytes())||!first.mutation().equals(owner.adoptedAt()))
+                throw new IllegalStateException("recovery image changed adopting evidence/first Source");
+            if(body.evidenceCursor()!=null&&!Arrays.equals(body.evidenceCursor().canonicalBytes(),
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(proof.mapping(),proof.evidence()).canonicalBytes()))
+                throw new IllegalStateException("recovery image changed resolution cursor");
+            used.add(id);
+        }
+        if(!seen.equals(firstById.keySet()))throw new IllegalStateException("recovery companion lacks complete retained Outcome input inventory");
+        if(!used.equals(owners.keySet()))throw new IllegalStateException("recovery proof lacks its exact APPLIED signed Outcome image");
+    }
+
     public List<ProfileRef> profiles() { return profiles; }
     public List<ProfileUse> profileUses() { return profileUses; }
     public TargetScheduleBinding requireBinding(TargetMessageLocator locator) {

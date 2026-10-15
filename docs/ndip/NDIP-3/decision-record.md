@@ -752,3 +752,19 @@ reader/tuple激活。独立fold核完整Native引用/原first与mapping/anchor/A
 semantic digest追加恢复owner；没有恢复owner时旧字节不变。checkpoint完整proof
 伴随/历史及部署Root Source装配继续实施，旧semantic companion遇新owner拒绝
 发布，v7采用门禁保持；这是原包1组件实现，未关闭任何全程序完成/验证/生产flag。
+
+
+2026-10-16 checkpoint实现选择：semantic schema5新增重复field15(完整exact key+
+raw purpose-signed proof)、digest16，旧schema1–4不重编码。完整性关联实际Native
+owner与所有Outcome first/原signed inputs，APPLIED v7必须有exact proof，REJECTED
+不造adoption；schema>=3统一关联Outcome，补齐schema4漏检。历史认证通过原Catalog
+实物+原prepared seal的私有snapshot，不依赖旧Owner/SDK/credential今天有效或
+Catalog已ADOPTED。原完整Source/图像/pin/Floor/history保护仍为实际部署义务。
+
+configured collector接新证明，candidate/Manifest/restore根检查要求完整schema5，
+完整外部对象审计兼核CONTROL/recovery，旧CONTROL-only API有新owner时拒绝。预算
+沿用现有有限semantic/read/time边界且proof I/O前核exact长度，不隐式扩大。核心
+Source v7临时全面拒绝替换为显式tuple7+原签名+完整私有Catalog snapshot门禁，再
+走已有Native原子归属/费用；无内存旁路，无自动reader/Artifact/tuple激活。Root
+目的key/config与实际归档/Source pipeline、Floor/受控退役和集中验证仍开放，
+所有完成flags保持false。

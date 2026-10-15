@@ -45,7 +45,15 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
             com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
             TargetCheckpointDependencies.ControlImageAuthority controls,
             TargetCheckpointDependencies.OutcomeImageAuthority outcomes,
-            TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence) {
+            TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence,
+            TargetCheckpointDependencies.RecoveryEvidenceAuthority recoveryEvidence) {
+        public OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority history,
+                com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
+                TargetCheckpointDependencies.ControlImageAuthority controls,
+                TargetCheckpointDependencies.OutcomeImageAuthority outcomes,
+                TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence){
+            this(history,admissions,controls,outcomes,externalEvidence,null);
+        }
         public OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority history,
                 com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
                 TargetCheckpointDependencies.ControlImageAuthority controls,
@@ -159,7 +167,8 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
                             p.protection())
                     .withOutcomeInputs(complete, outcome.inputs(), budget, p.semanticLimits(), authorities.outcomes(),
                             p.protection())
-                    .withExternalEvidence(complete, authorities.externalEvidence(), budget, p.semanticLimits(), p.protection());
+                    .withExternalEvidence(complete, authorities.externalEvidence(), budget, p.semanticLimits(), p.protection())
+                    .withRecoveryEvidence(complete,authorities.recoveryEvidence(),budget,p.semanticLimits(),p.protection());
             if (registry.result().isEmpty()) { return Optional.empty(); }
             p.protection().run();
             return Optional.of(snapshot);

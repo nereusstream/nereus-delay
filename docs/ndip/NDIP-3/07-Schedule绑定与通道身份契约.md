@@ -887,3 +887,13 @@ owner/ref/alias接同Source原子批次。Catalog ADOPTED只接真实guarded Nat
 APPLIED first/POSITION/settlement及owner/ref证明，不接任意DTO或仅凭no-ref。
 现阶段v7仍拒绝，checkpoint完整证明伴随/历史和部署Root Source链待接；新工作
 Admission只接受已覆盖有限恢复上界的原预算，旧冻结预算不更改。
+
+
+2026-10-16恢复proof进入checkpoint schema5，原observer/public crypto inputs与
+签名raw对象完整保留，Native采用Source留在owner/原signed Outcome中，不反写
+proof。原Catalog exact blob及prepared seal的完整历史认证产生私有snapshot；
+今日旧Owner/SDK/credential失效不抹除历史，也不授新I/O。Native owner、Outcome
+first/原输入/UNKNOWN/cursor和exact ref须闭合，拒绝结果不伪造adoption。Source
+核心v7已改为显式tuple7与完整私有snapshot门禁，普通内存authority或legacy body
+不能替代；未自动激活任何reader/Artifact tuple。实际Root签发/归档/Source装配、
+新channel代次编排和Floor/保护退役继续实施，不能据本组件声明完整服务恢复。

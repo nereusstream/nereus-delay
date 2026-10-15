@@ -354,7 +354,21 @@ public final class TargetCheckpointRootVerifier {
             TargetCheckpointDependencies.ExternalEvidenceAuthority authority, Runnable protectionGuard) {
         final var verified=auditManifestCompanion(image,manifest,physicalLimits,quotaLimits,ledgerLimits,semanticLimits);
         verified.snapshot().authenticateExternalEvidence(verified.ledger().dependencies(),semanticLimits,authority,
-                authenticationBudget,protectionGuard);return verified.ledger();
+                authenticationBudget,protectionGuard);
+        if(!verified.ledger().dependencies().recoveryEvidence().isEmpty())
+            throw new IllegalStateException("recovery evidence requires complete purpose-signed proof authentication authority");
+        return verified.ledger();
+    }
+    /** Full original CONTROL objects and purpose-signed recovery objects/seals on this exact immutable image cut. */
+    public static LedgerProof auditManifestExternalEvidenceAuthentication(Path image,CheckpointManifest manifest,
+            CheckpointManifestLimits physicalLimits,QuotaAuditLimits quotaLimits,LedgerAuditLimits ledgerLimits,
+            TargetCheckpointSemanticSnapshot.Limits semanticLimits,BoundedReadBudget authenticationBudget,
+            TargetCheckpointDependencies.ExternalEvidenceAuthority controlAuthority,
+            TargetCheckpointDependencies.RecoveryEvidenceAuthority recoveryAuthority,Runnable protectionGuard){
+        final var verified=auditManifestCompanion(image,manifest,physicalLimits,quotaLimits,ledgerLimits,semanticLimits);
+        verified.snapshot().authenticateExternalEvidence(verified.ledger().dependencies(),semanticLimits,controlAuthority,authenticationBudget,protectionGuard);
+        verified.snapshot().authenticateRecoveryEvidence(verified.ledger().dependencies(),semanticLimits,recoveryAuthority,authenticationBudget,protectionGuard);
+        return verified.ledger();
     }
 
     private record ManifestCompanion(LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot) {}
@@ -480,6 +494,7 @@ public final class TargetCheckpointRootVerifier {
         final var snapshot = TargetCheckpointSemanticSnapshotFile.read(candidate.image(), candidate.semantic());
         snapshot.validateAgainst(inspected.ledger().dependencies(), candidate.semantic());
         snapshot.requireExternalEvidenceComplete(inspected.ledger().dependencies());
+        snapshot.requireRecoveryEvidenceComplete(inspected.ledger().dependencies());
         candidate.protection().run();
         final var time = pending.checkpointCreatedAt();
         final var parent = pending.parentCheckpointId() == null ? null : new CheckpointManifest.ParentCheckpoint(
@@ -541,6 +556,7 @@ public final class TargetCheckpointRootVerifier {
         }
         snapshot.validateAgainst(proof.dependencies(), semanticLimits);
         snapshot.requireExternalEvidenceComplete(proof.dependencies());
+        snapshot.requireRecoveryEvidenceComplete(proof.dependencies());
         if (!Bytes.constantTimeEquals(manifest.controlStateDigest(), snapshot.snapshotDigest())) {
             throw new IllegalArgumentException("Target Manifest control-state digest differs from its companion");
         }

@@ -2343,3 +2343,16 @@ commitment，不自动增加。旧已APPLIED Admission/mapping/allocated不重�
 引用闭合检查；新owner计入semantic dependency digest。checkpoint proof伴随和
 全链历史验签仍未接，旧snapshot遇新owner拒绝发布、v7采用仍封闭，不能以必要
 编译宣称计费/恢复已验收。
+
+
+2026-10-16 checkpoint schema5完整保存每个已采用恢复proof的实际raw signed值，
+不以owner长度/digest或counter替代外部实物。有限semantic record/byte窗口包含
+proof images，单proof<=4MiB/key<=2048，读取前按exact声明长度核read/time/protection
+预算，不自动扩大配置；原Admission frame窗口独立。collector与Root Manifest/
+candidate/restore校验Native owner/ref/alias与APPLIED原signed Outcome/first/
+Admission/evidence/cursor关联，完整对象审计必须原Catalog历史认证及prepared seal。
+普通CONTROL-only审计不能越过恢复proof。伴随材料复制不创建新的逻辑Native
+EVIDENCE owner，不重复收原blob或嵌入的auth依赖费；checkpoint文件自身按既有
+物理保留预算，原owner/ref与staging/adopted charge不因checkpoint而解除。
+Source核心v7只接受完整私有snapshot及显式tuple7，实际Root配置/服务链与保护
+Floor到真实删除的费用解除仍开放，SDK退出/单checkpoint不代替退役证明。
