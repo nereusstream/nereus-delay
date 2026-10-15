@@ -17,6 +17,14 @@ public final class SystemMutationBodyCodec {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readAll(new CanonicalProtobuf.Reader(Objects.requireNonNull(canonicalBody, "canonicalBody")));
         Spec[] specs = specs(type);
+        if ((type == SystemMutationType.PUBLISH_OUTCOME || type == SystemMutationType.EVIDENCE_RESOLUTION)
+                && fields.size() > 3 && fields.get(3).number() == 9) {
+            if (fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() != PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION)
+                throw new IllegalArgumentException("unsupported proof-bearing Target K2 outcome body version");
+            final var versioned = new Spec[specs.length + 2];
+            versioned[0] = varint(9); System.arraycopy(specs, 0, versioned, 1, specs.length);
+            versioned[versioned.length - 1] = nested(19); specs = versioned;
+        }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.size() > 3
                 && fields.get(3).number() == 10

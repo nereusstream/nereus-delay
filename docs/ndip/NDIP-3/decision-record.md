@@ -713,3 +713,10 @@ alias，不可冒充新kind3；新增记录不伪造CONTROL provenance。物理s
 额度保留，全部引用经原ResourceRetireIntent/Source/Checkpoint/Floor/ProtectionSet
 和实际删除确认后才清ref/owner/费用，未采用也须证明所有prepared use确定终止。
 本项尚待实施；只必要编译/既有文档同步，全部集中验证后置，完成flags不提升。
+
+2026-10-16格式实现选择：proof-bearing Target K2 Outcome/Resolution使用独立
+body generation7（field9=7、field19必填exact ref），区别shared tuple2和原
+Admission6；旧无marker body不变。Ref v1/type1独立命名空间，key上限2048 UTF8
+bytes、proof上限4MiB，须另做真实容量/新Admission预留，不能推导旧预算已足够。
+当前只完成codec/required tuple与Source拒绝采用边界，完整历史proof snapshot、
+Catalog/Native首次原子owner-ref及账本未接通前不开放v7，也不提升任何完成flag。

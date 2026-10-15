@@ -2298,3 +2298,12 @@ attempt/Source replay/query/history/shared refs都纳入既有ResourceRetireInte
 Source/Checkpoint/Floor/ProtectionSet及实际删除确认；确认不再引用且实际删除后才
 去owner/ref及费用。SDK退出、凭据过期、Owner变化、Outcome APPLIED或单个checkpoint
 均不是删除证明。本次只是同步裁决，尚未实施此持久/计费扩展，不执行真实删除。
+
+
+2026-10-16 TargetRecoveryProofRef提供完整key与raw signed canonical length，
+静态上限key2048 UTF8 bytes/proof4MiB，作为后续Source精确实物收费和新Admission
+有限预算推导输入。静态ref不证明实物或容量：必须锁外取回完整对象、核原签名/
+历史公共输入/bytes和exact key，再按原Attempt冻结policy在首次APPLIED同batch
+写owner/ref/alias和费用。当前v7 Source采用被明确拒绝，未新增任何owner/ref、
+账本或reserve释放行为；ledger/remainingAttemptCharge/Source batch及Checkpoint/
+Floor接线仍待实施。不能将本次4MiB上限当作旧Attempt已预留或用SDK窗口顶账。

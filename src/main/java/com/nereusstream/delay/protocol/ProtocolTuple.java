@@ -64,6 +64,10 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetKafkaReceiptPublishAdmission() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetPublishAdmissionBody.KAFKA_RECEIPT_BODY_VERSION);
     }
+    /** Proof-bearing Target K2 outcome/resolution, activated separately from generic v2 and Admission v6. */
+    public static ProtocolTuple targetKafkaRecoveryOutcome() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION);
+    }
 
     public long framingVersion() {
         return framingVersion;

@@ -185,6 +185,11 @@ public final class TargetRecoveryCredentialAuthorization {
         public void invalidate() { active = false; }
         void verify(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time) throws Exception {
             if (!active) throw unavailable();
+            verifyHistorical(a,time);
+            if (!active) throw unavailable();
+        }
+        /** Original observation-time signature/scope check; today's invalidation never rewrites historical authorization. */
+        public void verifyHistorical(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time) throws Exception {
             a.requireTime(time);
             final var issuer = new Issuer(a.text(27, 128), (int) a.number(28), (int) a.number(29));
             if (!issuers.contains(issuer) || !Arrays.equals(deployment, a.value(2))
@@ -197,7 +202,7 @@ public final class TargetRecoveryCredentialAuthorization {
             if (a.notBeforeEpochMs() < key.verifyNotBeforeEpochMs() || a.notAfterEpochMs() > key.verifyNotAfterEpochMs()) throw unavailable();
             final var signature = Signature.getInstance("Ed25519"); signature.initVerify(key.publicKey());
             signature.update(Bytes.sha256(SIGNATURE_DOMAIN, a.digest, Bytes.u32beBits(issuer.signingKeyVersion())));
-            if (!signature.verify(a.value(31)) || !active) throw unavailable();
+            if (!signature.verify(a.value(31))) throw unavailable();
         }
         Hold acquire(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time) throws Exception {
             verify(a, time);

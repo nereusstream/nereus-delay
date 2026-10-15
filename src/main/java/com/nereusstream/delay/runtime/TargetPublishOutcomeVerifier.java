@@ -253,8 +253,12 @@ public final class TargetPublishOutcomeVerifier {
         }
         final Authorization authorized = authority.resolve(shardScope, author, mutation, source);
         if (authorized == null
-                || !ProtocolTuple.currentSystemMutation().equals(authorized.activatedTuple())
+                || !body.requiredTuple().equals(authorized.activatedTuple())
                 || !mutation.verifySignature(authorized.writerKey())) {
+            return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        // Parsing and tuple support alone cannot adopt a proof before its full immutable snapshot/atomic ledger path exists.
+        if (body.recoveryProof() != null) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final var observedAt = body.observedAt();

@@ -8,6 +8,7 @@ import java.util.Objects;
 /** Semantic parser for the definitive NOT_PUBLISHED Publish Outcome subset. */
 public final class PublishOutcomeBody {
     private static final int HASH_LENGTH = 32;
+    public static final int RECOVERY_PROOF_BODY_VERSION = 7;
 
     private final byte[] publishAttemptId;
     private final int sideEffect;
@@ -18,25 +19,11 @@ public final class PublishOutcomeBody {
     private final TrustedUtcIntervalEvidence observedAt;
     private final RetryDecision retryDecision;
     private final EvidenceCursor evidenceCursor;
+    private final TargetRecoveryProofRef recoveryProof;
 
-    private PublishOutcomeBody(
-            final byte[] publishAttemptId,
-            final int sideEffect,
-            final int disposition,
-            final StableCode stableCode,
-            final byte[] evidence,
-            final byte[] transfer,
-            final TrustedUtcIntervalEvidence observedAt,
-            final RetryDecision retryDecision) {
-        this(publishAttemptId, sideEffect, disposition, stableCode, evidence, transfer,
-                observedAt, retryDecision, null);
-    }
-
-    private PublishOutcomeBody(
-            final byte[] publishAttemptId, final int sideEffect, final int disposition,
-            final StableCode stableCode, final byte[] evidence, final byte[] transfer,
-            final TrustedUtcIntervalEvidence observedAt, final RetryDecision retryDecision,
-            final EvidenceCursor evidenceCursor) {
+    private PublishOutcomeBody(byte[] publishAttemptId,int sideEffect,int disposition,StableCode stableCode,
+            byte[] evidence,byte[] transfer,TrustedUtcIntervalEvidence observedAt,RetryDecision retryDecision,
+            EvidenceCursor evidenceCursor,TargetRecoveryProofRef recoveryProof) {
         this.publishAttemptId = fixed(publishAttemptId, "publishAttemptId");
         this.sideEffect = sideEffect;
         this.disposition = disposition;
@@ -46,6 +33,7 @@ public final class PublishOutcomeBody {
         this.observedAt = Objects.requireNonNull(observedAt, "observedAt");
         this.retryDecision = Objects.requireNonNull(retryDecision, "retryDecision");
         this.evidenceCursor = evidenceCursor;
+        this.recoveryProof = recoveryProof;
     }
 
     /**
@@ -66,7 +54,19 @@ public final class PublishOutcomeBody {
             final byte[] transfer,
             final TrustedUtcIntervalEvidence observedAt,
             final byte[] retryDecision) {
-        final byte[] encoded = encodeCommon(shardId, retryUntilEpochMs, SystemMutationType.PUBLISH_OUTCOME, output -> {
+        return encodeInitialBody(shardId,retryUntilEpochMs,publishAttemptId,sideEffect,disposition,stableCode,evidence,
+                transfer,observedAt,retryDecision,null);
+    }
+    public static byte[] encodeInitialWithRecoveryProof(ShardId shardId,long retryUntilEpochMs,byte[] publishAttemptId,
+            int sideEffect,int disposition,StableCode stableCode,byte[] evidence,byte[] transfer,
+            TrustedUtcIntervalEvidence observedAt,byte[] retryDecision,TargetRecoveryProofRef recoveryProof) {
+        return encodeInitialBody(shardId,retryUntilEpochMs,publishAttemptId,sideEffect,disposition,stableCode,evidence,
+                transfer,observedAt,retryDecision,Objects.requireNonNull(recoveryProof,"exact archived recovery proof"));
+    }
+    private static byte[] encodeInitialBody(ShardId shardId,long retryUntilEpochMs,byte[] publishAttemptId,
+            int sideEffect,int disposition,StableCode stableCode,byte[] evidence,byte[] transfer,
+            TrustedUtcIntervalEvidence observedAt,byte[] retryDecision,TargetRecoveryProofRef recoveryProof) {
+        final byte[] encoded = encodeProofCommon(shardId, retryUntilEpochMs, SystemMutationType.PUBLISH_OUTCOME, recoveryProof, output -> {
             CanonicalProtobuf.bytes(output, 10, fixed(publishAttemptId, "publishAttemptId"));
             CanonicalProtobuf.uint32(output, 11, sideEffect);
             CanonicalProtobuf.uint32(output, 12, disposition);
@@ -97,8 +97,20 @@ public final class PublishOutcomeBody {
             final byte[] transfer,
             final TrustedUtcIntervalEvidence observedAt,
             final byte[] retryDecision) {
+        return encodeResolutionBody(shardId,retryUntilEpochMs,publishAttemptId,evidenceCursor,evidence,stableCode,
+                sideEffect,disposition,transfer,observedAt,retryDecision,null);
+    }
+    public static byte[] encodeEvidenceResolutionWithRecoveryProof(ShardId shardId,long retryUntilEpochMs,byte[] publishAttemptId,
+            EvidenceCursor evidenceCursor,byte[] evidence,StableCode stableCode,int sideEffect,int disposition,byte[] transfer,
+            TrustedUtcIntervalEvidence observedAt,byte[] retryDecision,TargetRecoveryProofRef recoveryProof) {
+        return encodeResolutionBody(shardId,retryUntilEpochMs,publishAttemptId,evidenceCursor,evidence,stableCode,
+                sideEffect,disposition,transfer,observedAt,retryDecision,Objects.requireNonNull(recoveryProof,"exact archived recovery proof"));
+    }
+    private static byte[] encodeResolutionBody(ShardId shardId,long retryUntilEpochMs,byte[] publishAttemptId,
+            EvidenceCursor evidenceCursor,byte[] evidence,StableCode stableCode,int sideEffect,int disposition,byte[] transfer,
+            TrustedUtcIntervalEvidence observedAt,byte[] retryDecision,TargetRecoveryProofRef recoveryProof) {
         final byte[] encoded =
-                encodeCommon(shardId, retryUntilEpochMs, SystemMutationType.EVIDENCE_RESOLUTION, output -> {
+                encodeProofCommon(shardId, retryUntilEpochMs, SystemMutationType.EVIDENCE_RESOLUTION, recoveryProof, output -> {
                     CanonicalProtobuf.bytes(output, 10, fixed(publishAttemptId, "publishAttemptId"));
                     CanonicalProtobuf.bytes(
                             output,
@@ -153,7 +165,8 @@ public final class PublishOutcomeBody {
             throw new IllegalArgumentException("invalid UNKNOWN outcome combination");
         }
         return new PublishOutcomeBody(
-                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision);
+                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision,null,
+                recoveryProof(fields,attemptId,sideEffect,evidence));
     }
 
     /**
@@ -179,7 +192,26 @@ public final class PublishOutcomeBody {
         PublishEvidence.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
         validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         return new PublishOutcomeBody(
-                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision, cursor);
+                attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision, cursor,
+                recoveryProof(fields,attemptId,sideEffect,evidence));
+    }
+
+    private static TargetRecoveryProofRef recoveryProof(List<CanonicalProtobuf.Reader.Field> fields,byte[] attempt,int effect,byte[] evidence) {
+        if(fields.size()<4||fields.get(3).number()!=9)return null;
+        if(effect==3)throw new IllegalArgumentException("UNKNOWN cannot carry a definitive recovery proof reference");
+        final var ref=TargetRecoveryProofRef.decode(nested(field(fields,19),19));
+        ref.requireEvidence(PublishEvidence.decode(evidence),attempt);return ref;
+    }
+    public TargetRecoveryProofRef recoveryProof(){return recoveryProof;}
+    public ProtocolTuple requiredTuple(){return recoveryProof==null?ProtocolTuple.currentSystemMutation():ProtocolTuple.targetKafkaRecoveryOutcome();}
+
+    private static byte[] encodeProofCommon(ShardId shard,long retry,SystemMutationType type,TargetRecoveryProofRef ref,
+            CanonicalProtobuf.FieldWriter fields) {
+        return encodeCommon(shard,retry,type,out->{
+            if(ref!=null)CanonicalProtobuf.uint32(out,9,RECOVERY_PROOF_BODY_VERSION);
+            fields.writeTo(out);
+            if(ref!=null)CanonicalProtobuf.bytes(out,19,ref.canonicalBytes());
+        });
     }
 
     /** Present only for a verified EVIDENCE_RESOLUTION, never for an initial Outcome. */

@@ -3691,3 +3691,48 @@ charged until existing protected retirement and actual deletion prove release;
 all Source/Checkpoint/Floor/ProtectionSet/query/history/shared refs survive SDK
 exit, credential expiry, Owner changes or a single APPLIED/checkpoint event.
 This is a contract approval only; no format/production activation is claimed.
+
+Target K2 recovery exact proof reference and body generation 7 (2026-10-16):
+TargetRecoveryProofRef is a closed canonical nine-field v1 message: 1 version=1;
+2 type=1 in its dedicated RECOVERY_PROOF namespace (not CONTROL kind=1);
+3 full canonical UTF8 external key (1..2048 bytes); 4 proof digest[32];
+5 raw signed value SHA256[32]; 6 uint64 actual canonical value length (1..4194304);
+7 mappingId[32]; 8 ordinary PublishEvidence.evidenceId[32]; 9 attemptId[32].
+All fixed identities/digests are assigned/nonzero. Ref canonical maximum is
+2304 bytes. Key normalization/UTF8 and canonical shape are strict. Static ref
+checks bind K2 definitive evidence/attempt and original mapping, plus exact raw
+object length/hash; they grant no object, signature, capacity or retention right.
+
+Legacy PUBLISH_OUTCOME/EVIDENCE_RESOLUTION bodies keep their existing fields
+and exact encoding, with no field 9. Their existing shared activated tuple
+remains (framing=1, logEnvelope=1, SYSTEM_MUTATION, envelope=1, body=2).
+The explicit new proof-bearing variant adds uint32 field 9=7 before the existing
+operation fields and mandatory nested field 19=TargetRecoveryProofRef after them.
+PUBLISH_OUTCOME keeps fields 10..17; EVIDENCE_RESOLUTION keeps fields 10..18.
+New variants accept only definitive K2 evidence with matching attempt/evidence
+ref; UNKNOWN cannot carry a ref. Unknown generation, marker/ref mismatch and
+extra/out-of-order/noncanonical fields reject. The independent required tuple is
+(1,1,SYSTEM_MUTATION,1,7), via ProtocolTuple.targetKafkaRecoveryOutcome(). No
+ArtifactGenerationSet, reader declaration or activation is silently upgraded.
+The outer SystemMutation envelope/identity/signature rules stay unchanged; its
+original body hash/signature now also binds the exact immutable ref. Original
+PublishEvidence branch/evidenceId and Admission/mapping bytes are unchanged.
+
+Current code provides these codecs and required-tuple checks only. Source apply
+explicitly rejects all proof-bearing results until full object authentication
+snapshot and atomic proof-owner/ref/settlement/frozen-fee integration are wired.
+Thus tuple syntax/compilation alone cannot adopt a proof through an old memory
+Observation or bypass its new ledger. No v7 service/production activation is
+claimed. Full purpose-signed proof/public inputs, Catalog reserve/write/seal/
+adoption, Native records/remaining reserve/new Admission bounds, independent
+checkpoint/restore/history/read limits and protected Floor retirement remain
+required work. The 4MiB codec ceiling is not evidence of a funded old Attempt.
+
+Recovery credential Trust.verifyHistorical checks the exact original observation
+time, deployment/configuration generation/tenant and purpose-enabled issuer/key
+signature/window, independent of today's active flag. Current verify still
+requires active before and after that cryptographic check, and native use still
+requires actual current hold/permission. Historical signature validity grants no
+new recovery I/O, SDK or signing permission. Archive public inputs and historical
+proof provider verification remain to be connected. All central validation is
+still deferred.

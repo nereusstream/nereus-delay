@@ -851,3 +851,14 @@ SEND材料，再新建normal runtime并重走fresh anchor/fence/READY/dispatch�
 仍须当前恢复授权。旧body/旧证据/evidenceId及原Admission/mapping语义保持，新
 proof-bearing body只在显式支持它的protocol tuple/reader capability下接受。
 归档/Source原子owner-ref/Checkpoint/Floor扩展尚待实现，权限/保留/费用不得简化。
+
+
+2026-10-16新增proof-bearing Source body generation7格式：field9=7与必填field19
+精确RECOVERY_PROOF ref共同出现，Ref固定原mapping/evidence/attempt、完整key和
+proof/value digest/实际length。UNKNOWN不携ref，原无marker body/evidenceId/
+Admission/mapping及签名身份不重释。原body字段继续参与原SystemMutation body
+hash/签名，新的exact ref亦被签入；v7须独立tuple/reader支持。当前Source在真实
+认证snapshot、原子owner/ref/冻结费用接通前拒绝采用v7，不能以普通内存观察或
+仅解析成功替代durable证明；其余归档/Source/Checkpoint/Floor义务仍开放。
+历史恢复Auth验签只核原观察时间与原配置/issuer/key/scope，不要求旧generation
+今天仍active；新恢复I/O继续使用原active和实际current hold gate，二者不混用。
