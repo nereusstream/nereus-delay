@@ -837,3 +837,17 @@ tenant核对，不能仅因另一个Trust对象自身一致而跨realm。
 新增当前恢复公共证明与actual Store/cut上下文；外层Source首结果及mapping编码不变。
 public resolution authority仍需实际UNKNOWN及private scan observation，持久归档/
 SERVICE Source结果与正常新工作接续尚未闭合；组件编译不证明端到端恢复或整包完成。
+
+
+2026-10-16新工作接续使用独立normal入口：原恢复Source已结算、原SDK/reader/hold
+实际退出后，在同Host私有construction许可下重核Owner、原OPEN channel和普通
+SEND材料，再新建normal runtime并重走fresh anchor/fence/READY/dispatch。恢复
+材料/typed SDK不改用途，也不替代旧普通lease。closed/replaced原channel只退场，
+跨代当前OPEN选择仍是后续完整编排义务。
+
+已批准的新durable恢复证明必须被精确签入Source结果ref，不能仅按evidenceId查
+“当前版本”、修改旧anchor或靠旧进程闭包认证。RECOVERY_PROOF独立于CONTROL，
+内容寻址/用途签名/原观察Owner/时间/SDK与完整公共验证材料持续可历史认证；新动作
+仍须当前恢复授权。旧body/旧证据/evidenceId及原Admission/mapping语义保持，新
+proof-bearing body只在显式支持它的protocol tuple/reader capability下接受。
+归档/Source原子owner-ref/Checkpoint/Floor扩展尚待实现，权限/保留/费用不得简化。

@@ -157,12 +157,110 @@ public final class KafkaClientArtifactTargetReceiptFactory {
         } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
     }
 
-    private record ReopenInputs(Configuration config, com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+    record ReopenInputs(Configuration config, com.nereusstream.delay.protocol.TargetChannelIdentity channel,
             com.nereusstream.delay.protocol.CanonicalTargetPartition physical, com.nereusstream.delay.protocol.OwnerIdentity owner,
             SystemMutation admission, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
             LocalBrokerMtlsResolver resolver, ProfileCatalog profiles, CredentialAttestationTrustSet trust,
             OxiaSyncTargetKafkaReceiptProtectionCatalog catalog, TargetDestinationSdkBudget budget,
             Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier clock) {}
+
+    /** Separate normal-work entry. Recovery authority is not a SEND credential or permission. */
+    public static RecoveryReopen configureRecoveryReopen(TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker,
+            KafkaClientArtifactTargetRecoveryRuntime recovery, TargetWorkerPublicationDispatch dispatch,
+            KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
+        try(var construction=startup.beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();startup.retainPublicationDispatch(worker,dispatch);
+            final var inputs=recovery.reopenInputs(startup,worker);
+            final var result=new RecoveryReopen(startup,worker,recovery,inputs,dispatch,Objects.requireNonNull(publisher));
+            worker.registerPublicationMaintenance(recovery,result,inputs.budget(),inputs.clock());
+            construction.requireCurrent();return result;
+        }catch(RuntimeException|Error failure){startup.failResourceStartup(failure);throw failure;}
+    }
+
+    private static Opening createNewWorkSuccessor(TargetWorkerSourceStartup startup,TargetWorkerShardRuntime worker,
+            TargetWorkerPublicationDispatch dispatch,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher,
+            ReopenInputs inputs,TargetWorkerHostRuntime.PublicationConstruction construction) {
+        construction.requireCurrent();worker.requirePublicationOwner(inputs.owner(),inputs.clock());
+        final var actual=worker.requirePublicationChannel(inputs.channel(),true,inputs.reads().get(),inputs.clock());
+        if(!Arrays.equals(actual.canonicalBytes(),inputs.physical().canonicalBytes()))
+            throw new IllegalStateException("K2 successor changes its original physical Target");
+        // Fresh ordinary SEND material, never the independent RECOVERY receipt or a renewed/reinterpreted old lease.
+        final var material=inputs.resolver().resolve(inputs.channel(),actual,inputs.profiles(),inputs.trust(),inputs.time());
+        construction.requireCurrent();
+        if(!worker.kafkaMappingSettled(inputs.reads().get(),inputs.admission(),inputs.mapping(),inputs.clock()))
+            throw new IllegalStateException("K2 successor lost its original Source settlement");
+        final var provider=new KafkaClientArtifactTargetReceiptProvider(worker,inputs.owner(),inputs.channel(),inputs.catalog(),
+                inputs.config().protectionDigest(),inputs.mapping().admission().kafkaReceipt().receiptResource(),
+                inputs.profiles(),inputs.trust(),material,inputs.time(),inputs.clock(),inputs.config().sdkJar(),inputs.reads(),true);
+        final var graph=startup.graph();
+        final var active=new KafkaClientArtifactTargetReceiptRuntime(worker,inputs.channel(),actual,provider,publisher,inputs.budget(),
+                dispatch.physical(),graph.classes(),graph.resources(),inputs.config().settings(),graph.io(),
+                new HashMap<>(inputs.config().producer()),new HashMap<>(inputs.config().reader()),inputs.reads(),inputs.clock(),null);
+        return new Opening(startup,worker,dispatch,active,true,null);
+    }
+
+    /** Root-owned normal-work continuation, separate from the recovery-only SDK and its public entry surface. */
+    public static final class RecoveryReopen implements TargetWorkerShardRuntime.PublicationMaintenance {
+        private final TargetWorkerSourceStartup startup;
+        private final TargetWorkerShardRuntime worker;
+        private final KafkaClientArtifactTargetRecoveryRuntime recovery;
+        private final ReopenInputs inputs;
+        private final TargetWorkerPublicationDispatch dispatch;
+        private final KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher;
+        private final java.util.concurrent.ThreadPoolExecutor io;
+        private TargetWorkerHostRuntime host;
+        private OwnedCheckpointIo<Boolean> pending;
+        private volatile Opening successor;
+        private volatile boolean stopping,failed;
+        private boolean retired;
+        private RecoveryReopen(TargetWorkerSourceStartup startup,TargetWorkerShardRuntime worker,
+                KafkaClientArtifactTargetRecoveryRuntime recovery,ReopenInputs inputs,TargetWorkerPublicationDispatch dispatch,
+                KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher){
+            this.startup=startup;this.worker=worker;this.recovery=recovery;this.inputs=inputs;this.dispatch=dispatch;
+            this.publisher=publisher;io=startup.graph().io();
+        }
+        @Override public TargetWorkerShardRuntime.PublicationResources originalResources(){return recovery;}
+        @Override public synchronized boolean runTurn(TargetWorkerHostRuntime actualHost){
+            if(stopping)return ioExited();
+            if(host!=null&&host!=actualHost)throw new IllegalArgumentException("K2 continuation changed its original Host");
+            host=actualHost;
+            if(pending!=null){
+                final var result=pending.receipt();
+                if(!pending.operationExited()||!result.isDone())return false;
+                final boolean complete=result.join();
+                if(!pending.ioExited())return false;
+                pending=null;if(complete)return true;
+            }
+            try{pending=OwnedCheckpointIo.submit(guard->{guard.run();final boolean complete=advance(actualHost);guard.run();return complete;},()->{},io);}
+            catch(java.util.concurrent.RejectedExecutionException full){if(io.isShutdown())throw full;}
+            return false;
+        }
+        private boolean advance(TargetWorkerHostRuntime actualHost){
+            final var admitted=actualHost.tryBeginPublicationConstruction(worker);
+            if(admitted.isEmpty())return false;
+            try(var construction=admitted.orElseThrow()){
+                construction.requireCurrent();if(worker.pendingCheckpointTask().isPresent())return false;
+                if(retired)return true;
+                if(successor==null){
+                    worker.requirePublicationOwner(inputs.owner(),inputs.clock());
+                    if(!worker.kafkaMappingSettled(inputs.reads().get(),inputs.admission(),inputs.mapping(),inputs.clock()))return false;
+                    if(!recovery.settleClose())return false;
+                    if(!worker.publicationChannelOpen(inputs.channel(),inputs.reads().get(),inputs.clock())){retired=true;return true;}
+                    successor=createNewWorkSuccessor(startup,worker,dispatch,publisher,inputs,construction);
+                }
+                construction.requireCurrent();successor.advance();construction.requireCurrent();
+                return successor.newWorkRuntime().isPresent();
+            }catch(TargetWorkerHostRuntime.PublicationConstruction.Unavailable unavailable){return false;}
+            catch(com.nereusstream.delay.store.ReadIncompleteException yield){return false;}
+            catch(RuntimeException|Error failure){failed=true;startup.failResourceStartup(failure);throw failure;}
+        }
+        /** A fresh independently authorized normal runtime becomes visible only after its actual READY/dispatch handoff. */
+        public Optional<KafkaClientArtifactTargetReceiptRuntime> newWorkRuntime(){
+            final var active=successor;return failed||stopping||active==null?Optional.empty():active.newWorkRuntime();
+        }
+        @Override public synchronized void requestStop(){stopping=true;if(pending!=null){pending.requestStop();pending.retryCleanup();}}
+        @Override public synchronized boolean ioExited(){return pending==null||pending.ioExited();}
+    }
 
     /** Observes only the original registered native opening, including its late failed-cleanup obligations. */
     public static final class Opening {
@@ -233,24 +331,8 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 if (!worker.publicationChannelOpen(reopen.channel(), reopen.reads().get(), reopen.clock())) {
                     retiredWithoutSuccessor = true; return Optional.empty();
                 }
-                final var actual = worker.requirePublicationChannel(reopen.channel(), true, reopen.reads().get(), reopen.clock());
-                if (!Arrays.equals(actual.canonicalBytes(), reopen.physical().canonicalBytes())) {
-                    throw new IllegalStateException("K2 successor changes its original physical Target");
-                }
-                final var material = reopen.resolver().resolve(reopen.channel(), actual, reopen.profiles(), reopen.trust(), reopen.time());
-                construction.requireCurrent();
-                if (!worker.kafkaMappingSettled(reopen.reads().get(), reopen.admission(), reopen.mapping(), reopen.clock())) {
-                    throw new IllegalStateException("K2 successor lost its Source settlement");
-                }
-                final var provider = new KafkaClientArtifactTargetReceiptProvider(worker, reopen.owner(), reopen.channel(),
-                        reopen.catalog(), reopen.config().protectionDigest(), reopen.mapping().admission().kafkaReceipt().receiptResource(),
-                        reopen.profiles(), reopen.trust(), material, reopen.time(), reopen.clock(), reopen.config().sdkJar(), reopen.reads(), true);
-                final var graph = startup.graph();
-                final var active = new KafkaClientArtifactTargetReceiptRuntime(worker, reopen.channel(), actual, provider, publisher,
-                        reopen.budget(), dispatch.physical(), graph.classes(), graph.resources(), reopen.config().settings(), graph.io(),
-                        new HashMap<>(reopen.config().producer()), new HashMap<>(reopen.config().reader()), reopen.reads(), reopen.clock(), null);
                 // Registration already transferred ownership to the original Worker before this final Host recheck.
-                successor = new Opening(startup, worker, dispatch, active, true, null);
+                successor = createNewWorkSuccessor(startup,worker,dispatch,publisher,reopen,construction);
                 construction.requireCurrent(); return Optional.of(successor);
             } catch (TargetWorkerHostRuntime.PublicationConstruction.Unavailable stopping) {
                 return Optional.empty();
@@ -286,8 +368,9 @@ public final class KafkaClientArtifactTargetReceiptFactory {
         @Override public synchronized boolean runTurn(TargetWorkerHostRuntime host) {
             if (stopping) return ioExited();
             if (pending != null) {
-                if (!pending.operationExited()) return false;
-                final boolean complete = pending.receipt().join();
+                final var result = pending.receipt();
+                if (!pending.operationExited() || !result.isDone()) return false;
+                final boolean complete = result.join();
                 if (!pending.ioExited()) return false;
                 pending = null;
                 if (complete) return true;

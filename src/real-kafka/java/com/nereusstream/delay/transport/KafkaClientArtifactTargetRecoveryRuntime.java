@@ -23,6 +23,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 /** Actual independent-credential K2 recovery owner. Its public surface has no SEND, anchor or raw producer entry. */
 public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWorkerShardRuntime.PublicationResources {
+    private final TargetWorkerSourceStartup startup;
     private final TargetWorkerShardRuntime worker;
     private final OwnerIdentity owner;
     private final TargetChannelIdentity channel;
@@ -90,7 +91,7 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
             ProfileCatalog profiles, CredentialAttestationTrustSet historicalTrust,
             OxiaSyncTargetKafkaReceiptProtectionCatalog catalog, TargetDestinationSdkBudget budget,
             Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier clock) {
-        this.worker=worker; this.owner=owner; this.mapping=mapping; this.admission=admission; channel=mapping.admission().channel();
+        this.startup=startup;this.worker=worker; this.owner=owner; this.mapping=mapping; this.admission=admission; channel=mapping.admission().channel();
         this.configuration=configuration; this.authorizationFile=Objects.requireNonNull(authorizationFile);
         this.resolver=Objects.requireNonNull(resolver); this.recoveryTrust=Objects.requireNonNull(recoveryTrust);
         this.profiles=Objects.requireNonNull(profiles); this.historicalTrust=Objects.requireNonNull(historicalTrust);
@@ -246,6 +247,15 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     public byte[] evidenceImage(PublishEvidence evidence) {
         final var actual=Objects.requireNonNull(observation,"actual guarded recovery observation");
         actual.requireCurrent(evidence); return actual.canonicalBytes();
+    }
+
+    // Only the distinct normal-work composition entry can obtain the original context, never a recovery SEND capability.
+    KafkaClientArtifactTargetReceiptFactory.ReopenInputs reopenInputs(TargetWorkerSourceStartup original,
+            TargetWorkerShardRuntime actual) {
+        if(startup!=original||worker!=actual)throw new IllegalArgumentException("K2 resume changed its original Source startup/Worker");
+        return new KafkaClientArtifactTargetReceiptFactory.ReopenInputs(configuration,channel,
+                mapping.admission().publication().physical(),owner,admission,mapping,resolver,profiles,historicalTrust,
+                catalog,budget,time,reads,clock);
     }
 
     @Override public TargetChannelIdentity channelIdentity(){return channel;}

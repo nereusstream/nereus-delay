@@ -2274,3 +2274,27 @@ fetch与最低费用是预留及结构检查，实际最大batch/拓扑/threads/
 或RSS。原冻结/计数校验使用同一Image，Source material bytes含原provider材料及新冻结
 Control注册/key和capacity输入。父计划/完整域/physical reservation与paired commit合同
 保持；operation read保护cleanup和durable allocation release继续独立。
+
+
+2026-10-16已裁定、待实现的RECOVERY_PROOF归属：原Catalog物理capacity先有限
+reserve完整不可变对象、索引和intent，未知写只重读exact bytes；ADOPTED仍占物理
+额度。Source原首次APPLIED把proof owner/ref、结算/slot/attempt、首结果/POSITION、
+Source推进与账本放同一native batch。REJECTED/UNKNOWN/重复/失败batch不新收费。
+归原Attempt冻结TargetQuotaIncarnation/tenant/lineage/accounting policy，单对象
+EVIDENCE_RECORDS=1，EVIDENCE_BYTES=UTF8 key+完整raw signed canonical value+原
+recordOverheadBytes，本地owner/ref/真实index或alias按实际记录计STATE。已内嵌同
+一份auth/attestation不重复计依赖，另存实物才另计。remainingAttemptCharge/独立
+ledger fold只从reserve扣除已被原Attempt唯一owner接管的实物，不双算；执行reserve
+释放后proof/ref独立费用保留。新Admission预算须覆盖有限恢复证明上界，旧冻结
+allocated/commitment实际不足时归档/提交前拒绝并保留UNKNOWN，不隐瞒到SDK/deploy
+窗口、不超扣/重定价/自动改旧预算，不另造补差CONTROL。
+
+新增持久记录须准确表达Admission/观察与Outcome adoption provenance，不假填
+originalControlDigest。NV48子标记3已用于anchor-by-attempt alias，不能作为新的
+kind3直接复用相同key形状。新Source body携exact key/digest/value digest/length/
+mappingId/evidenceId等有界ref；同evidenceId多proof只能认证已选对象后复用或明确
+冲突，不能覆盖。未采用intent要证明prepared use永不可能首次采用才可退役。所有
+attempt/Source replay/query/history/shared refs都纳入既有ResourceRetireIntent、
+Source/Checkpoint/Floor/ProtectionSet及实际删除确认；确认不再引用且实际删除后才
+去owner/ref及费用。SDK退出、凭据过期、Owner变化、Outcome APPLIED或单个checkpoint
+均不是删除证明。本次只是同步裁决，尚未实施此持久/计费扩展，不执行真实删除。

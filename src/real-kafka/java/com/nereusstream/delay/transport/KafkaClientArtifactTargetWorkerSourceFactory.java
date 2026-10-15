@@ -339,6 +339,22 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     authorization,resolver,recoveryTrust,profiles,historicalTrust,management.catalog(),sdkBudget,time,reads,clock);
         }
 
+        /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
+        public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(
+                KafkaClientArtifactTargetRecoveryRuntime recovery,
+                com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch,
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management) {
+            startup.requireReceiptManagement(management);
+            final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original K1 Source Worker is unavailable");original=worker;}
+            final var inputs=recovery.reopenInputs(startup,original);
+            if(inputs.catalog()!=management.catalog()||!java.util.Arrays.equals(inputs.config().protectionDigest(),
+                    management.protection(recovery.channelIdentity().digest()).digest()))
+                throw new IllegalArgumentException("K2 resume changed its original process CONTROL backing");
+            return KafkaClientArtifactTargetReceiptFactory.configureRecoveryReopen(startup,original,recovery,dispatch,
+                    management.publisher(recovery.channelIdentity().digest()));
+        }
+
         /** Opens the Source producer against this exact Root/Worker/material, before original Host composition. */
         public void openSystemWriter(Path path, LocalBrokerMtlsResolver resolver,
                 SourceTransportCredentialAuthorization.Trust trust) throws java.io.IOException {

@@ -3667,3 +3667,27 @@ It grants no SERVICE signature, Source mutation, Artifact issuance or archive
 rights. Durable public proof/ref retention, full SERVICE/Source resolution
 composition and the typed new-work handoff remain required integration work;
 necessary compilation alone does not certify them or real Broker recovery.
+
+
+2026-10-16 approved, not yet implemented: independent RECOVERY_PROOF immutable
+intent/object in the original receipt Catalog, separate from CONTROL kinds;
+purpose-scoped proof signature and full historical public inputs. Explicit new
+proof-bearing PUBLISH_OUTCOME/EVIDENCE_RESOLUTION body carries bounded exact
+key/proof digest/value digest/canonical length/mappingId/evidenceId ref, with
+explicit protocol-tuple/reader support. Existing body versions, ordinary
+PublishEvidence/evidenceId and old Admission/mapping bytes retain their meaning.
+Reserve/write/authenticated exact reread precedes prepared Outcome signing and
+durable ID/hash/retry seal before Source enqueue; later Source position is
+recorded only by actual APPLIED adoption. Source first APPLIED atomically adds
+proof owner/ref, business/slot/attempt settlement, first/POSITION, Source progress
+and ledger; rejected/UNKNOWN/repeated/failed batches do not acquire or charge.
+Ownership and exact physical/state cost belong to the original frozen Attempt,
+not current actor/SDK budget; new Admission bounds cover the proof, insufficient
+old frozen budgets reject without modification. New record/key domains must
+avoid NV48 subtag 3 (existing anchor-by-attempt alias) and must not fake CONTROL
+provenance. Independent ledger, checkpoint/restore/history providers, read bounds
+and remaining reserve accounting are mandatory. Staging/adopted bytes remain
+charged until existing protected retirement and actual deletion prove release;
+all Source/Checkpoint/Floor/ProtectionSet/query/history/shared refs survive SDK
+exit, credential expiry, Owner changes or a single APPLIED/checkpoint event.
+This is a contract approval only; no format/production activation is claimed.

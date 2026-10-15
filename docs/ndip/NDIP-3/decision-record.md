@@ -683,3 +683,33 @@ Root factory；Host通过原PublicationResources保留实际opening/SDK/reader/c
 authority/evidenceImage入口，但不因此授SERVICE签名、Source写入、归档或新SEND。
 公共证据durable provider/ref、完整SERVICE/Source结果组装和typed恢复后的正常工作
 接续仍继续开发；真实部署authority/材料仍是必填前提，全部集中验证及29义务不减。
+
+
+## 2026-10-16：独立durable恢复证明与Source原子归属
+
+主会话已批准在同receipt Catalog/Root增加独立RECOVERY_PROOF intent/object，
+明确区别CONTROL PROTECTION/ANCHOR，不新增CONTROL operation/kind。原Root/Intent
+保留旧canonical语义，新分支/版本显式辨识；对象内容寻址/不可变，完整绑定原
+mapping/Admission/attempt/channel/producer/receipt/protection/anchor、原Evidence
+及evidenceId、Fence2/实际范围观察、公共恢复授权/材料验证输入、原观察Owner/
+session/可信时间及SDK/能力/算法。原SERVICE/明确recovery-verifier用途issuer/key
+版本以独立proof签名域发行，只能实际typed native receipt及完整关联产生；历史
+认证按原时点，不要求旧Owner/凭据今天有效。不得归档私钥或原始secret。
+
+reserve→put/exact authenticated reread→签proof-ref Outcome→seal prepared use→
+enqueue，不反写后来Source position。mapping+evidenceId固定发现索引且绑定完整
+proof digest，同evidenceId不同proof不能覆盖；完整认证已选对象后复用或冲突。
+新版proof-bearing PUBLISH_OUTCOME/EVIDENCE_RESOLUTION body带exact有限ref并须
+显式tuple/reader支持；旧body、PublishEvidence/evidenceId和Admission/mapping不
+重释，UNKNOWN不伪造definitive ref。Source锁外取完整认证snapshot，锁内核原
+pending/first/ref，在首次有效APPLIED原子写结算/slot/attempt/first/POSITION/
+Source、proof owner/ref和账本；Source真实APPLIED私有adoption才推Catalog。
+
+费用归原Attempt冻结incarnation/tenant/lineage/policy，实物唯一EVIDENCE=1/
+完整UTF8 key+raw signed bytes+overhead，实际local owner/ref/index按STATE；剩余
+reserve/独立ledger/Checkpoint/restore/read bounds同补。新Admission预留有限
+上界，旧冻结预算不足先拒绝并保留UNKNOWN，不自动补差。NV48子标记3是原anchor
+alias，不可冒充新kind3；新增记录不伪造CONTROL provenance。物理staging/adopted
+额度保留，全部引用经原ResourceRetireIntent/Source/Checkpoint/Floor/ProtectionSet
+和实际删除确认后才清ref/owner/费用，未采用也须证明所有prepared use确定终止。
+本项尚待实施；只必要编译/既有文档同步，全部集中验证后置，完成flags不提升。
