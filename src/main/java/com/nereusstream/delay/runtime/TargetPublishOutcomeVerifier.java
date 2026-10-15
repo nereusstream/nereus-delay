@@ -88,7 +88,12 @@ public final class TargetPublishOutcomeVerifier {
 
     public record EvidenceContext(
             SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority,
-            NativeEvidenceAuthority nativeAuthority, NativeResolutionAuthority nativeResolutionAuthority) {
+            NativeEvidenceAuthority nativeAuthority, NativeResolutionAuthority nativeResolutionAuthority,
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery recoveryProof) {
+        public EvidenceContext(SystemMutation admission,EvidenceAuthority authority,ResolutionAuthority resolutionAuthority,
+                NativeEvidenceAuthority nativeAuthority,NativeResolutionAuthority nativeResolutionAuthority){
+            this(admission,authority,resolutionAuthority,nativeAuthority,nativeResolutionAuthority,null);
+        }
         public EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
             this(admission, authority, null, null, null);
         }
@@ -100,13 +105,22 @@ public final class TargetPublishOutcomeVerifier {
                 NativeResolutionAuthority resolution) {
             return new EvidenceContext(admission, null, null, authority, resolution);
         }
+        /** The caller resolves this full Catalog snapshot outside Store I/O; it carries no live SDK closure. */
+        public static EvidenceContext archivedContext(OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot,SystemMutation prepared){
+            Objects.requireNonNull(snapshot).requireExact(prepared);
+            return new EvidenceContext(snapshot.verified().proof().admission(),null,null,null,null,snapshot);
+        }
         public EvidenceContext {
             RetryContext.requireAdmission(admission);
             final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
             if (!body.materialized()) {
                 throw new IllegalArgumentException("Target physical evidence requires materialized Admission v4/v5");
             }
-            if (body.nativePublication() != null) {
+            if(recoveryProof!=null){
+                if(body.kafkaReceipt()==null||authority!=null||resolutionAuthority!=null||nativeAuthority!=null||nativeResolutionAuthority!=null
+                        ||!Arrays.equals(admission.canonicalEnvelope(),recoveryProof.verified().proof().admission().canonicalEnvelope()))
+                    throw new IllegalArgumentException("archived K2 evidence requires its original Admission and private full snapshot only");
+            } else if (body.nativePublication() != null) {
                 Objects.requireNonNull(nativeAuthority, "nativeEvidenceAuthority");
                 if (authority != null || resolutionAuthority != null) {
                     throw new IllegalArgumentException("Native evidence cannot use ordinary authority");
@@ -257,7 +271,7 @@ public final class TargetPublishOutcomeVerifier {
                 || !mutation.verifySignature(authorized.writerKey())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        // Parsing and tuple support alone cannot adopt a proof before its full immutable snapshot/atomic ledger path exists.
+        // Native owner/ref and exact fees exist, but full checkpoint/public-proof history composition is still required.
         if (body.recoveryProof() != null) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }

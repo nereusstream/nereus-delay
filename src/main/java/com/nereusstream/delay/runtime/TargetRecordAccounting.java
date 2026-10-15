@@ -626,6 +626,36 @@ public final class TargetRecordAccounting {
                         scope.shard(), scope.tenantScope(), lineage);
                 result = new Charge(owner, resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var artifact=com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.decodeForStore(key,payload,scope.shard(),scope.tenantScope(),lineage);
+                artifact.adoptedAt().requireAtOrBefore(operation);
+                final var owner=descriptor(artifact.primaryOwner().identity());
+                if(!owner.accounting().equals(artifact.primaryOwner().accounting()))throw new IllegalStateException("recovery blob changed frozen accounting");
+                final var ref=artifact.referenceRecord();
+                for(byte[] refKey:List.of(ref.key(),ref.attemptKey())){
+                    final var actual=com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.decodeForStore(refKey,
+                            payload(ColumnFamily.META,refKey,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.VALUE_TYPE),scope.shard(),lineage);
+                    actual.requireOwner(artifact);
+                }
+                final byte[] budgetKey=Bytes.concat(new byte[]{TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,TargetKeyCodec.KEY_FORMAT},ref.attemptId());
+                final var budget=TargetQuotaAttemptBudget.decodeForStore(budgetKey,payload(ColumnFamily.META,budgetKey,TargetQuotaAttemptBudget.VALUE_TYPE),scope.shard());
+                ref.requireAttempt(budget);
+                if(budget.resolvedAt()==null||!budget.resolvedAt().equals(artifact.adoptedAt())||!Arrays.equals(budget.admissionDigest(),artifact.admissionHash()))
+                    throw new IllegalStateException("recovery owner lacks its original resolved Attempt");
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length).add(artifact.blobCharge())));
+            }
+            case com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var ref=com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.decodeForStore(key,payload,scope.shard(),lineage);
+                ref.adoptedAt().requireAtOrBefore(operation);final var owner=descriptor(ref.referenceOwner());
+                if(!owner.accounting().equals(ref.accounting()))throw new IllegalStateException("recovery reference changed frozen accounting");
+                final byte[] ownerKey=com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.key(ref.proofDigest());
+                final var artifact=com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.decodeForStore(ownerKey,
+                        payload(ColumnFamily.META,ownerKey,com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.VALUE_TYPE),scope.shard(),scope.tenantScope(),lineage);
+                ref.requireOwner(artifact);
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
             case TargetQuotaAttemptBudget.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var budget = TargetQuotaAttemptBudget.decodeForStore(key, payload, scope.shard());

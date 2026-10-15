@@ -877,3 +877,13 @@ Source ref并持久seal该frame的ID/hash/retry。mapping+evidence固定选择�
 Source adoption。部署Root及archive-aware Source链尚未接通，v7 Source仍拒绝，
 typed恢复已关闭旧内存resolution旁路。原子Native owner/ref、完整冻结费用、
 Checkpoint/Floor/保护退役仍必做；没有生产恢复可用或整包完成声明。
+
+
+2026-10-16 Native恢复provenance独立记录原Admission mutation/hash、观察者摘要/
+可信时间、冻结Target及实际Outcome ID/hash/type/Source stamp，完整观察者和公共
+认证材料仍由signed proof保留；原不可变proof不反写未来Source位置。实际Native
+pending/原first/anchor/Attempt与Catalog完整prepared snapshot共同校验后，三条
+owner/ref/alias接同Source原子批次。Catalog ADOPTED只接真实guarded Native
+APPLIED first/POSITION/settlement及owner/ref证明，不接任意DTO或仅凭no-ref。
+现阶段v7仍拒绝，checkpoint完整证明伴随/历史和部署Root Source链待接；新工作
+Admission只接受已覆盖有限恢复上界的原预算，旧冻结预算不更改。

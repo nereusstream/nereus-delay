@@ -167,6 +167,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             return Math.addExact(empty.encode().length+64L,Math.multiplyExact(128L,maximumUses));
         }
         RecoveryIntent phase(int next){return new RecoveryIntent(id,reference,frozenOwner,next,uses,adoptedSource);}
+        RecoveryIntent adopt(byte[] source){
+            if(adoptedSource.length!=0)requireExact(adoptedSource,source);
+            return new RecoveryIntent(id,reference,frozenOwner,ADOPTED,uses,source);
+        }
         RecoveryIntent bind(PreparedUse use,int maximum){
             for(var old:uses)if(Arrays.equals(old.id,use.id)){requireExact(old.bytes(),use.bytes());return this;}
             if(uses.size()>=maximum)throw new IllegalStateException("recovery prepared Source-use window exhausted");
@@ -463,14 +467,14 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             throw new IllegalArgumentException("recovery Source frame changed original Shard/Attempt/logical identity");
     }
     private void requireRecoveryBlobBudget(TargetRecoveryProof proof,String key){
-        // This is the pre-publication blob floor. Native adoption separately requires all exact STATE row charges.
+        // Future Source positions are unknown here: reserve the finite complete native STATE window as well.
         final var mapping=proof.mapping();final var anchor=retainedObject(anchorObjectKey(mapping.admission().kafkaReceipt().scanObservationDigest()),
                 mapping.admission().kafkaReceipt().scanObservationDigest());
         final var accounting=proof.frozenOwner().accounting();
         final var originalAnchor=accounting.externalEvidenceCharge(Bytes.utf8(anchorObjectKey(anchor.digest())).length,anchor.canonicalBytes().length);
         final var recovery=accounting.externalEvidenceCharge(Bytes.utf8(key).length,proof.canonicalBytes().length);
-        if(!proof.attempt().allocated().covers(originalAnchor.add(recovery)))
-            throw new IllegalStateException("original frozen Attempt cannot pay anchor and recovery proof; keep UNKNOWN without archiving");
+        if(!proof.attempt().allocated().covers(originalAnchor.add(recovery).add(TargetRecoveryEvidenceOwner.maximumStateCharge(accounting))))
+            throw new IllegalStateException("original frozen Attempt cannot pay anchor/recovery/native STATE window; keep UNKNOWN without archiving");
     }
     private String recoveryObjectKey(byte[] digest){Bytes.requireLength(digest,32,"recovery proof digest");return prefix+"/target-kafka-recovery-proof/"+Bytes.hex(digest);}
     private static byte[] recoveryId(byte[] mapping,byte[] evidence){
@@ -480,6 +484,19 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private static void requireSameRecovery(RecoveryIntent actual,RecoveryIntent expected){
         if(!actual.reference.equals(expected.reference)||!Arrays.equals(actual.frozenOwner.canonicalBytes(),expected.frozenOwner.canonicalBytes()))
             throw new IllegalStateException("mapping/evidence already selected another exact recovery proof");
+    }
+    /** Only actual guarded Native APPLIED+owner/ref/first/POSITION facts can conservatively mark the Catalog adopted. */
+    public void adoptRecovery(TargetRecoveryEvidenceStore.Adoption applied){
+        final var owner=Objects.requireNonNull(applied).owner();applied.reference().requireOwner(owner);
+        final var ref=owner.reference();final String id=Bytes.hex(recoveryId(ref.mappingId(),ref.evidenceId()));
+        update(root->{final var intent=Objects.requireNonNull(root.recoveries.get(id),"original recovery publication");
+            if(intent.phase<POSSIBLY_SOURCE||!intent.reference.equals(ref)
+                    ||!Arrays.equals(intent.frozenOwner.canonicalBytes(),owner.primaryOwner().canonicalBytes())
+                    ||intent.uses.stream().noneMatch(use->Arrays.equals(use.id,owner.outcomeId())&&Arrays.equals(use.hash,owner.outcomeHash())
+                            &&use.retryUntil==applied.retryUntilEpochMs()))
+                throw new IllegalStateException("actual recovery adoption differs from original publication/prepared seal");
+            return root.recovery(intent.adopt(Bytes.sha256(owner.adoptedAt().source().canonicalBytes())));
+        });
     }
     public void adopt(TargetExternalEvidenceStore.Adoption proof){
         final var mapping=proof.mapping();final byte[] id=SystemMutation.computeSystemMutationId(mapping.admission().shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,mapping.admission().publishAttemptId(),mapping.mutationHash());

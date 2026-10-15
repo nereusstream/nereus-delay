@@ -736,3 +736,19 @@ key、capability/Attempt/冻结incarnation、digest/signature。typed新观察sc
 部署Root/signing配置、Source完整原子owner/ref/账本、Admission预算及Checkpoint/
 Floor退役继续；v7 Source采用与typed旧内存resolution均拒绝。此为实现进展而非
 包或全目标完成，集中验证后置，所有完成/生产flags保持false。
+
+
+2026-10-16 Native恢复组件实现选择：独立NV49/meta42 owner和NV50/meta43 subtag1
+引用/subtag2 Attempt alias，原NV48 subtag3不重用。记录原Admission/冻结Target/
+观察者摘要与实际Outcome/Source provenance，不修改外部proof、不伪造CONTROL。
+三条edit加入原definitive结算原子批次；Catalog ADOPTED只接Native guarded实际
+APPLIED first/POSITION/owner/ref/slot/Attempt读取产生的私有token。Native独立
+STATE/唯一blob费用与原Attempt reserve按actual adopted share转移，RELEASED后
+proof/ref仍收费，部分分配不得发生减除下溢。新K2 preparation/fresh Admission
+须fund实际anchor+有限proof/STATE上界；旧冻结预算不足先拒绝且不改预算。
+
+补齐既有NV45–48的reader ceiling及META40/41映射，并注册49/50，无自动部署/
+reader/tuple激活。独立fold核完整Native引用/原first与mapping/anchor/Attempt，
+semantic digest追加恢复owner；没有恢复owner时旧字节不变。checkpoint完整proof
+伴随/历史及部署Root Source装配继续实施，旧semantic companion遇新owner拒绝
+发布，v7采用门禁保持；这是原包1组件实现，未关闭任何全程序完成/验证/生产flag。

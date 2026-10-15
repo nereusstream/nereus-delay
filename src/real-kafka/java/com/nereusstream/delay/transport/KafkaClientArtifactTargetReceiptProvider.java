@@ -269,12 +269,13 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
         catalog.adopt(actual); requireWorker(access);
     }
 
-    /** Anchor reservation consumption uses exact external bytes; the shared protection is independently owned once by Source. */
+    /** New Admission must fund its actual anchor and a finite full recovery object/native STATE window. */
     public CapacityVector evidenceCharge(TargetKafkaReceiptBinding binding,
             com.nereusstream.delay.protocol.TargetQuotaAccounting frozenAccounting) {
         final var anchor = catalog.requireAnchor(protection, binding);
         return frozenAccounting.externalEvidenceCharge(catalog.anchorObjectKey(anchor.digest()).getBytes(
-                java.nio.charset.StandardCharsets.UTF_8).length, anchor.canonicalBytes().length);
+                java.nio.charset.StandardCharsets.UTF_8).length, anchor.canonicalBytes().length)
+                .add(com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.maximumRecoveryCharge(frozenAccounting));
     }
 
     private OwnerIdentity requireWorker() { return worker.requirePublicationOwner(owner, ownerClock); }

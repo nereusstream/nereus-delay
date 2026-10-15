@@ -3805,3 +3805,68 @@ are not yet connected. Source still refuses all generation7 adoption, and typed
 recovery refuses its former memory-only resolution authority. Native atomic
 owner/ref/fees/ledger, checkpoint/history/read bounds and protected retirement
 remain open. Necessary compilation only; centralized validation remains deferred.
+
+
+### Target recovery Native ownership and frozen reserve transfer (2026-10-16, not activated)
+
+Target NV registration now includes types1..50. This also completes the existing
+K2 registrations45..48: META tags38/39 map to NV45/46, tags40/41 to NV47/48. The
+previous type ceiling44 and missing40/41 business-key dispatch would reject the
+already defined K2 records. The legacy Lane reader remains unchanged. New types
+49/50 use independent META tags42/43, and do not reuse NV48 subtag3.
+
+NV49 TargetRecoveryEvidenceOwner schema1 key is `2a 01 || proofDigest[32]`.
+Closed fields: 1 version1, 2 exact TargetRecoveryProofRef, 3 full original frozen
+TargetQuotaIncarnation, 4 original Admission TargetQuotaMutation, 5 original
+Admission body hash[32], 6 original observer canonical identity SHA-256[32],
+7 original trusted observation interval, 8 adopting SystemMutationType (only
+PUBLISH_OUTCOME/EVIDENCE_RESOLUTION), 9 adopting mutation ID[32], 10 adopting
+body hash[32], 11 actual adopting Source TargetQuotaMutation. The complete
+observer is retained in the signed external proof. The immutable proof itself
+never acquires this future Source position. No CONTROL provenance is fabricated.
+
+NV50 TargetRecoveryEvidenceReference schema1 is either exact reference key
+`2b 01 01 || mappingId[32] || evidenceId[32]` or actual Attempt alias
+`2b 01 02 || attemptId[32]`, with identical payload. Closed fields: 1 version1,
+2 proof digest[32], 3 mappingId[32], 4 evidenceId[32], 5 attemptId[32], 6 frozen
+TargetQuotaIdentity, 7 frozen TargetQuotaAccounting, 8 adopting Source mutation,
+9 adopting Outcome ID[32], 10 adopting Outcome body hash[32], 11 lineage[16].
+Each reference must match its unique owner and original resolved Attempt.
+
+TargetRecoveryEvidenceStore stages these three actual rows only from a private
+Catalog PreparedRecovery snapshot for the exact signed Source body. It checks
+the actual pending mapping/slot, original APPLIED Admission/anchor owner, frozen
+Attempt/allocated/commitment, and exact proof. Edits join existing definitive
+business/order/slot/Attempt/first/POSITION/Source/accounting assembly; they are
+not committed separately. Rejection/duplicate/failed batches cannot create
+adoption through this helper. Source first replay routing remains mandatory.
+The v7 verifier guard still refuses adoption until checkpoint/history/Root
+composition is complete; this describes implementation below that guard.
+
+The unique blob pays EVIDENCE_RECORDS1 and exact UTF8 key + full raw signed
+canonical value + original overhead. Each actual owner, reference and alias pays
+STATE bytes with NV framing (STATE has no separate record-count dimension). The complete actual three-row/blob share
+is removed from the same original Attempt reserve after atomic adoption, while
+the records charge it independently. No Catalog flag or observation DTO consumes
+reserve. RELEASED Attempt remains zero while retained proof/ref charges survive;
+partial allocation release must still cover any owned share being subtracted.
+
+New K2 preparation and fresh Native Admission now require actual anchor charge
+plus the finite maximum recovery window: key<=2048, proof<=4MiB and maximum
+three-row STATE charges derived from bounded codecs/future Source positions.
+They validate supplied allocated/commitment rather than expanding them. Existing
+frozen Admissions/mappings are not rewritten or re-reserved. Before archival,
+old Attempt must cover its actual anchor+proof and the complete future Native
+STATE window; actual Source adoption separately checks exact three-row cost.
+Insufficient funding leaves UNKNOWN, without deployment/SDK or CONTROL top-up.
+
+Catalog ADOPTED now accepts only private guarded Native Adoption carrying actual
+APPLIED first/POSITION, owner/ref/alias, exact resolved Attempt and settled slot
+facts. It rechecks the exact original durable prepared ID/hash/retry seal and
+keeps physical charge. No delete/refund is implemented. Independent ledger fold
+correlates complete owner/ref/alias/Attempt/mapping/anchor/first/POSITION inventory
+and includes native recovery owners in semantic dependency digest field8.
+Without any recovery owners, prior digest bytes are unchanged. Existing semantic
+companions explicitly refuse publication with recovery owners until complete
+signed proof bytes/history support is connected. Native registration/compilation
+is not reader activation, end-to-end recovery or central validation.

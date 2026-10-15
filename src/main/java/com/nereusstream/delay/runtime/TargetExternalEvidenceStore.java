@@ -155,8 +155,9 @@ public final class TargetExternalEvidenceStore {
                 originalContext.domain(), original, null, mapping, edits);
         final var anchoredBlob = owner(reader, scope, lineage, evidence.anchor(), evidence.anchorKey(), anchorOwner,
                 mapping.admission().channel().context().domain(), original, attempt.publishAttemptId(), mapping, edits);
-        if (!attempt.allocated().covers(anchoredBlob.blobCharge())) {
-            throw new IllegalArgumentException("K2 Admission has not reserved/allocated its actual anchor object");
+        if (!attempt.allocated().covers(anchoredBlob.blobCharge().add(
+                com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.maximumRecoveryCharge(anchorOwner.accounting())))) {
+            throw new IllegalArgumentException("new K2 Admission has not allocated its anchor and finite complete recovery object/native STATE window");
         }
         for (var blob : List.of(protectedBlob, anchoredBlob)) {
             final var ref = new TargetExternalEvidenceReference(blob.kind(), blob.artifactDigest(), mapping.mappingId(),
@@ -205,7 +206,11 @@ public final class TargetExternalEvidenceStore {
         // Mapping selection is an exact point lookup through the anchor reference indexed by attempt below.
         final byte[] indexKey = referenceByAttemptKey(budget.publishAttemptId());
         final byte[] index = reader.projected(ColumnFamily.META, indexKey, overlay);
-        if (index == null) { return budget.effectiveCharge(); }
+        if (index == null) {
+            if(reader.projected(ColumnFamily.META,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.attemptKey(budget.publishAttemptId()),overlay)!=null)
+                throw new IllegalStateException("recovery Attempt alias lost original anchor reference");
+            return budget.effectiveCharge();
+        }
         final var ref = TargetExternalEvidenceReference.decode(TargetValueEnvelope.decode(index,
                 TargetExternalEvidenceReference.VALUE_TYPE).payload());
         requireAttemptReference(ref, budget, scope, lineage);
@@ -216,8 +221,9 @@ public final class TargetExternalEvidenceStore {
         if (!owner.primaryOwner().identity().equals(budget.primaryIdentity()) || !owner.primaryOwner().accounting().equals(budget.accounting())) {
             throw new IllegalStateException("anchor reservation consumption changes its frozen attempt accounting");
         }
-        return budget.phase() == TargetQuotaAttemptBudget.Phase.RELEASED ? budget.effectiveCharge()
+        final var afterAnchor=budget.phase() == TargetQuotaAttemptBudget.Phase.RELEASED ? budget.effectiveCharge()
                 : budget.effectiveCharge().subtract(owner.blobCharge());
+        return TargetRecoveryEvidenceStore.remainingAttemptCharge(reader,overlay,budget,scope,lineage,afterAnchor);
     }
 
     public static byte[] referenceByAttemptKey(byte[] attempt) {

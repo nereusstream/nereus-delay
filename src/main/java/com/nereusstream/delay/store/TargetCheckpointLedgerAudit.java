@@ -126,6 +126,8 @@ final class TargetCheckpointLedgerAudit {
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
         final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceReference> externalReferences = new HashMap<>();
+        final List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryOwners = new ArrayList<>();
+        final Map<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference> recoveryReferences = new HashMap<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
@@ -214,6 +216,15 @@ final class TargetCheckpointLedgerAudit {
                                 proof.metadata().shardId(),proof.root().recoveryLineage());
                         ref.mutation().requireAtOrBefore(proof.aggregate().mutation());
                         if(externalReferences.put(Bytes.hex(key),ref)!=null)throw new IllegalStateException("duplicate external reference");
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.VALUE_TYPE) {
+                        final var owner=com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        owner.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());recoveryOwners.add(owner);dependencies.recoveryEvidence(owner);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.VALUE_TYPE) {
+                        final var reference=com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().recoveryLineage());
+                        reference.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());
+                        if(recoveryReferences.put(Bytes.hex(key),reference)!=null)throw new IllegalStateException("duplicate recovery reference");
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
@@ -302,6 +313,7 @@ final class TargetCheckpointLedgerAudit {
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
         auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);
+        auditRecoveryEvidenceReferences(kafkaMappings,externalOwners,recoveryOwners,recoveryReferences,attemptBudgets,resultRows);
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
             if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
@@ -645,6 +657,58 @@ final class TargetCheckpointLedgerAudit {
                     body.canonicalBytes(), AuthorIdentity.control(author.operationActorIdHash(),
                             author.authenticatedRoleSetHash(), author.tenantResourceScopeHash()).canonicalBytes());
         }
+    }
+
+    /** Independent exact inventory/first-result correlation; complete blob cryptographic authentication is outside Store I/O. */
+    private static void auditRecoveryEvidenceReferences(
+            List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> mappings,
+            List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> originalOwners,
+            List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> owners,
+            Map<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference> references,
+            List<TargetQuotaAttemptBudget> budgets,List<TargetResultLedgerAudit.Stored> results){
+        if(owners.isEmpty()&&references.isEmpty())return;
+        final var byMapping=new HashMap<String,com.nereusstream.delay.protocol.TargetKafkaReceiptMapping>();
+        final var byBudget=new HashMap<String,TargetQuotaAttemptBudget>();
+        final var byOriginal=new HashMap<String,com.nereusstream.delay.protocol.TargetExternalEvidenceOwner>();
+        final var byResult=new HashMap<String,TargetResultRecord>();
+        for(var mapping:mappings)byMapping.put(Bytes.hex(mapping.mappingId()),mapping);
+        for(var budget:budgets)byBudget.put(Bytes.hex(budget.publishAttemptId()),budget);
+        for(var original:originalOwners)byOriginal.put(Bytes.hex(original.key()),original);
+        for(var row:results){final var result=TargetResultRecord.decode(row.payload());
+            result.requireStored(row.key(),row.type(),row.payload());byResult.put(Bytes.hex(row.key()),result);}
+        final var expected=new java.util.HashSet<String>();final var objectKeys=new java.util.HashSet<String>();
+        final var selectedAttempts=new java.util.HashSet<String>();
+        for(var owner:owners){
+            final var ref=owner.reference();
+            if(!objectKeys.add(Bytes.hex(owner.key()))||!selectedAttempts.add(Bytes.hex(ref.attemptId())))
+                throw new IllegalStateException("recovery evidence has duplicate unique object/Attempt adoption");
+            final var mapping=Objects.requireNonNull(byMapping.get(Bytes.hex(ref.mappingId())),"recovery original mapping");
+            final var budget=Objects.requireNonNull(byBudget.get(Bytes.hex(ref.attemptId())),"recovery original Attempt");
+            final var original=Objects.requireNonNull(byOriginal.get(Bytes.hex(com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.key(2,
+                    mapping.admission().kafkaReceipt().scanObservationDigest()))),"recovery original anchor owner");
+            if(!Arrays.equals(owner.primaryOwner().canonicalBytes(),original.primaryOwner().canonicalBytes())
+                    ||!owner.admissionMutation().equals(mapping.mutation())||!Arrays.equals(owner.admissionHash(),mapping.mutationHash())
+                    ||!Arrays.equals(ref.attemptId(),mapping.admission().publishAttemptId())||!Arrays.equals(budget.admissionDigest(),owner.admissionHash())
+                    ||budget.resolvedAt()==null||!budget.resolvedAt().equals(owner.adoptedAt()))
+                throw new IllegalStateException("recovery owner changed original mapping/Admission/frozen owner/resolved Source");
+            for(byte[] key:List.of(owner.referenceRecord().key(),owner.referenceRecord().attemptKey())){
+                final var actual=Objects.requireNonNull(references.get(Bytes.hex(key)),"recovery exact reference/Attempt alias");
+                actual.requireOwner(owner);actual.requireAttempt(budget);expected.add(Bytes.hex(key));
+            }
+            final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},owner.outcomeId());
+            final var first=Objects.requireNonNull(byResult.get(Bytes.hex(firstKey)),"recovery adopting first result");
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(owner.adoptedAt())
+                    ||result.applyStatus()!=ApplyStatus.APPLIED||result.mutationType()!=owner.outcomeType()
+                    ||!Arrays.equals(result.mutationId(),owner.outcomeId())||!Arrays.equals(result.mutationHash(),owner.outcomeHash())
+                    ||!Arrays.equals(result.appliedSourcePosition(),owner.adoptedAt().source().canonicalBytes()))
+                throw new IllegalStateException("recovery evidence lacks actual adopting APPLIED Source first");
+            final byte[] positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},owner.adoptedAt().source().canonicalBytes());
+            final var position=Objects.requireNonNull(byResult.get(Bytes.hex(positionKey)),"recovery adopting POSITION companion");position.requireFirst(first);
+            if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(owner.adoptedAt()))
+                throw new IllegalStateException("recovery evidence changed actual Source POSITION");
+        }
+        if(!expected.equals(references.keySet()))throw new IllegalStateException("recovery reference inventory has orphan/missing rows");
     }
 
     /** Independent inventory correlation. Complete actual external byte authentication follows outside the Store view. */

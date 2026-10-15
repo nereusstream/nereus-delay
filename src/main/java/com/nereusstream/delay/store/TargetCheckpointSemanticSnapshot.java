@@ -234,6 +234,7 @@ public final class TargetCheckpointSemanticSnapshot {
         result.validateAgainst(dependencies,limits);result.requireExternalEvidenceComplete(dependencies);return result;
     }
     public void requireExternalEvidenceComplete(TargetCheckpointDependencies dependencies) {
+        if(!dependencies.recoveryEvidence().isEmpty())throw new IllegalStateException("checkpoint requires complete purpose-signed recovery proof companion support");
         if(!dependencies.externalEvidence().isEmpty()&&version<4)throw new IllegalStateException("checkpoint publication lacks actual external object bytes");
         dependencies.requireExternalEvidenceImages(externalEvidence);
     }

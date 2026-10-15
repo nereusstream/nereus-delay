@@ -195,7 +195,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
             com.nereusstream.delay.store.TargetStoreBackend.CommitAuthority revokeWrites) {
         if(!ready||stopping||original!=null)throw new IllegalStateException("K2 new work requires a current SEND startup");
         if(!allocated.covers(provider.evidenceCharge(binding,worker.readPublicationAccounting(reads.get(),channel,ownerClock))))
-            throw new IllegalArgumentException("K2 preparation has not reserved its actual anchor object");
+            throw new IllegalArgumentException("K2 preparation has not funded its anchor and finite recovery object/native STATE window");
         return new TargetPulsarPublishRuntime.Inputs(channel,capability,retryUntil,commitment,allocated,policies,
                 revokeQuota,revokeWrites,binding,provider.publications(reads,io));
     }

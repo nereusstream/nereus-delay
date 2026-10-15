@@ -50,6 +50,8 @@ public final class TargetKeyCodec {
     public static final int KAFKA_RECEIPT_SLOT_TAG = 39;
     public static final int EXTERNAL_EVIDENCE_OWNER_TAG = 40;
     public static final int EXTERNAL_EVIDENCE_REFERENCE_TAG = 41;
+    public static final int RECOVERY_EVIDENCE_OWNER_TAG = 42;
+    public static final int RECOVERY_EVIDENCE_REFERENCE_TAG = 43;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

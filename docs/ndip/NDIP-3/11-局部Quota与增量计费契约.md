@@ -2322,3 +2322,24 @@ STATE收费、唯一实物reserve转移、remainingAttemptCharge/独立ledger和
 签名proof保存原Attempt及TargetQuotaIncarnation，后续不得借当前Owner重定价。
 当前Source仍拒绝v7，Catalog没有recovery ADOPTED/删除/退款入口；所有Source/
 Checkpoint/Floor/shared refs和prepared use确定终止后的实际删除义务保持。
+
+
+2026-10-16 Native恢复归属/费用代码：NV49 owner/meta42独立保留原Admission与
+实际Outcome provenance；NV50 ref/meta43 subtag1(mapping+evidence)、subtag2
+(Attempt alias)逐实际记录STATE，不与NV48 anchor alias冲突。owner唯一实物按
+UTF8 key+full raw signed canonical value+原overhead计EVIDENCE_RECORDS1；owner
+另计实际STATE，ref与alias各计STATE。adoptedCharge为这三条实际STATE及blob，
+从同原Attempt reserve移出后由独立记录收取，不重复计费；只能由实际Native
+owner/ref/alias/原已resolved Attempt关联消耗，Catalog flag不算采用。RELEASED
+预算为零，独立proof/ref仍收费；部分retained allocation不得低于尚参与减除的
+owned share，否则拒绝而非超退。无自动删除/refund或因SDK退出免账。
+
+新K2 SDK preparation与fresh Source Admission检查actual anchor+恢复key2048/
+proof4MiB及三条Native STATE codec有限最大值。只验证调用方提供的冻结allocated/
+commitment，不自动增加。旧已APPLIED Admission/mapping/allocated不重写；归档
+前须实际anchor+proof+完整future STATE最大窗口，Source采用再核精确actual share，
+不足保持UNKNOWN，不挪SDK/deploy费、不增补CONTROL。独立TargetRecordAccounting
+和checkpoint ledger fold增加新类型/完整原mapping/anchor/Attempt/first/POSITION/
+引用闭合检查；新owner计入semantic dependency digest。checkpoint proof伴随和
+全链历史验签仍未接，旧snapshot遇新owner拒绝发布、v7采用仍封闭，不能以必要
+编译宣称计费/恢复已验收。

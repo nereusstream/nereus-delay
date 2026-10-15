@@ -130,7 +130,7 @@ public final class TargetPublishOutcomeStore {
                         final var writer = author.kind() == AuthorIdentity.Kind.OWNER ? author.asOwnerIdentity() : null;
                         final var projection = outcome.sideEffect() != 3
                                 ? definitive(reader, outcome, stamp, writer, decision.authorization(),
-                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION)
+                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION,mutation)
                                 : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
                         appliedCode = projection.appliedCode();
@@ -518,7 +518,7 @@ public final class TargetPublishOutcomeStore {
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
             final OwnerIdentity writer,
-            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution) {
+            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution,final SystemMutation sourceMutation) {
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 outcome.publishAttemptId());
@@ -579,7 +579,17 @@ public final class TargetPublishOutcomeStore {
         if (outcome.retryDecision().cause() != outcome.stableCode()) {
             throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
-        if (nativeHandoff) {
+        if(outcome.recoveryProof()!=null){
+            final var archived=Objects.requireNonNull(context.recoveryProof(),"full immutable recovery snapshot");
+            archived.requireExact(sourceMutation);
+            if(admission.kafkaReceipt()==null||nativeHandoff||!archived.verified().reference().equals(outcome.recoveryProof()))
+                throw new IllegalStateException("proof-bearing Source settlement changed its original K2 snapshot");
+            if(resolution&&!Arrays.equals(outcome.evidenceCursor().canonicalBytes(),com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(
+                    archived.verified().proof().mapping(),evidence).canonicalBytes()))
+                throw new IllegalStateException("recovery resolution cursor differs from archived observation");
+        } else if(context.recoveryProof()!=null){
+            throw new IllegalStateException("archived recovery cannot use a legacy Source body");
+        } else if (nativeHandoff) {
             // Authenticate the retained request and its historical snapshot; current policy/lease cannot undo ownership.
             TargetNativePolicyStoreAuthority.inView(reader, scope, lineage).requireTrusted(
                     admission.nativePublication().policyScope(), admission.nativePublication().policySnapshot(),
@@ -652,6 +662,8 @@ public final class TargetPublishOutcomeStore {
                     || !Arrays.equals(slot.recoveryLineage(), lineage)) { throw new IllegalStateException("K2 settlement mapping/slot lineage or Source differs"); }
             if (published) { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(mapping, evidence); }
             else { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(mapping, evidence); }
+            if(outcome.recoveryProof()!=null)extra.addAll(TargetRecoveryEvidenceStore.adopt(reader,scope,lineage,mapping,budget,stamp,
+                    sourceMutation,context.recoveryProof()));
             final var settled = slot.settle(mapping, stamp);
             extra.add(reader.replace(ColumnFamily.META, slotKey,
                     com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, settled.canonicalBytes()));
