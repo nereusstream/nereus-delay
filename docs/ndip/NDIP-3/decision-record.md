@@ -616,3 +616,17 @@ management image/credentials，不重跑Admin掩盖历史间隙。每个真实Ad
 activate/break/protection/anchor写入；历史链不再调用current gate。此决定不单独关闭
 包1/29切片，仍只作必要编译，当前授权变化、错资源/动作、失效与历史独立性和不复活
 等有限交错留集中验证；不授权当前执行实际Admin、部署或迁退。
+
+
+## 2026-10-16：K2精确源码锁接续当前受控K1
+
+K2新reader、anchor与同ID fence观察使用既有受控K1分支的精确提交
+`02c9f768d6f77cb4860bada42cb22917914d2981`；实际JAR metadata的commitId必须为
+`02c9f768d6f77cb4`，不接受旧提交、unknown或任意新提交。原provider继续精确比对
+实际JAR SHA256与已激活Artifact，本次使用的实际JAR为
+`4ec46de695c6ce30778d5a6e5b0bb8f13405fa271c54b067dbe54137fc4cb233`。
+新观察按原字段记录新source及实际JAR；旧观察、原Admission/mapping/channel、
+capability/sourceLockDigest及历史Broker证据不重写、不重标。源码锁更新不是部署
+激活，真实环境仍须按原协议激活对应SDK/capability/Artifact组合；没有兼容allowlist。
+独立Target RECOVERY授权与旧执行凭据过期后的实际恢复仍是未闭合代码义务，不能用
+本次源码接续绕开旧gate。只作必要编译，集中验证和全程序完成flags不变。

@@ -3539,3 +3539,15 @@ Owned Store authority. No intent encoding changes are introduced by repair.
 Old no-intent residues remain preserved and cannot be adopted; PUBLISHED uses
 ordinary protected INSTALLED recovery. All crash, identity, Native, resource and
 Broker validation remains deferred.
+
+
+K2 guarded SDK source-lock continuation (2026-10-16): new reader range, anchor
+and same-ID fence observations record the exact compiled K1 source commit
+02c9f768d6f77cb4860bada42cb22917914d2981 in their existing source fields. The actual
+loaded bounded JAR must contain commitId=02c9f768d6f77cb4; the provider still checks
+its SHA256 against the activated immutable Artifact. The current build JAR SHA256
+is 4ec46de695c6ce30778d5a6e5b0bb8f13405fa271c54b067dbe54137fc4cb233. This is no
+wire/schema change or deployment activation. Retained observation bytes, original
+capability/sourceLockDigest, Admission/mapping/channel and historical Broker
+evidence keep their original identities. No source allowlist or credential
+recovery permission is introduced; independent Target RECOVERY remains required.

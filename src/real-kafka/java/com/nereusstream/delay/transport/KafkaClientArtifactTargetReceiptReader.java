@@ -22,7 +22,8 @@ import org.apache.kafka.common.record.TimestampType;
 
 /** Bounded resumable read_committed lookup from the original protected range, independent of old producer callbacks. */
 public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseable {
-    public static final String REQUIRED_K1_SOURCE_COMMIT = "8087db6498c4f4d03eabfbfcb83bc6410872531a";
+    // New observations identify this exact guarded SDK revision; retained images keep their original bytes.
+    public static final String REQUIRED_K1_SOURCE_COMMIT = "02c9f768d6f77cb4860bada42cb22917914d2981";
     public enum Status { WAITING, ADVANCED, PUBLISHED }
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
@@ -274,7 +275,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
                 final var properties = new java.util.Properties();
                 properties.load(new java.io.ByteArrayInputStream(bytes));
                 if (!REQUIRED_K1_SOURCE_COMMIT.substring(0, 16).equals(properties.getProperty("commitId"))) {
-                    throw new IllegalStateException("Target K2 requires the activated K1 empty-Fetch/log-start source lock");
+                    throw new IllegalStateException("Target K2 requires K1 source lock " + REQUIRED_K1_SOURCE_COMMIT);
                 }
             }
             final var digest = java.security.MessageDigest.getInstance("SHA-256");
