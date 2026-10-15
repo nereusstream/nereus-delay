@@ -229,6 +229,13 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                             failure = combineFailures(failure, caught);
                         }
                     }
+                    if (!(failure instanceof Error)) {
+                        try { fleet.runNextPublicationResourceTurnIfPresent(); }
+                        catch (RuntimeException | Error caught) {
+                            firstFailure.compareAndSet(null, caught);
+                            failure = combineFailures(failure, caught);
+                        }
+                    }
                     if (!(failure instanceof Error) && checkpointTurn != null) {
                         try { checkpointTurn.run(); }
                         catch (RuntimeException | Error caught) {

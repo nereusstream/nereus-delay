@@ -41,6 +41,7 @@ public final class TargetWorkerShardFleetRuntime {
         default Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
             return Optional.empty();
         }
+        default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() { return Optional.empty(); }
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -98,6 +99,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int publishRecoveryCursor;
     private int publishCursor;
     private int journalSettlementCursor;
+    private int publicationResourceCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -176,6 +178,7 @@ public final class TargetWorkerShardFleetRuntime {
                 maintenanceCursor = afterRemoval(maintenanceCursor, index, shards.size());
                 messageExpiryCursor = afterRemoval(messageExpiryCursor, index, shards.size());
                 publishRecoveryCursor = afterRemoval(publishRecoveryCursor, index, shards.size());
+                publicationResourceCursor = afterRemoval(publicationResourceCursor, index, shards.size());
                 return;
             }
         }
@@ -292,6 +295,17 @@ public final class TargetWorkerShardFleetRuntime {
         if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
         activeTurnThread = Thread.currentThread();
         try { return selected.runPublishMaintenanceTurn(); }
+        finally { activeTurnThread = null; }
+    }
+
+    synchronized Optional<WorkClassTask> runNextPublicationResourceTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) return Optional.empty();
+        final var selected = shards.get(publicationResourceCursor);
+        publicationResourceCursor = publicationResourceCursor == shards.size() - 1 ? 0 : publicationResourceCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) return Optional.empty();
+        activeTurnThread = Thread.currentThread();
+        try { return selected.runPublicationResourceMaintenanceTurn(); }
         finally { activeTurnThread = null; }
     }
 

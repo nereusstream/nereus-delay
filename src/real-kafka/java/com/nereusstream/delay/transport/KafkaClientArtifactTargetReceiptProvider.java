@@ -108,7 +108,8 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
         requireWorker();
         protection = catalog.requireActive(resource, channel.context().evidenceGeneration(), originalProtectionDigest);
         protection.protection().requireChannel(channel);
-        worker.requirePublicationChannel(channel,newWork,adoptionReads.get(),ownerClock);
+        if(newWork)worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock);
+        else worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
         requireCurrentChannel();
     }
 
@@ -157,9 +158,9 @@ public final class KafkaClientArtifactTargetReceiptProvider implements KafkaClie
     @Override
     public OwnerIdentity requireCurrent(TargetChannelIdentity requested, TargetKafkaReceiptBinding receipt, byte[] actualSdkJar) {
         channel.requireExactFrozenIdentity(requested);
-        final var current=worker.requirePublicationChannel(channel,false,adoptionReads.get(),ownerClock);
+        final var current=newWork ? worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock)
+                : worker.requireRetainedPublicationChannel(channel,adoptionReads.get(),ownerClock);
         if(!current.id().equals(channel.context().target()))throw new IllegalStateException("SDK opening Target changed actual Source identity");
-        if(newWork)worker.requirePublicationChannel(channel,true,adoptionReads.get(),ownerClock);
         requireSdk(actualSdkJar);
         requireBinding(receipt);
         return requireWorker();

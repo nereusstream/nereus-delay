@@ -1092,13 +1092,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requirePublicationChannel(
             com.nereusstream.delay.protocol.TargetChannelIdentity channel, boolean newWork, BoundedReadBudget reads, LongSupplier clock) {
-        return readPublicationChannel(channel,newWork,false,reads,clock);
+        return readPublicationChannel(channel,newWork,false,reads,clock).physical();
     }
     synchronized com.nereusstream.delay.protocol.CanonicalTargetPartition requireRetainedPublicationChannel(
             com.nereusstream.delay.protocol.TargetChannelIdentity channel,BoundedReadBudget reads,LongSupplier clock) {
-        return readPublicationChannel(channel,false,true,reads,clock);
+        return readPublicationChannel(channel,false,true,reads,clock).physical();
     }
-    private com.nereusstream.delay.protocol.CanonicalTargetPartition readPublicationChannel(
+    synchronized boolean publicationChannelOpen(com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            BoundedReadBudget reads, LongSupplier clock) {
+        return readPublicationChannel(channel,false,true,reads,clock).currentOpen();
+    }
+    private record PublicationChannelState(com.nereusstream.delay.protocol.CanonicalTargetPartition physical, boolean currentOpen) {}
+    private PublicationChannelState readPublicationChannel(
             com.nereusstream.delay.protocol.TargetChannelIdentity channel,boolean newWork,boolean retained,
             BoundedReadBudget reads,LongSupplier clock) {
         requireGcOwner(clock);
@@ -1121,7 +1126,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if(raw==null)throw new IllegalStateException("publication channel lacks its actual Target identity");
             final var physical=com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(key,
                     com.nereusstream.delay.store.TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE).payload());
-            reader.requireWithinElapsedBudget();return physical;
+            reader.requireWithinElapsedBudget();return new PublicationChannelState(physical,
+                    slot.phase()==com.nereusstream.delay.protocol.TargetChannelSlot.Phase.OPEN
+                            &&java.util.Arrays.equals(slot.channel().canonicalBytes(),channel.canonicalBytes()));
         },workerReads(clock));
         requireGcOwner(clock);return actual;
     }

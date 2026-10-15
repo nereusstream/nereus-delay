@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
 import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
+import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.KafkaReceiptSlotResource;
@@ -129,7 +130,9 @@ public final class KafkaClientArtifactTargetReceiptFactory {
             construction.requireCurrent();
             final var reopen = original == null ? null : new ReopenInputs(config, channel, entry.physical(), owner,
                     originalAdmission.image(), original, resolver, profiles, trust, catalog, budget, time, reads, ownerClock);
-            return new Opening(startup, worker, dispatch, runtime, original == null, reopen);
+            final var result = new Opening(startup, worker, dispatch, runtime, original == null, reopen);
+            if (original != null && controlPublisher != null) result.installAutomaticReopen(controlPublisher);
+            return result;
         } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
     }
 
@@ -151,11 +154,30 @@ public final class KafkaClientArtifactTargetReceiptFactory {
         private TargetWorkerHostRuntime reopenHost;
         private volatile Opening successor;
         private volatile boolean failed;
+        private volatile boolean retiredWithoutSuccessor;
+        private AutomaticReopen automatic;
         private Opening(TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker,
                 TargetWorkerPublicationDispatch dispatch, KafkaClientArtifactTargetReceiptRuntime runtime, boolean newWork,
                 ReopenInputs reopen) {
             this.startup = startup; this.worker = worker; this.dispatch = dispatch; this.runtime = runtime; this.newWork = newWork;
             this.reopen = reopen;
+        }
+
+        /** Completes the original startup configuration, before Host transfer; never installs a replacement controller. */
+        public void configureAutomaticReopen(KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
+            try (var construction = startup.beginWorkerResourceConstruction(worker)) {
+                construction.requireCurrent(); installAutomaticReopen(publisher); construction.requireCurrent();
+            } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
+        }
+        private synchronized void installAutomaticReopen(KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
+            if (newWork || reopen == null || failed) throw new IllegalStateException("automatic K2 handoff requires its original cold handle");
+            Objects.requireNonNull(publisher, "actual restricted CONTROL publisher");
+            if (automatic != null) {
+                if (automatic.publisher != publisher) throw new IllegalStateException("original CONTROL publisher cannot be replaced");
+                return;
+            }
+            final var original = new AutomaticReopen(this, publisher, startup.graph().io());
+            worker.registerPublicationMaintenance(runtime, original, reopen.budget(), reopen.clock()); automatic = original;
         }
         public synchronized KafkaClientArtifactTargetReceiptRuntime.Turn advance() {
             if (failed) throw new IllegalStateException("original configured K2 startup failed");
@@ -180,12 +202,16 @@ public final class KafkaClientArtifactTargetReceiptFactory {
             if (admitted.isEmpty()) return Optional.empty();
             try (var construction = admitted.orElseThrow()) {
                 construction.requireCurrent(); reopenHost = host;
+                if (worker.pendingCheckpointTask().isPresent() || retiredWithoutSuccessor) return Optional.empty();
                 if (successor != null) return Optional.of(successor);
                 worker.requirePublicationOwner(reopen.owner(), reopen.clock());
                 if (!worker.kafkaMappingSettled(reopen.reads().get(), reopen.admission(), reopen.mapping(), reopen.clock())) {
                     return Optional.empty();
                 }
                 if (!runtime.settleClose()) return Optional.empty();
+                if (!worker.publicationChannelOpen(reopen.channel(), reopen.reads().get(), reopen.clock())) {
+                    retiredWithoutSuccessor = true; return Optional.empty();
+                }
                 final var actual = worker.requirePublicationChannel(reopen.channel(), true, reopen.reads().get(), reopen.clock());
                 if (!Arrays.equals(actual.canonicalBytes(), reopen.physical().canonicalBytes())) {
                     throw new IllegalStateException("K2 successor changes its original physical Target");
@@ -222,5 +248,47 @@ public final class KafkaClientArtifactTargetReceiptFactory {
             return runtime.readyForNewWork() ? Optional.of(runtime) : Optional.empty();
         }
         public KafkaClientArtifactTargetReceiptRuntime runtime() { return runtime; }
+    }
+
+    /** One owned queued method on the original finite I/O pool; the existing fleet tick only submits/observes it. */
+    private static final class AutomaticReopen implements TargetWorkerShardRuntime.PublicationMaintenance {
+        private final Opening original;
+        private final KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher;
+        private final java.util.concurrent.ThreadPoolExecutor io;
+        private OwnedCheckpointIo<Boolean> pending;
+        private boolean stopping;
+        private AutomaticReopen(Opening original, KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher,
+                java.util.concurrent.ThreadPoolExecutor io) {
+            this.original = original; this.publisher = publisher; this.io = io;
+        }
+        @Override public TargetWorkerShardRuntime.PublicationResources originalResources() { return original.runtime; }
+        @Override public synchronized boolean runTurn(TargetWorkerHostRuntime host) {
+            if (stopping) return ioExited();
+            if (pending != null) {
+                if (!pending.operationExited()) return false;
+                final boolean complete = pending.receipt().join();
+                if (!pending.ioExited()) return false;
+                pending = null;
+                if (complete) return true;
+            }
+            try { pending = OwnedCheckpointIo.submit(guard -> {
+                guard.run();
+                final var successor = original.tryReopenForNewWork(host, publisher);
+                if (original.retiredWithoutSuccessor) { guard.run(); return true; }
+                if (successor.isEmpty()) return false;
+                successor.orElseThrow().advance(); guard.run();
+                return successor.orElseThrow().newWorkRuntime().isPresent();
+            }, () -> {}, io); }
+            catch (java.util.concurrent.RejectedExecutionException full) {
+                if (io.isShutdown()) throw full;
+                return false;
+            }
+            return false;
+        }
+        @Override public synchronized void requestStop() {
+            stopping = true;
+            if (pending != null) { pending.requestStop(); pending.retryCleanup(); }
+        }
+        @Override public synchronized boolean ioExited() { return pending == null || pending.ioExited(); }
     }
 }

@@ -184,6 +184,11 @@ public final class TargetWorkerShardRuntime
         requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.requireRetainedPublicationChannel(channel,reads,clock);
     }
+    public synchronized boolean publicationChannelOpen(com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            BoundedReadBudget reads, LongSupplier clock) {
+        requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
+        return target.publicationChannelOpen(channel, reads, clock);
+    }
 
     public synchronized com.nereusstream.delay.protocol.TargetQuotaAccounting readPublicationAccounting(
             BoundedReadBudget reads,com.nereusstream.delay.protocol.TargetChannelIdentity channel,LongSupplier clock) {
@@ -200,7 +205,17 @@ public final class TargetWorkerShardRuntime
         default com.nereusstream.delay.protocol.TargetChannelIdentity channelIdentity() { return null; }
         default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
     }
+    /** One original resource-preparation operation, separately retained after its old SDK has closed. */
+    public interface PublicationMaintenance {
+        PublicationResources originalResources();
+        boolean runTurn(TargetWorkerHostRuntime host);
+        void requestStop();
+        boolean ioExited();
+    }
     private final java.util.Map<String,PublicationResources> publicationResources=new java.util.HashMap<>();
+    private final java.util.Map<String,PublicationMaintenance> publicationMaintainers=new java.util.LinkedHashMap<>();
+    private int publicationMaintenanceCursor;
+    private boolean publicationMaintenanceStopping;
     private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
     private OwnedTargetJournal journalBackend;
     private TargetWorkerChannelInventory channelInventory;
@@ -227,6 +242,38 @@ public final class TargetWorkerShardRuntime
         if (publicationResources.get(com.nereusstream.delay.protocol.Bytes.hex(channel.digest())) != original) {
             throw new IllegalArgumentException("publication resource is not this Worker's original registered SDK owner");
         }
+    }
+
+    public synchronized void registerPublicationMaintenance(PublicationResources original, PublicationMaintenance maintenance,
+            TargetDestinationSdkBudget budget, LongSupplier clock) {
+        requirePublishRecoveryOwner(clock); budget.requireWorker(workClasses, resources); requirePublicationResource(original);
+        final String id = com.nereusstream.delay.protocol.Bytes.hex(original.channelIdentity().digest());
+        if (publicationMaintenanceStopping || maintenance.originalResources() != original) {
+            throw new IllegalStateException("publication maintenance changed its original owned SDK or is stopping");
+        }
+        if (publicationMaintainers.get(id) == maintenance) return;
+        if (publicationMaintainers.size() >= budget.maximumClients() || publicationMaintainers.putIfAbsent(id, maintenance) != null) {
+            throw new IllegalStateException("original publication maintenance window is full or already registered");
+        }
+    }
+
+    @Override public Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() {
+        final java.util.Map.Entry<String,PublicationMaintenance> selected;
+        final TargetWorkerHostRuntime host;
+        synchronized (this) {
+            requireNewTurnsAdmitted();
+            if (publicationMaintenanceStopping || publicationMaintainers.isEmpty() || publicationHost == null) return Optional.empty();
+            final var entries = new java.util.ArrayList<>(publicationMaintainers.entrySet());
+            if (publicationMaintenanceCursor >= entries.size()) publicationMaintenanceCursor = 0;
+            selected = entries.get(publicationMaintenanceCursor++); host = publicationHost;
+        }
+        // Never hold Worker while observing a controller that can call back into the same Worker.
+        if (selected.getValue().runTurn(host)) {
+            if (!selected.getValue().ioExited()) throw new IllegalStateException("publication maintenance returned before its original I/O exit");
+            synchronized (this) { publicationMaintainers.remove(selected.getKey(), selected.getValue()); }
+        }
+        return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                "target-publication-maintenance/" + selected.getKey(), 1));
     }
 
     synchronized com.nereusstream.delay.adapter.PulsarAttemptJournal requireOwnedPublishing(
@@ -352,8 +399,23 @@ public final class TargetWorkerShardRuntime
         }
         return java.util.List.copyOf(groups);
     }
-    @Override public synchronized Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){
-        for(var entry:publicationResources.entrySet()){
+    private Optional<WorkClassTask> stopPublicationMaintenanceForExit() {
+        final java.util.List<java.util.Map.Entry<String,PublicationMaintenance>> maintainers;
+        synchronized (this) { publicationMaintenanceStopping = true; maintainers = new java.util.ArrayList<>(publicationMaintainers.entrySet()); }
+        for (var entry : maintainers) entry.getValue().requestStop();
+        for (var entry : maintainers) {
+            if (!entry.getValue().ioExited()) return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
+                    "target-publication-maintenance-exit/" + entry.getKey(), 1));
+            synchronized (this) { publicationMaintainers.remove(entry.getKey(), entry.getValue()); }
+        }
+        return Optional.empty();
+    }
+    @Override public Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){
+        final var preparing = stopPublicationMaintenanceForExit();
+        if (preparing.isPresent()) return preparing;
+        final java.util.List<java.util.Map.Entry<String,PublicationResources>> original;
+        synchronized (this) { original = new java.util.ArrayList<>(publicationResources.entrySet()); }
+        for(var entry:original){
             if(!entry.getValue().settleClose())return Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,
                     "target-publication-resources/"+entry.getKey(),1));
         }
@@ -1488,6 +1550,7 @@ public final class TargetWorkerShardRuntime
         }
         if(publicationResources.values().stream().anyMatch(owner->!owner.closed()))
             throw new IllegalStateException("Target Worker cannot pause live publication resources");
+        if (!publicationMaintainers.isEmpty()) throw new IllegalStateException("Target Worker cannot pause retained publication preparation");
         if (journalBackend != null && !journalBackend.closed()) {
             throw new IllegalStateException("Target Worker cannot pause a live managed Journal");
         }
@@ -1737,6 +1800,7 @@ public final class TargetWorkerShardRuntime
     synchronized Optional<TargetOwnerDrainCoordinator.ReplayExit> exitQuarantinedForReplay(
             TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         if (!backendQuarantined) { throw new IllegalStateException("Worker is not quarantined"); }
+        if (stopPublicationMaintenanceForExit().isPresent()) return Optional.empty();
         if (sourceBackendGroup == null || !sourceBackendGroup.resourcesTerminated()) { return Optional.empty(); }
         target.stopAuthorityPreparation(); target.retryAuthorityCleanup();
         if (!target.authorityIoExited()) return Optional.empty();

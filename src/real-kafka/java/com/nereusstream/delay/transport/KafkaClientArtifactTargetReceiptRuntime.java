@@ -124,7 +124,8 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
         worker.requireFleetComposition(classes,resources);budget.requireWorker(classes,resources);
         if(channel.context().kind()!=ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT||!physical.id().equals(channel.context().target()))
             throw new IllegalArgumentException("K2 runtime has another channel/Target");
-        final var actual=worker.requirePublicationChannel(channel,original==null,reads.get(),ownerClock);
+        final var actual=original==null ? worker.requirePublicationChannel(channel,true,reads.get(),ownerClock)
+                : worker.requireRetainedPublicationChannel(channel,reads.get(),ownerClock);
         if(!java.util.Arrays.equals(actual.canonicalBytes(),physical.canonicalBytes()))throw new IllegalArgumentException("K2 startup changes actual Source Target");
         identity=Bytes.hex(channel.digest());
         this.producerConfiguration=configured(producerConfiguration,true);
