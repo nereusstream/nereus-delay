@@ -535,3 +535,36 @@ stream/callback用实际退出/termination判定，不以shutdownNow/isShutdown�
 允许该专用分支scoped commit/普通push origin，禁止upstream/release/缓存JAR覆盖。
 交付必须有精确source与client/API SHA锁，compile/runtime采用相同受控组合；历史O1/
 Broker receipts不因新SDK编译重标。必要构建/编译已执行，其它测试及环境操作仍后置。
+
+## 2026-10-15：P1 定位、独立 reader 与显式可重启续代
+
+主会话批准补齐 P1 seek 换连接的真实启动路径。C 必须来自真实 publication/Route/
+session 获取的 Owner 下、经物理保护和 root 审核的实际 Store；checkpoint 先有真实
+Catalog/RecoveryPin 与认证安装，新建先有初始化成功的原子根。禁止无租约读 cut，
+禁止用 C 替换作为恢复目标的 Route barrier B，禁止删除 generation/sameIdentity 检查。
+
+Target 独立 NonDurable/no-ACK/RECOVERY reader 可绑定 exact assignment、Owner/session、
+原 managed group/consumer、C 和 post-seek proof。逐 entry 持续检查，连接改变即废止，
+不产生 assignment、ACK、普通 ACTIVE apply 或服务权限；旧 strict/兼容路径不放宽。
+
+恢复后先冻结能改变 C 的 Source/recovery/Claim，等待原 I/O/回调退出，保留 Pin、
+UNKNOWN、Journal、费用与 cleanup。已暴露 Source 先 fence exact Owner并证明旧
+apply/ACK 退场；ACQUIRING/CATCHING_UP 只接受私有实际静默证明，不假激活、不接纳
+未完成 RESTORING 或 caller boolean。FENCED 不能获得普通 Store 写权限。
+
+同资源 owner 创建并保留最终 consumer，按 C 定位后构造显式 reactivation：稳定
+B/resource/Shard/topic/batch/attestation、Worker/capacity/Route binding 不变，换
+assignmentId、提高 assignmentEpoch/placementEpoch。实际 authority exact revision CAS
+发布；不确定只重读 exact successor。旧 Owner 静默后释放，新 Owner context-bound
+获取；SDK proof 不授发布权限。
+
+批准同一 CAS record 的明确 v2 envelope 绑定 signed Route 根、前后 exact assignment、
+前一 publication revision/digest 与 successor；固定根及最近一步，不无限追历史或
+只依赖内存 FencedPlan。初始/旧格式仍 strict；各 Route-bound 接受入口复用核验和
+reader eligibility。Source/Worker canonical bytes 不改，新格式同步协议登记。
+
+新 Owner 下重开/重核 Store仍为 C，重建正确 Owner 的保护、元数据和必要恢复收尾后
+才激活。旧 Pin 在替代保护实际成立前保持，不改 owner字段。最终 factory 复用 exact
+定位 consumer及原 opening/cleanup，不再 subscribe/seek；失败/重连走显式有界续代。
+完成条件是启动、恢复、连续续代及重启链源码贯通；组件编译不关闭包1。集中验证后置、
+四包/29切片和所有完成 flags 保持，不使用 Fast。

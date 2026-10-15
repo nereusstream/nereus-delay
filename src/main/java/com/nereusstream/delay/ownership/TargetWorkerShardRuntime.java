@@ -1542,6 +1542,16 @@ public final class TargetWorkerShardRuntime
         }
     }
 
+    /** Only a privately activated original runtime can acquire this exact owned active adapter's delivery proof. */
+    public synchronized void bindActualSourceSuccessor(TargetWorkerSourceRuntimeFactory.Activated activation) {
+        activation.requireGraph(workClasses, resources, store);
+        requireSourceStartup(activation.runtime(), store);
+        if (publicationHost != null || sourceBackendGroup == null) {
+            throw new IllegalStateException("active Source proof requires its original pre-Host owned consumer");
+        }
+        target.bindActiveSourceSuccessor(() -> actualSourceConsumer.successorAfter(store.appliedShardLogPosition()));
+    }
+
     /** The completed reader's original shared SDK owner participates in the same Host composition/close preflight. */
     synchronized void retainRecoveryBackend(TargetOwnedBackendGroup actual) {
         if (actual == null) return;

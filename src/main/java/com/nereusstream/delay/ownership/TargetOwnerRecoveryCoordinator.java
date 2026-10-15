@@ -3,6 +3,7 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.RecoveryInstallPhase;
 import com.nereusstream.delay.protocol.RecoveryPin;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -57,6 +58,17 @@ public final class TargetOwnerRecoveryCoordinator {
     private int turnNumber;
     private long lastNow = -1;
     private TargetSourceAuthorityPreparation authorityPreparation;
+    private TargetWorkerRecoverySource boundReader;
+    private SourcePosition boundReaderCut;
+
+    synchronized void bindReader(TargetWorkerRecoverySource reader, SourcePosition cut) {
+        if (turnNumber != 0 || replay != null || boundReader != null) {
+            throw new IllegalStateException("Target reader must bind before recovery begins");
+        }
+        reader.requireReaderBinding(assignment, cut);
+        boundReader = reader;
+        boundReaderCut = Objects.requireNonNull(cut);
+    }
 
     /** Same bounded content providers as active Source; this instance is exclusively bound to replay. */
     public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected) {
@@ -294,6 +306,7 @@ public final class TargetOwnerRecoveryCoordinator {
         requireLease(false);
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
+        if (boundReader != null) replay.bindRecoveryReader(boundReader, boundReaderCut);
         if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock);
         sourceApply = new SourceApplyWorkClassExecutor(workClasses, replay);
     }

@@ -95,6 +95,11 @@ public final class WorkerAssignmentCoordinator {
      */
     public WorkerAssignment requireAccepted(
             final ShardId shardId, final long expectedRevision, final WorkerAssignment expectedAssignment) {
+        return requireAcceptedPublication(shardId, expectedRevision, expectedAssignment).assignment();
+    }
+
+    WorkerAssignmentAuthority.Publication requireAcceptedPublication(
+            final ShardId shardId, final long expectedRevision, final WorkerAssignment expectedAssignment) {
         Objects.requireNonNull(shardId, "shardId");
         Objects.requireNonNull(expectedAssignment, "expectedAssignment");
         if (expectedRevision <= 0) {
@@ -106,7 +111,7 @@ public final class WorkerAssignmentCoordinator {
         if (observed.revision() != expectedRevision || !observed.assignment().sameIdentity(expectedAssignment)) {
             throw new IllegalStateException("Worker assignment changed before acceptance");
         }
-        return observed.assignment();
+        return observed;
     }
 
     public record PlacementResult(

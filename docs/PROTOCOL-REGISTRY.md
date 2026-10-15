@@ -3409,3 +3409,41 @@ restore still requires original issuer/history/Source/pin/physical authority.
 This is development implementation. Main/locked K1 SDK compilation is the current
 check only; tests, Broker/recovery, style/docs gates and full production startup,
 resource lifecycle, retirement and controlled migration remain deferred/open.
+
+## Target Pulsar Source reactivation authority record (2026-10-15)
+
+Oxia Worker-assignment keys and canonical WorkerAssignment/SourceAssignment bytes
+are unchanged. Authority record v1 retains fields 1 version, 2 positive revision,
+3 WorkerAssignment, 4 digest. Record v2 requires field 4 reactivation receipt and
+moves digest to field 5. Domain remains
+`nereus-delay-oxia-worker-assignment-record\0`, committing all preceding fields.
+Both encoded records are bounded to 256 KiB. Older readers reject v2; there is
+no omission/downgrade branch. Revisions use the positive Java long range with
+checked increment.
+
+PulsarSourceReactivationReceipt v1 has fields 1 version, 2 original Route
+SourceAssignment root, 3 previous publication revision, 4 previous publication
+digest, 5 previous WorkerAssignment, 6 successor WorkerAssignment, 7 digest.
+Domain `nereus-delay-pulsar-source-reactivation-receipt\0` commits fields 1--6.
+Receipt bytes are bounded to 256 KiB, also subject to the outer record bound;
+unknown/duplicate/reordered fields and aliases reject. Publication identity
+digest is SHA-256(domain `nereus-delay-worker-assignment-publication\0`,
+u64be revision, lp32(WorkerAssignment), lp32(receipt or empty)). This previous
+publication commitment is distinct from the outer stored-record digest.
+
+Publication checks the actual previous record and signed Route root under an
+exact revision CAS; response loss accepts only the exact successor. The receipt
+preserves resource, Route barrier B, batch shape, attestation and Worker/capacity/
+Route binding; assignment ID changes, assignment/placement epochs increase and
+connection generation changes. Only the fixed root and most recent step are
+stored, without recursively embedding earlier receipts. Acceptance verifies
+the actual authority record, signed stable root and current successor, retaining
+reader eligibility. Legacy records still require the strict Route projection.
+
+Independent Target recovery-reader proof is a private startup binding to the
+actual audited cut C, original managed NonDurable no-ACK consumer, post-seek
+proof and current assignment/Owner/session/Source/Catalog/Pin protections. It
+grants no ACK, active apply, assignment or serving authority. Each entry must
+be the actual reader delivery with an unchanged native proof. Active/public
+paths retain strict assignment generation checks. The full frozen-cut/final
+consumer/successor-Owner chain and centralized validation remain incomplete.

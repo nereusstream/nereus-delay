@@ -101,8 +101,11 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             java.util.function.LongSupplier clock) {
         activation.requireGraph(classes, resources, store);
-        try { return createVerifiedSource(owner, activation.assignment(), classes, store, resources, activation.runtime(),
-                maintenance, identity, time, clock);
+        try {
+            final var worker = createVerifiedSource(owner, activation.assignment(), classes, store, resources, activation.runtime(),
+                    maintenance, identity, time, clock);
+            worker.bindActualSourceSuccessor(activation);
+            return worker;
         } catch (RuntimeException | Error failure) {
             throw com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.sourceConstructionFailed(activation, failure);
         }

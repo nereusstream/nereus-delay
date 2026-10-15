@@ -1,6 +1,5 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActivationBarrier;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.protocol.ShardId;
@@ -53,7 +52,7 @@ public final class PulsarSourceReactivationCoordinator {
         }
         final RouteSnapshot route =
                 routeProvider.exact(reactivation.previousAssignment().shardId().routeIncarnation(), context);
-        requireRoute(route, context, reactivation);
+        requireRoute(route, context, expectedPublication, reactivation);
         final WorkerAssignmentAuthority.Publication observedPublication = assignmentAuthority
                 .current(reactivation.previousAssignment().shardId())
                 .orElseThrow(
@@ -79,7 +78,7 @@ public final class PulsarSourceReactivationCoordinator {
                 || !fenced.validAt(nowEpochMs)) {
             throw new IllegalStateException("Pulsar Owner Lease fence changed identity or expired");
         }
-        return new FencedPlan(expectedPublication, expectedLease, fenced, reactivation);
+        return new FencedPlan(expectedPublication, expectedLease, fenced, reactivation, route);
     }
 
     /**
@@ -92,9 +91,13 @@ public final class PulsarSourceReactivationCoordinator {
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(successor, "successor");
         Objects.requireNonNull(quiescence, "quiescence");
+        final var route = Objects.requireNonNull(plan.route(), "verified reactivation Route");
+        plan.expectedPublication().requireRouteProjection(route);
         requireSuccessorAssignment(plan, successor);
         final ShardId shard = plan.reactivation().successorAssignment().shardId();
         final long successorRevision = nextRevision(plan.expectedPublication().revision());
+        final var expectedSuccessor = new WorkerAssignmentAuthority.Publication(successorRevision, successor,
+                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successor));
         final Optional<OwnerLease> currentOwner = ownerAuthority.current(shard);
         if (currentOwner.isPresent()
                 && (!plan.fencedLease().sameIdentity(currentOwner.get())
@@ -103,8 +106,7 @@ public final class PulsarSourceReactivationCoordinator {
         }
         final Optional<WorkerAssignmentAuthority.Publication> currentAssignment = assignmentAuthority.current(shard);
         if (currentAssignment.isPresent()
-                && currentAssignment.get().revision() == successorRevision
-                && currentAssignment.get().assignment().sameIdentity(successor)) {
+                && expectedSuccessor.sameIdentity(currentAssignment.get())) {
             if (currentOwner.isPresent()) {
                 throw new IllegalStateException("Pulsar successor assignment is published while old Owner remains");
             }
@@ -118,23 +120,21 @@ public final class PulsarSourceReactivationCoordinator {
         releaseFencedOwner(plan.fencedLease(), shard);
         final Optional<WorkerAssignmentAuthority.Publication> afterRelease = assignmentAuthority.current(shard);
         if (afterRelease.isPresent()
-                && afterRelease.get().revision() == successorRevision
-                && afterRelease.get().assignment().sameIdentity(successor)) {
+                && expectedSuccessor.sameIdentity(afterRelease.get())) {
             return afterRelease.get();
         }
         if (afterRelease.isEmpty() || !samePublication(plan.expectedPublication(), afterRelease.get())) {
             throw new IllegalStateException("Pulsar source assignment changed while old Owner was released");
         }
         try {
-            final WorkerAssignmentAuthority.Publication published = assignmentAuthority.publish(
-                    successor, plan.expectedPublication().revision());
-            requireSuccessorPublication(published, successor, successorRevision);
+            final WorkerAssignmentAuthority.Publication published = assignmentAuthority.publishReactivation(
+                    plan.expectedPublication(), successor, route);
+            requireSuccessorPublication(published, expectedSuccessor);
             return published;
         } catch (RuntimeException failure) {
             final Optional<WorkerAssignmentAuthority.Publication> reread = assignmentAuthority.current(shard);
             if (reread.isPresent()
-                    && reread.get().revision() == successorRevision
-                    && reread.get().assignment().sameIdentity(successor)) {
+                    && expectedSuccessor.sameIdentity(reread.get())) {
                 return reread.get();
             }
             throw failure;
@@ -154,6 +154,12 @@ public final class PulsarSourceReactivationCoordinator {
         Objects.requireNonNull(workerId, "workerId");
         Objects.requireNonNull(sessionIdentity, "sessionIdentity");
         requireSuccessorAssignment(plan, successorPublication.assignment());
+        requireSuccessorPublication(successorPublication, new WorkerAssignmentAuthority.Publication(
+                nextRevision(plan.expectedPublication().revision()), successorPublication.assignment(),
+                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successorPublication.assignment())));
+        if (!workerId.equals(successorPublication.assignment().workerId())) {
+            throw new IllegalArgumentException("successor Owner is not the assigned Worker");
+        }
         final WorkerAssignmentAuthority.Publication observed = assignmentAuthority
                 .current(successorPublication.assignment().sourceAssignment().shardId())
                 .orElseThrow(() ->
@@ -161,6 +167,7 @@ public final class PulsarSourceReactivationCoordinator {
         if (!samePublication(successorPublication, observed)) {
             throw new IllegalStateException("Pulsar successor assignment changed before Owner acquire");
         }
+        observed.requireRouteProjection(Objects.requireNonNull(plan.route(), "verified reactivation Route"));
         if (ownerAuthority
                 .current(successorPublication.assignment().sourceAssignment().shardId())
                 .isPresent()) {
@@ -210,6 +217,7 @@ public final class PulsarSourceReactivationCoordinator {
     private static void requireRoute(
             final RouteSnapshot route,
             final AuthenticatedTenantContext context,
+            final WorkerAssignmentAuthority.Publication previous,
             final PulsarSourceReactivation reactivation) {
         if (route == null) {
             throw new IllegalArgumentException("Pulsar reactivation Route snapshot is unavailable");
@@ -218,19 +226,7 @@ public final class PulsarSourceReactivationCoordinator {
         if (!Bytes.constantTimeEquals(route.snapshotDigest(), reactivation.routeSnapshotDigest())) {
             throw new IllegalArgumentException("Pulsar reactivation Route snapshot digest changed");
         }
-        final int partition = reactivation.previousAssignment().shardId().partition();
-        final ActivationBarrier routeBarrier;
-        try {
-            routeBarrier = route.partitionPolicy(partition).activationBarrier();
-        } catch (RuntimeException failure) {
-            throw new IllegalArgumentException(
-                    "Pulsar reactivation Route does not contain the source partition", failure);
-        }
-        if (!routeBarrier
-                .toSourceBarrier(reactivation.previousAssignment().shardId().routeIncarnation())
-                .equals(reactivation.previousAssignment().activationBarrier())) {
-            throw new IllegalArgumentException("Pulsar reactivation Route barrier differs from old assignment");
-        }
+        previous.requireRouteProjection(route);
     }
 
     private static void requireSuccessorAssignment(final FencedPlan plan, final WorkerAssignment successor) {
@@ -249,20 +245,15 @@ public final class PulsarSourceReactivationCoordinator {
 
     private static void requireSuccessorPublication(
             final WorkerAssignmentAuthority.Publication publication,
-            final WorkerAssignment successor,
-            final long expectedRevision) {
-        if (publication == null
-                || publication.revision() != expectedRevision
-                || !publication.assignment().sameIdentity(successor)) {
+            final WorkerAssignmentAuthority.Publication expected) {
+        if (!expected.sameIdentity(publication)) {
             throw new IllegalStateException("Pulsar successor assignment authority returned an unexpected record");
         }
     }
 
     private static boolean samePublication(
             final WorkerAssignmentAuthority.Publication expected, final WorkerAssignmentAuthority.Publication actual) {
-        return actual != null
-                && expected.revision() == actual.revision()
-                && expected.assignment().sameIdentity(actual.assignment());
+        return expected.sameIdentity(actual);
     }
 
     private static boolean contextMatches(final OwnerLease lease, final SourceAssignment assignment) {
@@ -284,7 +275,12 @@ public final class PulsarSourceReactivationCoordinator {
             WorkerAssignmentAuthority.Publication expectedPublication,
             OwnerLease expectedLease,
             OwnerLease fencedLease,
-            PulsarSourceReactivation reactivation) {
+            PulsarSourceReactivation reactivation,
+            RouteSnapshot route) {
+        public FencedPlan(WorkerAssignmentAuthority.Publication expectedPublication, OwnerLease expectedLease,
+                OwnerLease fencedLease, PulsarSourceReactivation reactivation) {
+            this(expectedPublication, expectedLease, fencedLease, reactivation, null);
+        }
         public FencedPlan {
             Objects.requireNonNull(expectedPublication, "expectedPublication");
             Objects.requireNonNull(expectedLease, "expectedLease");

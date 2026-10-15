@@ -3,6 +3,7 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -28,6 +29,7 @@ import java.util.Set;
  */
 public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAuthority {
     private static final int RECORD_VERSION = 1;
+    private static final int REACTIVATION_RECORD_VERSION = 2;
     private static final int MAX_CAS_ATTEMPTS = 32;
     private static final int MAX_RECORD_BYTES = 256 * 1024;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-worker-assignment-record\0");
@@ -119,15 +121,42 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
     }
 
     @Override
+    public Publication publishReactivation(Publication previous, WorkerAssignment successor, RouteSnapshot route) {
+        Objects.requireNonNull(previous); Objects.requireNonNull(successor); Objects.requireNonNull(route);
+        previous.requireRouteProjection(route);
+        final var receipt = PulsarSourceReactivationReceipt.next(previous, successor);
+        final long revision = Math.addExact(previous.revision(), 1);
+        final byte[] value = encode(revision, successor, receipt);
+        final var shard = successor.sourceAssignment().shardId();
+        final String key = assignmentKey(shard);
+        final Stored current = read(key, shard);
+        if (current != null && exact(current, revision, successor, value)) return current.publication();
+        if (current == null || !current.publication().sameIdentity(previous)) {
+            throw new IllegalStateException("source reactivation lost its exact previous publication");
+        }
+        current.publication().requireRouteProjection(route);
+        try {
+            putExact(key, value, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
+            return new Publication(revision, successor, receipt);
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
+            final Stored observed = read(key, shard);
+            if (observed != null && exact(observed, revision, successor, value)) return observed.publication();
+            throw new IllegalStateException("source reactivation assignment CAS lost", conflict);
+        } catch (RuntimeException failure) {
+            final Stored observed = read(key, shard);
+            if (observed != null && exact(observed, revision, successor, value)) return observed.publication();
+            throw failure;
+        }
+    }
+
+    @Override
     public boolean withdraw(final Publication expected) {
         Objects.requireNonNull(expected, "expected");
         final ShardId shardId = expected.assignment().sourceAssignment().shardId();
         final String key = assignmentKey(shardId);
         requireSession();
         final Stored current = read(key, shardId);
-        if (current == null
-                || current.publication().revision() != expected.revision()
-                || !current.publication().assignment().sameIdentity(expected.assignment())) {
+        if (current == null || !current.publication().sameIdentity(expected)) {
             return false;
         }
         try {
@@ -142,8 +171,7 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
             if (observed == null) {
                 return true;
             }
-            if (!observed.publication().assignment().sameIdentity(expected.assignment())
-                    || observed.publication().revision() != expected.revision()) {
+            if (!observed.publication().sameIdentity(expected)) {
                 return false;
             }
             throw responseFailure;
@@ -188,18 +216,26 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
     }
 
     private static byte[] encode(final long revision, final WorkerAssignment assignment) {
+        return encode(revision, assignment, null);
+    }
+
+    private static byte[] encode(final long revision, final WorkerAssignment assignment,
+            final PulsarSourceReactivationReceipt receipt) {
         if (revision <= 0) {
             throw new IllegalArgumentException("assignment record revision must be positive");
         }
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, RECORD_VERSION);
+            CanonicalProtobuf.uint32(output, 1, receipt == null ? RECORD_VERSION : REACTIVATION_RECORD_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, revision);
             CanonicalProtobuf.bytes(output, 3, assignment.canonicalBytes());
+            if (receipt != null) CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
         });
-        return CanonicalProtobuf.message(output -> {
+        final byte[] encoded = CanonicalProtobuf.message(output -> {
             output.writeBytes(body);
-            CanonicalProtobuf.bytes(output, 4, Bytes.sha256(DIGEST_DOMAIN, body));
+            CanonicalProtobuf.bytes(output, receipt == null ? 4 : 5, Bytes.sha256(DIGEST_DOMAIN, body));
         });
+        if (encoded.length > MAX_RECORD_BYTES) throw new IllegalArgumentException("assignment record exceeds its bound");
+        return encoded;
     }
 
     private static Decoded decode(final byte[] encoded) {
@@ -207,8 +243,10 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
             throw new IllegalStateException("Oxia Worker assignment record exceeds its bound");
         }
         final List<CanonicalProtobuf.Reader.Field> fields = fields(encoded);
-        requireNumbers(fields, 1, 2, 3, 4);
-        if (uint(fields.get(0), 1) != RECORD_VERSION) {
+        final long version = uint(fields.get(0), 1);
+        if (version == RECORD_VERSION) requireNumbers(fields, 1, 2, 3, 4);
+        else if (version == REACTIVATION_RECORD_VERSION) requireNumbers(fields, 1, 2, 3, 4, 5);
+        else {
             throw new IllegalStateException("unsupported Oxia Worker assignment record version");
         }
         final long revision = uint(fields.get(1), 2);
@@ -216,19 +254,22 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
             throw new IllegalStateException("Oxia Worker assignment record revision is zero");
         }
         final byte[] assignmentBytes = bytes(fields.get(2), 3);
+        final var receipt = version == RECORD_VERSION ? null : PulsarSourceReactivationReceipt.decode(bytes(fields.get(3), 4));
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, RECORD_VERSION);
+            CanonicalProtobuf.uint32(output, 1, (int) version);
             CanonicalProtobuf.uint64Bits(output, 2, revision);
             CanonicalProtobuf.bytes(output, 3, assignmentBytes);
+            if (receipt != null) CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
         });
-        if (!Bytes.constantTimeEquals(fixed(fields.get(3), 4, 32), Bytes.sha256(DIGEST_DOMAIN, body))) {
+        final int digestNumber = version == RECORD_VERSION ? 4 : 5;
+        if (!Bytes.constantTimeEquals(fixed(fields.get(digestNumber - 1), digestNumber, 32), Bytes.sha256(DIGEST_DOMAIN, body))) {
             throw new IllegalStateException("Oxia Worker assignment record digest mismatch");
         }
         final WorkerAssignment assignment = WorkerAssignment.decode(assignmentBytes);
-        if (!Arrays.equals(encoded, encode(revision, assignment))) {
+        if (!Arrays.equals(encoded, encode(revision, assignment, receipt))) {
             throw new IllegalStateException("Oxia Worker assignment record is not canonical");
         }
-        return new Decoded(new Publication(revision, assignment));
+        return new Decoded(new Publication(revision, assignment, receipt));
     }
 
     private String assignmentKey(final ShardId shardId) {
@@ -259,6 +300,7 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
         final List<CanonicalProtobuf.Reader.Field> result = new ArrayList<>();
         while (reader.hasRemaining()) {
+            if (result.size() == 5) throw new IllegalArgumentException("extra Worker assignment record field");
             result.add(reader.next());
         }
         if (result.isEmpty()) {

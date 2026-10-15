@@ -10,6 +10,13 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
     SourceReplayCursor<SourceReplayEntry> replayCursor();
     SourceReplaySuccessor successorAfter(SourcePosition position);
+    /** Private Target-startup path: the actual SDK reader must own the independent post-seek proof. */
+    default void requireReaderBinding(SourceAssignment assignment, SourcePosition positionedCut) {
+        throw new IllegalStateException("reader has no independent Target startup binding");
+    }
+    default void requireReaderEntry(SourceReplayEntry entry, SourceAssignment assignment, SourcePosition positionedCut) {
+        throw new IllegalStateException("reader has no independent Target entry proof");
+    }
     TargetOwnedBackendGroup backend();
     boolean cleanupComplete();
     @Override void close();

@@ -123,11 +123,9 @@ public final class RouteWorkerAssignmentCoordinator {
                 expectedSource.shardId().partition(),
                 expectedSource.assignmentId(),
                 expectedSource.assignmentEpoch());
-        if (!resolved.sourceAssignment().sameIdentity(expectedSource)
-                || !Bytes.constantTimeEquals(
-                        resolved.routeSnapshot().snapshotDigest(), expectedAssignment.routeSnapshotDigest())) {
-            throw new IllegalStateException("signed Route projection changed before Worker acceptance");
-        }
+        final var publication = workerCoordinator.requireAcceptedPublication(
+                expectedSource.shardId(), expectedRevision, expectedAssignment);
+        publication.requireRouteProjection(resolved.routeSnapshot());
         if (protocolAuthority != null) {
             if (dataResetActivationGate == null) {
                 protocolAuthority.requireEligibleReaders(
@@ -139,8 +137,10 @@ public final class RouteWorkerAssignmentCoordinator {
                         List.of(expectedAssignment.workerId()));
             }
         }
-        final WorkerAssignment accepted =
-                workerCoordinator.requireAccepted(expectedSource.shardId(), expectedRevision, expectedAssignment);
+        final var current = workerCoordinator.requireAcceptedPublication(
+                expectedSource.shardId(), expectedRevision, expectedAssignment);
+        if (!publication.sameIdentity(current)) throw new IllegalStateException("assignment changed during reader eligibility checks");
+        final WorkerAssignment accepted = current.assignment();
         if (dataResetActivationGate != null) {
             dataResetActivationGate.requireAssignment(
                     accepted,

@@ -272,6 +272,33 @@ public final class TargetWorkerSourceStartup {
         catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
     }
 
+    /** The cut is obtained under the acquired Owner and an actual bounded root/physical audit. */
+    public synchronized com.nereusstream.delay.protocol.SourcePosition auditedRecoveryCut() {
+        requireRecoveryReaderCurrent();
+        if (initial != null || store == null || activation != null || recovery != null || worker != null
+                || constructionThread != Thread.currentThread()) {
+            throw new IllegalStateException("recovery cut requires its original startup construction and acquired Store");
+        }
+        final var reads = TargetWorkerSourceRuntimeFactory.startupReads(graph.oxia(), owner.tenant(),
+                owner.publication(), owner.workerId(), store, assignment, lease, content.reads(), owner.clock());
+        final var config = graph.config();
+        com.nereusstream.delay.runtime.TargetStoreBootstrap.reopen(store, scope,
+                new com.nereusstream.delay.store.TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes()),
+                config.checkpoint().newReadBudget(nanos), reads, config.checkpoint().ledger());
+        requireRecoveryReaderCurrent();
+        return Objects.requireNonNull(store.appliedShardLogPosition(), "audited recovery Source cut");
+    }
+
+    public synchronized void requireRecoveryReaderCurrent() {
+        requireCurrent();
+        if (checkpointCatalog != null) {
+            requireCheckpointPin();
+            checkpointCatalog.validatePublishedRestoreCandidate(checkpointCatalog.manifest(
+                    checkpointPin.candidate().checkpointId()).orElseThrow());
+            requireCurrent();
+        }
+    }
+
     /** Adopts the exact verified reader before auditing/replaying; never takes an arbitrary iterator or issues ACK. */
     public void startRecovery(TargetWorkerRecoverySource source, com.nereusstream.delay.protocol.OwnerIdentity identity,
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
@@ -297,6 +324,9 @@ public final class TargetWorkerSourceStartup {
                             graph.resources(), store, scope, owner.tenant(), owner.publication(), owner.workerId(), lease,
                             source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
+            if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) {
+                recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
+            }
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
                 synchronized (this) { failedAssembly = partial; lease = partial.lease(); }

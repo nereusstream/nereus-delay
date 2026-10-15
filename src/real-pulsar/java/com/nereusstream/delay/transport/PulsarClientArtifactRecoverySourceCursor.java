@@ -54,6 +54,9 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final OwnedSourceCursor<Consumer<byte[]>> cleanup;
     private final PulsarClientArtifactOwnedBackendGroup backend;
     private LocalBrokerMtlsResolver.SourceReceipt verifiedCredential;
+    private final SourceProof independentReaderProof;
+    private final PulsarSourcePosition positionedReaderCut;
+    private final com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
@@ -61,6 +64,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private PulsarSourcePosition successorCurrent;
     private boolean hasDelivered;
     private PulsarSourcePosition lastDelivered;
+    private SourceReplayEntry lastDeliveredEntry;
     private boolean closed;
     private boolean failed;
 
@@ -87,6 +91,31 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
      * post-seek assignment through the existing assignment authority; the protection must recheck that accepted
      * assignment, Owner and retained Source pins. Neither the credential nor the native proof grants assignment authority.
      */
+    public static PulsarClientArtifactRecoverySourceCursor openForStartup(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential, Duration receiveTimeout,
+            int maximumFrameBytes, Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection) {
+        try (var original = startup.beginRecoveryReaderConstruction()) {
+            original.requireCurrent();
+            final var graph = startup.graph(); group.requireWorkerGraph(graph.classes(), graph.resources());
+            if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
+                throw new IllegalArgumentException("recovery reader exceeds its actual Source frame envelope");
+            }
+            if (!(startup.auditedRecoveryCut() instanceof PulsarSourcePosition position)) {
+                throw new IllegalArgumentException("audited recovery Store lacks its P1 Source cut");
+            }
+            final var cursor = openVerified0(group, resource, credential, Optional.of(position), receiveTimeout,
+                    maximumFrameBytes, time, () -> { startup.requireRecoveryReaderCurrent(); originalProtection.run(); },
+                    null, startup, position);
+            startup.retainRecoverySource(cursor); original.requireCurrent();
+            return cursor;
+        } catch (CleanupFailure partial) {
+            startup.retainRecoveryOpeningBackend(group); startup.retainRecoveryOpeningCleanup(partial);
+            startup.retain(partial); throw partial;
+        } catch (RuntimeException | Error failure) { startup.retain(failure); throw failure; }
+    }
+
+    /** Legacy strict assignment-callback path; it cannot provide the new independent Target reader binding. */
     public static PulsarClientArtifactRecoverySourceCursor openForStartup(
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarClientArtifactOwnedBackendGroup group,
             TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential, Duration receiveTimeout,
@@ -123,11 +152,21 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             Optional<PulsarSourcePosition> lastApplied, Duration receiveTimeout, int maximumFrameBytes,
             Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
             Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment) {
+        return openVerified0(group, resource, credential, lastApplied, receiveTimeout, maximumFrameBytes, time,
+                originalProtection, Objects.requireNonNull(acceptPostSeekAssignment), null, null);
+    }
+
+    private static PulsarClientArtifactRecoverySourceCursor openVerified0(PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource, LocalBrokerMtlsResolver.SourceReceipt credential,
+            Optional<PulsarSourcePosition> lastApplied, Duration receiveTimeout, int maximumFrameBytes,
+            Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
+            Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarSourcePosition actualCut) {
         final long timeoutMs = Objects.requireNonNull(receiveTimeout, "receiveTimeout").toMillis();
         if (timeoutMs < 1 || timeoutMs > 60_000 || maximumFrameBytes < 1 || maximumFrameBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Source recovery settings must be finite");
         }
-        Objects.requireNonNull(acceptPostSeekAssignment, "original post-seek assignment acceptance");
+        if (startup == null) Objects.requireNonNull(acceptPostSeekAssignment, "original post-seek assignment acceptance");
         Objects.requireNonNull(lastApplied, "lastApplied");
         group.requireSourceReadResource(credential, resource);
         final var authorization = credential.authorization();
@@ -166,11 +205,15 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                 final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, resource,
                         topic, authorization.shard(), lastApplied, receiveTimeout);
                 protection.run();
-                final var assignment = Objects.requireNonNull(acceptPostSeekAssignment.apply(positioned), "accepted assignment");
+                final var assignment = startup == null
+                        ? Objects.requireNonNull(acceptPostSeekAssignment.apply(positioned), "accepted assignment")
+                        : startup.acceptedAssignment();
                 authorization.requireAssignment(assignment);
                 protection.run();
                 final var cursor = new PulsarClientArtifactRecoverySourceCursor(consumer, resource, assignment, topic,
-                        receiveTimeout, true, maximumFrameBytes, protection, owned, group);
+                        receiveTimeout, true, maximumFrameBytes, protection, owned, group,
+                        startup == null ? null : new SourceProof(positioned.connectionGeneration(),
+                                positioned.attestation(), positioned.attestationDigest()), actualCut, startup);
                 cursor.verifiedCredential = credential;
                 return cursor;
             });
@@ -196,6 +239,18 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             SourceAssignment assignment, String physicalTopic, Duration receiveTimeout, boolean target,
             int maximumFrameBytes, Runnable protection, OwnedSourceCursor<Consumer<byte[]>> originalCleanup,
             PulsarClientArtifactOwnedBackendGroup originalBackend) {
+        this(consumer, expectedGuard, assignment, physicalTopic, receiveTimeout, target, maximumFrameBytes,
+                protection, originalCleanup, originalBackend, null, null, null);
+    }
+
+    private PulsarClientArtifactRecoverySourceCursor(GuardedConsumer<byte[]> consumer, TopicResourceGuard expectedGuard,
+            SourceAssignment assignment, String physicalTopic, Duration receiveTimeout, boolean target,
+            int maximumFrameBytes, Runnable protection, OwnedSourceCursor<Consumer<byte[]>> originalCleanup,
+            PulsarClientArtifactOwnedBackendGroup originalBackend, SourceProof readerProof, PulsarSourcePosition actualCut,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup) {
+        independentReaderProof = readerProof;
+        positionedReaderCut = actualCut;
+        sourceStartup = startup;
         this.target = target;
         this.maximumFrameBytes = maximumFrameBytes;
         this.protection = protection;
@@ -292,6 +347,25 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         verifiedCredential.authorization().requireAssignment(expected);
     }
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return backend; }
+    @Override public synchronized void requireReaderBinding(SourceAssignment expected, SourcePosition cut) {
+        if (independentReaderProof == null || sourceStartup == null || positionedReaderCut == null
+                || !assignment.sameIdentity(expected) || !sameCanonicalPosition(positionedReaderCut, cut)
+                || verifiedCredential == null || backend == null) {
+            throw new IllegalStateException("reader lacks its original independent Target startup binding");
+        }
+        sourceStartup.requireRecoveryReaderCurrent();
+        verifiedCredential.authorization().requireAssignment(expected);
+        protection.run(); requireProof();
+    }
+    @Override public synchronized void requireReaderEntry(SourceReplayEntry entry, SourceAssignment expected, SourcePosition cut) {
+        requireReaderBinding(expected, cut);
+        if (entry != lastDeliveredEntry || entry.sourceConnectionGeneration() == null
+                || entry.sourceConnectionGeneration() != independentReaderProof.generation()
+                || !Bytes.constantTimeEquals(entry.guardAttestationDigest(), independentReaderProof.digest())) {
+            throw new IllegalStateException("Target recovery entry is not the original reader's native delivery");
+        }
+        barrier.validatePosition(entry.position());
+    }
     @Override public synchronized boolean cleanupComplete() { return closed && cleanup.cleanupComplete(); }
 
     /** Keeps the exact post-seek native guard live across Target recovery look-ahead and queued writes. */
@@ -373,6 +447,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new NoSuchElementException("Pulsar recovery source is exhausted");
         }
         final SourceReplayEntry result = current;
+        lastDeliveredEntry = result;
         lastDelivered = (PulsarSourcePosition) result.position();
         if (successorAnchor != null) {
             if (!(result.position() instanceof PulsarSourcePosition position)) {
@@ -429,7 +504,8 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             throw new IllegalStateException("Pulsar guarded recovery consumer identity changed");
         }
         final long generation = consumer.connectionGeneration();
-        if (generation == 0 || generation != barrier.guardedSourceConnectionGeneration()) {
+        if (generation == 0 || generation != (independentReaderProof == null
+                ? barrier.guardedSourceConnectionGeneration() : independentReaderProof.generation())) {
             throw new IllegalStateException("Pulsar guarded recovery generation changed");
         }
         final TopicResourceGuardAttestation attestation = consumer.resourceGuardAttestation()
@@ -444,7 +520,11 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         if (!Bytes.constantTimeEquals(barrier.resourceGuardAttestationDigest(), digest)) {
             throw new IllegalStateException("Pulsar guarded recovery proof differs from activation barrier");
         }
-        return new SourceProof(generation, attestation, digest);
+        final var proof = new SourceProof(generation, attestation, digest);
+        if (independentReaderProof != null && !independentReaderProof.equals(proof)) {
+            throw new IllegalStateException("original Target recovery reader native proof changed");
+        }
+        return proof;
     }
 
     private synchronized boolean isLastDeliveredSuccessor(

@@ -19,6 +19,11 @@ public interface SourceRecordConsumer extends AutoCloseable {
     /** Only an actually owned SDK group may participate in the Host's backend-failure lifecycle. */
     default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
 
+    /** Actual active adapter delivery proof, bound before polling at the exact durable Store cut. */
+    default SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
+        throw new IllegalStateException("source adapter does not own an active delivery successor proof");
+    }
+
     /**
      * Polls at most one record. An empty result means that this turn has no
      * record available; it is not permission to release an unacknowledged

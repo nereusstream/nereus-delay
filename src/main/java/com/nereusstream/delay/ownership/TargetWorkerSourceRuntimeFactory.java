@@ -243,21 +243,18 @@ public final class TargetWorkerSourceRuntimeFactory {
         var source = expected.sourceAssignment();
         var resolved = new RouteSourceAssignmentResolver(providers.routes()).exactResolved(tenant,
                 source.shardId().routeIncarnation(), source.shardId().partition(), source.assignmentId(), source.assignmentEpoch());
-        if (!resolved.sourceAssignment().sameIdentity(source)
-                || !Bytes.constantTimeEquals(resolved.routeSnapshot().snapshotDigest(), expected.routeSnapshotDigest())) {
-            throw new IllegalStateException("Source assignment changed its original signed Route projection");
-        }
         new ProtocolActivationAuthorityCoordinator(providers.capabilities()).requireEligibleReaders(
                 resolved.routeSnapshot().protocolTuple(), java.util.List.of(workerId));
         var observed = providers.assignments().current(source.shardId())
                 .orElseThrow(() -> new IllegalStateException("actual Source assignment is unavailable"));
-        if (observed.revision() != publication.revision() || !observed.assignment().sameIdentity(expected)) {
+        if (!observed.sameIdentity(publication)) {
             throw new IllegalStateException("actual Source assignment changed before acceptance");
         }
+        observed.requireRouteProjection(resolved.routeSnapshot());
         return observed.assignment().sourceAssignment();
     }
 
-    private static TargetStoreBackend.ReadAuthority startupReads(TargetWorkerOxiaRuntime oxia,
+    static TargetStoreBackend.ReadAuthority startupReads(TargetWorkerOxiaRuntime oxia,
             AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication, String workerId,
             ShardStore store, SourceAssignment assignment, OwnerLease expected, TargetStoreBackend.ReadAuthority physical,
             LongSupplier clock) {

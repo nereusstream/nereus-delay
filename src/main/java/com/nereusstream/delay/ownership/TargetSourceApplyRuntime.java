@@ -440,6 +440,26 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private long lastOwnerTime = -1;
     private volatile TargetSourceAuthorityPreparation authorityPreparation;
     private boolean authorityRefresh;
+    private SourceReplaySuccessor activeSourceSuccessor;
+    private boolean sourceSubmissionStarted;
+    private TargetWorkerRecoverySource recoveryReader;
+    private SourcePosition recoveryReaderCut;
+
+    synchronized void bindRecoveryReader(TargetWorkerRecoverySource source, SourcePosition cut) {
+        if (!recoveryOnly || fenced || sourceSubmissionStarted || recoveryReader != null) {
+            throw new IllegalStateException("independent reader binds only before original Target recovery work");
+        }
+        source.requireReaderBinding(assignment, cut);
+        recoveryReader = source;
+        recoveryReaderCut = Objects.requireNonNull(cut);
+    }
+
+    synchronized void bindActiveSourceSuccessor(java.util.function.Supplier<SourceReplaySuccessor> actual) {
+        if (recoveryOnly || fenced || sourceSubmissionStarted || activeSourceSuccessor != null) {
+            throw new IllegalStateException("active Source successor must bind once before original Source work");
+        }
+        activeSourceSuccessor = Objects.requireNonNull(Objects.requireNonNull(actual).get());
+    }
 
     /** Installs the root's complete content/history graph before this runtime can submit Source work. */
     public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected, LongSupplier clock) {
@@ -1631,6 +1651,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalStateException("Target source lifecycle does not match its apply submission");
         }
         validateEntry(entry);
+        sourceSubmissionStarted = true;
     }
 
     @Override
@@ -1886,7 +1907,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 validateEntry(entry);
                 final SourcePosition prior =
                         Objects.requireNonNull(store.appliedShardLogPosition(), "initialized source");
-                authorities.successor().validate(prior, entry.position());
+                (activeSourceSuccessor == null ? authorities.successor() : activeSourceSuccessor).validate(prior, entry.position());
                 external.requireCurrent();
                 requireOwner(clock);
             }
@@ -1979,7 +2000,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     || entry.guardAttestationDigest() == null) {
                 throw new IllegalArgumentException("Target source lacks a Pulsar connection proof");
             }
-            barrier.validateSourceConnection(entry.sourceConnectionGeneration(), entry.guardAttestationDigest());
+            if (recoveryReader == null) {
+                barrier.validateSourceConnection(entry.sourceConnectionGeneration(), entry.guardAttestationDigest());
+            } else {
+                recoveryReader.requireReaderEntry(entry, assignment, recoveryReaderCut);
+            }
         } else if (entry.sourceConnectionGeneration() != null || entry.guardAttestationDigest() != null) {
             throw new IllegalArgumentException("Kafka source cannot carry Pulsar connection proof");
         }

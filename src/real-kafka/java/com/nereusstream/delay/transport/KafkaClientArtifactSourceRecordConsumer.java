@@ -170,6 +170,17 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
 
+    @Override public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
+        ensureOpen();
+        if (!target || backend == null || inFlight != null || !buffered.isEmpty() || lastAcknowledged != null
+                || !(resumeAfter instanceof KafkaSourcePosition anchor) || !shard.equals(anchor.shardId())
+                || !authenticatedClusterId.equals(anchor.authenticatedClusterId()) || !nativeTopicUuid.equals(anchor.nativeTopicUuid())) {
+            throw new IllegalArgumentException("active K1 proof must bind to its exact original Store cut before delivery");
+        }
+        if (!expectedGuard.equals(consumer.resourceGuard())) throw new IllegalStateException("active K1 resource guard changed");
+        return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
+    }
+
     void backendTerminated(KafkaClientArtifactOwnedSourceBackend original) {
         if (original != backend || !original.nativeResourcesTerminated() || original.applicationReady())
             throw new IllegalStateException("K1 Source lacks its original backend termination proof");

@@ -90,7 +90,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
                 throw new IllegalArgumentException("recovery reader exceeds the original Source frame envelope");
             }
-            final var last = startup.store().appliedShardLogPosition();
+            final var last = startup.auditedRecoveryCut();
             if (!(last instanceof KafkaSourcePosition position) || position.offset() < 0) {
                 throw new IllegalArgumentException("actual recovery Store lacks its K1 Source cut");
             }

@@ -1,6 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -42,13 +43,25 @@ public final class InMemoryWorkerAssignmentAuthority implements WorkerAssignment
     }
 
     @Override
+    public synchronized Publication publishReactivation(Publication previous, WorkerAssignment successor, RouteSnapshot route) {
+        previous.requireRouteProjection(route);
+        final var receipt = PulsarSourceReactivationReceipt.next(previous, successor);
+        final var next = new Publication(Math.addExact(previous.revision(), 1), successor, receipt);
+        final var shard = successor.sourceAssignment().shardId();
+        final var current = assignments.get(shard);
+        if (next.sameIdentity(current)) return current;
+        if (!previous.sameIdentity(current)) throw new IllegalStateException("source reactivation publication changed");
+        current.requireRouteProjection(route);
+        assignments.put(shard, next);
+        return next;
+    }
+
+    @Override
     public synchronized boolean withdraw(final Publication expected) {
         Objects.requireNonNull(expected, "expected");
         final ShardId shardId = expected.assignment().sourceAssignment().shardId();
         final Publication current = assignments.get(shardId);
-        if (current == null
-                || current.revision() != expected.revision()
-                || !current.assignment().sameIdentity(expected.assignment())) {
+        if (current == null || !current.sameIdentity(expected)) {
             return false;
         }
         assignments.remove(shardId);
