@@ -642,6 +642,12 @@ public final class TargetWorkerShardRuntime
         return target.readKafkaUnknown(budget, admission, clock);
     }
 
+    public synchronized boolean kafkaMappingSettled(BoundedReadBudget budget, SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+        requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
+        return target.kafkaMappingSettled(budget, admission, mapping, clock);
+    }
+
     /** Enumerates retained Admission references under this active Worker, with opaque same-view continuation. */
     public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
             final BoundedReadBudget budget,

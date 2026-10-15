@@ -6,6 +6,7 @@ import com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch;
 import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
+import com.nereusstream.delay.ownership.TargetWorkerHostRuntime;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ChannelKind;
 import com.nereusstream.delay.protocol.KafkaReceiptSlotResource;
@@ -22,6 +23,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -125,9 +127,18 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                     publisher, budget, dispatch.physical(), graph.classes(), graph.resources(), config.settings(), graph.io(),
                     new HashMap<>(config.producer()), new HashMap<>(config.reader()), reads, ownerClock, original);
             construction.requireCurrent();
-            return new Opening(startup, worker, dispatch, runtime, original == null);
+            final var reopen = original == null ? null : new ReopenInputs(config, channel, entry.physical(), owner,
+                    originalAdmission.image(), original, resolver, profiles, trust, catalog, budget, time, reads, ownerClock);
+            return new Opening(startup, worker, dispatch, runtime, original == null, reopen);
         } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
     }
+
+    private record ReopenInputs(Configuration config, com.nereusstream.delay.protocol.TargetChannelIdentity channel,
+            com.nereusstream.delay.protocol.CanonicalTargetPartition physical, com.nereusstream.delay.protocol.OwnerIdentity owner,
+            SystemMutation admission, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+            LocalBrokerMtlsResolver resolver, ProfileCatalog profiles, CredentialAttestationTrustSet trust,
+            OxiaSyncTargetKafkaReceiptProtectionCatalog catalog, TargetDestinationSdkBudget budget,
+            Supplier<TrustedUtcIntervalEvidence> time, Supplier<BoundedReadBudget> reads, LongSupplier clock) {}
 
     /** Observes only the original registered native opening, including its late failed-cleanup obligations. */
     public static final class Opening {
@@ -136,10 +147,15 @@ public final class KafkaClientArtifactTargetReceiptFactory {
         private final TargetWorkerPublicationDispatch dispatch;
         private final KafkaClientArtifactTargetReceiptRuntime runtime;
         private final boolean newWork;
-        private boolean failed;
+        private final ReopenInputs reopen;
+        private TargetWorkerHostRuntime reopenHost;
+        private volatile Opening successor;
+        private volatile boolean failed;
         private Opening(TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker,
-                TargetWorkerPublicationDispatch dispatch, KafkaClientArtifactTargetReceiptRuntime runtime, boolean newWork) {
+                TargetWorkerPublicationDispatch dispatch, KafkaClientArtifactTargetReceiptRuntime runtime, boolean newWork,
+                ReopenInputs reopen) {
             this.startup = startup; this.worker = worker; this.dispatch = dispatch; this.runtime = runtime; this.newWork = newWork;
+            this.reopen = reopen;
         }
         public synchronized KafkaClientArtifactTargetReceiptRuntime.Turn advance() {
             if (failed) throw new IllegalStateException("original configured K2 startup failed");
@@ -153,6 +169,57 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 if (turn.status() == KafkaClientArtifactTargetReceiptRuntime.Status.READY && newWork) runtime.bindDispatch(dispatch);
                 return turn;
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
+        }
+        /** One caller-driven transition on the same Host; no new SDK is allocated until original Source and exit proofs hold. */
+        public synchronized Optional<Opening> tryReopenForNewWork(TargetWorkerHostRuntime host,
+                KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
+            if (failed || newWork || reopen == null) throw new IllegalStateException("only the original cold K2 opening can hand off");
+            Objects.requireNonNull(publisher, "actual restricted CONTROL anchor publisher");
+            if (reopenHost != null && reopenHost != host) throw new IllegalArgumentException("K2 successor changed its original Host");
+            final var admitted = host.tryBeginPublicationConstruction(worker);
+            if (admitted.isEmpty()) return Optional.empty();
+            try (var construction = admitted.orElseThrow()) {
+                construction.requireCurrent(); reopenHost = host;
+                if (successor != null) return Optional.of(successor);
+                worker.requirePublicationOwner(reopen.owner(), reopen.clock());
+                if (!worker.kafkaMappingSettled(reopen.reads().get(), reopen.admission(), reopen.mapping(), reopen.clock())) {
+                    return Optional.empty();
+                }
+                if (!runtime.settleClose()) return Optional.empty();
+                final var actual = worker.requirePublicationChannel(reopen.channel(), true, reopen.reads().get(), reopen.clock());
+                if (!Arrays.equals(actual.canonicalBytes(), reopen.physical().canonicalBytes())) {
+                    throw new IllegalStateException("K2 successor changes its original physical Target");
+                }
+                final var material = reopen.resolver().resolve(reopen.channel(), actual, reopen.profiles(), reopen.trust(), reopen.time());
+                construction.requireCurrent();
+                if (!worker.kafkaMappingSettled(reopen.reads().get(), reopen.admission(), reopen.mapping(), reopen.clock())) {
+                    throw new IllegalStateException("K2 successor lost its Source settlement");
+                }
+                final var provider = new KafkaClientArtifactTargetReceiptProvider(worker, reopen.owner(), reopen.channel(),
+                        reopen.catalog(), reopen.config().protectionDigest(), reopen.mapping().admission().kafkaReceipt().receiptResource(),
+                        reopen.profiles(), reopen.trust(), material, reopen.time(), reopen.clock(), reopen.config().sdkJar(), reopen.reads(), true);
+                final var graph = startup.graph();
+                final var active = new KafkaClientArtifactTargetReceiptRuntime(worker, reopen.channel(), actual, provider, publisher,
+                        reopen.budget(), dispatch.physical(), graph.classes(), graph.resources(), reopen.config().settings(), graph.io(),
+                        new HashMap<>(reopen.config().producer()), new HashMap<>(reopen.config().reader()), reopen.reads(), reopen.clock(), null);
+                // Registration already transferred ownership to the original Worker before this final Host recheck.
+                successor = new Opening(startup, worker, dispatch, active, true, null);
+                construction.requireCurrent(); return Optional.of(successor);
+            } catch (TargetWorkerHostRuntime.PublicationConstruction.Unavailable stopping) {
+                return Optional.empty();
+            } catch (com.nereusstream.delay.store.ReadIncompleteException yield) {
+                return Optional.empty();
+            } catch (RuntimeException | Error failure) {
+                failed = true; startup.failResourceStartup(failure); throw failure;
+            }
+        }
+
+        /** Actual SEND preparation can follow the one privately retained successor; cold recovery retains runtime(). */
+        public Optional<KafkaClientArtifactTargetReceiptRuntime> newWorkRuntime() {
+            if (failed) return Optional.empty();
+            final var next = successor;
+            if (!newWork) return next == null ? Optional.empty() : next.newWorkRuntime();
+            return runtime.readyForNewWork() ? Optional.of(runtime) : Optional.empty();
         }
         public KafkaClientArtifactTargetReceiptRuntime runtime() { return runtime; }
     }

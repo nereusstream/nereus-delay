@@ -1396,6 +1396,49 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
+    /** Keeps the original Shard admitted while actual publication resources are prepared and registered. */
+    public synchronized Optional<PublicationConstruction> tryBeginPublicationConstruction(TargetWorkerShardRuntime worker) {
+        final var id = Objects.requireNonNull(worker).shardId();
+        if (!serviceActivated || serviceActivationThread != null || stopping || backendQuarantined
+                || withdrawn.contains(id) || completed.containsKey(id)) return Optional.empty();
+        if (requireShard(id) != worker) throw new IllegalArgumentException("publication construction changed its original Host Worker");
+        if (!draining.add(id)) return Optional.empty();
+        return Optional.of(new PublicationConstruction(this, worker, Thread.currentThread()));
+    }
+
+    public static final class PublicationConstruction implements AutoCloseable {
+        private final TargetWorkerHostRuntime host;
+        private final TargetWorkerShardRuntime worker;
+        private final Thread caller;
+        private boolean closed;
+        public static final class Unavailable extends IllegalStateException {
+            private static final long serialVersionUID = 1L;
+            private Unavailable() { super("original Host publication construction is no longer admitted"); }
+        }
+        private PublicationConstruction(TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker, Thread caller) {
+            this.host = host; this.worker = worker; this.caller = caller;
+        }
+        public void requireCurrent() {
+            synchronized (host) {
+                if (caller != Thread.currentThread()) throw new IllegalStateException("publication construction changed its original thread");
+                if (closed || !host.draining.contains(worker.shardId())
+                        || !host.serviceActivated || host.stopping || host.backendQuarantined
+                        || host.requireShard(worker.shardId()) != worker || host.withdrawn.contains(worker.shardId())
+                        || host.completed.containsKey(worker.shardId())) {
+                    throw new Unavailable();
+                }
+            }
+        }
+        @Override public void close() {
+            synchronized (host) {
+                if (caller != Thread.currentThread()) throw new IllegalStateException("publication construction changed its original thread");
+                if (closed) return;
+                if (!host.draining.remove(worker.shardId())) throw new IllegalStateException("original publication admission was lost");
+                closed = true; host.notifyAll();
+            }
+        }
+    }
+
     /** Background selection quietly skips a Shard already reserved by Claim, checkpoint, drain or stop. */
     private <T> Optional<T> tryWithShardAdmission(final Shard expectedShard, final Supplier<T> admission) {
         Objects.requireNonNull(expectedShard, "shard");

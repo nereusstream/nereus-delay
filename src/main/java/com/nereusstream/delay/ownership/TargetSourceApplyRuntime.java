@@ -1041,6 +1041,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return result;
     }
 
+    synchronized boolean kafkaMappingSettled(BoundedReadBudget budget, SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping, LongSupplier clock) {
+        requireGcOwner(clock);
+        final boolean result = targetOutcomes.kafkaMappingSettled(budget, admission, mapping, workerReads(clock));
+        requireGcOwner(clock); return result;
+    }
+
     synchronized TargetPublishRecoveryDiscovery.Page discoverPublishRecovery(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {

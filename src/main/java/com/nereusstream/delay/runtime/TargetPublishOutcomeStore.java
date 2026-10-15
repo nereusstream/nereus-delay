@@ -260,6 +260,67 @@ public final class TargetPublishOutcomeStore {
         }, authority);
     }
 
+    /** Exact retained Source resolution and free stable slot; grants neither SEND nor Floor/accounting release. */
+    public boolean kafkaMappingSettled(BoundedReadBudget budget, SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original, TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(budget, reader -> {
+            final var first = admissionProof(reader, admission);
+            original.requireOriginal(admission, first.mutation().source());
+            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(original.key(),
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, original.key()),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
+            if (!Arrays.equals(mapping.canonicalBytes(), original.canonicalBytes()) || !Arrays.equals(mapping.recoveryLineage(), lineage)
+                    || !mapping.mutation().equals(first.mutation())) {
+                throw new IllegalStateException("K2 reopen lost its original retained Source mapping");
+            }
+            final var body = mapping.admission();
+            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT}, body.publishAttemptId());
+            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(
+                    required(reader, ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
+            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (!Arrays.equals(attempt.recoveryLineage(), lineage) || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                    || !attempt.locator().equals(body.locator()) || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                    || !attempt.commitment().equals(body.commitment()) || attempt.executionBytes() != body.executionBytes()) {
+                throw new IllegalStateException("K2 reopen changes its original Source attempt");
+            }
+            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
+                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
+            slot.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if (attempt.resolvedAt() == null) {
+                slot.requirePending(mapping);
+                if (!slot.mutation().equals(first.mutation())) throw new IllegalStateException("pending K2 slot changed its original Source stamp");
+                if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) requireUnknownProof(reader, attempt);
+                else if (!attempt.mutation().equals(first.mutation())) throw new IllegalStateException("K2 admitted attempt changed its Source stamp");
+                reader.requireWithinElapsedBudget(); return false;
+            }
+            attempt.resolvedAt().requireAfter(first.mutation());
+            if (slot.pendingMappingId() != null || slot.lastAllocatedSequence() != mapping.logicalSequence()
+                    || !slot.mutation().equals(attempt.resolvedAt()) || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                throw new IllegalStateException("K2 reopen lacks its exact Source-resolved free slot");
+            }
+            slot.channel().requireExactFrozenIdentity(body.channel());
+            final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
+                    positionResultKey(slot.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
+            position.requireOwner(root(reader));
+            final var result = SystemMutationResult.decode(position.typedPayload());
+            final byte[] resultKey = Bytes.concat(new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, result.mutationId());
+            final var resolved = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
+                    resultKey), TargetResultRecord.VALUE_TYPE).payload());
+            resolved.requireOwner(root(reader)); position.requireFirst(resolved);
+            if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM || resolved.kind() != TargetResultRecord.Kind.SYSTEM
+                    || resolved.allocation() != null || !resolved.mutation().equals(slot.mutation()) || !position.mutation().equals(slot.mutation())
+                    || !Arrays.equals(resolved.typedPayload(), position.typedPayload())
+                    || !Arrays.equals(result.appliedSourcePosition(), slot.mutation().source().canonicalBytes())
+                    || !Arrays.equals(resolved.logicalId(), result.mutationId()) || result.applyStatus() != ApplyStatus.APPLIED
+                    || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME && result.mutationType() != SystemMutationType.EVIDENCE_RESOLUTION) {
+                throw new IllegalStateException("K2 free slot lacks its exact APPLIED Source resolution first result");
+            }
+            reader.requireWithinElapsedBudget(); return true;
+        }, authority);
+    }
+
     /** Reads actual first results and the unreleased resolved budget; external authentication is separate. */
     public NegativeOutcome readNegativeOutcome(final BoundedReadBudget budget, final byte[] mappingId,
             final SystemMutation admission, final SystemMutation outcome,

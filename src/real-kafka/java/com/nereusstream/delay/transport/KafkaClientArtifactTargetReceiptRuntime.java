@@ -104,7 +104,8 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery> recoveryOpening;
     private OwnedCheckpointIo<KafkaClientArtifactTargetReceiptRecovery.Turn> recoveryTurn;
     private KafkaClientArtifactTargetReceiptRecovery recovery;
-    private boolean stopping, registered, ready, closed;
+    private boolean registered;
+    private volatile boolean stopping, ready, closed;
     private TargetDestinationMux dispatch;
 
     /** Construct on the caller's startup I/O path after actual CONTROL provision and Provider creation. */
@@ -190,7 +191,7 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
             CapacityVector allocated,com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
             com.nereusstream.delay.runtime.TargetQuotaDelta.LocalClaimAuthority revokeQuota,
             com.nereusstream.delay.store.TargetStoreBackend.CommitAuthority revokeWrites) {
-        synchronized(this){if(!ready||stopping||original!=null)throw new IllegalStateException("K2 new work requires a current SEND startup");}
+        if(!ready||stopping||original!=null)throw new IllegalStateException("K2 new work requires a current SEND startup");
         if(!allocated.covers(provider.evidenceCharge(binding,worker.readPublicationAccounting(reads.get(),channel,ownerClock))))
             throw new IllegalArgumentException("K2 preparation has not reserved its actual anchor object");
         return new TargetPulsarPublishRuntime.Inputs(channel,capability,retryUntil,commitment,allocated,policies,
@@ -259,16 +260,16 @@ public final class KafkaClientArtifactTargetReceiptRuntime implements Destinatio
     public KafkaClientArtifactTargetReceiptReader.Observation requireObservation(TargetOrdinaryPublishRequest request,DestinationPublishResult result){
         return Objects.requireNonNull(transport,"actual opened transport").requireObservation(request,result);
     }
-    @Override public synchronized boolean closed(){return closed;}
-    @Override public synchronized boolean readyForPublishing(){return ready&&!stopping&&original==null;}
+    @Override public boolean closed(){return closed;}
+    @Override public boolean readyForPublishing(){return ready&&!stopping&&original==null;}
     @Override public boolean recoveryOnly() { return original != null; }
-    @Override public synchronized boolean readyForRecovery() { return ready && !stopping && original != null; }
+    @Override public boolean readyForRecovery() { return ready && !stopping && original != null; }
     @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return provider.credentialReceipt(); }
     private Map<String,Object> securedReaders() {
         return provider.credentialReceipt() == null ? readerConfiguration
                 : KafkaClientArtifactMtlsConfiguration.apply(readerConfiguration, provider.credentialReceipt());
     }
-    public synchronized boolean readyForNewWork(){return ready&&!stopping&&original==null;}
+    public boolean readyForNewWork(){return ready&&!stopping&&original==null;}
     @Override public synchronized boolean settleClose(){
         stopping=true;ready=false;if(registered)physicalAdmission.closeTargetReady(channel);
         if(sampling!=null){sampling.requestStop();sampling.retryCleanup();if(!sampling.ioExited())return false;}
