@@ -1,5 +1,13 @@
 # NDIP-3 工作包：目标分区队列收敛与调度热路径改造
 
+2026-10-16 当前K1开发锁：`nereus/delay-guarded-producer-v1` 的
+`02c9f768d6f77cb4860bada42cb22917914d2981`，clients JAR SHA256 为
+`4ec46de695c6ce30778d5a6e5b0bb8f13405fa271c54b067dbe54137fc4cb233`。
+本轮只读核对源码clean、JAR内commitId及恢复reader的REQUIRED_K1_SOURCE_COMMIT一致，
+同步progress.executionPolicy中遗留的旧开发锁；未构建/替换SDK或执行Broker验证。
+5dbfa386阶段及其它历史证据仍保留原source范围，不重写旧proof/SDK允许清单或提升
+任何完成/生产flags；完整四包/29切片、集中验证和适用迁退义务继续。
+
 2026-10-14 接续：实际Source runtime factory已接真实Route/assignment/session/Owner激活、
 具体内容preparation及same-DB replay/Claim恢复；K1/P1可消费其私有activation。必要编译
 通过，外层完整服务/root/restore/cold reopen继续，集中验证与全部完成flags不提升。
@@ -18,7 +26,7 @@ SDK分支a3125e3和client/API source+SHA锁已接；必要SDK构建与三套Dela
 完整service/root的权限依赖退出顺序、原内容providers及cold reopen继续开发，集中验证
 未执行，四包/29切片及三个完成flags不提升。详细边界见02、04和12。
 
-2026-10-13 当前开发：owned P1 shared-client/native 创建交接、Host 私有关闭 permit、
+2026-10-13 阶段记录：owned P1 shared-client/native 创建交接、Host 私有关闭 permit、
 whole-Host quarantine 和未正常完成的 Store/Owner 退出接线已加入；SDK fork 开发锁
 更新为 b8fc1f39eb517c14cc1cdf35e60a0b1dcad2ec40。owned K1 Source 的原native cleanup、
 wakeup/读退出与 mixed Host fault exit 已接线，K1开发锁更新为5dbfa38637；guarded Producer
