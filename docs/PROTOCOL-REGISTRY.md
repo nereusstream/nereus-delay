@@ -1080,6 +1080,20 @@ and transfers the original payload charge to RETAINED without advancing the sour
 GC discovery/WorkClass integration, complete Close overlays and production historical
 writer/time-source providers remain unfinished.
 
+For TARGET_PUBLISH_ADMISSION/PUBLISH_OUTCOME/EVIDENCE_RESOLUTION, Target System
+replay now also handles an absent first result whose retryUntil is already covered
+by the committed ingress fence. Under the actual Native view it rechecks source,
+first/POSITION absence and watermark, then atomically writes the exact immutable
+REJECTED SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED first, its POSITION, source advance
+and root-owned storage accounting. Normal and recovery Source authority preparation
+take this existing local path before external evidence acquisition. Direct first
+Admission/Outcome stores also check the same watermark before external verification.
+Retained first results keep the original replay path and are never rewritten.
+An open window still requires all original historical/external authorities. This
+changes no wire tuple and supplies no object-retirement or deletion permission;
+per-use durable conclusions, retained-result GC and full Floor protections remain
+separate obligations.
+
 Applying a valid fence monotonically advances `closedIngressDeadlineThrough`. That source-ordered watermark is also the authoritative logical transition for every still-`PAYLOAD_RESERVED` reservation with `reservation_expiry <= close_through_epoch_ms`: its effective state becomes `RESERVATION_EXPIRED` at the fence Source Position. A prior Commit, Cancel, or Lane Close wins by Source Position. The bounded `RESERVATION_EXPIRY` cursor only materializes the already-decided effective state, counter transfer and GC/tombstone work; replay and every API/Commit check the watermark overlay even when that cursor has not reached the reservation.
 
 Outcome combination rules are closed: `PUBLISHED` requires `disposition=NONE`, verified-published evidence, `stable_code=OK`, and `retryDecision=NONE`; `NOT_PUBLISHED` requires verified-not-published evidence and may use `MESSAGE_RETRIABLE/MESSAGE_PERMANENT/LANE_UNAVAILABLE`; `UNKNOWN` forbids a definitive evidence status and requires `UNCERTAIN_HOLD` unless a baseline duplicate-authorized `SCHEDULED` decision is already fixed by policy. `OWNER_FENCED`/`ADAPTER_BUG` never turn `UNKNOWN` into `NOT_PUBLISHED`. A Publish Outcome authored by an Owner other than the attempt's admitted Owner is legal only when that author is the current guarded recovery Owner and the exact tuple is `UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + no evidence + UNCERTAIN_HOLD`; every other cross-Owner initial outcome is unauthorized/audit-only. `EvidenceResolution` obeys the same evidence/side-effect matrix under its Service Writer branch. For definitive `PUBLISH_OUTCOME` and `EVIDENCE_RESOLUTION`, field `transfer` must be canonical byte-identical to the charge vector retained by the exact Admission ledger. A mismatch is `REJECTED(STALE_SYSTEM_MUTATION)`, advances the source position, and never changes the attempt, message, timeline, or quota; `UNKNOWN` transfer is opaque and never authorizes a definitive release.

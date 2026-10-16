@@ -878,3 +878,10 @@ Adoption，沿原预算/有限I/O执行、Stop等待实际退出；不开放任�
 不替代no-recreate/per-use永久结论/Floor/Pin/原子退役链。原blob、owner/ref、uses与
 新增closure物理费用全部保留，元数据在blob缺失后仍可认证，但缺失不证明删除成功。
 本批完成proof引用封闭组件；完整外部证据生命周期及四包/29切片仍未完成。
+
+2026-10-16已约定Source有序期限的实现依赖：Target三类publication帧此前缺少
+first时未检查原Native ingress fence，且外部authority准备可能先要求待删blob。
+现复用System replay前置Native路径，fence覆盖deadline才原子写过期REJECTED
+first/POSITION/Source/根费用；direct first store也先核同一水位。保留first仍走
+原重复路径，开放窗口完整验权。此拒绝不授业务或删除权限；没有把水位查询、
+首结果或缺blob单独升级为全部逐use终止/GC/退费证明，其余退役门禁继续实施。

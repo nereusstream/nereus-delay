@@ -117,9 +117,11 @@ public final class TargetPublishOutcomeStore {
                 reader -> {
                     requireFirstPosition(reader, source);
                     final var stamp = stamp(reader, source, mutation);
-                    final var decision = TargetPublishOutcomeVerifier.decideFirstApplication(
-                            scope, mutation, source, authority);
-                    StableCode rejection = decision.rejection();
+                    final var decision = reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
+                            ? null
+                            : TargetPublishOutcomeVerifier.decideFirstApplication(scope, mutation, source, authority);
+                    StableCode rejection = decision == null
+                            ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED : decision.rejection();
                     StableCode appliedCode = null;
                     List<TargetMessageStore.Transition> transitions = List.of();
                     List<TargetMessageStore.OrderTransition> orders = List.of();

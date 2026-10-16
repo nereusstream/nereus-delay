@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
@@ -20,7 +21,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Exact System-result replay and later physical duplicate accounting, without rerunning the original business. */
+/** System-result replay, closed publication windows and physical-position accounting without rerunning business. */
 public final class TargetSystemReplayStore {
     private record Inspection(TargetResultRecord first, SystemMutationResult result, boolean samePosition) {}
 
@@ -111,7 +112,7 @@ public final class TargetSystemReplayStore {
                 Objects.requireNonNull(reads, "readAuthority"));
     }
 
-    /** An empty result selects first application, which must independently recheck absence in its own view. */
+    /** Retained first results take precedence; closed publication windows reject without external blob reads. */
     public Optional<Prepared> prepareIfPresent(
             final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
         Objects.requireNonNull(mutation, "mutation");
@@ -121,7 +122,9 @@ public final class TargetSystemReplayStore {
         }
         final var probe = backend.prepareRead(budget, reader -> inspect(reader, mutation, source));
         if (probe.value().first() == null) {
-            return Optional.empty();
+            return probe.value().result() == null
+                    ? Optional.empty()
+                    : Optional.of(prepareClosedPublication(budget, mutation, source));
         }
         if (probe.value().samePosition()) {
             return Optional.of(new Prepared(this, probe, null, probe.value().result()));
@@ -170,6 +173,68 @@ public final class TargetSystemReplayStore {
         return Optional.of(new Prepared(this, null, batch, result[0]));
     }
 
+    private Prepared prepareClosedPublication(
+            final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
+        final var result = new SystemMutationResult[1];
+        final var batch = backend.prepare(budget, reader -> {
+            final var actual = inspect(reader, mutation, source);
+            if (actual.first() != null || actual.result() == null) {
+                throw new IllegalStateException("closed publication first-result branch changed; prepare again");
+            }
+            final var stamp = new TargetQuotaMutation(
+                    TargetQuotaMutation.increment(reader.sourceSequence()),
+                    source,
+                    Bytes.sha256(mutation.canonicalEnvelope()));
+            final var root = descriptor(
+                    reader,
+                    new TargetQuotaIdentity(
+                            TargetQuotaIdentity.Kind.SHARD,
+                            scope.shard(),
+                            reader.aggregate().accountingIncarnation(),
+                            null,
+                            null));
+            final TargetResultRecord.CreationAuthority authority = (record, first) -> {
+                record.requireOwner(root);
+                if (!record.mutation().equals(stamp) || record.allocation() != null
+                        || reader.get(ColumnFamily.DEDUPE, record.key()) != null) {
+                    throw new IllegalStateException("expired publication changed its root/source/absence proof");
+                }
+                if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
+                    if (first != null || !Arrays.equals(record.logicalId(), mutation.systemMutationId())
+                            || !Arrays.equals(record.typedPayload(), actual.result().encode())) {
+                        throw new IllegalStateException("expired publication changed its exact first result");
+                    }
+                } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
+                    if (first == null || !Arrays.equals(first.typedPayload(), actual.result().encode())) {
+                        throw new IllegalStateException("expired publication POSITION lost its exact first");
+                    }
+                    record.requireFirst(first);
+                } else {
+                    throw new IllegalStateException("unexpected expired publication result kind");
+                }
+            };
+            final var first = TargetResultRecord.system(root, actual.result(), stamp, null, authority);
+            final var position = TargetResultRecord.position(root, first, stamp, authority);
+            result[0] = actual.result();
+            return new TargetSourceAccounting(
+                            scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
+                    .assemble(
+                            reader,
+                            List.of(
+                                    reader.replace(
+                                            ColumnFamily.DEDUPE,
+                                            first.key(),
+                                            TargetResultRecord.VALUE_TYPE,
+                                            first.canonicalBytes()),
+                                    reader.replace(
+                                            ColumnFamily.DEDUPE,
+                                            position.key(),
+                                            TargetResultRecord.VALUE_TYPE,
+                                            position.canonicalBytes())));
+        });
+        return new Prepared(this, null, batch, Objects.requireNonNull(result[0]));
+    }
+
     public SystemMutationResult commit(
             final Prepared prepared,
             final TargetStoreBackend.CommitAuthority writes,
@@ -206,7 +271,14 @@ public final class TargetSystemReplayStore {
             if (order == 0 || position != null) {
                 throw new IllegalStateException("applied physical source lacks the exact first System result");
             }
-            return new Inspection(null, null, false);
+            final boolean publication = mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    || mutation.type() == SystemMutationType.PUBLISH_OUTCOME
+                    || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
+            final var expired = publication && reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
+                    ? SystemMutationResult.from(mutation, ApplyStatus.REJECTED,
+                            StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, source.canonicalBytes())
+                    : null;
+            return new Inspection(null, expired, false);
         }
         if (first.kind() != TargetResultRecord.Kind.SYSTEM) {
             throw new IllegalStateException("System key has another result kind");

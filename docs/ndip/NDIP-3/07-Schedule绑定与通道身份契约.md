@@ -931,3 +931,9 @@ PUBLISH/BREAK等旧action不授此权。当前Root入口还须实际Native APPLI
 Adoption，不能用caller key、无ref、取消或UNKNOWN代替。closure封住新增seal/引用，
 旧sealed Native APPLIED补记仍可结清既有义务；历史认证继续有效。该管理权不授
 Source mutation、物理delete或费用解除权，CONTROL/shared/staging终止预检仍待实现。
+
+2026-10-16对迟到prepared Admission/Outcome/Resolution，已持久IngressFenceState
+覆盖其retryUntil且无first时，真实Source前置路径可原子记过期REJECTED first/
+POSITION而不加载旧外部proof/作者材料；这只是拒绝，没有授予业务权限。开放窗口
+仍须完整原历史/tuple/证据认证。旧first保持原replay/费用保护，外部key缺失、
+墙钟或取消本身不触发此分支。逐use永久结论与原Floor/迟到责任仍须独立闭合。

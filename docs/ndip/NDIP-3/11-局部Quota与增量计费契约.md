@@ -2420,3 +2420,9 @@ publication cut继续保留，phase/adoption补记不退款；预算不足拒绝
 这仅约束该输入路径，不是测得的RSS/时间或完整最大合法mutation包络。Stop等实际
 owned I/O退出后才退原窗口，不因future取消/超时/closure持久化便提前释放。旧远端
 put、per-use永久结论、全共享引用及Floor/Pin/no-recreate继续保留原付费义务。
+
+2026-10-16迟到publication帧的Source fence拒绝复用TargetSourceAccounting：新first/
+POSITION和SourceAdvance在原native批精确计入Shard root，fence/read-set受原有限
+预算约束；不分配Attempt、不改变Message/evidence cursor，不退原外部blob/owner/
+ref费。旧first走既有重复POSITION收费，不重写或双收first。此拒绝可避免退役后
+读取旧blob的依赖，但不支付或证明尚未实现的逐use结论/retire/confirmation/GC。
