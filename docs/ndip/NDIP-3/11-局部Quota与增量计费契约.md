@@ -2407,3 +2407,16 @@ deployment physical owner来源，不虚构Target EVIDENCE退款。closure/retir
 ref与retire/closure并在原blob已删后独立恢复，不能提前退费打破循环。closure/
 uses结论/墓碑继续占实际STATE/物理费，原Floor/保护退出后才压缩；本轮仅身份
 codec，原子writer/独立fold/checkpoint/实际delete仍待接，无退款或权威提升。
+
+2026-10-16 Root schema3的closure额外占用原Catalog physicalBytes预算：schema3
+overhead64加每条实际encoded closure长度+16，连同既有全部blob/intent预留，在
+CAS前核总bytes/records、publication/uses数量与16MiB Root上限。uses与完整候选
+publication cut继续保留，phase/adoption补记不退款；预算不足拒绝封闭，不移行或
+假设原blob已删。后续Native Source intent/confirm及closure墓碑的STATE/独立ledger
+仍须实施，现有physical reserve不是Target EVIDENCE/STATE结算证明。
+
+原management allocation还须在投closure I/O前覆盖保留配置/history/recovery输入
+加320MiB保守输入窗口，显式有限read budget逐次先收费再读；不放大默认budget。
+这仅约束该输入路径，不是测得的RSS/时间或完整最大合法mutation包络。Stop等实际
+owned I/O退出后才退原窗口，不因future取消/超时/closure持久化便提前释放。旧远端
+put、per-use永久结论、全共享引用及Floor/Pin/no-recreate继续保留原付费义务。

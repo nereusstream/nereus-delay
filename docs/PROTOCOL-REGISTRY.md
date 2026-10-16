@@ -851,6 +851,42 @@ DELETED evidence must retain a pinned immutable version when present; any suppli
 version must match. ALREADY_ABSENT still requires authoritative original closed
 intent evidence in the future handler, not a bare missing-object observation.
 
+Target receipt Catalog Root schema3 adds repeated field11 exact object closures,
+sorted by key, and field12 nonzero unsigned closure sequence. Schemas1/2 keep their
+original bytes until the first closure; subsequent updates preserve schema3.
+Each closure has fields: 1 schema=1; 2 subtype1..3; 3 exact key; 4 typed digest[32];
+5 raw signed value SHA256[32]; 6 actual length; 7 pinned Oxia versionId uint64 bits;
+8 original publication ID[32]; 9 immutable publication-origin digest[32];
+10 exact prepared-use-set digest[32]; 11 use count; 12 unique unsigned revision;
+13 namespace binding[32]; 14 phase at the cut; 15 adopted Source digest at the cut
+(empty or32); 16 repeated complete candidate inventory (1 subtype, 2 ID[32]), sorted
+by subtype/ID; 17 inventory digest[32]; 18 pre-closure Root canonical SHA256[32];
+19 original management topic identity[32]. Phase/adoption may later reconcile known
+Native APPLIED facts; origin and the sealed ID/hash/retry set cannot change.
+
+Digest domains are `nereus-delay-target-evidence-reference-closure\0` over the full
+closure, `nereus-delay-target-evidence-publication-origin\0` over immutable origin,
+`nereus-delay-target-evidence-closed-prepared-uses\0` over repeated canonical uses,
+and `nereus-delay-target-evidence-closure-inventory\0` over repeated inventory.
+CONTROL origin is kind/ID/key/typed digest/raw hash/length/original Control ID and
+digest/Shard/control scope; recovery origin is kind3/ID/full ref/frozen owner.
+Mutable phase/uses/adoption/BROKEN state is excluded. Namespace binding is SHA256
+of `nereus-delay-target-evidence-catalog-namespace\0`, deploymentRootDigest,
+LP32(UTF8 configured Catalog prefix), and original capacitySourceDigest.
+
+Current-management action10 is explicitly `CLOSE_EVIDENCE_OBJECT_REFERENCES`;
+actions1..9 retain their encoding. Historical CONTROL/SERVICE authentication or
+another management action does not grant it. The current Root entry accepts only
+an actual Native APPLIED recovery Adoption, authenticates the present blob/history,
+then CAS-freezes the latest complete sealed uses and candidate publication inventory.
+New publication/seal/dependency uses check closure in the same Root CAS. Previously
+sealed actual Native adoption may still reconcile; it adds no new seal or permission.
+The private closure receipt and retained metadata can be reread without the blob.
+Inventory is a candidate superset, not dependency-release proof; closure is neither
+remote put fencing nor deletion/absence/refund authority. CONTROL/shared/staging
+preflight, permanent per-use conclusions and the full Source/checkpoint/delete/GC
+chain remain implementation work.
+
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 
 `RecoveryFloorRef` exact fields: 1 Recovery Lineage ID[16]; 2 checkpoint ID[16]; 3 manifest SHA-256[32]; 4 nonzero `uint64 catalog_generation`; 5 `SourcePosition applied_source_position`; 6 `uint64 included_mutation_sequence`; 7 repeated `EvidenceCursor evidence_cursors`, strictly sorted by §8; 8 floor digest[32]. Field 8 is SHA-256 of domain `nereus-delay-recovery-floor-ref\0` plus canonical fields 1–7. A scalar position or mutation sequence without fields 1–4/8 never identifies a Floor.

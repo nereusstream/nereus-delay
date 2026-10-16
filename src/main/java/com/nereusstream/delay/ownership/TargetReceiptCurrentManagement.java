@@ -8,7 +8,7 @@ import java.util.*;
 /** Current whole-topic permissions, independent of immutable historical Prepared authors. */
 public final class TargetReceiptCurrentManagement {
     public enum Action { OBSERVE, BEGIN_INSTALLATION, CREATE_ACLS, ALTER_CONFIGS, ACTIVATE_INSTALLATION,
-        BREAK_MANAGEMENT, PUBLISH_PROTECTION, PUBLISH_ANCHOR, BREAK_PROTECTION }
+        BREAK_MANAGEMENT, PUBLISH_PROTECTION, PUBLISH_ANCHOR, BREAK_PROTECTION, CLOSE_EVIDENCE_OBJECT_REFERENCES }
 
     /** Trusted deployment authenticator; must acquire one consistent current identity/policy view. */
     @FunctionalInterface public interface Authenticator { Snapshot authenticate(); }

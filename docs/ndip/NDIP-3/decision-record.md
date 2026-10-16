@@ -864,3 +864,17 @@ confirmation、全部保护退出且no-recreate/no-future-first保持后才压�
 handler必须接accounted native path、独立ledger fold、checkpoint/restore/reopen/
 history与有限GC WorkClass，不借旧DelayShard投影。本轮仅落精确身份codec/旧body
 拒绝门禁；完整closure/writer/checkpoint环/实际delete仍待实施，不关闭包1/2或全目标。
+
+2026-10-16引用封闭的首个实际入口：原Catalog Root schema3持久化exact raw/version/
+immutable origin、完整prepared ID/hash/retry集合摘要、closure revision以及同一CAS
+cut的全部候选publication清单和Root摘要。新publication/seal/依赖引用在同一Root
+CAS检查封闭；已封闭集合不能追加或变更。独立当前action10显式授权，历史签名或
+旧管理动作不授予。当前原management Opening只接真实Native APPLIED recovery
+Adoption，沿原预算/有限I/O执行、Stop等待实际退出；不开放任意key封闭入口，避免
+冻结仍需重建Source image的UNKNOWN proof。CONTROL/shared/staging实际终止预检仍待接。
+
+候选清单是cut时完整候选上集，不等于真实共享依赖已释放。原sealed Native APPLIED
+补记可继续完成原义务，不是新adoption/seal许可；closure不阻止已发远端put迟到，
+不替代no-recreate/per-use永久结论/Floor/Pin/原子退役链。原blob、owner/ref、uses与
+新增closure物理费用全部保留，元数据在blob缺失后仍可认证，但缺失不证明删除成功。
+本批完成proof引用封闭组件；完整外部证据生命周期及四包/29切片仍未完成。

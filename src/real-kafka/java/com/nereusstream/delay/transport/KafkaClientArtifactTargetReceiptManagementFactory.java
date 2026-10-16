@@ -199,7 +199,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
                 return new TrustInputs(history, history, history, current);
             } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
-        }, recovery);
+        }, recovery, bytes);
     }
 
     /** No native SDK or request is created until this exact owner and cost have been retained by the original root. */
@@ -218,7 +218,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
             TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader,
             KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recovery) {
-        final var original = new Opening(root, config, budget, trustLoader, recovery);
+        return openLoaded(root,config,budget,trustLoader,recovery,Math.addExact(
+                retainedConfigurationBytes(config.management(),config.admin(),config.receipts()),recovery==null?0:recovery.maximumRetainedBytes()));
+    }
+    private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
+            TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader,
+            KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recovery,long retainedInputBytes) {
+        final var original = new Opening(root, config, budget, trustLoader, recovery,retainedInputBytes);
         try (var construction = root.beginReceiptManagementConstruction(original, budget)) {
             original.registered = true;
             construction.requireCurrent(); original.start(construction.graph()); construction.requireCurrent(); return original;
@@ -280,6 +286,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs;
         private volatile KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded recoveryArchive;
+        private final long retainedInputBytes;
+        private volatile OwnedCheckpointIo<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> referenceClosure;
+        private String referenceClosureKey;
+        private byte[] referenceClosureOwner;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -290,10 +300,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile Throwable failure;
         private Opening(TargetWorkerProcessRuntime root, Configuration config, TargetDestinationSdkBudget budget,
                 java.util.function.Function<Runnable,TrustInputs> trustLoader,
-                KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs) {
+                KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs,long retainedInputBytes) {
             this.root = Objects.requireNonNull(root); this.config = config; this.budget = Objects.requireNonNull(budget);
             this.trustLoader = Objects.requireNonNull(trustLoader);
             this.recoveryInputs = recoveryInputs;
+            this.retainedInputBytes=retainedInputBytes;
             identity = TargetKafkaReceiptManagementImage.decode(config.management().image()).topicIdentity();
         }
         private void start(TargetWorkerProcessRuntime.Assembly graph) {
@@ -362,6 +373,32 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
 
+        /** Only an actual Native APPLIED recovery owner can enter this first closure path; other object lifetimes stay separate. */
+        public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedRecoveryReferences(
+                com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
+                com.nereusstream.delay.store.BoundedReadBudget reads) {
+            final var original=requireRecoveryArchive();Objects.requireNonNull(reads);
+            final var owner=Objects.requireNonNull(applied,"actual Native recovery adoption").owner();
+            final String key=owner.reference().exactKey();final byte[] image=Bytes.sha256(owner.canonicalBytes());
+            final var previous=referenceClosure;
+            if(previous!=null){
+                if(!previous.ioExited()&&!key.equals(referenceClosureKey))throw new IllegalStateException("original object closure I/O remains owned");
+                if(key.equals(referenceClosureKey)){
+                    if(!Arrays.equals(image,referenceClosureOwner))throw new IllegalStateException("closure changed its original Native adoption input");
+                    previous.retryCleanup();if(!previous.ioExited()||previous.completedValue().isPresent())return previous.receipt();
+                }
+            }
+            if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("closure reads require an explicit finite byte limit");
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes());
+            allocation.requireCovers(new CapacityVector(minimum));
+            final var next=OwnedCheckpointIo.submit(guard->{final Runnable current=()->{guard.run();requireReady();};current.run();
+                final var result=catalog.closeAdoptedRecoveryReferences(applied,original.trust,reads,current);current.run();return result;
+            },this::requireReady,io);
+            referenceClosureKey=key;referenceClosureOwner=image;referenceClosure=next;return next.receipt();
+        }
+
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded requireRecoveryArchive() {
             requireReady();
             return Objects.requireNonNull(recoveryArchive, "explicit original Root recovery signing configuration");
@@ -402,6 +439,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             stopping = true;
             final var signing = recoveryArchive; if (signing != null) signing.requestStop();
             final var operation = opening; if (operation != null) operation.requestStop();
+            final var closure = referenceClosure; if (closure != null) closure.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
         @Override public synchronized boolean closeForProcess(TargetWorkerProcessRuntime.ReceiptManagementClosePermit permit) {
@@ -416,11 +454,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 }
                 if (!operation.ioExited()) return false;
             }
+            final var closure=referenceClosure;
+            if(closure!=null){closure.requestStop();closure.retryCleanup();if(!closure.ioExited())return false;}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
             final var signing = recoveryArchive;
             if (signing != null) signing.close();
             recoveryArchive = null; recoveryInputs = null;
+            referenceClosure=null;referenceClosureKey=null;referenceClosureOwner=null;
             final var charge = allocation;
             if (charge != null) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }
             closed = true; return true;

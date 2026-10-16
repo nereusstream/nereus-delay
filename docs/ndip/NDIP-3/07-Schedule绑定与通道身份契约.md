@@ -923,3 +923,11 @@ history包装器拒绝Source context换作者；不把SERVICE身份文件或匹�
 Source apply授权。原独立RECOVERY material provider、Source key/tuple/Artifact/
 reader/Owner检查仍保留；停止签发不使原观察时刻的proof验签失效。该配置接线
 未替代真实部署/跨代/失权恢复验收。
+
+2026-10-16引用封闭另需当前policy显式action10
+CLOSE_EVIDENCE_OBJECT_REFERENCES，核原整topic management image、实际actor/roles/
+scope、policy version/digest并在I/O/CAS前后重验。历史CONTROL/SERVICE签名、OBSERVE/
+PUBLISH/BREAK等旧action不授此权。当前Root入口还须实际Native APPLIED recovery
+Adoption，不能用caller key、无ref、取消或UNKNOWN代替。closure封住新增seal/引用，
+旧sealed Native APPLIED补记仍可结清既有义务；历史认证继续有效。该管理权不授
+Source mutation、物理delete或费用解除权，CONTROL/shared/staging终止预检仍待实现。
