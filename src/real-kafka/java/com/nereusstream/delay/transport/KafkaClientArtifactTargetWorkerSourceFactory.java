@@ -430,6 +430,23 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             final var observed=Objects.requireNonNull(time.get(),"original Source time provider");
             requireRetirementReadCurrent(management,current);return observed;
         }
+        com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementIntent(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.SystemMutation image,
+                com.nereusstream.delay.ownership.OwnedSourceSystemWriter writer,Runnable protection,
+                java.util.function.Consumer<com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+            startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            return original.submitRetirementIntent(image,writer,protection,clock,retained);
+        }
+        java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> settleRetirementIntent(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.SystemMutation image,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var first=original.settleRetirementIntent(image,clock);
+            startup.requireReceiptManagementRead(management);current.run();return first;
+        }
 
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(

@@ -189,7 +189,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             held.bytes = Math.addExact(held.bytes, Math.addExact(body.context().copyManifestBytes(), keyBytes.length));
             frozen = new TargetEvidenceRetirementStore.Approval(key, approved.copy(), () -> {
                 held.requireCurrent(); approved.current().run(); held.requireCurrent();
-            });
+            },approved.activatedTuple());
         }
         held.requireCurrent(); guard.run();
         return new TargetSourceApplyRuntime.RetirementControl((scope, actor, actual, source) -> {

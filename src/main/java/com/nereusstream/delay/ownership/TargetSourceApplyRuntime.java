@@ -1394,6 +1394,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return replay.appliedResult(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),
                 mutation,workerReads(clock));
     }
+    synchronized void requireRetirementWriter(SystemMutation mutation,LongSupplier clock){
+        requireGcOwner(clock);
+        if(mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT||!scope.shard().equals(mutation.shardId())
+                ||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
+            throw new IllegalArgumentException("retirement writer changed Source/operation/SERVICE actor");
+        final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        final var compatible=store.controlSnapshot();
+        if(compatible==null||!compatible.protocolTuples().contains(body.requiredTuple()))
+            throw new IllegalStateException("retirement writer lacks its independently admitted compatible protocol tuple");
+    }
 
     synchronized OptionalLong readTargetActiveMessages(
             final BoundedReadBudget budget, final TargetPartitionId target, final LongSupplier ownerClock) {

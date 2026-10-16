@@ -976,3 +976,14 @@ receipt，原purpose/保护/capacity批准仍独立。original.close失败保留
 已签UNKNOWN release只认实际Native first，不认caller结果。Root Stop/close等所有
 原I/O/borrow再清key/退预算。尚未实际Source append/reconcile或实现完整历史
 provider/冷输入重建，NV52/new companion/全GC仍开放，所有完成flags不变。
+
+
+2026-10-16 Source实际handoff接线：Root候选现经同Worker实际registered owned
+writer与原OUTCOME_AND_CONTROL队列append，Native first及action/registry退出才
+结算，Broker PERSISTED不是APPLIED，UNKNOWN/排队失败不换image。Root预先保留
+handle、提交不跨持Root锁，Stop区分未启动与运行I/O，Host drain纳入PENDING_GC并
+先驱动Source，pause/final checkpoint不能越过pending。writer兼容snapshot含8为
+必要门禁，Source Approval显式原activatedTuple，旧3参不给激活；不改实际准入。
+另补state1迟到expected0候选本地STALE拒绝，核实际NV51/first/POSITION后只费新增
+拒绝Source行，不取旧blob/换winning closure/退费。完整历史provider/冷输入、
+NV52、新companion与protected GC仍开放，未运行Source服务或提升完成flags。

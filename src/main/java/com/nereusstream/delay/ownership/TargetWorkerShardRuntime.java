@@ -105,6 +105,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetJournalNegativeSettlementMaintenance journalSettlement;
     private volatile TargetPulsarPublishRuntime publishRuntime;
     private volatile TargetChannelControlWorkClassExecutor channelControlHandoff;
+    private volatile TargetEvidenceRetirementWorkClassExecutor retirementHandoff;
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
     TargetWorkerShardRuntime(
@@ -596,6 +597,47 @@ public final class TargetWorkerShardRuntime
     public synchronized java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> retirementMutationResult(
             SystemMutation mutation,LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.retirementMutationResult(mutation,clock);
+    }
+    /** Only this Worker's original registered, Host-admitted Source writer may carry the retirement frame. */
+    public TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementIntent(SystemMutation image,
+            OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
+            java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+        final TargetEvidenceRetirementWorkClassExecutor handoff;
+        synchronized(this){
+            requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+            if(writer.sourceWriterWorker()!=this||writer.resourcesTerminated()||!writer.readyForAppending()
+                    ||systemWriterBackends.values().stream().noneMatch(original->original==writer))
+                throw new IllegalArgumentException("retirement requires this Worker's actual admitted Source writer");
+            if(retirementHandoff==null)retirementHandoff=new TargetEvidenceRetirementWorkClassExecutor(this,writer);
+            retirementHandoff.requireAppender(writer);handoff=retirementHandoff;
+        }
+        return handoff.submit(image,protection,clock,retained);
+    }
+    boolean retirementActionExited(WorkClassTask task){
+        return workClasses.state(task).filter(state->state==WorkClassExecutionRegistry.ExecutionState.QUEUED
+                ||state==WorkClassExecutionRegistry.ExecutionState.RUNNING).isEmpty();
+    }
+    synchronized void submitRetirementAction(WorkClassTask task,SystemMutation image,LongSupplier clock,Runnable action){
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        if(target.retirementMutationResult(image,clock).isEmpty())target.requireRetirementWriter(image,clock);
+        workClasses.requireTaskServiceable(task);
+        workClasses.submit(task,action);
+    }
+    synchronized SourceMutationAppend appendRetirement(SystemMutation image,OwnedSourceSystemWriter writer,
+            Runnable protection,LongSupplier clock){
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        final var first=target.retirementMutationResult(image,clock).orElse(null);
+        if(first!=null)return new SourceMutationAppend(first,null);
+        target.requireRetirementWriter(image,clock);protection.run();
+        try{
+            final var result=Objects.requireNonNull(writer.append(image),"actual retirement Source append");
+            if(result.disposition()==ShardLogMutationAppender.AppendDisposition.PERSISTED)
+                target.requireCurrentExpiryLogPosition(result.sourcePosition(),result.sourceConnectionGeneration(),result.guardAttestationDigest(),clock);
+            return new SourceMutationAppend(null,result);
+        }catch(RuntimeException|Error unknown){target.fence();throw unknown;}
+    }
+    public Optional<SystemMutationResult> settleRetirementIntent(SystemMutation image,LongSupplier clock){
+        final var handoff=retirementHandoff;return handoff==null?retirementMutationResult(image,clock):handoff.settle(image,clock);
     }
 
     @Override
@@ -1673,6 +1715,8 @@ public final class TargetWorkerShardRuntime
         if (channelControlHandoff != null && channelControlHandoff.pending().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending channel lifecycle submission");
         }
+        if(retirementHandoff!=null&&retirementHandoff.pending().isPresent())
+            throw new IllegalStateException("Target Worker cannot pause a retained retirement Source submission");
         if (publishRuntime != null && !publishRuntime.available()) {
             throw new IllegalStateException("Target Worker cannot pause a retained publication flight");
         }
@@ -1774,6 +1818,22 @@ public final class TargetWorkerShardRuntime
         }
         if (handoff.settle(clock).isPresent()) { return Optional.empty(); }
         return handoff.pending().map(TargetChannelControlWorkClassExecutor.Submission::task);
+    }
+
+    @Override
+    public Optional<WorkClassTask> settlePendingRetirementForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){
+        final var handoff=retirementHandoff;
+        if(handoff==null||handoff.pending().isEmpty())return Optional.empty();
+        if(handoff.settle(clock).isPresent())return Optional.empty();
+        handoff.retryPending(clock);workClasses.runTurn(workBudget);
+        if(handoff.settle(clock).isPresent())return Optional.empty();
+        synchronized(this){
+            requireNewTurnsAdmitted();
+            if(sourceLoop.pendingEntry().isPresent())sourceLoop.settlePendingEntry(sourceBudget,clock);
+            else sourceLoop.runTurn(sourceBudget,clock);
+        }
+        if(handoff.settle(clock).isPresent())return Optional.empty();
+        return handoff.pending().map(TargetEvidenceRetirementWorkClassExecutor.Submission::task);
     }
 
     /** Advances only the retained expiry append and its source result by one bounded drain step. */

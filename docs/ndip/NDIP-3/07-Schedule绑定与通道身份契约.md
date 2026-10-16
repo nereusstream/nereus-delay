@@ -982,3 +982,11 @@ provider与实际Worker/Owner guard决定本地签发窗口，不接受caller UT
 同进程Source借用必须匹配原cached signed frame及同一个private Catalog receipt，
 原Source provider仍独立批准历史purpose/Root/保护/capacity；新manifest/Root签名
 不是Source apply权限。实际append/reconcile与历史provider/冷重建尚未完成。
+
+
+2026-10-16 Root handoff只使用同Worker实际registered/Host-admitted Source writer，
+Root cached签名/原private preparation护住每次新append，Native actual first优先。
+writer本地compatible tuple是必要门禁，不能代替原Source时点历史激活：Approval
+新增显式activatedTuple并随held input冻结，必须等于body8 requiredTuple。旧3参
+构造给空tuple、不会隐式激活；签名正确但未激活只记明确拒绝。Artifact/Route/
+reader准入配置未改，完整历史purpose/保护/capacity批准与冷provider仍未完成。

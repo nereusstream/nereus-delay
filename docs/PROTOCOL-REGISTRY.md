@@ -4308,8 +4308,49 @@ it, failed release may retry, no caller result DTO substitutes. Release clears
 copy references; process close waits all original signing/release I/O and Source
 borrows before dropping private keys/allocation. No blob deletion or fee refund.
 
-This is local signing and a same-process input bridge. Actual Source append and
-reconciliation,complete historical-purpose/capacity provider,cold reconstruction,
+The Root now also routes actual Source append/reconciliation through its original
+registered writer and WorkClass queue. Complete historical-purpose/capacity provider,cold reconstruction,
 CONTROL/shared/staging lifetimes,NV52,new checkpoint/offline trust and protected
 GC remain mandatory open work. No actual configuration/key files were generated,
 loaded or deployed by this implementation step; no Artifact/tuple activation.
+
+
+2026-10-16 retirement Source handoff adds no wire fields, IDs or stable codes.
+TargetEvidenceRetirementWorkClassExecutor owns one pending exact frame in the
+existing OUTCOME_AND_CONTROL queue. Root submitRetirementIntent accepts only its
+cached signature/private preparation and the same Worker's actual registered,
+Host-admitted OwnedSourceSystemWriter. Original Source/Owner checks precede queue
+admission and append; PERSISTED positions recheck original source/connection proof.
+Broker PERSISTED is not Source APPLIED. UNKNOWN and failed queue admission retain
+the exact image; bounded explicit retries use the same bytes and observe actual
+Native APPLIED or REJECTED first. Registry RUNNING/removal and append-running state
+are separate exit facts; no second queue/client/thread or local apply path.
+
+The Root retains the actual submission before first lookup/queue admission, so
+failure cannot lose its cleanup handle. Native-first release additionally waits
+for that exact append action/registration to exit. Stop gates queued work before
+I/O can begin and waits running I/O; queued stopped tasks stay charged in the
+original shared queue until consumed. Root submission never holds its monitor
+across Worker/Source calls. Host drain advances retained retirement and Source work
+before final checkpoint, reports its task in PENDING_GC, and cannot pause new turns
+while a retirement submission is retained. This is Source settlement, not delete.
+
+Writer admission requires body8 in the existing compatible control snapshot as a
+necessary compatibility gate. Source Approval additionally carries an independent
+historical activatedTuple, frozen by the original held loader and compared with
+body.requiredTuple. The old3-argument constructor supplies no activation; a valid
+signature without the exact tuple produces UNACTIVATED_SYSTEM_PROTOCOL_VERSION.
+The local compatible snapshot and signing manifest never grant Source apply rights
+or modify Artifact/tuple activation automatically. Approval is local runtime data;
+body8/NV51 bytes and existing wire tuples are unchanged.
+
+Before external copy acquisition, a missing-first expected0 intent for a resource
+already in actual state1 now gets a Source-accounted REJECTED first/POSITION with
+existing STALE_SYSTEM_MUTATION. The same actual Native view validates exact NV51
+resource, original APPLIED intent first/SHARD owner/stamp/ID/hash/retry/author/Source
+and POSITION. It preserves the winning NV51/owner/ref/EVIDENCE and charges only the
+new Source result/root metadata. No old blob is needed. Missing/corrupt facts fail;
+META45 still requires the independent unimplemented Native52 reader and cannot
+be treated as state0. Original same-ID first and expiry take precedence, legacy
+resource kinds1..7 keep their old path. Native apply/cold restore/new checkpoint/
+confirmation/delete/publication authority remain separately bounded obligations.

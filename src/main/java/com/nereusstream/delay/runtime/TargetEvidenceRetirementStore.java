@@ -27,8 +27,12 @@ public final class TargetEvidenceRetirementStore {
 
     /** The key is selected by trusted Source authority, never from the copy's serialized public keys. */
     public record Approval(PublicKey writerKey,
-            OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy, Runnable current) {
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy, Runnable current,ProtocolTuple activatedTuple) {
         public Approval { Objects.requireNonNull(writerKey); Objects.requireNonNull(copy); Objects.requireNonNull(current); }
+        /** Key/copy possession alone never activates body generation8. */
+        public Approval(PublicKey key,OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy,Runnable current){
+            this(key,copy,current,null);
+        }
     }
 
     public static final class Prepared {
@@ -81,7 +85,8 @@ public final class TargetEvidenceRetirementStore {
         }
         final var selected = approval;
         final boolean authorized = selected != null && intent.verifySignature(selected.writerKey());
-        if (authorized) {
+        final boolean activated=authorized&&body.requiredTuple().equals(selected.activatedTuple());
+        if (activated) {
             requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());
             selected.copy().image().requireContext(body.context()); selected.current().run();
         }
@@ -96,7 +101,8 @@ public final class TargetEvidenceRetirementStore {
             final var root = sourceRoot(reader, stamp);
             final StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()
                     ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
-                    : authorized ? null : StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+                    : !authorized ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION
+                    : !activated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
             if (rejection == null) {
                 selected.current().run();

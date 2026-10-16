@@ -110,6 +110,9 @@ public final class TargetWorkerHostRuntime {
         default Optional<WorkClassTask> settlePendingChannelControlForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
 
+        default Optional<WorkClassTask> settlePendingRetirementForDrain(SchedulerBudget workBudget,
+                SchedulerBudget sourceBudget,LongSupplier clock){return Optional.empty();}
+
         default Optional<WorkClassTask> settlePendingPublicationForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
 
@@ -1763,6 +1766,8 @@ public final class TargetWorkerHostRuntime {
                     return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null,
                             null, null, null, null, channel.orElseThrow());
                 }
+                final var retirement=shard.settlePendingRetirementForDrain(request.gcBudget(),sourceBudget,ownerClock);
+                if(retirement.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_GC,null,null,retirement.orElseThrow(),null);
                 final Optional<WorkClassTask> publication = shard.settlePendingPublicationForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);
                 if (publication.isPresent()) {

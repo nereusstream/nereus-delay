@@ -2485,3 +2485,14 @@ Source借用只有original.close实际成功才退出；UNKNOWN signed输入须�
 first才能本地释放，错误/池拒绝/未退出保留同一窗口。Root最终关闭还等原sign/
 release I/O与borrow后才退allocation/清私钥。未发生外部对象/NV退费。实际Source
 append/reconcile的所有权及冷恢复历史copy/provider生命周期仍是必做开放项。
+
+
+2026-10-16 Source retirement task沿原shared OUTCOME_AND_CONTROL实际frame bytes
+计费与可服务性门禁，一个pending image，队列失败不退原signed/prepared窗口或
+覆盖早先UNKNOWN。Root在排队前持actual handle，正常释放等Native first/action/
+registration退出；Stop仅取消未启动I/O，运行者真退出，已停queued task仍由原
+共享队列计费直到消费。没有新client/thread/queue；全最大合法包络/RSS仍未证。
+
+state1迟到候选本地STALE拒绝只费新增SHARD first/POSITION/Source/root，不修改
+原NV51/owner/ref或退EVIDENCE。Source新批准必须显式tuple，不从签名/副本数据
+制造权限；只有必要编译，真实Native计费/恢复/transport与全Source容量仍待集中验。
