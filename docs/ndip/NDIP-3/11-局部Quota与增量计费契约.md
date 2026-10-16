@@ -2596,3 +2596,11 @@ View有限遍历该kind全部ref keys，相关digest逐个实际mapping/adoption
 上界；预检凭真实Native结果/永久Source fence与终态Attempt，Root cut CAS不符则
 重试，无额外线程/队列。只补记选中对象phase并冻结引用，不移动owner/ref/alias，
 无confirmation/EVIDENCE退款/GC。CONTROL原子故障、差额收费和恢复仍未测证。
+
+2026-10-16 CONTROL Native ClosedUses与copy/context进入原Root preparation slot，
+不增并行候选或缓存。Native read预算、Catalog closure窗口、完整resource identity/
+copy parse/reread窗口在读取前覆盖；creator未知时用已有codec有限identity上界，
+不生成临时mapping身份，原默认额度不变。签名另覆盖原signingWindow，Stop/Source
+borrow/signed UNKNOWN仍保留原责任，真实first及append退出前不可release。两类
+证明只在实际releaseLocal时清空；原copy Native STATE/owner/ref/EVIDENCE收费路径
+不改，无退款/GC/新线程。全进程最大包络/RSS、故障原子性及真实恢复仍待集中验证。

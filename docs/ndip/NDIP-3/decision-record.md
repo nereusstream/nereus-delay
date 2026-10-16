@@ -1177,3 +1177,15 @@ CONTROL kind1/2 Native51投影现按Admission用途核原CONTROL event/owner及�
 Native与immutable image，补exact body hash/lineage/Owner author/first/POSITION。
 无wire/默认预算/新线程；预算不足保未知。CONTROL cut/copy准备和签名、staging、
 实际activation/原pin/环境与confirmation/退款/GC仍待继续，不关闭四包/29切片。
+
+2026-10-16 上述独立退役裁定的CONTROL准备/签名实现进展：真实已封闭Catalog经
+原Source guarded Native读返回私有ClosedUses，复用关闭前同一完整uses/共享refs/
+终态Attempt核验，实际cut不得领先Source。anchor creator身份从原Attempt alias/
+Native mapping重建，不以当前引用者或调用方数据替换。Root prepareControlRetirement
+持原cut/context/认证public copy，并与Recovery共用原有限准备slot/owned-I/O/
+Source borrow/UNKNOWN持有及actual-first release；CONTROL不需Recovery archive。
+签名器只接两类实际ClosedUses及原Catalog receipt，经private共同函数签原g8
+SERVICE intent，保原Root/key/time/retry/context检查；实际Source writer/WorkClass
+交接不变，不以key/历史CONTROL权限批准Source或delete。无新wire/默认额度/线程，
+完整启动/provider/activation/pin/当前purpose、staging、确认退款/GC与真实恢复尚
+待实施/验证，不关闭四包/29切片或提升三个完成flags。

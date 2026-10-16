@@ -4839,3 +4839,29 @@ complete range or exhausted budget means unavailable, never an empty-reference
 proof. No wire/schema/default-budget/thread change. CONTROL cut/copy preparation
 and signing, staging, full environment/activation/pin assembly, confirmation/refund/
 GC and actual Broker/recovery remain incomplete; compilation is not acceptance.
+
+2026-10-16 CONTROL retirement preparation/signing composition (implementation only):
+TargetExternalEvidenceStore.ClosedUses is privately constructed by a guarded read
+of an actual closed Catalog object and Native cut/fence/complete sealed-use and
+shared-reference facts. The closure preflight and closed-use read share the same
+checks. An anchor's creator mapping/hash comes from the original creator Attempt
+alias and actual Native mapping; a later referencing mapping cannot replace it.
+The Native cut must not exceed the actual Source frontier.
+
+Opening.prepareControlRetirement authenticates the original closure before/after
+Native read, reconstructs its original CONTROL public copy and retains it with the
+actual cut/context in the existing Root preparation slot. CONTROL and Recovery
+share that slot's I/O, coalescing, byte preflight, Source borrow, signed/UNKNOWN
+retention and release-after-real-first behavior. Recovery entry points remain;
+CONTROL does not require Recovery archive credentials. Complete CONTROL resource
+identity/public-copy working bytes are bounded before creator lookup; no temporary
+caller-supplied mapping identity is signed.
+
+The existing Root signer accepts only either actual private ClosedUses receipt;
+a private common signing function checks the exact resource/context/copy, original
+deployment Root, key/time/retry window and signs the same generation8 SERVICE
+intent. Configured keys/public materials do not grant Source append/apply/delete
+permission. The existing actual Source writer and OUTCOME_AND_CONTROL queue carry
+the signed candidate; no local Native apply shortcut, new wire/budget/thread or
+refund path. Full boot/provider/activation/pin/current-purpose composition, staging,
+confirmation/refund/GC and actual Broker/recovery remain open.

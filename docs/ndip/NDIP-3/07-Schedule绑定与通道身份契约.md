@@ -1085,3 +1085,11 @@ Target保持费用；未结束Attempt拒绝。Root关闭另需真实原Source的
 单Adoption API不再足够；Root cut变化必重试，action10与原admission guard持至
 CAS/重读退出，不能拿closure切断UNKNOWN恢复证明。此为引用封闭/intent输入与
 投影，不授权物理delete、父保护解除或确认退款；CONTROL准备/签名仍待接。
+
+2026-10-16 CONTROL准备由真实已封闭Catalog+原Source Native cut/完整uses产生私有
+ClosedUses；anchor身份的原creator mapping/hash取Native原Attempt alias，不能用
+当前引用者代替。Root prepare/sign组合复用原管理Root/Source guards、认证public
+copy和原SERVICE签名配置，CONTROL不借Recovery archive，也不借CONTROL管理权限
+充作Source purpose许可。g8 actual activation/原history/tip/签名/Source权限仍在
+原Source路径独立核；原保护集合仍逐项必需。真实append/UNKNOWN保留与actual first
+后release复用原路径，不授权物理删除或解除父保护，完整当前purpose组合仍待接。

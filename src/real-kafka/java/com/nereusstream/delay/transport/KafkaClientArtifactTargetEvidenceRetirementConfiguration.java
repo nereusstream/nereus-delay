@@ -97,13 +97,29 @@ final class KafkaClientArtifactTargetEvidenceRetirementConfiguration {
                 OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticated,
                 ResourceRetireIntentBody.ProtectionSet protections, long retryUntil,
                 TrustedUtcIntervalEvidence time, Runnable current) {
+            current.run();requireCurrent(time);
+            final var copy=authenticated.image();
+            return sign(uses.resource(),uses.retirementContext(copy.digest(),copy.canonicalBytes().length),
+                    authenticated,protections,retryUntil,time,current);
+        }
+        SystemMutation sign(com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ClosedUses uses,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticated,
+                ResourceRetireIntentBody.ProtectionSet protections,long retryUntil,
+                TrustedUtcIntervalEvidence time,Runnable current){
+            current.run();requireCurrent(time);
+            final var copy=authenticated.image();
+            return sign(uses.resource(),uses.retirementContext(copy.digest(),copy.canonicalBytes().length),
+                    authenticated,protections,retryUntil,time,current);
+        }
+        private SystemMutation sign(TargetExternalEvidenceObjectResource resource,TargetEvidenceRetirementContext context,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticated,
+                ResourceRetireIntentBody.ProtectionSet protections,long retryUntil,TrustedUtcIntervalEvidence time,Runnable current){
             current.run(); requireCurrent(time);
             final var copy = authenticated.image();
             if (!Arrays.equals(input.deploymentRoot(), copy.resource().deploymentRootDigest())
-                    || !Arrays.equals(copy.resource().canonicalBytes(), uses.resource().canonicalBytes())
+                    || !Arrays.equals(copy.resource().canonicalBytes(), resource.canonicalBytes())
                     || retryUntil < time.latestEpochMs())
                 throw new IllegalArgumentException("retirement signature changed Root/Native object or live retry window");
-            final var context = uses.retirementContext(copy.digest(), copy.canonicalBytes().length);
             copy.requireContext(context);
             final var body = new TargetEvidenceRetireIntentBody(copy.resource().shard(), retryUntil,
                     copy.resource(), 0, protections, context);

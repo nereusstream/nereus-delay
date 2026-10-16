@@ -420,6 +420,19 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             final var actual=original.readControlReferenceClosure(reads,snapshot,clock);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
+        com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ClosedUses readClosedControlUses(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption applied,int kind,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var actualClosure=management.catalog().readReferenceClosure(closure,catalogReads,current);
+            final var actual=original.readClosedControlUses(nativeReads,actualClosure,applied,kind,clock);
+            management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
+            startup.requireReceiptManagementRead(management);current.run();return actual;
+        }
         void requireRetirementReadCurrent(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
             current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}

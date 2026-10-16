@@ -58,43 +58,105 @@ public final class TargetExternalEvidenceStore {
                 ||snapshot.preparedUses().size()>com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.MAX_USES)
             throw new IllegalArgumentException("CONTROL closure requires actual Shard scope and finite complete use/read bounds");
         return backend.guardedRead(reads,reader->{
-            final var cut=reader.aggregate().mutation();final var owner=snapshot.owner();
-            final var sourceOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-            final var root=descriptor(reader,sourceOwner,scope,lineage);root.latestMutation().requireAtOrBefore(cut);
-            final byte[] rawFence=reader.get(ColumnFamily.META,com.nereusstream.delay.store.KeyCodec.metaFixed(4));
-            final var fence=rawFence==null?new com.nereusstream.delay.store.IngressFenceState(com.nereusstream.delay.store.IngressFenceState.OPEN,null)
-                    :com.nereusstream.delay.store.IngressFenceState.decode(TargetValueEnvelope.decode(rawFence,1).payload());
-            final var uses=new ArrayList<com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use>();
-            for(var use:snapshot.preparedUses()){
-                final byte[] key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},use.id());
-                final byte[] raw=reader.get(ColumnFamily.DEDUPE,key);
-                if(raw==null){
-                    if(fence.proofId()==null||fence.closedThroughEpochMs()<use.retryUntil())
-                        throw new IllegalStateException("CONTROL use still has a possible future first Admission");
-                    uses.add(new com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use(use.id(),use.hash(),use.retryUntil(),
-                            com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.SOURCE_FENCED,new byte[0],new byte[0]));continue;
-                }
-                final var first=TargetResultRecord.decode(TargetValueEnvelope.decode(raw,TargetResultRecord.VALUE_TYPE).payload());
-                first.requireStored(key,TargetResultRecord.VALUE_TYPE,first.canonicalBytes());final var result=SystemMutationResult.decode(first.typedPayload());
-                if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(sourceOwner)
-                        ||result.mutationType()!=com.nereusstream.delay.protocol.SystemMutationType.TARGET_PUBLISH_ADMISSION
-                        ||!Arrays.equals(result.mutationId(),use.id())||!Arrays.equals(result.mutationHash(),use.hash())
-                        ||result.retryUntilEpochMs()!=use.retryUntil()||!Arrays.equals(result.appliedSourcePosition(),first.mutation().source().canonicalBytes()))
-                    throw new IllegalStateException("CONTROL sealed use changed original Admission first");
-                first.mutation().requireAtOrBefore(cut);first.requireOwner(root);
-                final byte[] positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},first.mutation().source().canonicalBytes());
-                final byte[] positionRaw=Objects.requireNonNull(reader.get(ColumnFamily.DEDUPE,positionKey),"CONTROL Admission POSITION");
-                final var position=TargetResultRecord.decode(TargetValueEnvelope.decode(positionRaw,TargetResultRecord.VALUE_TYPE).payload());
-                position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(root);
-                if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(first.mutation()))
-                    throw new IllegalStateException("CONTROL use lost exact POSITION Source stamp");
-                uses.add(new com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use(use.id(),use.hash(),use.retryUntil(),
-                        result.applyStatus()==ApplyStatus.APPLIED?com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED
-                            :com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.RETAINED_REJECTED,first.digest(),position.digest()));
-            }
-            TargetEvidenceRetirementStore.requireControlReferences(reader,List.of(),scope,lineage,sourceOwner,owner,null,uses,cut,cut);
-            reader.requireWithinElapsedBudget();return new ControlClosure(snapshot);
+            readControlUses(reader,scope,lineage,snapshot.owner(),null,snapshot.preparedUses());
+            return new ControlClosure(snapshot);
         },authority);
+    }
+
+    private record ControlUseState(com.nereusstream.delay.store.StoreMetadata store,
+            com.nereusstream.delay.protocol.TargetQuotaMutation cut,com.nereusstream.delay.store.IngressFenceState fence,
+            List<com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use> uses) {}
+
+    /** Actual closed Catalog/Native input cut. Serialized context data alone cannot construct this receipt. */
+    public static final class ClosedUses {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure;
+        private final com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource;
+        private final ControlUseState state;
+        private ClosedUses(OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,ControlUseState state){
+            this.closure=closure;this.resource=resource;this.state=state;
+        }
+        public OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure(){return closure;}
+        public com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource(){return resource;}
+        public com.nereusstream.delay.protocol.TargetEvidenceRetirementContext retirementContext(byte[] copyDigest,long copyBytes){
+            final var owner=resource.provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Protection p
+                    ?p.owner():((com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor)resource.provenance()).owner();
+            return new com.nereusstream.delay.protocol.TargetEvidenceRetirementContext(closure.revision(),closure.digest(),
+                    closure.canonicalBytes().length,state.store,state.cut,state.fence,state.uses,copyDigest,copyBytes,owner.primaryOwner());
+        }
+    }
+    public static ClosedUses readClosedControlUses(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget reads,
+            TargetQuotaScope scope,byte[] lineage,OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            Adoption applied,int kind,TargetStoreBackend.ReadAuthority authority){
+        if(scope.target()!=null||reads.maxBytes()==Long.MAX_VALUE
+                ||closure.preparedUses().size()>com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.MAX_USES)
+            throw new IllegalArgumentException("closed CONTROL uses require actual Shard scope and finite complete read bounds");
+        final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?Objects.requireNonNull(applied).protection()
+                :kind==TargetKafkaReceiptControlArtifact.ANCHOR?Objects.requireNonNull(applied).anchor():null;
+        if(owner==null)throw new IllegalArgumentException("closed CONTROL uses require protection or anchor");
+        return backend.guardedRead(reads,reader->{
+            final com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Provenance provenance;
+            final com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor anchor;
+            if(kind==TargetKafkaReceiptControlArtifact.PROTECTION){
+                anchor=null;provenance=new com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Protection(owner);
+            }else{
+                final byte[] indexKey=referenceByAttemptKey(owner.creatorAttemptId());
+                final var creator=TargetExternalEvidenceReference.decodeForStore(indexKey,
+                        payload(reader,indexKey,TargetExternalEvidenceReference.VALUE_TYPE),scope.shard(),lineage);
+                if(creator.kind()!=kind||!Arrays.equals(creator.artifactDigest(),owner.artifactDigest())
+                        ||!Arrays.equals(creator.attemptId(),owner.creatorAttemptId()))
+                    throw new IllegalStateException("closed anchor lost actual creator Attempt alias");
+                final byte[] mappingKey=Bytes.concat(new byte[]{TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG,TargetKeyCodec.KEY_FORMAT},creator.mappingId());
+                final var mapping=TargetKafkaReceiptMapping.decodeForStore(mappingKey,payload(reader,mappingKey,TargetKafkaReceiptMapping.VALUE_TYPE),scope.shard());
+                anchor=new com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor(owner,mapping.mappingId(),mapping.mutationHash());
+                provenance=anchor;
+            }
+            final var resource=closure.controlResource(provenance);
+            final var state=readControlUses(reader,scope,lineage,owner,anchor,closure.preparedUses());
+            reader.requireWithinElapsedBudget();return new ClosedUses(closure,resource,state);
+        },authority);
+    }
+
+    private static ControlUseState readControlUses(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            TargetExternalEvidenceOwner owner,com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor anchor,
+            List<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedPreparedUse> preparedUses){
+        final var cut=reader.aggregate().mutation();
+        cut.requireAtOrBefore(reader.sourceSequence(),reader.source());
+        final var sourceOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+        final var root=descriptor(reader,sourceOwner,scope,lineage);root.latestMutation().requireAtOrBefore(cut);
+        final byte[] rawFence=reader.get(ColumnFamily.META,com.nereusstream.delay.store.KeyCodec.metaFixed(4));
+        final var fence=rawFence==null?new com.nereusstream.delay.store.IngressFenceState(com.nereusstream.delay.store.IngressFenceState.OPEN,null)
+                :com.nereusstream.delay.store.IngressFenceState.decode(TargetValueEnvelope.decode(rawFence,1).payload());
+        final var uses=new ArrayList<com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use>();
+        for(var use:preparedUses){
+            final byte[] key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},use.id());
+            final byte[] raw=reader.get(ColumnFamily.DEDUPE,key);
+            if(raw==null){
+                if(fence.proofId()==null||fence.closedThroughEpochMs()<use.retryUntil())
+                    throw new IllegalStateException("CONTROL use still has a possible future first Admission");
+                uses.add(new com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use(use.id(),use.hash(),use.retryUntil(),
+                        com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.SOURCE_FENCED,new byte[0],new byte[0]));continue;
+            }
+            final var first=TargetResultRecord.decode(TargetValueEnvelope.decode(raw,TargetResultRecord.VALUE_TYPE).payload());
+            first.requireStored(key,TargetResultRecord.VALUE_TYPE,first.canonicalBytes());final var result=SystemMutationResult.decode(first.typedPayload());
+            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(sourceOwner)
+                    ||result.mutationType()!=com.nereusstream.delay.protocol.SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    ||!Arrays.equals(result.mutationId(),use.id())||!Arrays.equals(result.mutationHash(),use.hash())
+                    ||result.retryUntilEpochMs()!=use.retryUntil()||!Arrays.equals(result.appliedSourcePosition(),first.mutation().source().canonicalBytes()))
+                throw new IllegalStateException("CONTROL sealed use changed original Admission first");
+            first.mutation().requireAtOrBefore(cut);first.requireOwner(root);
+            final byte[] positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},first.mutation().source().canonicalBytes());
+            final byte[] positionRaw=Objects.requireNonNull(reader.get(ColumnFamily.DEDUPE,positionKey),"CONTROL Admission POSITION");
+            final var position=TargetResultRecord.decode(TargetValueEnvelope.decode(positionRaw,TargetResultRecord.VALUE_TYPE).payload());
+            position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(root);
+            if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(first.mutation()))
+                throw new IllegalStateException("CONTROL use lost exact POSITION Source stamp");
+            uses.add(new com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Use(use.id(),use.hash(),use.retryUntil(),
+                    result.applyStatus()==ApplyStatus.APPLIED?com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED
+                        :com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.Conclusion.RETAINED_REJECTED,first.digest(),position.digest()));
+        }
+        TargetEvidenceRetirementStore.requireControlReferences(reader,List.of(),scope,lineage,sourceOwner,owner,anchor,uses,cut,cut);
+        reader.requireWithinElapsedBudget();return new ControlUseState(reader.metadata(),cut,fence,List.copyOf(uses));
     }
 
     static Adoption readAdoption(TargetStoreBackend.Reader reader, TargetKafkaReceiptMapping mapping,
