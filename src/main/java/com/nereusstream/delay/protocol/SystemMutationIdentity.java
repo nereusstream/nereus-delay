@@ -27,6 +27,8 @@ public final class SystemMutationIdentity {
         return switch (mutationType) {
             case APPLY_SHARD_CONTROL -> {
                 final ApplyShardControlBody control = ApplyShardControlBody.decode(body);
+                if(control.controlKind()==TargetProtocolActivatePayload.CONTROL_KIND&&TargetProtocolActivationBody.hasTargetPayload(body))
+                    throw new IllegalArgumentException("Target activation requires the explicit Target Source reader");
                 yield control.controlRef().logicalOperationIdentity(control.controlKind());
             }
             case REPLAY_DEAD_LETTER ->

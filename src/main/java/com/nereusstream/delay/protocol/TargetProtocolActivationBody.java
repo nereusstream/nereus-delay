@@ -15,6 +15,20 @@ public record TargetProtocolActivationBody(ShardId shard,long retryUntil,Control
     }
     public byte[] logicalIdentity(){return controlRef.logicalOperationIdentity(TargetProtocolActivatePayload.CONTROL_KIND);}
     public byte[] semanticHash(){return Bytes.sha256(DOMAIN,Bytes.u16be(TargetProtocolActivatePayload.CONTROL_KIND),payload.canonicalBytes());}
+    /** Only the explicit varint schema discriminator selects this branch; malformed new versions never fall back. */
+    public static boolean hasTargetPayload(byte[] encoded){
+        final var fields=SystemMutationBodyCodec.fields(SystemMutationType.APPLY_SHARD_CONTROL,encoded);
+        final var kind=fields.stream().filter(f->f.number()==11).findFirst().orElseThrow();
+        if(QueryCodecSupport.uint32(kind,11)!=TargetProtocolActivatePayload.CONTROL_KIND)return false;
+        final var payload=fields.stream().filter(f->f.number()==15).findFirst().orElseThrow();
+        final var branch=new CanonicalProtobuf.Reader(QueryCodecSupport.bytes(payload,15));
+        if(!branch.hasRemaining())throw new IllegalArgumentException("empty activation ControlPayload");
+        final var value=branch.next();
+        if(value.number()!=1||value.wireType()!=2||branch.hasRemaining())throw new IllegalArgumentException("invalid activation ControlPayload branch");
+        final var reader=new CanonicalProtobuf.Reader(QueryCodecSupport.bytes(value,1));
+        if(!reader.hasRemaining())throw new IllegalArgumentException("empty activation payload");
+        final var first=reader.next();return first.number()==1&&first.wireType()==0;
+    }
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.bytes(out,1,new ShardSubject(shard).canonicalBytes());CanonicalProtobuf.uint32(out,2,SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
         CanonicalProtobuf.int64(out,3,retryUntil);CanonicalProtobuf.bytes(out,10,controlRef.canonicalBytes());CanonicalProtobuf.uint32(out,11,1);

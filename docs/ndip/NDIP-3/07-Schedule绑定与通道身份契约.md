@@ -1024,3 +1024,10 @@ projection/marker hash及原五字段locator必须与实际APPLIED first完全�
 本地尚无companion6，门禁保留有效marker pending；完整Root provider/发布/签名交接、
 原history公共proof持久化/重启tip、当前SERVICE purpose append许可、确认与实际删除
 保护仍未闭合。数据格式和编译不授实际激活/运行/迁退权限，完成状态保持未完成。
+
+
+2026-10-16 Target activation读取边界补充：实际K1/P1 SourceRecordDecoder调用的
+Target frame reader与NV53 envelope reader现执行独立完整typed body解析，未知新
+版本/错semanticHash不能靠旧Control外层identity解析进入；legacy reader拒新
+varint分支。签名工厂按exact prepared operation28/body校验，Source family只选明确
+新discriminator；读取/签名构造均不替代原CONTROL、Root、实际APPLIED及当前许可。

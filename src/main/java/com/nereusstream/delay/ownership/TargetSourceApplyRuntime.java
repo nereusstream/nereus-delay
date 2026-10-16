@@ -2213,7 +2213,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     private static boolean isProtocolActivation(com.nereusstream.delay.protocol.SystemMutation mutation){
-        return mutation.type()==SystemMutationType.APPLY_SHARD_CONTROL&&targetControlKind(mutation)==1;
+        return mutation.type()==SystemMutationType.APPLY_SHARD_CONTROL&&targetControlKind(mutation)==1
+                &&com.nereusstream.delay.protocol.TargetProtocolActivationBody.hasTargetPayload(mutation.canonicalBody());
     }
     private static boolean isNativePolicyControl(com.nereusstream.delay.protocol.SystemMutation mutation) {
         final int kind = targetControlKind(mutation);

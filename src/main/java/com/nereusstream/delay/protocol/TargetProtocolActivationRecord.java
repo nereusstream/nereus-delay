@@ -96,7 +96,7 @@ public record TargetProtocolActivationRecord(SystemMutation marker,PreparedContr
         if(QueryCodecSupport.uint(f.get(0),1)!=1)throw new IllegalArgumentException("unknown Target activation record schema");
         final byte[] markerBytes=QueryCodecSupport.bytes(f.get(1),2),preparedBytes=QueryCodecSupport.bytes(f.get(2),3);
         if(markerBytes.length>MAX_MARKER_BYTES||preparedBytes.length>MAX_PREPARED_BYTES)throw new IllegalArgumentException("activation marker/prepared input exceeds bound");
-        final var marker=SystemMutation.decodeEnvelope(markerBytes);final var body=TargetProtocolActivationBody.decode(marker.canonicalBody());
+        final var marker=SystemMutation.decodeTargetEnvelope(markerBytes);final var body=TargetProtocolActivationBody.decode(marker.canonicalBody());
         final var value=new TargetProtocolActivationRecord(marker,PreparedControlOperation.decode(preparedBytes),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(3),4)),TargetProtocolReaderSet.decode(QueryCodecSupport.bytes(f.get(4),5),body.payload().descriptor()),
                 PublicEvidence.decode(QueryCodecSupport.bytes(f.get(5),6)));

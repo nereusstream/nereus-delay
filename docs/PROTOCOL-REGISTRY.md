@@ -4569,3 +4569,14 @@ append permission, confirmation handler/provider delete proof/atomic refunds and
 protected GC also remain open. Necessary compilation only; no actual activation,
 service/config/key/grant/Admin/delete/migration/protection-release operation or
 central validation was executed. All program completion flags remain false.
+
+Target reader boundary follow-up (2026-10-16): the original generic Control identity
+reader validated the outer shape without interpreting activation semantics. Target
+frame/Control-frame and the new decodeTargetEnvelope now share a closed typed
+identity decoder: varint payload field1 selects strict TargetProtocolActivationBody;
+unknown versions or semantic-hash/descriptor errors cannot fall back to legacy.
+Generic legacy frame/envelope identity decoding explicitly rejects that discriminator;
+old byte-field payloads retain their prior path. NV53 reads use Target envelope
+decoding; ControlSystemMutationFactory validates the exact new body when signing
+operation28. Source ACTIVATION dispatch also requires the explicit discriminator.
+No wire/schema version or companion6 capability was added by this follow-up.

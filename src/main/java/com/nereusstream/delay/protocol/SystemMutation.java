@@ -196,11 +196,17 @@ public final class SystemMutation {
         if (envelope.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
             throw new IllegalArgumentException("Target Control reader received another mutation type");
         }
+        return decodeEnvelope(decoded.canonicalEnvelope(),targetControlIdentity(envelope));
+    }
+
+    private static byte[] targetControlIdentity(EnvelopeFields envelope) {
         final var fields = SystemMutationBodyCodec.fields(envelope.type(), envelope.body());
         final var kindField = fields.stream().filter(field -> field.number() == 11).findFirst().orElseThrow();
         final int kind = QueryCodecSupport.uint32(kindField, 11);
         final byte[] logicalIdentity;
-        if (kind == 15 || kind == 16) {
+        if (kind == TargetProtocolActivatePayload.CONTROL_KIND && TargetProtocolActivationBody.hasTargetPayload(envelope.body())) {
+            logicalIdentity = TargetProtocolActivationBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == 15 || kind == 16) {
             logicalIdentity = TargetMembershipControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == TargetQuotaGrantControlRequest.CONTROL_KIND) {
             logicalIdentity = TargetQuotaGrantControlBody.decode(envelope.body()).logicalIdentity();
@@ -215,7 +221,7 @@ public final class SystemMutation {
         } else {
             logicalIdentity = SystemMutationIdentity.resolve(envelope.shardId(), envelope.type(), envelope.body());
         }
-        return decodeEnvelope(decoded.canonicalEnvelope(), logicalIdentity);
+        return logicalIdentity;
     }
 
     /** Target Source reader derives Target Control identities while keeping other registered mutation decoding. */
@@ -224,9 +230,15 @@ public final class SystemMutation {
         if (decoded.recordKind() != ShardLogFrame.SYSTEM_MUTATION_KIND) {
             throw new IllegalArgumentException("frame is not a Target System Mutation");
         }
-        final var fields = readEnvelope(decoded.canonicalEnvelope());
-        return fields.type() == SystemMutationType.APPLY_SHARD_CONTROL
-                ? decodeTargetControlFrame(frame) : decodeFrame(frame);
+        return decodeTargetEnvelope(decoded.canonicalEnvelope());
+    }
+
+    /** Target Native/Source reader derives identity from the same closed typed branches as Target frames. */
+    public static SystemMutation decodeTargetEnvelope(final byte[] envelope) {
+        final var fields=readEnvelope(envelope);
+        final byte[] logicalIdentity=fields.type()==SystemMutationType.APPLY_SHARD_CONTROL
+                ? targetControlIdentity(fields) : SystemMutationIdentity.resolve(fields.shardId(),fields.type(),fields.body());
+        return decodeEnvelope(envelope,logicalIdentity);
     }
 
     /**
