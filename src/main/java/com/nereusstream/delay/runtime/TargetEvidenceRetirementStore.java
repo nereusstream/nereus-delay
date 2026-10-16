@@ -23,6 +23,20 @@ public final class TargetEvidenceRetirementStore {
     @FunctionalInterface
     public interface Authority {
         Approval resolve(TargetQuotaScope scope, AuthorIdentity actor, SystemMutation intent, SourcePosition source);
+        default SourceHistory history(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation input,SourcePosition source){
+            throw new IllegalStateException("original retirement Source history/pin is not configured");
+        }
+    }
+    /** Authenticated original public inputs, held locally through the actual commit; embedded proof keys are not pins. */
+    public record SourceHistory(TargetRetirementAuthorizationHistory.PublicProof proof,TargetRetirementAuthorizationHistory.Pin pin,Runnable current){
+        public SourceHistory{Objects.requireNonNull(proof);Objects.requireNonNull(pin);Objects.requireNonNull(current);}
+        public java.util.Optional<TargetRetirementAuthorizationHistory.Grant> select(TargetExternalEvidenceObjectResource resource,SystemMutation input,SourcePosition source){
+            current.run();final var verified=proof.authenticate(pin);
+            verified.requireCoverage(resource,source);
+            if(input.authorIdentityLength()>1024){current.run();return java.util.Optional.empty();}
+            final var selected=verified.select(resource,source,AuthorIdentity.decode(input.authorIdentity()),input.signingKeyVersion(),TargetRetirementAuthorizationHistory.Action.of(input.type()));
+            current.run();return selected;
+        }
     }
 
     /** The key is selected by trusted Source authority, never from the copy's serialized public keys. */
@@ -42,9 +56,10 @@ public final class TargetEvidenceRetirementStore {
         private final TargetStoreBackend.Prepared batch;
         private final SystemMutationResult result;
         private final Approval approval;
+        private final SourceHistory history;
         private Prepared(TargetEvidenceRetirementStore owner, TargetStoreBackend.Prepared batch,
-                SystemMutationResult result, Approval approval) {
-            this.owner = owner; this.batch = batch; this.result = result; this.approval = approval;
+                SystemMutationResult result, Approval approval,SourceHistory history) {
+            this.owner = owner; this.batch = batch; this.result = result; this.approval = approval;this.history=history;
         }
     }
 
@@ -75,22 +90,31 @@ public final class TargetEvidenceRetirementStore {
             throw new IllegalArgumentException("retirement Source/operation mismatch");
         final boolean expired = source.brokerPersistenceTimeEpochMs() > intent.retryUntilEpochMs()
                 || backend.prepareRead(budget, reader -> reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()).value();
-        Approval approval = null;
-        if (!expired && intent.authorIdentity().length <= (1 << 20)) {
+        final boolean protocolReady=expired?false:backend.prepareRead(budget,
+                reader->TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source)).value();
+        Approval approval = null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
+        if (!expired && protocolReady && intent.authorIdentity().length <= (1 << 20)) {
             AuthorIdentity actor;
             try { actor = AuthorIdentity.decode(intent.authorIdentity()); }
             catch (IllegalArgumentException malformed) { actor = null; }
-            if (actor != null && actor.kind() == AuthorIdentity.Kind.SERVICE) {
-                approval = authority.resolve(scope, actor, intent, source);
-                if (approval != null) approval.current().run();
+            if(actor!=null){
+                history=Objects.requireNonNull(authority.history(scope,actor,intent,source),"complete original Source history");
+                selectedGrant=history.select(body.resource(),intent,source).orElse(null);
+                if(selectedGrant!=null&&intent.verifySignature(selectedGrant.writerKey())){
+                    approval = authority.resolve(scope, actor, intent, source);
+                    if (approval != null) approval.current().run();
+                }
             }
         }
         final var selected = approval;
-        final var grant=selected==null?null:selected.historyGrant();
-        final boolean authorized = selected != null && intent.verifySignature(selected.writerKey())
-                &&(grant==null||grant.action()==TargetRetirementAuthorizationHistory.Action.RETIRE_INTENT
-                    &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
-                    &&Arrays.equals(grant.publicKey(),selected.writerKey().getEncoded()));
+        final var retainedHistory=history;final var grant=selectedGrant;
+        if(selected!=null&&(selected.historyGrant()==null||grant==null
+                ||!Arrays.equals(selected.historyGrant().canonicalBytes(),grant.canonicalBytes())))
+            throw new IllegalStateException("retirement approval changed authenticated original history grant");
+        final boolean authorized = selected != null && grant!=null&&intent.verifySignature(selected.writerKey())
+                &&grant.action()==TargetRetirementAuthorizationHistory.Action.RETIRE_INTENT
+                &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
+                &&Arrays.equals(grant.publicKey(),selected.writerKey().getEncoded());
         final boolean activated=authorized&&body.requiredTuple().equals(selected.activatedTuple());
         if (activated) {
             requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());
@@ -105,7 +129,9 @@ public final class TargetEvidenceRetirementStore {
             final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
                     Bytes.sha256(intent.canonicalEnvelope()));
             final var root = sourceRoot(reader, stamp);
-            boolean sourceActivated=activated&&TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source);
+            final boolean nativeReady=TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source);
+            if(nativeReady&&!expired&&retainedHistory==null)throw new IllegalStateException("original Source protocol/input changed; retain and retry");
+            boolean sourceActivated=activated&&nativeReady;
             if(sourceActivated){
                 if(grant==null)throw new IllegalStateException("retirement Source history omitted its exact Target activation binding");
                 try{TargetProtocolActivationStore.requireHistoryBinding(reader,scope,lineage,grant,source);}
@@ -113,9 +139,15 @@ public final class TargetEvidenceRetirementStore {
             }
             final StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()
                     ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                    : !nativeReady ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION
                     : !authorized ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION
                     : !sourceActivated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
+            if(retainedHistory!=null&&nativeReady){
+                retainedHistory.current().run();final var retained=new TargetRetirementSourceHistoryRecord(intent,stamp,retainedHistory.proof());
+                requireAbsent(reader,ColumnFamily.META,retained.key());
+                edits.add(reader.replace(ColumnFamily.META,retained.key(),TargetRetirementSourceHistoryRecord.VALUE_TYPE,retained.canonicalBytes()));
+            }
             if (rejection == null) {
                 selected.current().run();
                 edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
@@ -146,7 +178,7 @@ public final class TargetEvidenceRetirementStore {
             return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
                     .assemble(reader, edits);
         });
-        return new Prepared(this, batch, result[0], selected);
+        return new Prepared(this, batch, result[0], selected,retainedHistory);
     }
 
     public SystemMutationResult commit(Prepared prepared, TargetStoreBackend.CommitAuthority authority) {
@@ -158,6 +190,7 @@ public final class TargetEvidenceRetirementStore {
                 @Override public void requireCurrent() {
                     guard.requireCurrent();
                     if (prepared.approval != null) prepared.approval.current().run();
+                    if(prepared.history!=null)prepared.history.current().run();
                     guard.requireCurrent();
                 }
                 @Override public void close() { guard.close(); }
@@ -309,6 +342,8 @@ public final class TargetEvidenceRetirementStore {
             TargetEvidenceConfirmedRecord record,TargetQuotaMutation frontier){
         record.appliedAt().requireAtOrBefore(frontier);
         TargetProtocolActivationStore.requirePriorActivation(view,overlay,scope,lineage,sourceOwner,record.intentAppliedAt(),frontier);
+        TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.body().intent().mutationId(),record.intentAppliedAt(),frontier);
+        TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.confirmation().systemMutationId(),record.appliedAt(),frontier);
         final var body=record.body();final var resource=body.resource();
         if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
                 ||!Arrays.equals(lineage,resource.recoveryLineage()))throw new IllegalStateException("confirmed resource changed actual Source scope");

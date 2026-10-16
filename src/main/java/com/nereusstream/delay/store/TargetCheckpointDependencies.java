@@ -105,6 +105,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
+    private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
     private final List<TargetScheduleBinding> bindings;
@@ -128,6 +129,7 @@ public final class TargetCheckpointDependencies {
         retirements = List.copyOf(builder.retirements.values());
         evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
         protocolActivations=List.copyOf(builder.protocolActivations.values());
+        sourceHistories=List.copyOf(builder.sourceHistories.values());
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
         bindings = List.copyOf(builder.bindings.values());
@@ -148,7 +150,8 @@ public final class TargetCheckpointDependencies {
     }
     public List<TargetResultRecord> outcomeResults() { return outcomeResults; }
     public List<TargetResultRecord> retirementResults(){return retirementResults;}
-    public boolean hasLifecycleInputs(){return !protocolActivations.isEmpty()||!retirements.isEmpty()||!evidenceConfirmations.isEmpty()||!retirementResults.isEmpty();}
+    public List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories(){return sourceHistories;}
+    public boolean hasLifecycleInputs(){return !sourceHistories.isEmpty()||!protocolActivations.isEmpty()||!retirements.isEmpty()||!evidenceConfirmations.isEmpty()||!retirementResults.isEmpty();}
     public List<OutcomeReference> outcomeReferences() {
         return outcomeResults.stream().map(OutcomeReference::new).toList();
     }
@@ -705,6 +708,7 @@ public final class TargetCheckpointDependencies {
             for (final var record : evidenceConfirmations) { CanonicalProtobuf.bytes(out, 10, Bytes.sha256(record.canonicalBytes())); }
             for (final var record : protocolActivations) { CanonicalProtobuf.bytes(out, 11, record.digest()); }
             for(final var first:retirementResults){CanonicalProtobuf.bytes(out,12,Bytes.sha256(first.canonicalBytes()));}
+            for(final var retained:sourceHistories){CanonicalProtobuf.bytes(out,13,retained.digest());}
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -737,6 +741,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
@@ -762,6 +767,7 @@ public final class TargetCheckpointDependencies {
             prior.retirements.forEach(this::retirement);
             prior.evidenceConfirmations.forEach(this::evidenceConfirmation);
             prior.protocolActivations.forEach(this::protocolActivation);
+            prior.sourceHistories.forEach(this::sourceHistory);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
             prior.bindings.forEach(this::binding);
@@ -787,6 +793,9 @@ public final class TargetCheckpointDependencies {
         void evidenceConfirmation(com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord record) {
             if(evidenceConfirmations.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target confirmed identity");
+        }
+        void sourceHistory(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord record){
+            if(sourceHistories.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate retirement Source history");
         }
         void protocolActivation(com.nereusstream.delay.protocol.TargetProtocolActivationRecord record){
             if(protocolActivations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target protocol activation");

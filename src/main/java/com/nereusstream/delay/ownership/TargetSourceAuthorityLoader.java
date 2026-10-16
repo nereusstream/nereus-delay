@@ -50,7 +50,9 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     public record Outcome(TargetPublishOutcomeVerifier.Authority authority) implements Inputs {}
     public record Channel(PreparedControlOperation prepared, TargetChannelControlVerifier.Authority authority) implements Inputs {}
     /** Provider-approved original Source purpose/Root/capacity and actual Catalog copy; null approval is a proved denial. */
-    public record Retirement(TargetQuotaScope scope, TargetEvidenceRetirementStore.Approval approval) implements Inputs {
+    public record Retirement(TargetQuotaScope scope, TargetEvidenceRetirementStore.Approval approval,
+            TargetEvidenceRetirementStore.SourceHistory history) implements Inputs {
+        public Retirement(TargetQuotaScope scope,TargetEvidenceRetirementStore.Approval approval){this(scope,approval,null);}
         public Retirement { Objects.requireNonNull(scope); if (scope.target() != null) throw new IllegalArgumentException("retirement needs Source scope"); }
     }
 
@@ -189,6 +191,17 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         final var mutation = original.mutation();
         final var body = TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
         input.scope().requireRoute(body.shard(), body.resource().tenantScope());
+        final var originalHistory=Objects.requireNonNull(input.history(),"complete original retirement Source proof/pin");
+        originalHistory.select(body.resource(),mutation,entry.position());held.requireCurrent();guard.run();
+        final var pin=originalHistory.pin();
+        final long historyBytes=Math.addExact(originalHistory.proof().canonicalBytes().length,
+                Math.addExact(pin.authority().canonicalBytes().length,pin.key().getEncoded().length+256L));
+        held.bytes=Math.addExact(held.bytes,historyBytes);
+        if(held.bytes>maximumBytes)throw new IllegalStateException("original retirement history exceeds complete Source input bound");
+        final var history=new TargetEvidenceRetirementStore.SourceHistory(originalHistory.proof(),new TargetRetirementAuthorizationHistory.Pin(
+                pin.authority(),pin.keyVersion(),pin.key(),pin.baselineDigest(),pin.root(),pin.namespace()),()->{
+            held.requireCurrent();originalHistory.current().run();held.requireCurrent();
+        });
         final var approved = input.approval();
         final TargetEvidenceRetirementStore.Approval frozen;
         if (approved == null) frozen = null;
@@ -212,13 +225,19 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             },approved.activatedTuple(),approved.historyGrant());
         }
         held.requireCurrent(); guard.run();
-        return new TargetSourceApplyRuntime.RetirementControl((scope, actor, actual, source) -> {
-            held.requireCurrent(); requireSource(entry, source);
-            if (!scope.equals(input.scope()) || !Arrays.equals(actor.canonicalBytes(), mutation.authorIdentity())
-                    || actual != mutation && !Arrays.equals(held.digest, Bytes.sha256(actual.canonicalEnvelope())))
-                throw new IllegalStateException("retirement snapshot changed its original scope/actor/Source frame");
-            if (frozen != null) frozen.current().run();
-            return frozen;
+        return new TargetSourceApplyRuntime.RetirementControl(new TargetEvidenceRetirementStore.Authority(){
+            private void requireEntry(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                held.requireCurrent();requireSource(entry,source);
+                if(!scope.equals(input.scope())||!Arrays.equals(actor.canonicalBytes(),mutation.authorIdentity())
+                        ||actual!=mutation&&!Arrays.equals(held.digest,Bytes.sha256(actual.canonicalEnvelope())))
+                    throw new IllegalStateException("retirement snapshot changed original scope/actor/Source frame");
+            }
+            public TargetEvidenceRetirementStore.Approval resolve(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                requireEntry(scope,actor,actual,source);if(frozen!=null)frozen.current().run();return frozen;
+            }
+            public TargetEvidenceRetirementStore.SourceHistory history(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                requireEntry(scope,actor,actual,source);history.current().run();return history;
+            }
         }, commit);
     }
 

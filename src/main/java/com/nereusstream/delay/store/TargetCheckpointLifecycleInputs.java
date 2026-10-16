@@ -73,11 +73,14 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
         for(var v:d.retirements())bytes=Math.addExact(bytes,v.canonicalBytes().length+8L);
         for(var v:d.evidenceConfirmations())bytes=Math.addExact(bytes,v.canonicalBytes().length+8L);
         if(bytes>limits.maximumBytes())throw new IllegalArgumentException("native lifecycle rows exceed checkpoint byte bound");
+        final var stored=new TreeMap<String,TargetRetirementSourceHistoryRecord>();for(var value:d.sourceHistories())stored.put(Bytes.hex(value.input().systemMutationId()),value);
         for(var first:d.retirementResults()){
-            before(budget,guard);final var image=Objects.requireNonNull(authority.resolve(first),"original retirement frame/proof");
-            guard.run();final int retained=image.canonicalBytes().length;bytes=Math.addExact(bytes,retained+8L);
+            before(budget,guard);final var retained=stored.get(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()));
+            final var image=retained==null?Objects.requireNonNull(authority.resolve(first),"original retirement frame/proof")
+                    :new HistoryImage(retained.decidedAt().source(),retained.input(),retained.proof());
+            guard.run();final int retainedBytes=image.canonicalBytes().length;bytes=Math.addExact(bytes,retainedBytes+8L);
             if(bytes>limits.maximumBytes())throw new IllegalArgumentException("complete lifecycle inputs exceed checkpoint byte bound");
-            charge(budget,first.key().length,retained);after(budget,guard);images.add(image);
+            charge(budget,first.key().length,retainedBytes);after(budget,guard);images.add(image);
         }
         final var value=new TargetCheckpointLifecycleInputs(d.protocolActivations(),d.retirements(),d.evidenceConfirmations(),images);
         value.authenticate(d,authority,budget,limits,guard);return value;
@@ -93,6 +96,14 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             correlate(input.source(),input.image(),first);
             if((applied(first)||SystemMutationResult.decode(first.typedPayload()).stableCode()==StableCode.UNAUTHORIZED_SYSTEM_MUTATION)&&input.proof()==null)
                 throw new IllegalStateException("APPLIED or history-denied retirement has no complete original public history proof");
+        }
+        final var byId=images();
+        for(var retained:d.sourceHistories()){
+            final var input=Objects.requireNonNull(byId.get(Bytes.hex(retained.input().systemMutationId())),"checkpoint omitted actual Native Source history");
+            final var first=Objects.requireNonNull(actualFirsts.get(Bytes.hex(retained.input().systemMutationId())),"retained Source history has no actual first");
+            if(!retained.decidedAt().equals(first.mutation())||!Arrays.equals(input.image().canonicalEnvelope(),retained.input().canonicalEnvelope())
+                    ||input.proof()==null||!Arrays.equals(input.proof().canonicalBytes(),retained.proof().canonicalBytes()))
+                throw new IllegalArgumentException("checkpoint replaced original atomic Source history");
         }
         final var controls=new TreeMap<String,TargetResultRecord>();
         for(var first:d.controlResults())controls.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()),first);

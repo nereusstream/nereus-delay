@@ -987,7 +987,7 @@ the prepared logical cut, and context/copy must match exactly. The physical
 prepared Store identity is not equated to a later restore's Store identity.
 The intent envelope is bounded by64MiB body +1MiB author +1024; the complete
 record adds the64MiB copy, bounded applied source and256 bytes overhead.
-META44→NV51, META45→NV52 and META46→NV53 are registered, with strict value ceiling53.
+META44→NV51, META45→NV52, META46→NV53 and META47→NV54 are registered, with strict value ceiling54.
 
 NV52 TargetEvidenceConfirmedRecord uses META key `2d 01 || exactResourceIdentityHash[32]`.
 Closed fields:1 schema1;2 state2;3 complete canonical signed confirmation System
@@ -4494,7 +4494,7 @@ ArtifactGenerationSet schema1/body2, ProtocolVersionActivatePayload legacy3/curr
 fields, old ProtocolActivationState, prior operation values and SystemMutationType
 are unchanged. No SERVICE/copy/history signer obtains activation authority.
 
-TargetProtocolActivationDescriptor schema1 closed fields:1 schema;2 full original
+TargetProtocolActivationDescriptor legacy schema1 closed fields:1 schema;2 full original
 base ArtifactGenerationSet;3 base setDigest[32];4 original reset manifestDigest[32];
 5 exact targetEvidenceRetirement tuple8;6 independent Target schemaHash[32];7 closed
 version vector;8 worker source commit;9 K1 source commit;10 K1 SDK JAR SHA[32];
@@ -4641,3 +4641,66 @@ Concrete providers, durable exact Source proof/accepted-tip integration and rest
 rollback checks, actual activation/publication/current-purpose admission,
 confirmation/delete/refund/GC and full program validation remain open. Necessary
 main/K1/P1 compilation only; no actual activation or environment operation executed.
+
+
+### Atomic retirement Source authorization retention (2026-10-16)
+
+TargetProtocolActivationDescriptor schema2 keeps the twelve outer fields and digest
+domain; version vector field2 is Native maximum54 and new field16 is Source history
+record schema1. The seven-argument constructor now creates this explicit current
+combination. Schema1 decoding preserves its original Native53/fifteen-field vector
+and exact bytes/digest; it is not silently upgraded. Current g8 signing/writer/
+first-Source admission requires an actual prior APPLIED descriptor2 activation.
+Original first-result replay and historical schema1 reading remain separate. A
+retained same-tuple descriptor1 activation is not overwritten/reapproved as2;
+controlled old-scope migration/retirement remains required, not performed here.
+Artifact1/body2, old activation payloads, tuple8 and SystemMutationType are unchanged.
+
+NV54 TargetRetirementSourceHistoryRecord uses META key
+`2f 01 || original SystemMutationId[32]`. Closed fields:1 schema1;2 complete signed
+original retirement/confirmation envelope;3 actual decided TargetQuotaMutation;
+4 complete PublicProof;5 SHA256(`nereus-delay-target-retirement-source-history-record\0`
+|| canonical fields1..4). It binds exact resource/Root/namespace/Shard/tenant/lineage,
+physical Source and sealed coverage. Frame maximum is max(NV51 intent envelope,
+NV52 confirmation envelope); row maximum adds bounded Source stamp, PublicProof
+maximum and256 bytes. Proof/embedded keys remain data. Local grant/signature joins
+are consistency checks; independently trusted original purpose pin is mandatory.
+
+Source Authority has a distinct original SourceHistory(proof, independent pin,
+held current guard), including a proved-denied decision; old missing-history
+provider defaults throw unavailable. Source Loader freezes/charges the complete
+proof/pin on the existing owned turn, binds exact frame/Source and retains the
+same Root loan through actual commit/close. Root's typed getter uses the pin from
+independent configuration and verified chain, not one reconstructed from exported
+proof bytes. Unknown coverage/key/history never becomes permanent REJECTED.
+Oversized SERVICE identities are checked for full coverage before a no-copy denial.
+
+First application checks actual descriptor2 activation before external history/
+copy work, then authenticates full Source history outside Native. Approval grant/
+key must exactly match the authenticated table; only purpose/signature success
+requests the separate actual copy/protection/capacity approval. Native rechecks
+activation/Source/fence and writes retained NV54 plus actual first/POSITION/Source/
+SHARD STATE in the same batch, together with NV51 on success. Known authorization
+denial retains the complete history even without an Approval or copy. Missing
+history/pin/activation inputs remain pending; existing local expiry/stale/
+unactivated prechecks use their original result path without external I/O.
+
+NV54 actual key/payload/overhead is charged to original Source SHARD STATE.
+Incremental and independent ledger joins require exact actual first/POSITION,
+Source stamp/owner/lineage, and APPLIED grant signature plus matching prior Native
+activation. Descriptor2 APPLIED and authorization-denied retirement firsts after
+the marker require retained proof. NV51 and NV52 require original intent history;
+NV52 also requires confirmation history. No EVIDENCE/owner/ref/alias refund or
+history GC is implied. The new native inventory is semanticInputsDigest field13;
+empty older inventories keep their bytes.
+
+Companion6 keeps its field layout: HistoryImage is obtained from actual NV54 when
+present, then compared byte-for-byte and stamp-for-stamp to that Native proof;
+it cannot replace it using a new file snapshot. Original first frames without a
+retained row still require the protected Source collector. Independent original
+pin/source/rejection-reason authentication remains mandatory after collection.
+Native Source proof persistence is now implemented for the intent decision path;
+confirmation writer, concrete full Root/Source/lifecycle provider, restart accepted-
+tip comparison/current-head initialization, actual activation/handoff/current-purpose
+permission and full recovery/GC remain open. No actual environment operation or
+central validation was run; necessary main/K1/P1 compilation only.

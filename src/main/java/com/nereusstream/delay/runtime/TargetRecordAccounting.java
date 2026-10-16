@@ -536,6 +536,7 @@ public final class TargetRecordAccounting {
                 final var owner = descriptor(record.primaryIdentity());
                 record.requireOwner(owner);
                 record.mutation().requireAtOrBefore(operation);
+                TargetRetirementSourceHistoryStore.requireFirstHistory(reader,overlay,scope,lineage,root.owner(),record,operation);
                 if (record.kind().referencesFirst()) {
                     final byte[] firstKey = Bytes.concat(
                             new byte[] {
@@ -662,6 +663,7 @@ public final class TargetRecordAccounting {
                         key,payload,scope.shard(),scope.tenantScope(),lineage);
                 retiring.appliedAt().requireAtOrBefore(operation);
                 TargetProtocolActivationStore.requirePriorActivation(reader,overlay,scope,lineage,root.owner(),retiring.appliedAt(),operation);
+                TargetRetirementSourceHistoryStore.requireRetained(reader,overlay,scope,lineage,root.owner(),retiring.intent().systemMutationId(),retiring.appliedAt(),operation);
                 TargetEvidenceRetirementStore.requireRetainedUses(reader,overlay,scope,lineage,root.owner(),retiring,operation);
                 final var frozen=retiring.feeOwner();final var owner=descriptor(frozen.identity());
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("retiring copy changed frozen accounting");
@@ -696,6 +698,13 @@ public final class TargetRecordAccounting {
                 TargetEvidenceRetirementStore.requireConfirmedState(reader,overlay,scope,lineage,root.owner(),confirmed,operation);
                 final var frozen=confirmed.feeOwner();final var owner=descriptor(frozen.identity());
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("confirmed row changed frozen accounting");
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
+            case com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var retained=com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.decodeForStore(key,payload,scope,lineage);
+                TargetRetirementSourceHistoryStore.requireFirst(reader,overlay,scope,lineage,root.owner(),retained,operation);
+                final var owner=descriptor(root.owner());
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
             case com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE -> {

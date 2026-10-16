@@ -129,15 +129,17 @@ final class KafkaClientArtifactTargetRetirementHistoryConfiguration {
             }else grant=chain.getLast().select(resource,entry.position(),AuthorIdentity.decode(entry.mutation().authorIdentity()),
                     entry.mutation().signingKeyVersion(),TargetRetirementAuthorizationHistory.Action.of(entry.mutation().type()));
             guard.run();return new Captured(authority,input.keyVersion(),key,chain,
-                    grant.filter(value->entry.mutation().verifySignature(value.writerKey())));
+                    grant.filter(value->entry.mutation().verifySignature(value.writerKey())),
+                    new TargetRetirementAuthorizationHistory.Pin(authority,input.keyVersion(),key,chain.getFirst().snapshot().digest(),input.root(),namespace));
         }
     }
     record Captured(AuthorIdentity authority,int keyVersion,PublicKey key,List<TargetRetirementAuthorizationHistory.Verified> chain,
-            Optional<TargetRetirementAuthorizationHistory.Grant> grant) {
-        Captured { Objects.requireNonNull(authority);Objects.requireNonNull(key);chain=List.copyOf(chain);Objects.requireNonNull(grant); }
-        long retainedBytes(){long bytes=authority.canonicalBytes().length+key.getEncoded().length+256L;for(var value:chain)bytes=Math.addExact(bytes,value.snapshot().canonicalBytes().length);return bytes;}
+            Optional<TargetRetirementAuthorizationHistory.Grant> grant,TargetRetirementAuthorizationHistory.Pin pin) {
+        Captured { Objects.requireNonNull(authority);Objects.requireNonNull(key);chain=List.copyOf(chain);Objects.requireNonNull(grant);Objects.requireNonNull(pin); }
+        long retainedBytes(){long bytes=authority.canonicalBytes().length+key.getEncoded().length+pin.key().getEncoded().length+352L;for(var value:chain)bytes=Math.addExact(bytes,value.snapshot().canonicalBytes().length);return bytes;}
         /** Public proof data requires the independent Root pin again when restored; these embedded bytes do not self-authorize. */
-        byte[] publicInputs(){return new TargetRetirementAuthorizationHistory.PublicProof(authority,keyVersion,key.getEncoded(),
-                chain.getFirst().snapshot().digest(),chain.stream().map(TargetRetirementAuthorizationHistory.Verified::snapshot).toList()).canonicalBytes();}
+        TargetRetirementAuthorizationHistory.PublicProof proof(){return new TargetRetirementAuthorizationHistory.PublicProof(authority,keyVersion,key.getEncoded(),
+                chain.getFirst().snapshot().digest(),chain.stream().map(TargetRetirementAuthorizationHistory.Verified::snapshot).toList());}
+        byte[] publicInputs(){return proof().canonicalBytes();}
     }
 }

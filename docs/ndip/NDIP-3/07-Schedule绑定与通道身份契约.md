@@ -1041,3 +1041,13 @@ Source，state2保留原intent；actualNative activation/descriptor/marker必须
 认证入口随原候选/Manifest/restore保护保留；不要求旧Owner/session今日仍存活。
 本地companion6已落代码；实际Root provider/Source决定时proof持久留存/重启tip、
 声明发布/marker交接/当前SERVICE用途许可与确认删除闭环继续开放，无真实激活。
+
+
+2026-10-16 g8新写入要求actual Native descriptor2（Native54/historyRecord1），旧1
+仅按原格式读及原first重放，不推定权限或自动覆盖同tuple旧投影。历史source grant
+必须由独立purpose/Root/namespace/issuer/key/baseline pin认证，Approval key/grant
+与实际完整表一致，copy/保护/容量仍是相交门禁。原Root history loan的typed getter
+给出真正配置pin，Loader保留同原帧/Source的guard直到commit与实际close退出。
+批准或确定拒绝所用完整证明随NV54原子保留，附带公钥不自证；coverage/输入未知
+不变成永久拒绝。Checkpoint不能用今天文件改写Native原证明；重启tip对照、实际
+Root/Source provider/current append许可、确认及删除闭环仍未接通，未运行服务。

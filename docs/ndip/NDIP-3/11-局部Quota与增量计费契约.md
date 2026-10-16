@@ -2547,3 +2547,14 @@ bytes不变；retirement first inventory进入semanticInputsDigest12，旧空库
 NV51/owner/ref/EVIDENCE原子退款/GC仍未完成；companion file纳既有Manifest/对象
 保护并不证明完整生产包络/RSS或退款正确性。仅必要编译，最大合法输入/失败/恢复
 与实际空间账验证仍交后续模型，未执行删除/退款或保护解除。
+
+
+2026-10-16 NV54真实key/payload/overhead计入原Source SHARD STATE，与first/POSITION/
+Source和成功NV51同Native batch，含确定拒绝所用完整history。独立/增量fold逐一核
+原first/stamp/owner/lineage/position；descriptor2正向和UNAUTHORIZED first须留proof，
+51/52还核intent/confirmation原history。既有EVIDENCE/owner/ref/alias无退款或转移。
+Source hold另计完整PublicProof+独立Pin/公钥保留字节，原owned读/close/Stop生命期
+不变，默认预算不抬高；Source/Native/Checkpoint最大合法包络与RSS尚未测证。
+Dependencies新增完整54库存/digest13，companion6复用其原frame/proof，仍计原全量
+record/byte/read/time窗口。无新线程/client/队列，无history GC/delete/退款操作；
+proof接受tip重启整合和确认handler原子退款及完整GC仍开放，不能提前释放保护。

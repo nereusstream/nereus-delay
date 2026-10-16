@@ -697,6 +697,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             public java.util.Optional<com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory.Grant> grant(){synchronized(root){requireLoaded();return captured.grant();}}
             public long retainedBytes(){synchronized(root){requireLoaded();return bytes;}}
             public byte[] publicInputs(){synchronized(root){requireLoaded();return captured.publicInputs();}}
+            /** Pin comes from the independently configured/verified Root, not from decoded public proof bytes. */
+            public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory sourceHistory(){synchronized(root){
+                requireLoaded();return new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory(captured.proof(),captured.pin(),this::requireCurrent);
+            }}
             public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs hold(
                     com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs original){
                 final long retained;

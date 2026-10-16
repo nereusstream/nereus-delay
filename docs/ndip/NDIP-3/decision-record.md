@@ -1123,3 +1123,14 @@ whole-image/原restore authority门禁已接。NV52额外保留原intent帧与�
 本地最高现为6，但具体Root完整provider、Source决定时proof持久/重启tip及运行
 交接/许可、实际恢复与确认删除退款仍开放；不声称实际部署/激活完成。当前无裁定
 等待，单agent/不Fast/必要编译/集中验证后置，四包/29切片和三个完成flags不变。
+
+
+2026-10-16 按“精确公共历史随实际Source决定保留并计真实字节”裁定实施NV54/meta47：
+完整signed原帧/实际决定stamp/公有proof与first/POSITION/Source及STATE同batch，
+批准或确定拒绝均保留所用证明。独立Pin从原Root配置/已验证chain导出，Loader冻结
+与同原loan计费保留，missing history仍unknown。此数据不是新信任根/删除授权。
+为不重释旧已登记格式，Target descriptor显式schema2声明Native54与historyRecord1，
+1原bytes/digest可读；新g8写入要求真实2，不自动覆盖同tuple旧投影或执行迁退。
+Companion6复用Native54原材料，Root accepted-tip重启对照/完整具体provider、实际
+confirmation/current-purpose许可/原子退款/GC仍待继续。仅必要编译，单agent/不Fast，
+未执行服务/配置/key/grant/Admin/delete/保护解除，四包/29切片/三个完成flags不变。
