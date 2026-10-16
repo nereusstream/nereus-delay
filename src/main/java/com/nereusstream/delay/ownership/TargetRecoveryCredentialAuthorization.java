@@ -206,6 +206,20 @@ public final class TargetRecoveryCredentialAuthorization {
             signature.update(Bytes.sha256(SIGNATURE_DOMAIN, a.digest, Bytes.u32beBits(issuer.signingKeyVersion())));
             if (!signature.verify(a.value(31))) throw unavailable();
         }
+        /** Exact public approval selected at the observation; no material authority, paths or private bytes transfer. */
+        byte[] historicalPublicInputs(TargetRecoveryCredentialAuthorization a,TrustedUtcIntervalEvidence time) throws Exception {
+            verifyHistorical(a,time);
+            final var key=keys.keys().stream().filter(k->k.verifierVersion()==(int)a.number(28)
+                    &&k.signingKeyVersion()==(int)a.number(29)&&Arrays.equals(k.verifierId(),Bytes.utf8(a.text(27,128))))
+                    .findFirst().orElseThrow(TargetRecoveryCredentialAuthorization::unavailable);
+            return CanonicalProtobuf.message(out->{
+                CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,deployment);CanonicalProtobuf.bytes(out,3,configuration);
+                CanonicalProtobuf.uint64Bits(out,4,generation);CanonicalProtobuf.bytes(out,5,tenant);
+                CanonicalProtobuf.bytes(out,6,key.verifierId());CanonicalProtobuf.uint32Bits(out,7,key.verifierVersion());
+                CanonicalProtobuf.uint32Bits(out,8,key.signingKeyVersion());CanonicalProtobuf.bytes(out,9,key.publicKey().getEncoded());
+                CanonicalProtobuf.uint64(out,10,key.verifyNotBeforeEpochMs());CanonicalProtobuf.uint64(out,11,key.verifyNotAfterEpochMs());
+            });
+        }
         Hold acquire(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time) throws Exception {
             verify(a, time);
             return Objects.requireNonNull(authority.acquire(a), "actual retained recovery material");

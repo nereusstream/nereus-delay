@@ -2444,3 +2444,15 @@ NV47/48或NV49/50及EVIDENCE继续保留；adopted归原冻结Target，staging�
 Target；实际NV/独立fold/退款还未实施。格式有128 uses、16MiB closure、64MiB
 copy manifest/body及4096/16MiB protections硬界限，仍须Source frame/单行整批/
 I/O/空间配置核完整实际峰值，不能把硬界限当已有allocation/default或RSS证据。
+
+2026-10-16 NV51实际表示/费用代码：整份signed intent、实际Source stamp和full
+public-copy manifest按完整native key+payload+原overhead计STATE；由context原
+fee owner归属，不以“重复字节”免除，不加EVIDENCE或退原blob/NV47..50/refs。
+accounting核原冻结accounting及仍在的adopted owner（proof还核exact ref/alias），
+独立fold核actual APPLIED intent first/POSITION；NV52/refund还未实施。
+
+Root准备预先核retained inputs+320MiB Catalog窗口+有限Native reads，再加4倍
+完整copy估算（actual identity/raw/closure、2MiB公有历史上界与encoding开销），
+沿原池串行占用，不涨默认预算或新建线程/client。原I/O退出后才释放Root窗口；
+后续服务中的Source prepared input保留/结算还须随原子writer接通。Source frame/
+Native单行整批/heap/RSS/空间的完整最大合法包络及真实性能仍待集中验证。

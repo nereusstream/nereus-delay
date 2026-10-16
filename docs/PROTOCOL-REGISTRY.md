@@ -949,6 +949,55 @@ etag field presence is retained; the Oxia object has no etag, DELETED must match
 its pinned version, and authoritative ALREADY_ABSENT still needs actual provider
 and closed-intent proof beyond these data codecs.
 
+TargetEvidenceRetirementCopy schema1 is a complete public manifest: 1 schema1;
+2 exact resource oneof8; 3 complete signed raw object; 4 original public-history
+inputs; 5 complete canonical Catalog closure image. SHA256 domain is
+`nereus-delay-target-evidence-retirement-copy\0` over all five fields. Context
+must match its actual encoded length/digest and closure revision/digest/length,
+full sealed ID/hash/retry digest/count. Exact key/subtype/typed digest/raw SHA/
+length/namespace/Oxia version and adopted owner provenance remain bound. Limits
+are64MiB total and2MiB public history; the original raw-object and16MiB closure
+bounds still apply. History bytes are data, not an independent new trust root.
+
+Recovery public history schema1 has fields1 schema;2 original raw deployment[32];
+3 exact Catalog prefix;4 original maximum decision width;5 purpose-approved issuer
+AuthorIdentity;6 issuer key version;7 public Ed25519 X509 key[44];8/9 original key
+window;10 SDK source commit;11 SDK JAR SHA[32];12 selected material approval.
+Material approval schema1 fields1 schema,2 deployment[32],3 configuration[32],
+4 generation(uint64 bits),5 tenant[32],6 verifier ID,7 verifier version,
+8 signing-key version,9 public X509 key[44],10/11 original verification window.
+These are exported from actual Root history after authenticating the selected
+proof/authorization at observation time. No current credential hold/private key,
+path, secret or new material-acquisition authority is serialized.
+
+CONTROL public history schema1 fields1 schema,2 original signed management
+artifact,3 actor image(1 actor hash,2 role set,3 tenant-resource scope hash),
+4 original receipt resource,5 slots,6 partition,7 public X509 key[44],8 original
+signed protection. Export verifies original Source/CONTROL scope and signatures;
+protection copies name themselves, anchor copies bind their original protection.
+It does not transfer live operator rights or authorize Source/delete by itself.
+
+NV51 TargetEvidenceRetiringRecord uses META key `2c 01 || exactResourceIdentityHash[32]`.
+Closed fields:1 schema1;2 state1;3 complete canonical signed retire System envelope;
+4 actual applied TargetQuotaMutation;5 full public-copy manifest;6 SHA256 of domain
+`nereus-delay-target-evidence-retiring-record\0` plus canonical fields1..5.
+Envelope and registered logical ID are checked, applied source is strictly after
+the prepared logical cut, and context/copy must match exactly. The physical
+prepared Store identity is not equated to a later restore's Store identity.
+The intent envelope is bounded by64MiB body +1MiB author +1024; the complete
+record adds the64MiB copy, bounded applied source and256 bytes overhead.
+META44→NV51 and strict value ceiling51 are registered; NV52 remains unimplemented.
+
+NV51 adds its actual STATE key/payload/overhead under the original frozen fee
+owner and retains existing adopted owner/ref/alias/EVIDENCE charges. Independent
+fold checks actual APPLIED intent first/POSITION and the complete local dependency
+inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring rows until
+the new offline companion is implemented; their old bytes are not reinterpreted.
+Root public-copy preparation is actual bounded owned I/O with exact raw/version/
+closure rereads and current Native Owner checks. It does not enqueue a Source
+intent or write NV51: atomic Source writer, NV52, offline checkpoint/restore,
+historical copy authentication and full deletion gates remain open work.
+
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 
 `RecoveryFloorRef` exact fields: 1 Recovery Lineage ID[16]; 2 checkpoint ID[16]; 3 manifest SHA-256[32]; 4 nonzero `uint64 catalog_generation`; 5 `SourcePosition applied_source_position`; 6 `uint64 included_mutation_sequence`; 7 repeated `EvidenceCursor evidence_cursors`, strictly sorted by §8; 8 floor digest[32]. Field 8 is SHA-256 of domain `nereus-delay-recovery-floor-ref\0` plus canonical fields 1–7. A scalar position or mutation sequence without fields 1–4/8 never identifies a Floor.
@@ -3944,7 +3993,7 @@ remain open. Necessary compilation only; centralized validation remains deferred
 
 ### Target recovery Native ownership and frozen reserve transfer (2026-10-16, not activated)
 
-Target NV registration now includes types1..50. This also completes the existing
+Target NV registration now includes types1..51. This also completes the existing
 K2 registrations45..48: META tags38/39 map to NV45/46, tags40/41 to NV47/48. The
 previous type ceiling44 and missing40/41 business-key dispatch would reject the
 already defined K2 records. The legacy Lane reader remains unchanged. New types

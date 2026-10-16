@@ -70,6 +70,25 @@ public final class TargetRecoveryProofTrust {
             return new Verified(proof.reference(exactKey),proof);
         }catch(Exception failure){throw invalid();}
     }
+    /** Public historical configuration from this actual Root; a serialized copy is data, never a new trust root. */
+    public byte[] historicalPublicInputs(Verified selected){
+        try{
+            final var actual=verify(selected.reference.exactKey(),selected.proof.canonicalBytes());final var proof=actual.proof;
+            final var issuer=requireIssuer(proof.issuer(),proof.signingKeyVersion(),proof.observedAt());
+            final var material=QueryCodecSupport.read(proof.publicMaterial(),"original recovery public material");
+            final var authorization=TargetRecoveryCredentialAuthorization.decode(QueryCodecSupport.nested(material.get(1),2));
+            final var original=Objects.requireNonNull(materialHistory.get(authorization.historyScope()));
+            final byte[] publicMaterial=original.historicalPublicInputs(authorization,proof.observedAt());
+            return CanonicalProtobuf.message(out->{
+                CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,deployment);CanonicalProtobuf.bytes(out,3,Bytes.utf8(prefix));
+                CanonicalProtobuf.uint64(out,4,maximumDecisionWidthMs);CanonicalProtobuf.bytes(out,5,issuer.service.canonicalBytes());
+                CanonicalProtobuf.uint32Bits(out,6,issuer.keyVersion);CanonicalProtobuf.bytes(out,7,issuer.publicKey.getEncoded());
+                CanonicalProtobuf.uint64(out,8,issuer.notBeforeMs);CanonicalProtobuf.uint64(out,9,issuer.notAfterMs);
+                CanonicalProtobuf.bytes(out,10,Bytes.utf8(proof.sourceCommit()));CanonicalProtobuf.bytes(out,11,proof.sdkJar());
+                CanonicalProtobuf.bytes(out,12,publicMaterial);
+            });
+        }catch(Exception failure){throw invalid();}
+    }
     /** Private authenticated raw object snapshot, safe for later Source exact-ref checks without live SDK closures. */
     public static final class Verified{
         private final TargetRecoveryProofRef reference;

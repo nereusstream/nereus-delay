@@ -937,3 +937,13 @@ Pin/保护门禁。仍无真实delete/Admin/迁退授权、单agent不Fast、测
 当前代码落实仅Root精确身份构造、generation8与RetirementContext严格codec/旧
 parser拒绝门禁，字段/硬界限见Registry。Native NV51/52、writer/fold/checkpoint/
 actual GC尚未落地，未准入新reader、未关闭包或提升完成flags。
+
+2026-10-16 public copy准备/NV51表示实施落点：已由实际Root owned I/O完整认证
+并取回recovery raw/version/closure及原proof/material公共历史；CONTROL历史导出
+已具备但其实际Root准备尚待接通。Native cut与副本
+manifest绑定，私有准备结果不授Source签发/delete。NV51/meta44严格表示与STATE
+计费/独立fold已接，保留所有原owner/ref/alias/EVIDENCE；fold核实际APPLIED intent
+first/POSITION。默认System envelope logical-ID推导已识别body8，不靠caller补ID。
+新Native51可严格解码但尚无原子Source writer产行，NV52/新checkpoint还未实现；
+旧schema1..5明确拒绝含退役行，不重释旧离线能力。完整恢复认证仍须验证原批准
+的copy输入，公开keys不会自成trust root。仍只必要编译，不关闭包或抬完成flags。

@@ -952,3 +952,11 @@ codec、enum或公钥存在获得授权。Body签完整closure/uses/cut/fence/�
 冻结fee owner，原intent expected0和确认要求state1分别表达。重放比较Source逻辑
 前缀和当前Native ref/monotone fence，不强绑旧物理Store。当前只有codec/身份投影，
 无新Source签发或apply权限、无reader激活；各真实Root/Source/GC门禁继续实施。
+
+2026-10-16公共历史导出基于原Root实际选择的RECOVERY_PROOF issuer/SDK及原
+recovery-purpose verifier、realm、key window；CONTROL另导出原registered actor/
+scope/receipt/management/protection与公钥。完整raw与实际copy digest进入准备
+上下文，没有privkey/secret或material acquire权限。历史credential/Owner失效不
+抹原验证，但新准备仍检查实际Root/Source/Owner和owned I/O。字节包的公钥不是
+新trust root，Source apply/restore仍须实际认证原copy approval。body8默认logical
+ID解码已接原规则；Source purpose授权、handler与新checkpoint尚未准入/贯通。

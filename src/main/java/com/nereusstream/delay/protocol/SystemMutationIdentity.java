@@ -46,12 +46,14 @@ public final class SystemMutationIdentity {
             case EVIDENCE_RESOLUTION ->
                 PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity();
             case RESOURCE_RETIRE_INTENT -> {
+                if (fields.get(3).number() == 9) yield TargetEvidenceRetireIntentBody.decode(body).logicalOperationIdentity();
                 final ResourceRetireIntentBody retire = ResourceRetireIntentBody.decode(body);
                 yield SystemMutation.computeResourceRetireLogicalIdentity(
                         retire.resourceKind(), retire.resource().identityHash(), retire.expectedResourceStateVersion());
             }
-            case RESOURCE_DELETE_CONFIRMED ->
-                ResourceDeleteConfirmedBody.decode(body).intent().mutationId();
+            case RESOURCE_DELETE_CONFIRMED -> fields.get(3).number() == 9
+                    ? TargetEvidenceDeleteConfirmedBody.decode(body).logicalOperationIdentity()
+                    : ResourceDeleteConfirmedBody.decode(body).intent().mutationId();
             case CLAIM_RESULT -> ClaimResultBody.decode(body).claimId();
             case DLQ_EXPORT_RESULT -> DlqExportResultBody.decode(body).logicalOperationIdentity();
         };

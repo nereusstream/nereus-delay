@@ -126,6 +126,33 @@ public final class TargetReceiptControlHistory implements TargetChannelControlVe
     }
 
     public long retainedBytes() { return retainedBytes; }
+    /** Public original CONTROL scope/key facts; the consumer must still authenticate the Source-approved copy. */
+    public byte[] historicalPublicInputs(TargetKafkaReceiptControlArtifact artifact,TargetKafkaReceiptControlArtifact protection) {
+        final var p=protection.protection();final var original=entry(protection.control(),protection.authorizedAt());
+        requireCovered(p,protection.control(),original.actor(),protection.authorizedAt());
+        final var key=resolve(artifact.control().signingKeyVersion(),artifact.authorizedAt());
+        if(key==null||!artifact.verifySignature(key)||!protection.verifySignature(key)
+                ||!Arrays.equals(artifact.control().canonicalBytes(),protection.control().canonicalBytes())
+                ||!Arrays.equals(artifact.authorizedAt().canonicalBytes(),protection.authorizedAt().canonicalBytes())
+                ||artifact.kind()==TargetKafkaReceiptControlArtifact.MANAGEMENT
+                ||artifact.kind()==TargetKafkaReceiptControlArtifact.PROTECTION&&!Arrays.equals(artifact.canonicalBytes(),protection.canonicalBytes())
+                ||artifact.kind()==TargetKafkaReceiptControlArtifact.ANCHOR&&!Arrays.equals(artifact.protectionDigest(),protection.digest()))
+            throw new IllegalArgumentException("retirement copy changes original CONTROL artifact history");
+        return com.nereusstream.delay.protocol.CanonicalProtobuf.message(out->{
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out,1,1);
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,2,original.original().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,3,com.nereusstream.delay.protocol.CanonicalProtobuf.message(actor->{
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(actor,1,original.actor().actorIdHash());
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(actor,2,original.actor().roleSet().canonicalBytes());
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(actor,3,original.actor().tenantResourceScopeHash());
+            }));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,4,original.resource().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out,5,original.slots());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out,6,original.partition());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,7,key.getEncoded());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,8,protection.canonicalBytes());
+        });
+    }
 
     /** Configuration shape preflight, before an Admin is created or its whole-topic installation can start. */
     public void requireReceipt(TargetKafkaReceiptControlArtifact authorization, KafkaReceiptSlotResource resource,

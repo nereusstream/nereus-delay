@@ -127,6 +127,7 @@ final class TargetCheckpointLedgerAudit {
         final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
         final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceReference> externalReferences = new HashMap<>();
         final List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryOwners = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new ArrayList<>();
         final Map<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference> recoveryReferences = new HashMap<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
@@ -225,6 +226,11 @@ final class TargetCheckpointLedgerAudit {
                                 proof.metadata().shardId(),proof.root().recoveryLineage());
                         reference.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());
                         if(recoveryReferences.put(Bytes.hex(key),reference)!=null)throw new IllegalStateException("duplicate recovery reference");
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());
+                        retirements.add(record);dependencies.retirement(record);
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
@@ -314,6 +320,7 @@ final class TargetCheckpointLedgerAudit {
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
         auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);
         auditRecoveryEvidenceReferences(kafkaMappings,externalOwners,recoveryOwners,recoveryReferences,attemptBudgets,resultRows);
+        auditRetirementResults(retirements,resultRows);
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
             if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
@@ -660,6 +667,29 @@ final class TargetCheckpointLedgerAudit {
     }
 
     /** Independent exact inventory/first-result correlation; complete blob cryptographic authentication is outside Store I/O. */
+    private static void auditRetirementResults(List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> records,
+            List<TargetResultLedgerAudit.Stored> results){
+        if(records.isEmpty())return;
+        final var byKey=new HashMap<String,TargetResultRecord>();
+        for(var stored:results)byKey.put(Bytes.hex(stored.key()),TargetResultRecord.decode(stored.payload()));
+        for(var record:records){
+            final var intent=record.intent();
+            final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},intent.systemMutationId());
+            final var first=Objects.requireNonNull(byKey.get(Bytes.hex(firstKey)),"retiring intent actual first");
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(record.appliedAt())
+                    ||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT||result.applyStatus()!=ApplyStatus.APPLIED
+                    ||result.stableCode()!=StableCode.OK||!Arrays.equals(result.mutationId(),intent.systemMutationId())
+                    ||!Arrays.equals(result.mutationHash(),intent.mutationHash())||result.retryUntilEpochMs()!=intent.retryUntilEpochMs()
+                    ||!Arrays.equals(result.authorIdentity(),intent.authorIdentity()))
+                throw new IllegalStateException("retiring row lacks exact APPLIED intent first");
+            final byte[] positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},record.appliedAt().source().canonicalBytes());
+            final var position=Objects.requireNonNull(byKey.get(Bytes.hex(positionKey)),"retiring intent POSITION");position.requireFirst(first);
+            if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(record.appliedAt()))
+                throw new IllegalStateException("retiring row changed Source POSITION companion");
+        }
+    }
+
     private static void auditRecoveryEvidenceReferences(
             List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> mappings,
             List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> originalOwners,

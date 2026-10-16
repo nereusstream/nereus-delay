@@ -411,6 +411,11 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
+        void requireRetirementReadCurrent(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            original.requireRetirementReadCurrent(clock);startup.requireReceiptManagementRead(management);current.run();
+        }
 
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(

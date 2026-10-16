@@ -293,6 +293,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OwnedCheckpointIo<com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses> closedUsesRead;
         private KafkaClientArtifactTargetWorkerSourceFactory.Opening closedUsesSource;
         private byte[] closedUsesSelection;
+        private volatile OwnedCheckpointIo<RetirementPreparation> retirementPreparation;
+        private KafkaClientArtifactTargetWorkerSourceFactory.Opening retirementSource;
+        private byte[] retirementSelection;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -382,6 +385,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.store.BoundedReadBudget reads) {
             final var original=requireRecoveryArchive();Objects.requireNonNull(reads);
             if(closedUsesRead!=null&&!closedUsesRead.ioExited())throw new IllegalStateException("original closed-use read I/O remains owned");
+            requireRetirementIoExited();
             final var owner=Objects.requireNonNull(applied,"actual Native recovery adoption").owner();
             final String key=owner.reference().exactKey();final byte[] image=Bytes.sha256(owner.canonicalBytes());
             final var previous=referenceClosure;
@@ -410,7 +414,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
-            requireReady();Objects.requireNonNull(source);Objects.requireNonNull(closure);Objects.requireNonNull(applied);
+            requireReady();requireRetirementIoExited();Objects.requireNonNull(source);Objects.requireNonNull(closure);Objects.requireNonNull(applied);
             Objects.requireNonNull(catalogReads);Objects.requireNonNull(nativeReads);
             final byte[] selection=Bytes.sha256(closure.canonicalBytes(),applied.owner().canonicalBytes());
             final var previous=closedUsesRead;
@@ -434,6 +438,70 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 return source.readClosedRecoveryUses(this,closure,applied,catalogReads,nativeReads,current);
             },this::requireReady,io);
             closedUsesSource=source;closedUsesSelection=selection;closedUsesRead=next;return next.receipt();
+        }
+        private void requireRetirementIoExited(){
+            if(retirementPreparation!=null&&!retirementPreparation.ioExited())
+                throw new IllegalStateException("original retirement preparation I/O remains owned");
+        }
+        /** Actual prepared public bytes and Native cut. Source signing/apply must still revalidate its own authority/state. */
+        public static final class RetirementPreparation {
+            private final Opening root;
+            private final com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses;
+            private final OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived;
+            private final com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context;
+            private RetirementPreparation(Opening root,com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses,
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived){
+                this.root=root;this.uses=uses;this.archived=archived;archived.requireCatalog(root.catalog);
+                final var copy=archived.image();
+                if(!Arrays.equals(copy.resource().canonicalBytes(),uses.resource().canonicalBytes()))
+                    throw new IllegalStateException("prepared copy changed actual Native owner/resource");
+                context=uses.retirementContext(copy.digest(),copy.canonicalBytes().length);copy.requireContext(context);
+            }
+            public com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses(){return uses;}
+            public com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy copy(){return archived.image();}
+            public com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context(){return context;}
+            public void requireRoot(Opening expected){
+                if(root!=expected)throw new IllegalArgumentException("retirement preparation belongs to another original Root");
+                root.requireReady();
+            }
+        }
+        public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareRecoveryRetirement(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads){
+            final var original=requireRecoveryArchive();Objects.requireNonNull(source);Objects.requireNonNull(closure);Objects.requireNonNull(applied);
+            Objects.requireNonNull(catalogReads);Objects.requireNonNull(nativeReads);
+            if(catalogReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
+                throw new IllegalArgumentException("retirement preparation requires finite read bytes");
+            final long[] baseInput=new long[CapacityDimension.COUNT];
+            baseInput[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                    Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),nativeReads.maxBytes()));
+            allocation.requireCovers(new CapacityVector(baseInput));
+            final byte[] selection=Bytes.sha256(closure.canonicalBytes(),applied.owner().canonicalBytes());
+            final var previous=retirementPreparation;
+            if(previous!=null){previous.retryCleanup();if(!previous.ioExited()){
+                if(source!=retirementSource||!Arrays.equals(selection,retirementSelection))
+                    throw new IllegalStateException("original retirement preparation selection remains owned");
+                return previous.receipt();
+            }}
+            if(referenceClosure!=null&&!referenceClosure.ioExited()||closedUsesRead!=null&&!closedUsesRead.ioExited())
+                throw new IllegalStateException("original closure/use I/O remains owned");
+            final var resource=closure.recoveryResource(applied.owner());
+            final long copyWindow=com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.estimatedBytes(resource,
+                    resource.canonicalValueBytes(),com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,
+                    closure.canonicalBytes().length);
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,Math.addExact(
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),Math.addExact(nativeReads.maxBytes(),Math.multiplyExact(4L,copyWindow))));
+            allocation.requireCovers(new CapacityVector(minimum));
+            final var next=OwnedCheckpointIo.submit(guard->{final Runnable current=()->{guard.run();requireReady();};
+                final var uses=source.readClosedRecoveryUses(this,closure,applied,catalogReads,nativeReads,current);
+                final var copy=catalog.prepareRecoveryRetirementCopy(uses.closure(),uses.owner(),original.trust,catalogReads,current);
+                source.requireRetirementReadCurrent(this,current);return new RetirementPreparation(this,uses,copy);
+            },this::requireReady,io);
+            retirementSource=source;retirementSelection=selection;retirementPreparation=next;return next.receipt();
         }
 
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded requireRecoveryArchive() {
@@ -478,6 +546,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var operation = opening; if (operation != null) operation.requestStop();
             final var closure = referenceClosure; if (closure != null) closure.requestStop();
             final var uses = closedUsesRead; if (uses != null) uses.requestStop();
+            final var retirement = retirementPreparation; if (retirement != null) retirement.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
         @Override public synchronized boolean closeForProcess(TargetWorkerProcessRuntime.ReceiptManagementClosePermit permit) {
@@ -496,6 +565,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(closure!=null){closure.requestStop();closure.retryCleanup();if(!closure.ioExited())return false;}
             final var uses=closedUsesRead;
             if(uses!=null){uses.requestStop();uses.retryCleanup();if(!uses.ioExited())return false;}
+            final var retirement=retirementPreparation;
+            if(retirement!=null){retirement.requestStop();retirement.retryCleanup();if(!retirement.ioExited())return false;}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
             final var signing = recoveryArchive;
@@ -503,6 +574,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             recoveryArchive = null; recoveryInputs = null;
             referenceClosure=null;referenceClosureKey=null;referenceClosureOwner=null;
             closedUsesRead=null;closedUsesSource=null;closedUsesSelection=null;
+            retirementPreparation=null;retirementSource=null;retirementSelection=null;
             final var charge = allocation;
             if (charge != null) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }
             closed = true; return true;

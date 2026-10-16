@@ -787,6 +787,35 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         if(Objects.requireNonNull(original).catalog!=this)throw new IllegalArgumentException("closure belongs to another actual Catalog");
         return original.reread(reads,current);
     }
+    /** Only this actual Catalog can produce the authenticated public-copy receipt. It is not delete authority. */
+    public static final class RetirementCopy {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final TargetEvidenceRetirementCopy image;
+        private RetirementCopy(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,TargetEvidenceRetirementCopy image){
+            this.catalog=catalog;this.image=image;
+        }
+        public TargetEvidenceRetirementCopy image(){return image;}
+        public void requireCatalog(OxiaSyncTargetKafkaReceiptProtectionCatalog expected){
+            if(catalog!=expected)throw new IllegalArgumentException("copy belongs to another actual Catalog");
+        }
+    }
+    public RetirementCopy prepareRecoveryRetirementCopy(ClosedObject original,TargetRecoveryEvidenceOwner owner,
+            TargetRecoveryProofTrust proofTrust,BoundedReadBudget reads,Runnable current){
+        final var actual=readReferenceClosure(original,reads,current);actual.requireRecoveryOwner(owner);
+        final var resource=actual.recoveryResource(owner);current.run();
+        final var stored=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(stored==null||!Arrays.equals(resource.immutableVersion(),Bytes.u64beBits(stored.version().versionId())))
+            throw new IllegalStateException("retirement copy lacks original present object/version");
+        final var verified=Objects.requireNonNull(proofTrust).verify(resource.exactKey(),stored.value());
+        owner.requireProof(verified.proof());current.run();
+        final var copy=new TargetEvidenceRetirementCopy(resource,stored.value(),proofTrust.historicalPublicInputs(verified),actual.canonicalBytes());
+        actual.requireObjectFingerprint(copy.resource());readReferenceClosure(actual,reads,current);
+        final var after=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(after==null||after.version().versionId()!=stored.version().versionId())
+            throw new IllegalStateException("retirement object changed during public-copy authentication");
+        requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
+        return new RetirementCopy(this,copy);
+    }
     private ClosedObject closedSnapshot(Root root,String key,byte[] digest){
         final var closure=Objects.requireNonNull(root.closures.get(key),"original durable object closure");requireExact(closure.objectDigest,digest);
         final var management=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.managementTopicId)),"original closure management");

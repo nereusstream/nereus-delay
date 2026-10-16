@@ -590,6 +590,9 @@ public final class TargetWorkerShardRuntime
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.readClosedRecoveryUses(reads,closure,applied,clock);
     }
+    public synchronized void requireRetirementReadCurrent(LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
+    }
 
     @Override
     public void requireFleetComposition(
