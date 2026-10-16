@@ -564,6 +564,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             private final Opening root;
             private com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses;
             private com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ClosedUses controlUses;
+            private com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses stagingUses;
             private OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived;
             private com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context;
             private final long reservedWindowBytes;
@@ -578,6 +579,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 this(root,archived,uses.resource(),uses.retirementContext(archived.image().digest(),archived.image().canonicalBytes().length),reservedWindowBytes);
                 this.controlUses=uses;
             }
+            private RetirementPreparation(Opening root,com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses uses,
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived,long reservedWindowBytes){
+                this(root,archived,archived.image().resource(),uses.retirementContext(archived.image()),reservedWindowBytes);
+                this.stagingUses=uses;
+            }
             private RetirementPreparation(Opening root,OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived,
                     com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,
                     com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context,long reservedWindowBytes){
@@ -589,6 +595,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
             public com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses(){synchronized(root){requireRoot(root);return Objects.requireNonNull(uses,"prepared object is not Recovery");}}
             public com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ClosedUses controlUses(){synchronized(root){requireRoot(root);return Objects.requireNonNull(controlUses,"prepared object is not CONTROL");}}
+            public com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses stagingUses(){synchronized(root){requireRoot(root);return Objects.requireNonNull(stagingUses,"prepared object is not staging");}}
             public com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy copy(){synchronized(root){requireRoot(root);return archived.image();}}
             public com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context(){synchronized(root){requireRoot(root);return context;}}
             /** Actual receipt only; Source purpose/history/capacity approval remains independent and mandatory. */
@@ -604,7 +611,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
             private void releaseLocal(){
                 if(sourceBorrowed)throw new IllegalStateException("original Source still holds retirement input");
-                released=true;uses=null;controlUses=null;archived=null;context=null;
+                released=true;uses=null;controlUses=null;stagingUses=null;archived=null;context=null;
             }
         }
         public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareRecoveryRetirement(
@@ -627,6 +634,15 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 throw new IllegalArgumentException("CONTROL retirement preparation requires protection or anchor");
             return prepareRetirement(source,closure,null,Objects.requireNonNull(applied),kind,catalogReads,nativeReads);
         }
+        /** Already-closed reservation only; closing original publication I/O and physical retirement are separate obligations. */
+        public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareStagingRetirement(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads){
+            requireReady();
+            return prepareRetirement(source,Objects.requireNonNull(closure),null,null,closure.subtype(),catalogReads,nativeReads);
+        }
         private java.util.concurrent.CompletableFuture<RetirementPreparation> prepareRetirement(
                 KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
                 OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
@@ -634,8 +650,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption control,int kind,
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
-            final var original=recovery==null?null:requireRecoveryArchive();
             Objects.requireNonNull(source);Objects.requireNonNull(closure);
+            final boolean staging=recovery==null&&control==null;
+            final var original=recovery!=null||staging&&closure.subtype()==3?requireRecoveryArchive():null;
             final var controlOwner=control==null?null:kind==TargetKafkaReceiptControlArtifact.PROTECTION?control.protection():control.anchor();
             if(retirementHistoryInput!=null)throw new IllegalStateException("original Source retirement history remains owned");
             if(retirementSourceCopy!=null)throw new IllegalStateException("original Source retirement input remains owned");
@@ -646,7 +663,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             baseInput[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
                     Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),nativeReads.maxBytes()));
             allocation.requireCovers(new CapacityVector(baseInput));
-            final byte[] selection=Bytes.sha256(closure.canonicalBytes(),recovery==null?controlOwner.canonicalBytes():recovery.owner().canonicalBytes());
+            final byte[] selection=Bytes.sha256(closure.canonicalBytes(),staging?Bytes.utf8("reserved-staging2")
+                    :recovery==null?controlOwner.canonicalBytes():recovery.owner().canonicalBytes());
             final var previous=retirementPreparation;
             requireRetirementAuxiliaryIoExited();
             if(previous!=null){previous.retryCleanup();if(!previous.ioExited()||previous.completedValue().filter(value->!value.released).isPresent()){
@@ -664,10 +682,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         resource.canonicalValueBytes(),com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,
                         closure.canonicalBytes().length);
             }else{
-                // The creator mapping is recovered from Native below. Reserve its complete bounded identity
-                // before loading; no provisional mapping or caller-supplied identity is signed.
+                // Native creator facts or original staging provenance are recovered below. Reserve their
+                // complete bounded identity before loading; no caller-supplied identity is signed.
                 copyWindow=Math.addExact(768L+com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.MAX_CANONICAL_BYTES,
-                        Math.addExact(controlOwner.canonicalValueBytes(),Math.addExact(
+                        Math.addExact(staging?closure.objectBytes():controlOwner.canonicalValueBytes(),Math.addExact(
                             com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,closure.canonicalBytes().length)));
             }
             final long[] minimum=new long[CapacityDimension.COUNT];
@@ -677,6 +695,12 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var next=OwnedCheckpointIo.submit(guard->{
                 final Runnable rootCurrent=()->{guard.run();requireReady();};
                 final Runnable current=()->{rootCurrent.run();source.requireRetirementReadCurrent(this,rootCurrent);};current.run();
+                if(staging){
+                    final var uses=source.readClosedStagingUses(this,closure,catalogReads,nativeReads,current);
+                    final var copy=catalog.prepareStagingRetirementCopy(uses.closure(),uses.feeOwner(),
+                            original==null?null:original.trust,catalogReads,current);
+                    current.run();return new RetirementPreparation(this,uses,copy,minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
+                }
                 if(recovery!=null){
                     final var uses=source.readClosedRecoveryUses(this,closure,recovery,catalogReads,nativeReads,current);
                     final var copy=catalog.prepareRecoveryRetirementCopy(uses.closure(),uses.owner(),original.trust,catalogReads,current);
@@ -1037,8 +1061,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var source=Objects.requireNonNull(retirementSource);
             final var next=OwnedCheckpointIo.submit(guard->{
                 final Runnable current=()->{guard.run();prepared.requireRoot(this);};
-                final var time=source.retirementSigningTime(this,current);
-                final var signed=prepared.controlUses==null
+                final var time=source.retirementSigningTime(this,prepared.archived.image().resource(),current);
+                final var signed=prepared.stagingUses!=null
+                        ?signer.sign(prepared.stagingUses,prepared.archived,protections,retryUntil,time,current)
+                        :prepared.controlUses==null
                         ?signer.sign(prepared.uses,prepared.archived,protections,retryUntil,time,current)
                         :signer.sign(prepared.controlUses,prepared.archived,protections,retryUntil,time,current);
                 source.requireRetirementReadCurrent(this,current);return signed;

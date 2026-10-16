@@ -1256,6 +1256,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);return actual;
     }
 
+    synchronized com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses readClosedStagingUses(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            LongSupplier clock){
+        requireGcOwner(clock);
+        final var actual=com.nereusstream.delay.runtime.TargetStagingEvidenceStore.readClosedUses(
+                backend,reads,scope,lineage,closure,workerReads(clock));
+        requireGcOwner(clock);return actual;
+    }
+
     synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {
@@ -1436,16 +1445,26 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 ||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
             throw new IllegalArgumentException("retirement writer changed Source/operation/SERVICE actor");
         final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
-        requireRetirementProtocolActive(clock);
+        requireRetirementProtocolActive(body.resource(),clock);
     }
     synchronized void requireRetirementProtocolActive(LongSupplier clock){
+        requireRetirementProtocolActive(null,clock);
+    }
+    synchronized void requireRetirementProtocolActive(
+            com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,LongSupplier clock){
         requireGcOwner(clock);final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement();
+        if(resource!=null&&(!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
+                ||!Arrays.equals(lineage,resource.recoveryLineage())))
+            throw new IllegalArgumentException("retirement writer changed actual Source SHARD/tenant/lineage");
         final var compatible=store.controlSnapshot();
         if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("retirement writer lacks independently admitted compatible tuple");
         backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
             final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
             if(activation==null||!activation.body().payload().descriptor().supportsAcceptedHistoryTip())
                 throw new IllegalStateException("retirement writer requires actual Source APPLIED descriptor3/Native55 capability");
+            if(resource!=null&&resource.provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.ReservedStaging
+                    &&!activation.body().payload().descriptor().supportsCapacityOwnerStaging())
+                throw new IllegalStateException("staging writer requires actual Source APPLIED descriptor4 capacity-root capability");
             return Boolean.TRUE;
         },workerReads(clock));
     }

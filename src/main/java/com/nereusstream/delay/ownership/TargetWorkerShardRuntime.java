@@ -603,11 +603,21 @@ public final class TargetWorkerShardRuntime
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.readClosedControlUses(reads,closure,applied,kind,clock);
     }
+    public synchronized com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses readClosedStagingUses(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.readClosedStagingUses(reads,closure,clock);
+    }
     public synchronized void requireRetirementReadCurrent(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
     }
     public synchronized void requireRetirementProtocolActive(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireRetirementProtocolActive(clock);
+    }
+    public synchronized void requireRetirementProtocolActive(
+            com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireRetirementProtocolActive(resource,clock);
     }
     public synchronized java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> retirementMutationResult(
             SystemMutation mutation,LongSupplier clock){

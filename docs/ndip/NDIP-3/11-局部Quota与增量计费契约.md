@@ -2623,3 +2623,10 @@ Stop不虚构成功或释放未退出的原SDK责任。Proof original authorizat
 frozen owner只验来源；实际staging STATE仍由Native核真实Source SHARD，物理费仍
 归原capacity root。无默认额度/线程/队列/Native格式变化，最大包络/RSS和关闭/
 确认退款/GC仍待集中实施/验证。
+
+2026-10-16 staging准备从实际Native SHARD incarnation冻结STATE费用归属，不伪造Target。
+完整uses/owner/ref/alias读均受finite native budget，Catalog原capacity/reservation与
+public copy读受同一finite catalog budget；INCOMPLETE不可作为无引用。Root在I/O前预留
+原closure/native和完整resource/copy窗口，再复用单slot/signing/borrow/UNKNOWN/release
+责任；Recovery subtype仍须原archive。物理预算仍归原capacity root，准备/签名不返还
+payload或record费用，也不构成关闭/no-recreate/确认/退款/GC；最大包络/RSS集中验证后置。

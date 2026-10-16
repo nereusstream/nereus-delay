@@ -4936,3 +4936,18 @@ No closure/deletion permission, new wire/budget/thread, operational write or tes
 acceptance is claimed. Staging closure needs original unknown-put/late-callback/
 writer-exit responsibility proof; preparation/writer/current-purpose, full original
 Root/environment assembly, confirmation/refund/GC and real recovery remain open.
+
+2026-10-16: already-closed ReservedStaging preparation now uses an actual Native
+ClosedUses receipt: original SHARD fee owner, Store/cut/fence, complete rejected
+first/POSITION or permanently fenced uses, and the same finite owner/ref/Attempt
+absence checks as Source apply. Catalog derives resource/provenance from the
+original retained reservation/capacity root and verified original authorization;
+callers supply neither a logical Target owner nor publication creation time.
+Root prepareStagingRetirement shares the original bounded preparation/signing/
+Source-borrow/UNKNOWN/release lifecycle. Recovery staging requires original proof
+history; CONTROL staging does not require the Recovery archive. Signing and each
+new writer enqueue/append require actual APPLIED descriptor4 for ReservedStaging,
+plus original SHARD/tenant/lineage. Existing first-result replay stays first.
+No wire or default budget change. This path consumes an already-closed object;
+original publication closure/no-recreate, current-purpose/environment assembly,
+confirmation/refund/GC and real recovery remain required and incomplete.

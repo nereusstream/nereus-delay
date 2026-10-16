@@ -111,6 +111,14 @@ final class KafkaClientArtifactTargetEvidenceRetirementConfiguration {
             return sign(uses.resource(),uses.retirementContext(copy.digest(),copy.canonicalBytes().length),
                     authenticated,protections,retryUntil,time,current);
         }
+        SystemMutation sign(com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses uses,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticated,
+                ResourceRetireIntentBody.ProtectionSet protections,long retryUntil,
+                TrustedUtcIntervalEvidence time,Runnable current){
+            current.run();requireCurrent(time);
+            final var copy=authenticated.image();
+            return sign(copy.resource(),uses.retirementContext(copy),authenticated,protections,retryUntil,time,current);
+        }
         private SystemMutation sign(TargetExternalEvidenceObjectResource resource,TargetEvidenceRetirementContext context,
                 OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticated,
                 ResourceRetireIntentBody.ProtectionSet protections,long retryUntil,TrustedUtcIntervalEvidence time,Runnable current){

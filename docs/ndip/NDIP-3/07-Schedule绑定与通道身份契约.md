@@ -1110,3 +1110,11 @@ capacity-owner/ref/pub/origin/current phase、原CONTROL或Recovery material权�
 但须真实CONTROL公共history；known deny仅history，缺材料为unknown。原Svc purpose/
 prior descriptor4/Native owner与全uses/SHARD费另核，copy不授closure/delete。实际
 staging关闭仍缺原未知put/晚回调/writer退出证明，不以PUBLISHED/年龄/无ref代替。
+
+2026-10-16 已closed Stage2准备输入现在由原Source guarded Native实际读取，Root从原
+reservation/capacity owner/public授权重建Resource并认证copy，不接受caller提供的
+物理owner/createdAt/逻辑Target。CONTROL sealed Admission、Recovery sealed Outcome/
+EvidenceResolution须永久非APPLIED，原SHARD/tenant/lineage及同一Source cut不可替换。
+签名前和实际新writer enqueue/append均核APPLIED descriptor4；CONTROL不需Recovery
+archive，proof仍需原history。原first重放/未知Source append/原借用与退出责任保留。
+签名/prepare不等于原publication关闭、Source当前purpose或物理删除/退账许可。

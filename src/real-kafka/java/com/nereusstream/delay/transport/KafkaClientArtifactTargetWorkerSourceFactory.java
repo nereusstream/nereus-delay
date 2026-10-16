@@ -433,6 +433,18 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
+        com.nereusstream.delay.runtime.TargetStagingEvidenceStore.ClosedUses readClosedStagingUses(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var actualClosure=management.catalog().readReferenceClosure(closure,catalogReads,current);
+            final var actual=original.readClosedStagingUses(nativeReads,actualClosure,clock);
+            management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
+            startup.requireReceiptManagementRead(management);current.run();return actual;
+        }
         void requireRetirementReadCurrent(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
             current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
@@ -447,13 +459,14 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             startup.requireReceiptManagementRead(management);current.run();return result;
         }
         com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence retirementSigningTime(
-                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,Runnable current){
             requireRetirementReadCurrent(management,current);
             final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
-            original.requireRetirementProtocolActive(clock);
+            original.requireRetirementProtocolActive(resource,clock);
             final var observed=Objects.requireNonNull(time.get(),"original Source time provider");
-            original.requireRetirementProtocolActive(clock);requireRetirementReadCurrent(management,current);return observed;
+            original.requireRetirementProtocolActive(resource,clock);requireRetirementReadCurrent(management,current);return observed;
         }
         com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementIntent(
                 KafkaClientArtifactTargetReceiptManagementFactory.Opening management,

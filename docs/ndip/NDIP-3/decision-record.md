@@ -1219,3 +1219,13 @@ deny仅history，其它family/legacy保持原provider。无wire/默认额度/线
 授closure/delete/退款，实际原writer/I/O责任、staging关闭/准备writer、完整environment/
 current-purpose、confirmation/GC与真实恢复继续开放。单agent/不Fast，集中验证后置，
 四包/29切片/三个完成flags保持未完成。
+
+2026-10-16 在不预先裁定原publication关闭/no-recreate的前提下，接已closed Stage2的
+实际Native准备及Root writer链路。私有ClosedUses从实际Store/cut/fence/完整拒绝或
+永久fenced uses与SHARD fee读出，复用Source exact无adoption/ref/alias门禁；Catalog
+从原reservation/capacity-root/原授权派生Resource并认证copy，无Target/createdAt猜测。
+Root准备/sign/Source借用/UNKNOWN/release沿原有限slot，Recovery按subtype需原archive。
+签名和新writer入队/append按Resource要求实际descriptor4及原SHARD/tenant/lineage，原
+first重放不变。此推进不授closure/delete/退款；原I/O/no-recreate裁定、完整环境/current-
+purpose、confirmation/GC与真实Broker/恢复继续开放。单agent/不Fast，仅必要编译，
+四包/29切片与三个完成flags不提升。

@@ -290,7 +290,8 @@ public final class TargetEvidenceRetirementStore {
         final var adopted = resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery r ? r.owner() : null;
         final boolean staging=resource.provenance() instanceof TargetExternalEvidenceObjectResource.StagingProvenance;
         final boolean control=resource.subtype()!=TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
-        if(staging)requireStagingUnadopted(view,overlay,scope,lineage,sourceOwner,resource,context,frontier);
+        if(staging)requireStagingUnadopted(view,overlay,scope,lineage,sourceOwner,resource.subtype().wireValue(),
+                resource.objectDigest(),resource.exactKey(),context.feeOwner(),frontier);
         if (adopted != null) adopted.adoptedAt().requireAtOrBefore(context.preparedCut());
         boolean adoptingFirst = false;
         for (var use : context.uses()) {
@@ -351,10 +352,10 @@ public final class TargetEvidenceRetirementStore {
     }
 
     /** No logical Target owner is fabricated for staging; complete Native absence is additional to Root provenance. */
-    private static void requireStagingUnadopted(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
-            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetExternalEvidenceObjectResource resource,
-            TargetEvidenceRetirementContext context,TargetQuotaMutation frontier){
-        final var frozen=context.feeOwner();final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+    static void requireStagingUnadopted(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,int subtype,byte[] objectDigest,String exactKey,
+            TargetQuotaIncarnation frozen,TargetQuotaMutation frontier){
+        final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final var actual=TargetQuotaIncarnation.decodeForStore(ownerKey,
                 payload(view,overlay,ColumnFamily.META,ownerKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
         if(!frozen.identity().equals(sourceOwner)||!Arrays.equals(actual.recoveryLineage(),lineage)
@@ -362,9 +363,9 @@ public final class TargetEvidenceRetirementStore {
                 ||frozen.draining()&&(!actual.draining()||!frozen.latestMutation().equals(actual.latestMutation())))
             throw new IllegalStateException("staging copy changed its actual frozen Source SHARD fee owner");
         actual.latestMutation().requireAtOrBefore(frontier);
-        final boolean recovery=resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
-        final byte[] adoptedKey=recovery?TargetRecoveryEvidenceOwner.key(resource.objectDigest())
-                :TargetExternalEvidenceOwner.key(resource.subtype().wireValue(),resource.objectDigest());
+        final boolean recovery=subtype==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF.wireValue();
+        final byte[] adoptedKey=recovery?TargetRecoveryEvidenceOwner.key(objectDigest)
+                :TargetExternalEvidenceOwner.key(subtype,objectDigest);
         final byte[] adopted=view.projected(ColumnFamily.META,adoptedKey,overlay);
         final boolean ownedElsewhere;
         if(adopted==null)ownedElsewhere=false;
@@ -373,7 +374,7 @@ public final class TargetEvidenceRetirementStore {
                     TargetValueEnvelope.decode(adopted,TargetRecoveryEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage).reference().exactKey()
                     :TargetExternalEvidenceOwner.decodeForStore(adoptedKey,
                         TargetValueEnvelope.decode(adopted,TargetExternalEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage).exactKey();
-            if(adoptedExactKey.equals(resource.exactKey()))
+            if(adoptedExactKey.equals(exactKey))
                 throw new IllegalStateException("staging object already has an actual Native adoption owner");
             // The digest index can name a different immutable physical copy. Its references retain that
             // exact owner's key; they cannot confer adoption on this Catalog object's different key.
@@ -390,11 +391,11 @@ public final class TargetEvidenceRetirementStore {
             if(recovery){
                 final var ref=TargetRecoveryEvidenceReference.decodeForStore(row.key(),
                         TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
-                matches=Arrays.equals(ref.proofDigest(),resource.objectDigest());
+                matches=Arrays.equals(ref.proofDigest(),objectDigest);
             }else{
                 final var ref=TargetExternalEvidenceReference.decodeForStore(row.key(),
                         TargetValueEnvelope.decode(row.value(),TargetExternalEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
-                matches=ref.kind()==resource.subtype().wireValue()&&Arrays.equals(ref.artifactDigest(),resource.objectDigest());
+                matches=ref.kind()==subtype&&Arrays.equals(ref.artifactDigest(),objectDigest);
             }
             if(matches&&!ownedElsewhere)throw new IllegalStateException("staging object still has an actual Native reference/Attempt alias");
         }

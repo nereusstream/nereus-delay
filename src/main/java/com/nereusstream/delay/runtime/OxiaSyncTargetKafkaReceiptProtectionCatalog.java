@@ -684,6 +684,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         public byte[] namespaceId(){return Bytes.copy(closure.namespaceId);}
         public byte[] publicationId(){return Bytes.copy(closure.publicationId);}
         public byte[] publicationOriginDigest(){return Bytes.copy(closure.originDigest);}
+        public byte[] objectDigest(){return Bytes.copy(closure.objectDigest);}
+        public long objectBytes(){return closure.valueBytes;}
         public List<ClosedPreparedUse> preparedUses(){return uses;}
         public List<CatalogPublication> publicationInventory(){return closure.inventory;}
         /** Immutable identity data; actual Native adoption is authenticated separately, never inferred from this builder. */
@@ -934,6 +936,44 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             throw new IllegalStateException("CONTROL retirement object changed during public-copy authentication");
         requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
         return new RetirementCopy(this,copy);
+    }
+    /** Derives staging identity from the original reservation and actual Native SHARD fee owner, never caller-supplied provenance. */
+    public RetirementCopy prepareStagingRetirementCopy(ClosedObject original,TargetQuotaIncarnation feeOwner,
+            TargetRecoveryProofTrust proofTrust,BoundedReadBudget reads,Runnable current){
+        if(feeOwner.identity().kind()!=TargetQuotaIdentity.Kind.SHARD)
+            throw new IllegalArgumentException("staging copy requires actual Source SHARD fee owner");
+        final var actual=readReferenceClosure(original,reads,current);
+        final var capacity=readCapacityOwner(actual,reads,current);
+        final var root=readRoot(reads).root;
+        final byte[] authorization;final int authorizationKind;final ShardId originalShard;
+        if(actual.subtype()==3){
+            final var reservation=Objects.requireNonNull(root.recoveries.get(Bytes.hex(actual.publicationId())),"original recovery reservation");
+            final var stored=read(actual.exactKey(),reads,Math.toIntExact(actual.objectBytes()));
+            if(stored==null||stored.version().versionId()!=actual.closure.blobVersion)
+                throw new IllegalStateException("staging recovery lost original immutable object/version");
+            final var verified=Objects.requireNonNull(proofTrust,"original recovery public history").verify(actual.exactKey(),stored.value());
+            verified.requireExact(reservation.reference);
+            requireExact(reservation.frozenOwner.canonicalBytes(),verified.proof().frozenOwner().canonicalBytes());
+            requireExact(feeOwner.tenantScope(),reservation.frozenOwner.tenantScope());
+            requireExact(feeOwner.recoveryLineage(),reservation.frozenOwner.recoveryLineage());
+            originalShard=reservation.frozenOwner.identity().shard();
+            authorization=verified.proof().originalAuthorizationDigest();authorizationKind=2;
+        }else{
+            final var reservation=Objects.requireNonNull(findByKey(root,actual.exactKey()),"original CONTROL reservation");
+            originalShard=shard(reservation.shard);authorization=reservation.controlDigest;authorizationKind=1;
+        }
+        if(!feeOwner.identity().shard().equals(originalShard))
+            throw new IllegalArgumentException("staging copy changed original Source SHARD");
+        final var resource=new TargetExternalEvidenceObjectResource(switch(actual.subtype()){
+            case 1->TargetExternalEvidenceObjectResource.Subtype.CONTROL_PROTECTION;
+            case 2->TargetExternalEvidenceObjectResource.Subtype.CONTROL_ANCHOR;
+            case 3->TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
+            default->throw new IllegalArgumentException("unknown staging object subtype");
+        },actual.namespaceId(),actual.deploymentRootDigest,originalShard,feeOwner.tenantScope(),feeOwner.recoveryLineage(),
+                actual.exactKey(),actual.objectDigest(),actual.closure.valueDigest,actual.objectBytes(),Bytes.u64beBits(actual.closure.blobVersion),
+                new TargetExternalEvidenceObjectResource.ReservedStaging(capacity.publicationId(),capacity.originDigest(),
+                        capacity.reference(),authorizationKind,authorization));
+        return prepareStagingRetirementCopy(actual,resource,proofTrust,reads,current);
     }
     /** Read-only reconstruction from an already closed original reservation; this does not establish writer/I/O exit or authorize deletion. */
     public RetirementCopy prepareStagingRetirementCopy(ClosedObject original,TargetExternalEvidenceObjectResource resource,
