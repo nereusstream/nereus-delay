@@ -4792,3 +4792,23 @@ ownership/closed uses and quota gates remain in Source commit; Source purpose an
 public-copy keys alone do not yield APPLIED. This is Recovery input composition,
 not the whole production provider/boot/activation/CONTROL/shared/staging/confirmation/
 refund/GC or real Broker/recovery closure. Necessary compilation only.
+
+2026-10-16 CONTROL retirement input composition (implementation only): the original
+receipt Root can close one actually Native-adopted PROTECTION/ANCHOR through its
+existing finite owned-I/O and distinct current CLOSE_EVIDENCE_OBJECT_REFERENCES
+permission. This freezes new references; complete shared dependency release and
+physical deletion are separate obligations. The original registered CONTROL
+history exporter is now retained by TrustInputs/ProtectionTrust; older constructors
+have no exporter and fail unavailable when a positive copy needs one. Historical
+copy authentication uses original CONTROL/key/scope, not current management policy.
+
+Catalog reconstruction binds exact publication/frozen scope, canonical object
+key/raw digest/length/immutable version, original protection/public history, closure
+and signed context, then rereads closure and object. withRetirementSourceInputs
+composes adopted CONTROL and Recovery inputs with the existing Source Content;
+withRecoveryRetirementSourceInputs preserves its Recovery-only delegation. CONTROL
+positive input needs original public history but no Recovery archive. Known denial
+retains complete history without a copy. Existing Native51 CONTROL projection still
+rejects as unwired; shared Native joins, CONTROL preparation/signing, staging,
+confirmation/refund/GC and real Broker/recovery remain open. No wire/schema/default
+budget/privilege expansion; compilation is not runtime acceptance.

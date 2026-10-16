@@ -50,8 +50,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     /** Authentication still comes from original registered CONTROL history and the live operator resolver. */
     public record TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
             TargetKafkaReceiptProtectionTrust.HistoricalActor actors,
-            TargetKafkaReceiptProtectionTrust.ReceiptScope scope, TargetReceiptCurrentManagement current) {
+            TargetKafkaReceiptProtectionTrust.ReceiptScope scope, TargetReceiptCurrentManagement current,
+            TargetKafkaReceiptProtectionTrust.PublicHistory publicHistory) {
         public TrustInputs { Objects.requireNonNull(keys); Objects.requireNonNull(actors); Objects.requireNonNull(scope); }
+        public TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
+                TargetKafkaReceiptProtectionTrust.HistoricalActor actors, TargetKafkaReceiptProtectionTrust.ReceiptScope scope,
+                TargetReceiptCurrentManagement current) {
+            this(keys, actors, scope, current, null);
+        }
         /** A bare projection is not a current whole-topic permission; retained only for source compatibility. */
         public TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
                 TargetKafkaReceiptProtectionTrust.HistoricalActor actors, TargetKafkaReceiptProtectionTrust.ReceiptScope scope,
@@ -222,7 +228,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     history.requireReceipt(receipt.authority(), required.resource(), required.slotsPerShard(), required.physicalPartition());
                 }
                 final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
-                return new TrustInputs(history, history, history, current);
+                return new TrustInputs(history, history, history, current, history::historicalPublicInputs);
             } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
         }, recovery, retirement, historyInputs,bytes);
     }
@@ -386,7 +392,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     guard.run();
                     final var trust = new TargetKafkaReceiptProtectionTrust(graph.oxia().providers().registrations(),
                             inputs.keys(), inputs.actors(), inputs.scope(), (image, control, at) ->
-                                    Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at), inputs.current());
+                                    Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at), inputs.current(), inputs.publicHistory());
                     final var original = config.management();
                     final var image = TargetKafkaReceiptManagementImage.decode(original.image());
                     for (var receipt : config.receipts()) {
@@ -442,15 +448,34 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
 
-        /** Only an actual Native APPLIED recovery owner can enter this first closure path; other object lifetimes stay separate. */
+        /** Only an actual Native APPLIED recovery owner can enter this closure path. */
         public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedRecoveryReferences(
                 com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
                 com.nereusstream.delay.store.BoundedReadBudget reads) {
-            final var original=requireRecoveryArchive();Objects.requireNonNull(reads);
+            final var original=requireRecoveryArchive();
+            final var owner=Objects.requireNonNull(applied,"actual Native recovery adoption").owner();
+            return closeAdoptedReferences(owner.reference().exactKey(),Bytes.sha256(owner.canonicalBytes()),reads,
+                    current->catalog.closeAdoptedRecoveryReferences(applied,original.trust,reads,current));
+        }
+
+        /** Freezes new references only; it does not decide shared dependency release or authorize deletion. */
+        public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedControlReferences(
+                com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption applied,int kind,
+                com.nereusstream.delay.store.BoundedReadBudget reads){
+            requireReady();Objects.requireNonNull(applied,"actual Native CONTROL object adoption");
+            final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
+                    :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
+            if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
+            return closeAdoptedReferences(owner.exactKey(),Bytes.sha256(owner.canonicalBytes()),reads,
+                    current->catalog.closeAdoptedControlReferences(applied,kind,reads,current));
+        }
+
+        private java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedReferences(
+                String key,byte[] image,com.nereusstream.delay.store.BoundedReadBudget reads,
+                java.util.function.Function<Runnable,OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> close){
+            Objects.requireNonNull(reads);
             if(closedUsesRead!=null&&!closedUsesRead.ioExited())throw new IllegalStateException("original closed-use read I/O remains owned");
             requireRetirementIoExited();
-            final var owner=Objects.requireNonNull(applied,"actual Native recovery adoption").owner();
-            final String key=owner.reference().exactKey();final byte[] image=Bytes.sha256(owner.canonicalBytes());
             final var previous=referenceClosure;
             if(previous!=null){
                 if(!previous.ioExited()&&!key.equals(referenceClosureKey))throw new IllegalStateException("original object closure I/O remains owned");
@@ -465,7 +490,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes());
             allocation.requireCovers(new CapacityVector(minimum));
             final var next=OwnedCheckpointIo.submit(guard->{final Runnable current=()->{guard.run();requireReady();};current.run();
-                final var result=catalog.closeAdoptedRecoveryReferences(applied,original.trust,reads,current);current.run();return result;
+                final var result=close.apply(current);current.run();return result;
             },this::requireReady,io);
             referenceClosureKey=key;referenceClosureOwner=image;referenceClosure=next;return next.receipt();
         }
@@ -606,7 +631,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     ||reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("bounded original retirement Source input required");
             final RetirementSourceCopy loan;final KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded history;
             synchronized(this){
-                history=requireRecoveryArchive();
+                requireReady();
+                final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody()).resource().provenance();
+                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging)
+                    throw new IllegalStateException("staging Source copy reconstruction is not wired yet");
+                history=provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery?requireRecoveryArchive():null;
                 if(retirementHistoryInput!=null&&!sameRetirementEntry(retirementHistoryInput.entry,entry))
                     throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("Root history belongs to another original Source input");
                 if(retirementSourceCopy!=null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root Source copy remains owned");
@@ -643,7 +672,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(loan.keptWindow,Math.addExact(
                         OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),Math.addExact(loan.frameWindow,Math.multiplyExact(4L,copyWindow))));
                 allocation.requireCovers(new CapacityVector(minimum));guard.run();
-                final var actual=catalog.readRetirementSourceCopy(body,history.trust,reads,guard);
+                final var actual=catalog.readRetirementSourceCopy(body,history==null?null:history.trust,reads,guard);
                 guard.run();synchronized(this){loan.copy=actual;loan.reading=false;}return loan;
             }catch(RuntimeException|Error failure){synchronized(this){loan.reading=false;loan.releaseLocal();}throw failure;}
         }
@@ -653,34 +682,51 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content original,
                 com.nereusstream.delay.protocol.TargetQuotaScope scope,
                 Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads){
+            return withRetirementSourceInputs(original,scope,catalogReads,true);
+        }
+
+        /** Original Root inputs for adopted CONTROL and Recovery objects; Native projection is checked independently. */
+        public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content withRetirementSourceInputs(
+                com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content original,
+                com.nereusstream.delay.protocol.TargetQuotaScope scope,
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads){
+            return withRetirementSourceInputs(original,scope,catalogReads,false);
+        }
+
+        private com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content withRetirementSourceInputs(
+                com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content original,
+                com.nereusstream.delay.protocol.TargetQuotaScope scope,
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads,boolean recoveryOnly){
             Objects.requireNonNull(original);Objects.requireNonNull(scope);Objects.requireNonNull(catalogReads);
             if(scope.target()!=null)throw new IllegalArgumentException("retirement Source composition requires Shard scope");
             if(retirementHistoryInputs==null)
-                throw new IllegalStateException("Recovery retirement Source requires independent history configuration");
+                throw new IllegalStateException("retirement Source requires independent history configuration");
             return new com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content((entry,family,current)->{
                 if(family!=com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family.RETIREMENT)
                     return original.provider().load(entry,family,current);
                 if(!(entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation))
                     throw new IllegalArgumentException("retirement Source content changed original frame");
-                if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT
-                        ||!(com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody())
-                            .resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
+                if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
                     return original.provider().load(entry,family,current);
-                return loadRecoveryRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
+                final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody()).resource().provenance();
+                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging
+                        ||recoveryOnly&&!(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
+                    return original.provider().load(entry,family,current);
+                return loadRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
             },original.physical(),original.reads(),original.lookupTimeout(),original.maximumBytes());
         }
 
         /** Uses the original Source preparation task; it never queues a nested Root task or requires Worker admission. */
-        private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadRecoveryRetirementSourceInputs(
+        private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadRetirementSourceInputs(
                 com.nereusstream.delay.ownership.SourceReplayMutation entry,com.nereusstream.delay.protocol.TargetQuotaScope scope,
                 Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads,long maximumBytes,Runnable current){
             current.run();
             if(entry.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
-                throw new IllegalArgumentException("Recovery retirement Source provider received another operation");
+                throw new IllegalArgumentException("retirement Source provider received another operation");
             final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody());
             if(!scope.shard().equals(body.shard())||!Arrays.equals(scope.tenantScope(),body.resource().tenantScope())
-                    ||!(body.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
-                throw new IllegalStateException("Recovery retirement provider requires its exact Source scope/provenance");
+                    ||body.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging)
+                throw new IllegalStateException("retirement provider requires its exact adopted Source scope/provenance");
             final var history=readRetirementHistory(entry,current);
             RetirementSourceCopy copy=null;
             try{
@@ -701,7 +747,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     bytes=Math.addExact(bytes,Math.addExact(actual.image().estimatedBytes(),44L));
                 }
                 if(bytes>maximumBytes)throw new IllegalStateException("complete original retirement inputs exceed Source bound");
-                final var held=new RecoveryRetirementSourceInputs(this,entry,scope,history,copy,bytes);
+                final var held=new RetirementSourceInputs(this,entry,scope,history,copy,bytes);
                 held.requireCurrent();current.run();return held;
             }catch(RuntimeException|Error failure){
                 // Both returned loans have completed synchronous I/O and release only local ownership here.
@@ -710,7 +756,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
         }
 
-        private static final class RecoveryRetirementSourceInputs implements com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs {
+        private static final class RetirementSourceInputs implements com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs {
             private final Opening root;
             private final com.nereusstream.delay.ownership.SourceReplayMutation entry;
             private final RetirementHistoryInput history;
@@ -718,7 +764,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             private final com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Retirement input;
             private final long bytes;
             private boolean copyClosed,historyClosed,closing;
-            private RecoveryRetirementSourceInputs(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
+            private RetirementSourceInputs(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
                     com.nereusstream.delay.protocol.TargetQuotaScope scope,RetirementHistoryInput history,RetirementSourceCopy copy,long bytes){
                 this.root=root;this.entry=entry;this.history=history;this.copy=copy;this.bytes=bytes;
                 final var grant=history.grant();final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Approval approval;

@@ -631,16 +631,23 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         },current,budget);
     }
     public void adopt(TargetExternalEvidenceStore.Adoption proof){
+        adopt(proof,session,null);
+    }
+    private void adopt(TargetExternalEvidenceStore.Adoption proof,Runnable current,BoundedReadBudget reads){
         final var mapping=proof.mapping();final byte[] id=SystemMutation.computeSystemMutationId(mapping.admission().shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,mapping.admission().publishAttemptId(),mapping.mutationHash());
         update(r->{var next=r;for(var owner:List.of(proof.protection(),proof.anchor())){final var i=Objects.requireNonNull(findByKey(next,owner.exactKey()),"original publication intent");
-            if(i.kind!=owner.kind()||!Arrays.equals(i.digest,owner.artifactDigest())||!Arrays.equals(i.valueHash,owner.valueDigest())||i.bytes!=owner.canonicalValueBytes()
-                    ||!Arrays.equals(i.controlDigest,owner.originalControlDigest())
-                    ||!i.controlScope.shard().equals(owner.primaryOwner().identity().shard())
-                    ||!i.controlScope.target().equals(owner.primaryOwner().identity().target())
-                    ||owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION&&!i.controlScope.equals(owner.primaryOwner().identity()))
-                throw new IllegalStateException("Source adoption changed exact external object/original frozen CONTROL scope");
+            requireControlOwner(i,owner);
             if(i.uses.stream().noneMatch(u->Arrays.equals(u.id,id)&&Arrays.equals(u.hash,mapping.mutationHash())&&u.retryUntil==mapping.admission().retryUntilEpochMs()))throw new IllegalStateException("Source adoption lacks its original prepared ID/hash/retry binding");
-            next=next.publication(i.adopt(Bytes.sha256(mapping.mutation().source().canonicalBytes())));}return next;});
+            next=next.publication(i.adopt(Bytes.sha256(mapping.mutation().source().canonicalBytes())));}return next;},current,reads);
+    }
+    private static void requireControlOwner(Intent i,TargetExternalEvidenceOwner owner){
+        if(i.kind!=owner.kind()||!i.key.equals(owner.exactKey())||!Arrays.equals(i.digest,owner.artifactDigest())
+                ||!Arrays.equals(i.valueHash,owner.valueDigest())||i.bytes!=owner.canonicalValueBytes()
+                ||!Arrays.equals(i.controlDigest,owner.originalControlDigest())
+                ||!i.controlScope.shard().equals(owner.primaryOwner().identity().shard())
+                ||!i.controlScope.target().equals(owner.primaryOwner().identity().target())
+                ||owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION&&!i.controlScope.equals(owner.primaryOwner().identity()))
+            throw new IllegalStateException("CONTROL object changed original publication/frozen scope");
     }
     public void markBroken(KafkaReceiptSlotResource resource,long generation,byte[] originalDigest,byte[] evidence,byte[] signature){
         final String key=protectionKey(resource,generation);final var intent=Objects.requireNonNull(findByKey(readRoot().root,key));final var original=readArtifact(intent);
@@ -685,6 +692,20 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                     closure.key,closure.objectDigest,closure.valueDigest,closure.valueBytes,Bytes.u64beBits(closure.blobVersion),
                     new TargetExternalEvidenceObjectResource.Recovery(owner));
         }
+        /** Actual mapping/ref joins remain Native obligations; this only binds immutable CONTROL object identity. */
+        public TargetExternalEvidenceObjectResource controlResource(TargetExternalEvidenceObjectResource.Provenance provenance){
+            final TargetExternalEvidenceOwner owner;
+            if(provenance instanceof TargetExternalEvidenceObjectResource.Protection p)owner=p.owner();
+            else if(provenance instanceof TargetExternalEvidenceObjectResource.Anchor a)owner=a.owner();
+            else throw new IllegalArgumentException("CONTROL copy needs original adopted CONTROL provenance");
+            if(closure.subtype!=owner.kind())throw new IllegalArgumentException("CONTROL closure changed original subtype");
+            closure.requireFingerprint(owner.exactKey(),owner.artifactDigest(),owner.valueDigest(),owner.canonicalValueBytes());
+            final var frozen=owner.primaryOwner();
+            return new TargetExternalEvidenceObjectResource(owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION
+                    ?TargetExternalEvidenceObjectResource.Subtype.CONTROL_PROTECTION:TargetExternalEvidenceObjectResource.Subtype.CONTROL_ANCHOR,
+                    closure.namespaceId,deploymentRootDigest,frozen.identity().shard(),frozen.tenantScope(),frozen.recoveryLineage(),
+                    closure.key,closure.objectDigest,closure.valueDigest,closure.valueBytes,Bytes.u64beBits(closure.blobVersion),provenance);
+        }
         public void requireRecoveryOwner(TargetRecoveryEvidenceOwner owner){
             final var ref=Objects.requireNonNull(owner).reference();
             if(closure.subtype!=3)throw new IllegalArgumentException("closure is not a recovery proof");
@@ -714,10 +735,19 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             BoundedReadBudget reads,Runnable current){
         final var owner=Objects.requireNonNull(applied,"actual Native APPLIED recovery adoption").owner();
         applied.reference().requireOwner(owner);
-        return closePresentObjectReferences(owner.reference().exactKey(),owner.reference().proofDigest(),proofTrust,reads,current,applied);
+        return closePresentObjectReferences(owner.reference().exactKey(),owner.reference().proofDigest(),proofTrust,reads,current,applied,null);
+    }
+    /** Freezes one adopted CONTROL object; shared-use termination and physical retirement remain separate. */
+    public ClosedObject closeAdoptedControlReferences(TargetExternalEvidenceStore.Adoption applied,int kind,
+            BoundedReadBudget reads,Runnable current){
+        Objects.requireNonNull(applied,"actual Native APPLIED CONTROL object adoption");
+        final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
+                :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
+        if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
+        return closePresentObjectReferences(owner.exactKey(),owner.artifactDigest(),null,reads,current,null,applied);
     }
     private ClosedObject closePresentObjectReferences(String exactKey,byte[] objectDigest,TargetRecoveryProofTrust proofTrust,
-            BoundedReadBudget reads,Runnable current,TargetRecoveryEvidenceStore.Adoption applied){
+            BoundedReadBudget reads,Runnable current,TargetRecoveryEvidenceStore.Adoption applied,TargetExternalEvidenceStore.Adoption controlApplied){
         Objects.requireNonNull(reads);Objects.requireNonNull(current).run();Bytes.requireLength(objectDigest,32,"exact closure object digest");
         final var before=readRoot(reads).root;final var control=findByKey(before,exactKey);RecoveryIntent recovery=null;
         if(control==null)for(var candidate:before.recoveries.values())if(candidate.reference.exactKey().equals(exactKey)){recovery=candidate;break;}
@@ -741,6 +771,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             trust.requireArtifactHistory(protection,protection);
         }else{
             final var artifact=decodeArtifact(control,stored);
+            if(controlApplied!=null){
+                final var owner=subtype==TargetKafkaReceiptControlArtifact.PROTECTION?controlApplied.protection():controlApplied.anchor();
+                owner.requireObject(subtype,objectDigest,exactKey,stored.value());
+            }
             protection=subtype==1?artifact:readArtifact(requiredDigest(before,1,artifact.protectionDigest()),reads);
             trust.requireArtifactHistory(artifact,protection);
             final String canonicalKey=subtype==1?protectionObjectKey(artifact.protection()):anchorObjectKey(artifact.digest());
@@ -753,6 +787,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         try(var permission=trust.currentManagement(authority,Action.CLOSE_EVIDENCE_OBJECT_REFERENCES)){
             final Runnable held=()->{current.run();permission.requireCurrent();if(!reads.beforeTimedWork())throw reads.incomplete();};held.run();
             if(applied!=null)adoptRecovery(applied,held,reads);
+            if(controlApplied!=null)adopt(controlApplied,held,reads);
             final var closed=update(root->{
                 final List<PreparedUse> uses;final byte[] origin;final int phase;final byte[] adopted;
                 if(subtype==3){final var original=Objects.requireNonNull(root.recoveries.get(Bytes.hex(publication)),"original recovery intent");
@@ -816,14 +851,44 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
         return new RetirementCopy(this,copy);
     }
+    /** Rebuilds public CONTROL material from original registered history and exact retained Catalog bytes/version. */
+    public RetirementCopy prepareControlRetirementCopy(ClosedObject original,TargetExternalEvidenceObjectResource.Provenance provenance,
+            BoundedReadBudget reads,Runnable current){
+        final var actual=readReferenceClosure(original,reads,current);final var resource=actual.controlResource(provenance);
+        final var stored=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(stored==null||!Arrays.equals(resource.immutableVersion(),Bytes.u64beBits(stored.version().versionId())))
+            throw new IllegalStateException("CONTROL retirement copy lacks original present object/version");
+        final var root=readRoot(reads).root;final var intent=Objects.requireNonNull(findByKey(root,resource.exactKey()),"original CONTROL publication");
+        requireControlOwner(intent,provenance instanceof TargetExternalEvidenceObjectResource.Protection p?p.owner()
+                :((TargetExternalEvidenceObjectResource.Anchor)provenance).owner());
+        final var artifact=decodeArtifact(intent,stored);
+        final var protection=artifact.kind()==TargetKafkaReceiptControlArtifact.PROTECTION?artifact
+                :readArtifact(requiredDigest(root,TargetKafkaReceiptControlArtifact.PROTECTION,artifact.protectionDigest()),reads);
+        final String key=artifact.kind()==TargetKafkaReceiptControlArtifact.PROTECTION?protectionObjectKey(artifact.protection()):anchorObjectKey(artifact.digest());
+        if(!key.equals(resource.exactKey()))throw new IllegalStateException("CONTROL copy changed original Catalog key");
+        current.run();final var copy=new TargetEvidenceRetirementCopy(resource,stored.value(),
+                trust.historicalPublicInputs(artifact,protection),actual.canonicalBytes());
+        actual.requireObjectFingerprint(copy.resource());readReferenceClosure(actual,reads,current);
+        final var after=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(after==null||after.version().versionId()!=stored.version().versionId())
+            throw new IllegalStateException("CONTROL retirement object changed during public-copy authentication");
+        requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
+        return new RetirementCopy(this,copy);
+    }
     /** Read-only reconstruction of one already-signed Source input; actual Native joins remain in Source apply. */
     public RetirementCopy readRetirementSourceCopy(TargetEvidenceRetireIntentBody intent,TargetRecoveryProofTrust proofTrust,
             BoundedReadBudget reads,Runnable current){
         Objects.requireNonNull(current).run();final var resource=Objects.requireNonNull(intent).resource();
-        if(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery origin))
-            throw new IllegalStateException("CONTROL/shared/staging historical retirement input is not wired yet");
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Staging)
+            throw new IllegalStateException("staging historical retirement input is not wired yet");
         final var closure=readReferenceClosure(resource.exactKey(),resource.objectDigest(),reads);
-        final var actual=prepareRecoveryRetirementCopy(closure,origin.owner(),proofTrust,reads,current);
+        final RetirementCopy actual;
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery origin)
+            actual=prepareRecoveryRetirementCopy(closure,origin.owner(),proofTrust,reads,current);
+        else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
+                ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
+            actual=prepareControlRetirementCopy(closure,resource.provenance(),reads,current);
+        else throw new IllegalStateException("staging historical retirement input is not wired yet");
         if(!Arrays.equals(actual.image().resource().canonicalBytes(),resource.canonicalBytes()))
             throw new IllegalStateException("historical retirement input changed original exact object");
         actual.image().requireContext(intent.context());current.run();return actual;

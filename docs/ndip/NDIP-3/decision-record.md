@@ -1154,3 +1154,13 @@ locator当source激活许可。另补不同未借出prepared候选下的当前So
 重叠预算，避免仅等待更晚候选；不释放原候选或增默认资源。仍未闭合整机启动/
 provider/activation/CONTROL/shared/staging/confirmation/refund/GC或运行验证，
 无新裁定等待/环境操作，单agent/不Fast/必要编译，四包/29切片/flags不提升。
+
+2026-10-16 上述裁定的CONTROL输入实现进展：原management Opening现支持真实
+Native APPLIED Adoption的PROTECTION/ANCHOR closure，复用原owned-I/O/预算及
+独立当前action10，保留完整uses和原责任，不推导共享依赖已释放。原CONTROL
+历史导出依赖随真实Root注入，Catalog按原publication/frozen scope与exact对象/
+version/原protection/history/closure/context重建copy并重读，不用当前角色追认。
+新Source组合接adopted CONTROL与Recovery，旧Recovery-only API保持语义；CONTROL
+正向不需Recovery archive，deny无copy仍持完整history。无新wire/默认预算/权限；
+Native CONTROL/shared投影仍明确未接线拒绝，CONTROL cut准备/签名、staging、
+confirmation/退款/GC及真实运行尚未完成，不提升四包/29切片和三个完成flags。

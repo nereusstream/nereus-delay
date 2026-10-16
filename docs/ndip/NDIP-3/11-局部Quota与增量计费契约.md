@@ -2578,3 +2578,11 @@ copy manifest length+有限开销用于保留输入预核，实际copy后仍核l
 关闭保留copy/history独立成功进度；Source commit已有Native54/55和51费用不改。
 此轮无新wire/线程/client/队列/删除退款；最大真实包络/RSS、完整进程资源组合及
 close/UNKNOWN/真实恢复的测证继续后置，四包/flags未完成。
+
+2026-10-16 CONTROL closure/copy复用原Root allocation、closure有限工作窗口和既有
+Source frame/history/pin/copy/key保留计费，adopt补记也接同一有界读预算；未增加
+默认预算或线程/client/队列。原CONTROL公共历史export上界沿copy既有2MiB界限，
+缺exporter/超界为未知，实际copy/context及Root工作窗口分别预核。Source具体hold
+复用copy/history独立关闭进度，正向CONTROL不加载Recovery archive，deny不取blob。
+无Native CONTROL投影、owner/ref移除、EVIDENCE退费或GC；完整共享引用收费与
+CONTROL签名准备/确认退款闭环仍待实施，最大真实包络/RSS/故障恢复集中验证后置。

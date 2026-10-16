@@ -1069,3 +1069,11 @@ known deny只持history，不依赖已删blob/旧signer/transport或已入场Wor
 缺archive不转deny。Content原physical guards和其它family/provenance保留，原
 loan/close实际退出前不释保护；不同prepared候选只能在全部窗口已覆盖时并存重建。
 完整Root启动/activation/其他provenance与当前许可/确认删除仍未实施，不运行环境。
+
+2026-10-16 CONTROL closure入口只接受实际Native APPLIED Adoption，当前action10
+独立核验并持有至CAS/重读退出；原历史CONTROL签名不授予当前关闭权限。相反，
+历史copy重建只用原注册CONTROL/key/scope，不要求今天的管理角色或Recovery
+archive。原Root导出的完整公共history1不是独立信任pin，copy possession仍不能
+批准Source或开放Native CONTROL投影。新组合保留独立purpose history及原物理
+Source guards；deny不读blob，missing exporter/version/closure未知。共享引用终止、
+CONTROL cut/签名、confirmation和精确delete仍未接，禁止把closure当保护解除。

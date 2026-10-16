@@ -22,6 +22,11 @@ public final class TargetKafkaReceiptProtectionTrust {
     public interface HistoricalActor {
         ControlAuthorizationContext resolve(PreparedControlOperation operation, SourcePosition originalAuthorization);
     }
+    /** Original Root-owned registered history; exported keys remain public material, never new trust pins. */
+    @FunctionalInterface
+    public interface PublicHistory {
+        byte[] export(TargetKafkaReceiptControlArtifact artifact, TargetKafkaReceiptControlArtifact protection);
+    }
     @FunctionalInterface
     public interface ReceiptScope {
         void requireCovered(TargetKafkaReceiptProtection protection, PreparedControlOperation operation,
@@ -43,6 +48,7 @@ public final class TargetKafkaReceiptProtectionTrust {
     private final ReceiptScope scope;
     private final Backing backing;
     private final TargetReceiptCurrentManagement current;
+    private final PublicHistory publicHistory;
 
     public TargetKafkaReceiptProtectionTrust(ControlTargetRegistrationAuthority registrations,
             TargetChannelControlVerifier.KeyAuthority keys, HistoricalActor actors, ReceiptScope scope, Backing backing) {
@@ -52,12 +58,31 @@ public final class TargetKafkaReceiptProtectionTrust {
     public TargetKafkaReceiptProtectionTrust(ControlTargetRegistrationAuthority registrations,
             TargetChannelControlVerifier.KeyAuthority keys, HistoricalActor actors, ReceiptScope scope, Backing backing,
             TargetReceiptCurrentManagement current) {
+        this(registrations, keys, actors, scope, backing, current, null);
+    }
+
+    public TargetKafkaReceiptProtectionTrust(ControlTargetRegistrationAuthority registrations,
+            TargetChannelControlVerifier.KeyAuthority keys, HistoricalActor actors, ReceiptScope scope, Backing backing,
+            TargetReceiptCurrentManagement current, PublicHistory publicHistory) {
         this.current = current;
+        this.publicHistory = publicHistory;
         this.registrations = Objects.requireNonNull(registrations, "original CONTROL registrations");
         this.keys = Objects.requireNonNull(keys, "original historical CONTROL keys");
         this.actors = Objects.requireNonNull(actors, "original authenticated actor history");
         this.scope = Objects.requireNonNull(scope, "explicit receipt scope");
         this.backing = Objects.requireNonNull(backing, "actual management/capability backing");
+    }
+
+    /** Authenticates original CONTROL history without substituting a current operator or management permission. */
+    public byte[] historicalPublicInputs(TargetKafkaReceiptControlArtifact artifact,
+            TargetKafkaReceiptControlArtifact protection) {
+        requireArtifactHistory(artifact, protection);
+        final byte[] inputs = Objects.requireNonNull(publicHistory, "original CONTROL public history is not configured")
+                .export(artifact, protection);
+        if (inputs == null || inputs.length == 0
+                || inputs.length > com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES)
+            throw new IllegalStateException("original CONTROL public history exceeds its finite copy bound");
+        return com.nereusstream.delay.protocol.Bytes.copy(inputs);
     }
 
     /** Can run before a management action; authorization covers this receipt, rather than just its business Target. */
