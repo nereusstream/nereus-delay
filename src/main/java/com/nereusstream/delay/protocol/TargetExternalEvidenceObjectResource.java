@@ -11,8 +11,8 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
         byte[] valueDigest, long canonicalValueBytes, byte[] immutableVersion, Provenance provenance) {
     public static final int SCHEMA_VERSION = 1;
     public static final int MAX_VERSION_BYTES = 512;
-    private static final int MAX_PROVENANCE_BYTES = Math.max(TargetExternalEvidenceOwner.MAX_CANONICAL_BYTES + 128,
-            TargetRecoveryEvidenceOwner.MAX_CANONICAL_BYTES + 16);
+    private static final int MAX_PROVENANCE_BYTES = Math.max(TargetCatalogCapacityOwnerRef.MAX_BYTES+256,
+            Math.max(TargetExternalEvidenceOwner.MAX_CANONICAL_BYTES + 128,TargetRecoveryEvidenceOwner.MAX_CANONICAL_BYTES + 16));
     public static final int MAX_CANONICAL_BYTES = MAX_PROVENANCE_BYTES + TargetRecoveryProofRef.MAX_KEY_BYTES + 2048;
 
     public enum Subtype {
@@ -26,8 +26,15 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
         }
     }
 
-    public sealed interface Provenance permits Protection, Anchor, Recovery, Staging {
+    public sealed interface Provenance permits Protection, Anchor, Recovery, StagingProvenance {
         byte[] canonicalBytes();
+    }
+    public sealed interface StagingProvenance extends Provenance permits Staging,ReservedStaging {
+        byte[] publicationIntentId();
+        byte[] publicationOriginDigest();
+        byte[] deploymentPhysicalOwner();
+        int authorizationKind();
+        byte[] originalAuthorizationDigest();
     }
 
     /** The immutable native owner already contains original CONTROL digest/Source and first Source adoption. */
@@ -66,7 +73,7 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
 
     /** No adoption/Target logical owner. The origin digest excludes mutable phase, prepared-use and reference state. */
     public record Staging(byte[] publicationIntentId, byte[] publicationOriginDigest, byte[] deploymentPhysicalOwner,
-            int authorizationKind, byte[] originalAuthorizationDigest, TrustedUtcIntervalEvidence createdAt) implements Provenance {
+            int authorizationKind, byte[] originalAuthorizationDigest, TrustedUtcIntervalEvidence createdAt) implements StagingProvenance {
         public static final int CONTROL_AUTHORIZATION = 1;
         public static final int RECOVERY_PROOF_AUTHORIZATION = 2;
         public Staging {
@@ -89,6 +96,25 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
         }
     }
 
+    /** Version2 staging: the original durable reservation supplies ownership; no physical creation UTC is invented. */
+    public record ReservedStaging(byte[] publicationIntentId,byte[] publicationOriginDigest,TargetCatalogCapacityOwnerRef capacityOwner,
+            int authorizationKind,byte[] originalAuthorizationDigest) implements StagingProvenance {
+        public ReservedStaging {
+            publicationIntentId=assigned(publicationIntentId);publicationOriginDigest=assigned(publicationOriginDigest);
+            Objects.requireNonNull(capacityOwner);originalAuthorizationDigest=assigned(originalAuthorizationDigest);
+            if(authorizationKind!=Staging.CONTROL_AUTHORIZATION&&authorizationKind!=Staging.RECOVERY_PROOF_AUTHORIZATION)throw invalid();
+        }
+        @Override public byte[] publicationIntentId(){return Bytes.copy(publicationIntentId);}
+        @Override public byte[] publicationOriginDigest(){return Bytes.copy(publicationOriginDigest);}
+        @Override public byte[] originalAuthorizationDigest(){return Bytes.copy(originalAuthorizationDigest);}
+        @Override public byte[] deploymentPhysicalOwner(){return capacityOwner.digest();}
+        @Override public byte[] canonicalBytes(){return branch(5,CanonicalProtobuf.message(out->{
+            CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.bytes(out,2,publicationIntentId);
+            CanonicalProtobuf.bytes(out,3,publicationOriginDigest);CanonicalProtobuf.bytes(out,4,capacityOwner.canonicalBytes());
+            CanonicalProtobuf.uint32(out,5,authorizationKind);CanonicalProtobuf.bytes(out,6,originalAuthorizationDigest);
+        }));}
+    }
+
     public TargetExternalEvidenceObjectResource {
         Objects.requireNonNull(subtype); Objects.requireNonNull(shard); Objects.requireNonNull(provenance);
         catalogNamespaceId = assigned(catalogNamespaceId); deploymentRootDigest = assigned(deploymentRootDigest);
@@ -106,10 +132,11 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
                 || provenance.canonicalBytes().length > MAX_PROVENANCE_BYTES) throw invalid();
         immutableVersion = Bytes.copy(immutableVersion);
         TargetQuotaIncarnation owner;
-        if (provenance instanceof Staging original) {
+        if (provenance instanceof StagingProvenance original) {
             if (original.authorizationKind() != (subtype == Subtype.RECOVERY_PROOF
                     ? Staging.RECOVERY_PROOF_AUTHORIZATION : Staging.CONTROL_AUTHORIZATION)) throw invalid();
             owner = null;
+            if(original instanceof ReservedStaging current)same(catalogNamespaceId,current.capacityOwner().catalogNamespaceId());
         } else if (provenance instanceof Recovery original) {
             final var actual = original.owner(); final var ref = actual.reference();
             if (subtype != Subtype.RECOVERY_PROOF || !exactKey.equals(ref.exactKey())
@@ -183,6 +210,13 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
                 origin = new Staging(QueryCodecSupport.fixed(f.get(0), 1, 32), QueryCodecSupport.fixed(f.get(1), 2, 32),
                         QueryCodecSupport.fixed(f.get(2), 3, 32), QueryCodecSupport.uint32(f.get(3), 4), QueryCodecSupport.fixed(f.get(4), 5, 32),
                         TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(f.get(5), 6)));
+            }
+            case 5 -> {
+                final var f=TargetCompatibilityCodec.read(value,TargetCatalogCapacityOwnerRef.MAX_BYTES+256,6,false,"reserved staging origin");
+                QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6},"reserved staging origin");
+                if(QueryCodecSupport.uint(f.get(0),1)!=2)throw invalid();
+                origin=new ReservedStaging(QueryCodecSupport.fixed(f.get(1),2,32),QueryCodecSupport.fixed(f.get(2),3,32),
+                        TargetCatalogCapacityOwnerRef.decode(QueryCodecSupport.nested(f.get(3),4)),QueryCodecSupport.uint32(f.get(4),5),QueryCodecSupport.fixed(f.get(5),6,32));
             }
             default -> throw invalid();
         }

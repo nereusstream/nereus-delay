@@ -703,7 +703,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             synchronized(this){
                 requireReady();
                 final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody()).resource().provenance();
-                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging)
+                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.StagingProvenance)
                     throw new IllegalStateException("staging Source copy reconstruction is not wired yet");
                 history=provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery?requireRecoveryArchive():null;
                 if(retirementHistoryInput!=null&&!sameRetirementEntry(retirementHistoryInput.entry,entry))
@@ -779,7 +779,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
                     return original.provider().load(entry,family,current);
                 final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody()).resource().provenance();
-                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging
+                if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.StagingProvenance
                         ||recoveryOnly&&!(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
                     return original.provider().load(entry,family,current);
                 return loadRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
@@ -795,7 +795,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 throw new IllegalArgumentException("retirement Source provider received another operation");
             final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody());
             if(!scope.shard().equals(body.shard())||!Arrays.equals(scope.tenantScope(),body.resource().tenantScope())
-                    ||body.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging)
+                    ||body.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.StagingProvenance)
                 throw new IllegalStateException("retirement provider requires its exact adopted Source scope/provenance");
             final var history=readRetirementHistory(entry,current);
             RetirementSourceCopy copy=null;

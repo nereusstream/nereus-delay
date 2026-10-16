@@ -91,7 +91,7 @@ public final class TargetEvidenceRetirementStore {
         final boolean expired = source.brokerPersistenceTimeEpochMs() > intent.retryUntilEpochMs()
                 || backend.prepareRead(budget, reader -> reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()).value();
         final boolean protocolReady=expired?false:backend.prepareRead(budget,
-                reader->TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source)).value();
+                reader->TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource())).value();
         Approval approval = null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
         if (!expired && protocolReady && intent.authorIdentity().length <= (1 << 20)) {
             AuthorIdentity actor;
@@ -131,7 +131,7 @@ public final class TargetEvidenceRetirementStore {
             final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
                     Bytes.sha256(intent.canonicalEnvelope()));
             final var root = sourceRoot(reader, stamp);
-            final boolean nativeReady=TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source);
+            final boolean nativeReady=TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource());
             if(nativeReady&&!expired&&retainedHistory==null)throw new IllegalStateException("original Source protocol/input changed; retain and retry");
             boolean sourceActivated=activated&&nativeReady;
             if(sourceActivated){
@@ -255,9 +255,6 @@ public final class TargetEvidenceRetirementStore {
             reference.requireAttempt(attempt); attempt.mutation().requireAtOrBefore(cut);
             if (!owner.adoptedAt().equals(attempt.resolvedAt()) || !Arrays.equals(owner.admissionHash(), attempt.admissionDigest()))
                 throw new IllegalStateException("retiring proof changed original resolved Attempt");
-        } else if (!(copy.resource().provenance() instanceof TargetExternalEvidenceObjectResource.Protection)
-                && !(copy.resource().provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)) {
-            throw new IllegalStateException("staging Native retirement projection is not wired yet");
         }
         final var sourceOwner = new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD, scope.shard(),
                 reader.aggregate().accountingIncarnation(), null, null);
@@ -270,6 +267,8 @@ public final class TargetEvidenceRetirementStore {
     public static void requireRetainedUses(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity sourceOwner,
             TargetEvidenceRetiringRecord record, TargetQuotaMutation frontier) {
+        if(record.copy().resource().provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
+            TargetProtocolActivationStore.requireCapacityOwnerStaging(view,overlay,scope,lineage,sourceOwner,record.appliedAt(),frontier);
         requireRetainedUses(view,overlay,scope,lineage,sourceOwner,record.copy().resource(),record.body().context(),frontier);
         if(record.copy().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Protection
                 ||record.copy().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
@@ -289,11 +288,14 @@ public final class TargetEvidenceRetirementStore {
                 || context.fence().proofId() != null && fence.proofId() == null)
             throw new IllegalStateException("retirement lost its committed prepared ingress fence");
         final var adopted = resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery r ? r.owner() : null;
-        final boolean control=resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
-                ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor;
+        final boolean staging=resource.provenance() instanceof TargetExternalEvidenceObjectResource.StagingProvenance;
+        final boolean control=resource.subtype()!=TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
+        if(staging)requireStagingUnadopted(view,overlay,scope,lineage,sourceOwner,resource,context,frontier);
         if (adopted != null) adopted.adoptedAt().requireAtOrBefore(context.preparedCut());
         boolean adoptingFirst = false;
         for (var use : context.uses()) {
+            if(staging&&use.conclusion()==TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED)
+                throw new IllegalStateException("staging retirement cannot claim an adopted sealed use");
             final byte[] key = resultKey(use.id());
             final byte[] raw = view.projected(ColumnFamily.DEDUPE, key, overlay);
             if (use.conclusion() == TargetEvidenceRetirementContext.Conclusion.SOURCE_FENCED
@@ -346,6 +348,56 @@ public final class TargetEvidenceRetirementStore {
             }
         }
         if (adopted != null && !adoptingFirst) throw new IllegalStateException("retiring proof lacks complete sealed adoption provenance");
+    }
+
+    /** No logical Target owner is fabricated for staging; complete Native absence is additional to Root provenance. */
+    private static void requireStagingUnadopted(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetExternalEvidenceObjectResource resource,
+            TargetEvidenceRetirementContext context,TargetQuotaMutation frontier){
+        final var frozen=context.feeOwner();final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var actual=TargetQuotaIncarnation.decodeForStore(ownerKey,
+                payload(view,overlay,ColumnFamily.META,ownerKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
+        if(!frozen.identity().equals(sourceOwner)||!Arrays.equals(actual.recoveryLineage(),lineage)
+                ||!frozen.accounting().equals(actual.accounting())||!frozen.allocation().equals(actual.allocation())
+                ||frozen.draining()&&(!actual.draining()||!frozen.latestMutation().equals(actual.latestMutation())))
+            throw new IllegalStateException("staging copy changed its actual frozen Source SHARD fee owner");
+        actual.latestMutation().requireAtOrBefore(frontier);
+        final boolean recovery=resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
+        final byte[] adoptedKey=recovery?TargetRecoveryEvidenceOwner.key(resource.objectDigest())
+                :TargetExternalEvidenceOwner.key(resource.subtype().wireValue(),resource.objectDigest());
+        final byte[] adopted=view.projected(ColumnFamily.META,adoptedKey,overlay);
+        final boolean ownedElsewhere;
+        if(adopted==null)ownedElsewhere=false;
+        else{
+            final String adoptedExactKey=recovery?TargetRecoveryEvidenceOwner.decodeForStore(adoptedKey,
+                    TargetValueEnvelope.decode(adopted,TargetRecoveryEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage).reference().exactKey()
+                    :TargetExternalEvidenceOwner.decodeForStore(adoptedKey,
+                        TargetValueEnvelope.decode(adopted,TargetExternalEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage).exactKey();
+            if(adoptedExactKey.equals(resource.exactKey()))
+                throw new IllegalStateException("staging object already has an actual Native adoption owner");
+            // The digest index can name a different immutable physical copy. Its references retain that
+            // exact owner's key; they cannot confer adoption on this Catalog object's different key.
+            ownedElsewhere=true;
+        }
+        final byte tag=(byte)(recovery?TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG:TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG);
+        byte[] lower={tag,TargetKeyCodec.KEY_FORMAT};final byte[] upper={tag,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
+        while(true){
+            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            if(Arrays.compareUnsigned(row.key(),lower)<0||Arrays.compareUnsigned(row.key(),upper)>=0)
+                throw new IllegalStateException("staging reference read escaped its finite range");
+            lower=Bytes.concat(row.key(),new byte[]{0});
+            final boolean matches;
+            if(recovery){
+                final var ref=TargetRecoveryEvidenceReference.decodeForStore(row.key(),
+                        TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
+                matches=Arrays.equals(ref.proofDigest(),resource.objectDigest());
+            }else{
+                final var ref=TargetExternalEvidenceReference.decodeForStore(row.key(),
+                        TargetValueEnvelope.decode(row.value(),TargetExternalEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
+                matches=ref.kind()==resource.subtype().wireValue()&&Arrays.equals(ref.artifactDigest(),resource.objectDigest());
+            }
+            if(matches&&!ownedElsewhere)throw new IllegalStateException("staging object still has an actual Native reference/Attempt alias");
+        }
     }
 
     private static byte[] resultKey(byte[] id) {
@@ -435,6 +487,8 @@ public final class TargetEvidenceRetirementStore {
         TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.body().intent().mutationId(),record.intentAppliedAt(),frontier);
         TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.confirmation().systemMutationId(),record.appliedAt(),frontier);
         final var body=record.body();final var resource=body.resource();
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
+            TargetProtocolActivationStore.requireCapacityOwnerStaging(view,overlay,scope,lineage,sourceOwner,record.intentAppliedAt(),frontier);
         if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
                 ||!Arrays.equals(lineage,resource.recoveryLineage()))throw new IllegalStateException("confirmed resource changed actual Source scope");
         requireRetainedUses(view,overlay,scope,lineage,sourceOwner,resource,body.context(),frontier);

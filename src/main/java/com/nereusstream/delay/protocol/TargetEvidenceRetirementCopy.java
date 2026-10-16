@@ -100,6 +100,11 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
                 || !Arrays.equals(Bytes.u64beBits(QueryCodecSupport.uint64Bits(f.get(6), 7)), resource.immutableVersion())
                 || !Arrays.equals(QueryCodecSupport.fixed(f.get(12), 13, 32), resource.catalogNamespaceId()))
             throw new IllegalArgumentException("copy closure changed the exact Catalog object");
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.StagingProvenance origin
+                &&(!Arrays.equals(origin.publicationIntentId(),QueryCodecSupport.fixed(f.get(7),8,32))
+                    ||!Arrays.equals(origin.publicationOriginDigest(),QueryCodecSupport.fixed(f.get(8),9,32))
+                    ||QueryCodecSupport.uint32(f.get(13),14)==4||QueryCodecSupport.bytes(f.get(14),15).length!=0))
+            throw new IllegalArgumentException("staging copy changed original publication identity or was already adopted");
     }
     private static void requireObject(TargetExternalEvidenceObjectResource resource,byte[] raw,byte[] inputs) {
         if (resource.subtype() == TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF) {

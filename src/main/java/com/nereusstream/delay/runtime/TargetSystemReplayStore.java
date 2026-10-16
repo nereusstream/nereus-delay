@@ -280,7 +280,8 @@ public final class TargetSystemReplayStore {
             final StableCode rejection=expired?StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
                     :retirement&&retirementAlreadyApplied(reader,mutation)?StableCode.STALE_SYSTEM_MUTATION
                     :activation&&TargetProtocolActivationStore.applied(reader,scope,lineage,com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement())!=null?StableCode.STALE_SYSTEM_MUTATION
-                    :retirement&&!TargetProtocolActivationStore.isActivated(reader,scope,lineage,com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement(),source)?StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION:null;
+                    :retirement&&!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement(),source,
+                        com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody()).resource())?StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION:null;
             return new Inspection(null,rejection==null?null:SystemMutationResult.from(mutation,ApplyStatus.REJECTED,rejection,source.canonicalBytes()),false);
         }
         if (first.kind() != TargetResultRecord.Kind.SYSTEM) {

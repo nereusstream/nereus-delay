@@ -168,6 +168,21 @@ public final class TargetProtocolActivationStore {
     public static boolean isActivated(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple,SourcePosition source){
         final var record=applied(reader,scope,lineage,tuple);return record!=null&&record.body().payload().descriptor().supportsAcceptedHistoryTip()&&record.appliedAt().source().compareTo(source)<0;
     }
+    public static boolean isActivatedForRetirement(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            ProtocolTuple tuple,SourcePosition source,TargetExternalEvidenceObjectResource resource){
+        final var record=applied(reader,scope,lineage,tuple);
+        return record!=null&&record.body().payload().descriptor().supportsAcceptedHistoryTip()&&record.appliedAt().source().compareTo(source)<0
+                &&(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
+                    ||record.body().payload().descriptor().supportsCapacityOwnerStaging());
+    }
+    public static void requireCapacityOwnerStaging(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){
+        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final var record=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
+        requireApplied(view,overlay,scope,lineage,sourceOwner,record,frontier);business.requireAfter(record.appliedAt());
+        if(!record.body().payload().descriptor().supportsCapacityOwnerStaging())
+            throw new IllegalStateException("capacity-root staging requires original descriptor4 activation");
+    }
     public static TargetProtocolActivationRecord applied(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple){
         final byte[] key=TargetProtocolActivationRecord.key(tuple),raw=reader.get(ColumnFamily.META,key);if(raw==null)return null;
         requireLocalCompanion(true);

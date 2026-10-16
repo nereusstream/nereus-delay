@@ -4865,3 +4865,44 @@ permission. The existing actual Source writer and OUTCOME_AND_CONTROL queue carr
 the signed candidate; no local Native apply shortcut, new wire/budget/thread or
 refund path. Full boot/provider/activation/pin/current-purpose composition, staging,
 confirmation/refund/GC and actual Broker/recovery remain open.
+
+2026-10-16 staging reservation provenance revision (implementation only): physical
+publication creation UTC is not a retirement prerequisite. No Root time field or
+clock provider is added, and Root schema1..3 Intent/RecoveryIntent bytes and old
+originDigest algorithms are unchanged. Old provenance branch4 Staging retains its
+exact six fields, including createdAt, with strict decoding and no silent upgrade.
+New writers are to use branch5 ReservedStaging: nested fields 1=version2,
+2=publicationId32, 3=originalOriginDigest32, 4=full TargetCatalogCapacityOwnerRef,
+5=authorizationKind (CONTROL1/RECOVERY2), 6=originalAuthorizationDigest32. It has no
+creation UTC. The common exact object/namespace/version fields remain mandatory.
+
+TargetCatalogCapacityOwnerRef schema1 (max4096) has fields 1=schema1,
+2=Catalog namespace32, 3=exact persistent capacity-root key UTF8 (max2048),
+4=original storage namespace binding32, 5=original capacitySourceDigest32. Owner
+digest is SHA256(domain `nereus-delay-target-catalog-capacity-owner` + NUL +
+canonical ref). It names the original capacity root; capacitySourceDigest alone
+is not an owner. ReservedStaging's namespace must match the ref.
+
+The actual managed Oxia SDK opening captures a binding over its original service
+address, namespace and TLS mode in a separate domain; it excludes session/client/
+process IDs and current credentials. A borrowed/unmanaged client cannot supply a
+binding. Catalog.readCapacityOwner returns a private actual read receipt only
+after retained Root limits, original reservation/member/closure and original
+management/namespace authentication. It does not prove staging, original I/O exit,
+no adoption, Source permission or deletion eligibility, and is not a migration
+receipt. Unknown/moved/unprovable original ownership remains unavailable.
+
+Descriptor4 adds closed vector18=capacityOwnerRef1 and vector19=staging2; schemas
+1..3 keep their exact prior vectors/bytes/digests. New default descriptors emit4.
+ReservedStaging first/apply requires actual prior descriptor4, including local
+precheck and independent state1/state2 accounting; old tuple8/descriptor3 alone
+cannot grant it. Existing same-tuple activation conflict rules remain unchanged.
+
+Native staging checks retain original SHARD allocation/accounting, forbid APPLIED
+sealed uses, verify permanent rejected/fenced uses and complete reference/alias
+ranges, and reject adoption of the exact object. A same-digest owner at another
+exact physical key keeps its own references and is not charged to this staging
+copy. The public copy must retain the exact publication ID/origin and unadopted
+closure phase. Root staging close/copy/provider/preparation/writer, current-purpose,
+full boot/environment authority, confirmation/refund/GC and actual recovery remain
+open. No staging delete or operational migration has been executed.

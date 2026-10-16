@@ -826,7 +826,7 @@ CONTROL_PROTECTION/CONTROL_ANCHOR/RECOVERY_PROOF，不借其它七类或CONTROL/
 exact key/type digest/raw SHA/length/后端独立version、原冻结计费owner/accounting及
 原创建/首次Source adoption。当前executor/Owner/session和mutable uses/ref状态
 不进身份。未采用staging明确独立分支，绑定原durable publication intent与不可变
-origin、deployment physical owner/原授权/创建时刻，不虚构NV47/NV49或Target费用。
+origin、deployment physical owner/原授权，不虚构NV47/NV49或Target费用。创建UTC原设计已由下文后续裁定修订，新分支不再要求。
 
 必须先由原Root CAS closure封住该exact对象的新publication/seal/adoption引用，
 保留完整真实uses及revision/digest。每个prepared use逐个证明永久不能future-first：
@@ -1189,3 +1189,20 @@ SERVICE intent，保原Root/key/time/retry/context检查；实际Source writer/W
 交接不变，不以key/历史CONTROL权限批准Source或delete。无新wire/默认额度/线程，
 完整启动/provider/activation/pin/当前purpose、staging、确认退款/GC与真实恢复尚
 待实施/验证，不关闭四包/29切片或提升三个完成flags。
+
+2026-10-16 主决策会话后续修订staging前置设计：创建UTC不参与本项已裁定的安全
+证明，取消新staging必须具备publication createdAt的门槛；不增加Root时间字段/
+provider，不以process TrustedClock.long、CONTROL Source时间或Recovery observation
+冒充创建时刻。旧branch4六字段及严格decoder保持，新branch5 ReservedStaging字段
+1版本2，保publication ID/原origin、原capacity-owner ref及authorization kind/digest。
+物理owner为原持久capacity root派生身份，ref精确绑定原Catalog namespace/root key/
+storage namespace/limits.capacitySourceDigest；裸source digest不是owner。私有
+实际Root读取须原Root/reservation/limits/成员及management授权，不能只拼配置。
+旧publication若原reservation/归属/授权/closure/uses均可证，可直接用新形态；未知
+搬迁/预算替换/晚到I/O/曾否adopted保持Unavailable，不自动迁移或释放旧责任。
+本轮实现data/ref codec、实际SDK namespace绑定及私有Root capacity receipt，原
+Root1..3与originDigest不变；Descriptor4明确ref1/staging2，旧1..3 bytes保持，新
+Stage2 Native前置/本地预检与state1/2原intent前4门禁已接。staging Native核全sealed
+uses永久非APPLIED、精确对象无adoption/ref/alias及实际冻结Source SHARD STATE。
+仍未实施staging closure/copy/provider/准备writer、完整环境/current-purpose、确认
+退款/GC或真实运行。单agent/不Fast，只必要编译，四包/29切片/三个flags不提升。

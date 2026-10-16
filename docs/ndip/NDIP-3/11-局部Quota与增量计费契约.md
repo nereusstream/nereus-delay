@@ -2604,3 +2604,14 @@ copy parse/reread窗口在读取前覆盖；creator未知时用已有codec有限
 borrow/signed UNKNOWN仍保留原责任，真实first及append退出前不可release。两类
 证明只在实际releaseLocal时清空；原copy Native STATE/owner/ref/EVIDENCE收费路径
 不改，无退款/GC/新线程。全进程最大包络/RSS、故障原子性及真实恢复仍待集中验证。
+
+2026-10-16 staging物理reservation仍归原持久Catalog capacity root，新ref精确绑定
+原namespace/root key/storage binding/capacitySourceDigest，独立派生owner digest；
+不建新预算owner/UUID，也不改Root1..3或原originDigest。Actual managed SDK只多留
+固定32-byte binding，ref/新provenance沿已有有限codec/Source/copy界限；不抬默认
+预算、不加时间服务/线程。借入SDK缺原binding保持未知。
+Native staging copy/墓碑STATE只能选该Source实际冻结SHARD allocation/accounting，
+不伪造Target/EVIDENCE owner；同exact对象有owner/ref/alias或任一APPLIED use拒绝。
+完整range/first/fence预算不足不能当空集，相同digest的另一exact key费用保留。
+Stage2需原intent前descriptor4，增量/独立ledger同核；actual Root staging copy及
+物理确认/原capacity-root退账、Native退款/GC仍未实施，最大包络/RSS验证后置。

@@ -27,6 +27,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private final String ledgerKey;
     private final Limits limits;
     private final TargetKafkaReceiptProtectionTrust trust;
+    private final java.util.function.Supplier<byte[]> storageNamespaceBinding;
 
     /** Control-storage physical budget, separate from Target logical EVIDENCE and system-writer append reservations. */
     public record Limits(long physicalBytes, int physicalRecords, int maximumPublications, int maximumTopics,
@@ -343,6 +344,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public OxiaSyncTargetKafkaReceiptProtectionCatalog(OxiaSyncOwnerLeaseBackend.ClientHandle handle,String keyPrefix,
             TargetKafkaReceiptProtectionTrust trust,Limits limits){
         client=Objects.requireNonNull(handle,"session-fenced Registry handle").client();session=handle.backend()::assertConnectedSession;
+        storageNamespaceBinding=handle.backend()::requireOriginalStorageNamespaceBinding;
         this.trust=Objects.requireNonNull(trust,"original CONTROL trust");this.limits=Objects.requireNonNull(limits,"explicit durable capacity configuration");
         prefix=Objects.requireNonNull(keyPrefix,"Registry prefix");
         if(prefix.isBlank()||prefix.endsWith("/")||prefix.indexOf('\0')>=0||prefix.getBytes(StandardCharsets.UTF_8).length>1024||!Normalizer.isNormalized(prefix,Normalizer.Form.NFC))throw new IllegalArgumentException("invalid receipt Registry prefix");
@@ -855,6 +857,31 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         if(Objects.requireNonNull(original).catalog!=this)throw new IllegalArgumentException("closure belongs to another actual Catalog");
         return original.reread(reads,current);
     }
+    /** Actual physical reservation owner, independent of a logical Target adoption or any deletion eligibility. */
+    public static final class CapacityOwner {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final TargetCatalogCapacityOwnerRef reference;
+        private final byte[] publicationId,originDigest;
+        private CapacityOwner(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,TargetCatalogCapacityOwnerRef reference,Closure closure){
+            this.catalog=catalog;this.reference=reference;publicationId=Bytes.copy(closure.publicationId);originDigest=Bytes.copy(closure.originDigest);
+        }
+        public TargetCatalogCapacityOwnerRef reference(){return reference;}
+        public byte[] publicationId(){return Bytes.copy(publicationId);}
+        public byte[] originDigest(){return Bytes.copy(originDigest);}
+        public void requireCatalog(OxiaSyncTargetKafkaReceiptProtectionCatalog expected){
+            if(catalog!=expected)throw new IllegalArgumentException("capacity owner belongs to another actual Catalog");
+        }
+    }
+    /** Reads retained Root membership/reservation, original management authorization and actual SDK storage namespace. */
+    public CapacityOwner readCapacityOwner(ClosedObject original,BoundedReadBudget reads,Runnable current){
+        if(Objects.requireNonNull(original).catalog!=this)throw new IllegalArgumentException("closure belongs to another Catalog");
+        current.run();final var root=readRoot(reads).root;
+        final var actual=closedSnapshot(root,original.exactKey(),original.closure.objectDigest);
+        requireExact(actual.canonicalBytes(),original.canonicalBytes());
+        final var reference=new TargetCatalogCapacityOwnerRef(actual.namespaceId(),ledgerKey,
+                storageNamespaceBinding.get(),root.limits.capacitySourceDigest);
+        current.run();if(!reads.beforeTimedWork())throw reads.incomplete();return new CapacityOwner(this,reference,actual.closure);
+    }
     /** Only this actual Catalog can produce the authenticated public-copy receipt. It is not delete authority. */
     public static final class RetirementCopy {
         private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
@@ -912,7 +939,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public RetirementCopy readRetirementSourceCopy(TargetEvidenceRetireIntentBody intent,TargetRecoveryProofTrust proofTrust,
             BoundedReadBudget reads,Runnable current){
         Objects.requireNonNull(current).run();final var resource=Objects.requireNonNull(intent).resource();
-        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Staging)
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.StagingProvenance)
             throw new IllegalStateException("staging historical retirement input is not wired yet");
         final var closure=readReferenceClosure(resource.exactKey(),resource.objectDigest(),reads);
         final RetirementCopy actual;

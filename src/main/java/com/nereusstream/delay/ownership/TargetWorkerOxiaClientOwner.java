@@ -28,6 +28,7 @@ public final class TargetWorkerOxiaClientOwner {
     private boolean released;
     private Throwable firstFailure;
     private Duration configuredRequestTimeout;
+    private byte[] storageNamespaceBinding;
     private TargetWorkerOxiaRuntime runtime;
 
     public static TargetWorkerOxiaClientOwner open(OxiaClientBuilder builder, ThreadPoolExecutor executor,
@@ -58,6 +59,12 @@ public final class TargetWorkerOxiaClientOwner {
                     synchronized (owner) {
                         owner.cleanup = opened.cleanup();
                         owner.configuredRequestTimeout = opened.configuration().requestTimeout();
+                        final var configuration=opened.configuration();
+                        owner.storageNamespaceBinding=com.nereusstream.delay.protocol.Bytes.sha256(
+                                com.nereusstream.delay.protocol.Bytes.utf8("nereus-delay-original-oxia-storage-namespace\0"),
+                                com.nereusstream.delay.protocol.Bytes.lp32(com.nereusstream.delay.protocol.Bytes.utf8(configuration.serviceAddress())),
+                                com.nereusstream.delay.protocol.Bytes.lp32(com.nereusstream.delay.protocol.Bytes.utf8(configuration.namespace())),
+                                new byte[]{(byte)(configuration.enableTls()?1:0)});
                     }
                     opened.client().whenComplete((client, failure) -> {
                         final boolean transfer;
@@ -123,6 +130,11 @@ public final class TargetWorkerOxiaClientOwner {
             throw new IllegalStateException("actual Oxia opening has no bounded request timeout");
         }
         return configuredRequestTimeout;
+    }
+    /** Captured from the actual SDK opening; it excludes process/session/client identifiers and current credentials. */
+    synchronized byte[] requireStorageNamespaceBinding(){
+        requireClient();
+        return com.nereusstream.delay.protocol.Bytes.copy(Objects.requireNonNull(storageNamespaceBinding,"original SDK namespace binding"));
     }
 
     public static final class OpenFailure extends IllegalStateException {

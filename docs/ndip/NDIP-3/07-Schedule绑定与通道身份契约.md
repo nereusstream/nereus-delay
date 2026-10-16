@@ -1093,3 +1093,12 @@ copy和原SERVICE签名配置，CONTROL不借Recovery archive，也不借CONTROL
 充作Source purpose许可。g8 actual activation/原history/tip/签名/Source权限仍在
 原Source路径独立核；原保护集合仍逐项必需。真实append/UNKNOWN保留与actual first
 后release复用原路径，不授权物理删除或解除父保护，完整当前purpose组合仍待接。
+
+2026-10-16 新staging不再声明物理创建UTC。原reservation身份为branch5/version2，
+capacity-owner ref绑定原Catalog namespace/exact root key/实际SDK storage namespace
+和原budget source；当前Owner/session或裸capacitySourceDigest不授物理归属。
+私有Root read receipt还须原limits/reservation/closure/management真实核对；无证据
+搬迁/替换不追认，不采当前时钟填旧字段。旧branch4仅保持原bytes/严格读取。
+新Stage2要求actual prior descriptor4与exact reader支持；既有3不默认为新能力，
+后来4不追认更早Source。Native无adoption/永久uses及Source SHARD费核是额外门禁，
+都不授物理delete或current-purpose，实际staging writer/provider尚未接通。

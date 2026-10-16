@@ -218,6 +218,12 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         }
         return configuredRequestTimeout;
     }
+    /** Only the actual managed SDK opening can supply a stable storage binding; a borrowed client cannot self-report it. */
+    public byte[] requireOriginalStorageNamespaceBinding(){
+        assertConnectedSession();
+        if(clientOwner==null)throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        return clientOwner.requireStorageNamespaceBinding();
+    }
 
     /**
      * Derives the 32-byte session identity from the metadata attached to an
