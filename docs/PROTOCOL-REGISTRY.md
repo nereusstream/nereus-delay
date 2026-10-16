@@ -4402,3 +4402,83 @@ Dependency inventory/copy and semantic digest field10 preserve confirmed rows;
 empty prior inventories retain old digest bytes. Schemas1..5 reject both states.
 Confirmation Source apply/provider proof, NV51 replacement/refund, new companion,
 CONTROL/shared/staging and GC remain open; no actual physical delete was run.
+
+2026-10-16 Target retirement authorization history reader/Root wiring adds a
+closed public data schema, without changing existing Source/NV51/NV52 bytes.
+TargetRetirementAuthorizationHistory.Snapshot fields:1 schema1;2 exact pinned
+CONTROL authority AuthorIdentity;3 nonzero issuer-key uint32;4 nonzero authority
+generation uint64;5 parent digest[32] (zero iff generation1);6 deploymentRoot[32];
+7 actual Catalog namespace[32];8 Shard-only TargetQuotaScope;9 lineage[16];10 sorted
+Source intervals;11 digest[32];12 Ed25519 signature[64]. Digest is SHA256 of domain
+`nereus-delay-target-retirement-source-authorization-history\0` plus fields1..10;
+signature covers SHA256 of independent domain
+`nereus-delay-target-retirement-source-authorization-history-signature\0` plus digest.
+There is no embedded issuer key. Root independently pins purpose/issuer/version/key,
+exact baseline digest, actual management Root and actual Catalog namespace identity.
+
+Interval fields1 afterExclusive and2 throughInclusive are full canonical bounded
+SourcePosition in the same physical Source/Shard;3 mandatory complete policy image,
+whose repeated field1 contains grants. An explicit empty policy is a proved deny
+segment. Intervals must join by exact canonical boundary and adjacent equal
+policies coalesce. Grant fields1 complete SERVICE identity (at most1024 bytes),
+2 nonzero System keyVersion uint32,3 Ed25519 X509 public key[44],4 closed action
+1 RETIRE_INTENT/2 DELETE_CONFIRMATION,5 ProtocolActivationState.Activation reference
+(at most4096 bytes) for exact Target generation8 effective no later than segment
+start. Fields6 Target-activation-reference version=1,7 exact Target descriptor
+digest[32],8 actual Target activation projection digest[32],9 original marker
+mutation hash[32] are mandatory. The five-field locator alone is insufficient.
+Grants are unique/sorted by lp32(SERVICE)||u32(keyVersion)||u32(action).
+Snapshot ceilings:256KiB,64 intervals,128 total grants,8192 bytes per grant.
+
+A successor has generation+1, exact parent digest, same authority/key/Root/namespace/
+scope/lineage and canonical starting boundary, with strictly extended coverage.
+Every old permission interval and canonical policy-transition boundary remains
+unchanged; extension may coalesce the final same-policy interval. Missing coverage
+or a different physical Source is unavailable, never proved denial. A matching
+known grant with invalid original frame signature is denied within covered history.
+Grant selection does not authenticate actual Native protocol/Artifact activation,
+capacity, protections, object copy, delete response, or current append permission.
+
+The optional Root openConfigured retirementHistory path uses the existing closed
+bounded file parser. Configuration fields:history.authorityPurpose must equal
+TARGET_RETIREMENT_SOURCE_AUTHORIZATION_HISTORY;history.deploymentRootDigest;
+history.authorityIdentityFile;history.authorityKeyVersion;
+history.authorityPublicKeyFile;history.headFile;history.baselines.count(1..4);
+for each baseline,history.baselines.i.snapshotFile/snapshotDigest;
+history.maximumInputBytes. Trusted Root configuration supplies these independent
+purpose/key/baseline pins; arbitrary per-frame files cannot introduce new roots.
+The head is only an untrusted locator with history.versions.count(0..16) and each
+history.versions.i.snapshotFile/snapshotDigest. Actual signed immutable generations
+must extend pinned baselines in order. It never lists a directory or guesses latest
+from timestamps. Already accepted in-process sealed generations cannot be removed,
+rolled back or forked. Missing head/IO/invalid history is not a denial. A zero-update
+head only retains the independently pinned baseline's actually covered facts.
+
+Root reservation precedes authority/key/snapshot reads on existing owned I/O.
+History minimum bytes are4*(baselineCount+32)*256KiB +1MiB +4*configuredPathBytes,
+with explicit maximum64MiB; defaults are not raised. Source capture uses that same
+finite I/O turn, with no nested Root-pool wait. One exact-frame/position/connection
+proof loan retains immutable history; actual original.close must succeed before
+release, and Root Stop/final close waits the loan/read. Public proof schema1 has
+fields1 schema,2 pinned authority,3 issuer-key version,4 public X509 key,5 baseline
+digest,6 repeated complete verified ancestry snapshots. Restore must independently
+reauthenticate the original Root pin; these public bytes do not self-authorize.
+Source hold explicitly counts the full selected proof; no key-only approval cache.
+
+Actual Source provider/Native-checkpoint proof retention and restart-tip correlation
+remain open, as do current-purpose append permits and actual g8 activation checks.
+ArtifactGenerationSet schema1 only binds body2; its seven-field activation cannot
+represent g8. The history data keeps a constructible five-field g8 activation
+reference without relaxing that old format or treating it as permission. The main chat has now approved a separate Target activation payload/projection
+through APPLY_SHARD_CONTROL/controlKind1; that implementation remains open.
+No service/config/key/grant/Source/Admin/delete operation was executed by this step.
+
+Root frame preflight now uses actual retained body+author lengths through no-copy
+SystemMutation length accessors. Oversized SERVICE authors cannot match this
+history's bounded grants; complete Source coverage is still checked before a
+proved denial, without copying/decoding that oversized author. Negative original
+Source input byte accounting is rejected before adding the retained proof charge.
+The received activation decision preserves base Artifact schema1/body2 and old
+payloads, adds a distinct bounded Target descriptor/marker and exact Target reader
+declaration/evidence, and requires actual Source APPLIED accounted Native state.
+History grant fields6..9 only bind that future proof; no activation is synthesized.

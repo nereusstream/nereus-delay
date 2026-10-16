@@ -835,6 +835,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         final var uses=closure.subtype==3?root.recoveries.get(Bytes.hex(closure.publicationId)).uses:root.publications.get(Bytes.hex(closure.publicationId)).uses;
         return new ClosedObject(this,closure,uses,management.image().deploymentRootDigest());
     }
+    /** Exact data identity derived from this Catalog's prefix/capacity and the authenticated management image. */
+    public byte[] namespaceIdentity(TargetKafkaReceiptManagementImage image){return namespaceId(Objects.requireNonNull(image));}
     private byte[] namespaceId(TargetKafkaReceiptManagementImage image){return Bytes.sha256(Bytes.utf8("nereus-delay-target-evidence-catalog-namespace\0"),
             image.deploymentRootDigest(),Bytes.lp32(Bytes.utf8(prefix)),limits.capacitySourceDigest);}
     public String protectionObjectKey(TargetKafkaReceiptProtection image){return protectionKey(image.resource(),image.evidenceGeneration());}

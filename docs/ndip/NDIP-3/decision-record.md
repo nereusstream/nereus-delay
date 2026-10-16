@@ -1044,3 +1044,60 @@ Floor保护留存并计入实际字节，不能只缓存key/approved标志或因
 intent与confirmation，分别结合实际copy/Native/capacity/delete证据门禁；其它family
 保持原provider。实现只处理加载/范围/认证/完整覆盖/版本及局部snapshot，不杜撰
 未来授权，也不生成生产材料或执行实际服务/配置/Admin/delete/迁退/保护解除。
+
+2026-10-16 历史授权reader/Root实施更新：已按上条裁定实现独立purpose签名及原
+Root pin、真实Source完整区间权限表/明确deny段、gen+1父链和旧sealed区间不可改写、
+有限head更新选择、coverage未知及原帧known-key验签、公有完整chain证明导出；Root
+显式可选配置/有界owned加载与单Source loan/真实close/Stop已接。尚未构成完整
+Provider：Native/Checkpoint持久proof/重启tip、当前append许可和原Source实际激活
+核验继续开放。文件存在/数据grant/签名本身仍不授Source APPLIED或外部delete。
+
+同轮确认公共激活缺口：现有ArtifactGenerationSet schema1硬要求body2，带Artifact
+的ProtocolVersionActivatePayload及7字段Activation又强制tuple等于set.systemTuple，
+无法表示g8。TargetSourceApplyRuntime当前无ProtocolActivationState/activate实际
+Native入口，InitialControlSnapshot兼容集合只是必要门禁。已向主会话询问实际
+Target g8激活投影/入口的格式裁定；当前history保留可构造的既有5字段g8引用数据，
+不重释旧Artifact或制造原Source批准。其余已裁定代码继续推进，不提升完成flags。
+
+2026-10-16 主会话进一步裁定Target g8激活路径（已收到，实际实现待继续）：
+复用既有APPLY_SHARD_CONTROL、controlKind1/PROTOCOL_VERSION_ACTIVATE，不新增
+SystemMutationType，不重释ArtifactGenerationSet schema1/body2、旧payload3/5字段
+或ProtocolActivationState。独立版本化Target activation descriptor/manifest引用完整
+原base Artifact set/digest和真实环境/reset manifest，另绑定exact tuple8、Target
+schema hash、所需Native/Store/checkpoint/history/copy版本及真实source/SDK锁；
+只列当前闭合组合，不把Target hash塞base hash，也不另造reset系统。
+
+marker为kind1下明确新Target payload分支/版本，完整或有界引用上述descriptor、
+tuple/schema/reader证据及原CONTROL引用，由原Control semanticHash和Source签名
+覆盖。旧handler拒绝未知分支，不fallback legacy；真实CONTROL根批准scope/key/
+身份，retirement SERVICE/history/copy signer均无激活权。
+
+复用ActivationAuthorityCoordinator核完整eligible membership、声明revision/session、
+tuple/base Artifact，并新增对exact Target descriptor digest的明确reader声明；若
+旧CapabilityDeclaration不能表达，采用最小显式新版本/分支，旧bytes不变、不推定
+支持。证据绑定完整集合与exact Target组合，缺成员/过期/错session/版本均拒绝；
+声明不等于真实binary/SDK部署核验，原环境根/运行锁仍独立核验。
+
+marker走已授权的控制引导入口，只允许该闭合Target payload，无需先激活g8，但
+仍须CONTROL/Source/Owner/物理保护、兼容读能力及精确reader证据。初始snapshot
+仅可声明读取兼容；真实首次Source APPLIED marker之后才生效，不能由配置常量
+或manifest替代，也不新造需要预先激活的通用SYSTEM body。
+
+新增未占Native type/key的Target activation Store/record，绑定Shard/tenant/lineage、
+base/manifest/Target组合、reader、原CONTROL/key/引用、完整marker ID/hash和实际
+Source/stamp。Source/AuthorityLoader锁外收集原权限/Artifact/reader/环境，锁内核
+Source前缀/初始兼容/状态，与first/POSITION/Source/SHARD STATE同batch。重复幂等，
+同tuple不同schema/manifest/证据冲突不覆盖。g8业务严格在匹配marker之后且在原
+用途权限区间，当前writer待真实APPLIED，冷重放不采今天reader/角色补历史批准。
+
+history引用必须关联实际Native activation、marker原签名/ID/hash/Source/APPLIED、
+descriptor/reader；5字段仅定位，已在当前未激活history格式强制补reference version1
+和descriptor/projection/marker hash，仍非实际激活。缺证明unavailable，已证明
+不存在/不匹配才按三态deny；不能反向从caller引用造Native事实。新projection及
+完整公共marker/Target依赖/历史材料接独立ledger/companion/root/restore/reopen，
+不要求旧Owner/session现存，不由当前reader追认；旧初始snapshot无真实激活保持
+未激活。purpose grant与实际marker是相交门禁，互不替代。
+
+只补本次g8闭环，不迁所有旧tuple。仍单agent/不Fast/必要编译/文档同步，集中
+验证后置；不运行真实激活、grant/key、service/config/Admin/delete/迁退，所有
+完成flags保持未完成。此裁定已收到，不存在等待主会话的阻塞。

@@ -1004,3 +1004,11 @@ first/POSITION、原scope/lineage和完整uses/fence。主会话已批准独立p
 Root pin的历史manifest/provider，完整Source coverage、撤销边界及原tuple激活证明
 均须核实，具体实现继续开放；旧recovery/retirement signing配置均不自动授Source
 apply权限。
+
+2026-10-16 Root新增独立history purpose/issuer/version/key/baseline pin，签名绑定
+Root/实际Catalog namespace/Shard/tenant/lineage及完整Source区间和SERVICE/run/
+config/key/action；RETIRE与CONFIRM分开，不借当前角色或copy key补权。覆盖内空
+policy或known authorized key不验原帧为确定deny，覆盖/读取/认证不完整为unknown。
+本阶段只返回认证历史grant及g8激活引用，不授Source Approval/current append/
+删除权限。真实Source/Artifact激活核验与公共proof的Native/Checkpoint持久保护、
+restart tip一致性仍须接通；Artifact schema1固定body2，不能从当前兼容集合自证8。

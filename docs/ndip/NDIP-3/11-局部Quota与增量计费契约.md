@@ -2510,3 +2510,16 @@ stamp；其原context冻结fee owner/accounting不换成当前Owner。严格reco
 key/payload/overhead收费，核两阶段first/POSITION及原owner/ref/alias/NV51已不存在；
 实际NV51差额与EVIDENCE退款尚无确认handler，未声称已完成。同view invariants不是
 外部delete许可；真实最大包络/RSS/Native原子退款及恢复仍留集中验证。
+
+2026-10-16 history输入并入原Root retainedInputBytes，独立预留baseline/current/
+incoming ancestry及完整parse/verify窗口：minimum=4*(baselineCount+32)*256KiB+
+1MiB+4*configuredPathBytes，显式maximum64MiB；不抬默认配置。每snapshot256KiB/
+64区间/128总grants，head最多16更新、最多4基线，路径/key/条目均沿原bounded
+parser。Source frame窗口另预核，history/copy只允许配对同一原frame/Source proof。
+Source hold显式计完整公共proof，original.close失败保留loan/预算，Root最后关闭
+等待真实读取/borrow退出；无额外线程/队列/client。当前没有Native写入/退款，
+最大合法包络/RSS及Source证明持久空间收费仍未测证或闭合。
+
+同轮补实际body+author长度无复制frame预核，Source hold原计数为负直接拒绝；超
+1024作者不为历史匹配复制/反复编码，但须先确认完整coverage才作确定deny。新增
+Target引用字段仍受原256KiB snapshot/8192 grant/完整Root窗口限制，不抬默认预算。

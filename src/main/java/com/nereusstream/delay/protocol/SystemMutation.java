@@ -127,6 +127,8 @@ public final class SystemMutation {
     public byte[] authorIdentity() {
         return Bytes.copy(authorIdentity);
     }
+    /** Exact retained length for input preflight, without copying the original author image. */
+    public int authorIdentityLength() { return authorIdentity.length; }
 
     public int signingKeyVersion() {
         return signingKeyVersion;
