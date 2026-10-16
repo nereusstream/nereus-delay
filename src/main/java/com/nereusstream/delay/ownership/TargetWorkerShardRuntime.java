@@ -591,6 +591,12 @@ public final class TargetWorkerShardRuntime
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.readClosedRecoveryUses(reads,closure,applied,clock);
     }
+    public synchronized com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ControlClosure readControlReferenceClosure(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ControlReferenceSnapshot snapshot,
+            LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.readControlReferenceClosure(reads,snapshot,clock);
+    }
     public synchronized void requireRetirementReadCurrent(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
     }

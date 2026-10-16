@@ -4812,3 +4812,30 @@ retains complete history without a copy. Existing Native51 CONTROL projection st
 rejects as unwired; shared Native joins, CONTROL preparation/signing, staging,
 confirmation/refund/GC and real Broker/recovery remain open. No wire/schema/default
 budget/privilege expansion; compilation is not runtime acceptance.
+
+2026-10-16 CONTROL Native intent projection now accepts adopted PROTECTION/ANCHOR
+through the existing accounted Source path. Its sealed uses are Admission firsts;
+Recovery uses remain Outcome/EvidenceResolution. The exact original channel event,
+Native47 frozen owner, full shared mapping/ref/Attempt/alias inventory and original
+creator Admission are joined. Every retained APPLIED use must have exactly one
+matching mapping reference, and every reference must appear in the sealed set.
+ADMITTED/UNKNOWN Attempts block CONTROL retirement. State1 retains all original
+owners/refs/aliases and charges its public copy to the original frozen Target; no
+confirmation/refund/delete authority is added.
+
+The previous adoption-only CONTROL closure API now fails unavailable. The new
+original-Source overload captures the Catalog Root cut, reads complete Native
+first/POSITION or permanent Source-fence conclusions and all resolved references,
+then performs closure CAS only if the captured Root is unchanged. A new seal or
+publication causes rejection/retry before closure; unresolved Attempts keep their
+original recovery-proof dependency available. Current action10 and original
+Root/Source admission guards remain held through I/O. Only the selected object is
+marked adopted in that CAS. A private actual Native receipt cannot be replaced by
+a caller Boolean or a serialized claim.
+
+Cold reference range reads share existing Native/image budgets and validate the
+same projected view in incremental and independent checkpoint accounting. No
+complete range or exhausted budget means unavailable, never an empty-reference
+proof. No wire/schema/default-budget/thread change. CONTROL cut/copy preparation
+and signing, staging, full environment/activation/pin assembly, confirmation/refund/
+GC and actual Broker/recovery remain incomplete; compilation is not acceptance.

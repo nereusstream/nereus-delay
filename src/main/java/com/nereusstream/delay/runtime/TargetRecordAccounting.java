@@ -44,6 +44,12 @@ public final class TargetRecordAccounting {
         ShardId shardId();
 
         byte[] projected(ColumnFamily family, byte[] key, List<TargetStoreBackend.Edit> overlay);
+
+        /** Complete cold-path reference joins need a finite ordered range in the same selected view. */
+        default com.nereusstream.delay.store.ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper,
+                List<TargetStoreBackend.Edit> overlay) {
+            throw new IllegalStateException("bounded accounting range reads are not configured");
+        }
     }
 
     public record Charge(TargetQuotaIncarnation owner, TargetQuotaUsage primary) {

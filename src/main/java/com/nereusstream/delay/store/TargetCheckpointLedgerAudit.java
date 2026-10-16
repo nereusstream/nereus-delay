@@ -104,6 +104,16 @@ final class TargetCheckpointLedgerAudit {
                 budget.point(key.length, raw == null ? 0 : raw.length);
                 return raw;
             }
+
+            @Override
+            public ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper,
+                    List<TargetStoreBackend.Edit> overlay) {
+                if (!overlay.isEmpty() || lower == null || upper == null || Arrays.compareUnsigned(lower, upper) >= 0)
+                    throw new IllegalArgumentException("recovery reference reads require a finite range without overlay");
+                final var row = source.first(family, lower, upper);
+                budget.point(lower.length + upper.length, row == null ? 0 : row.key().length + row.value().length);
+                return row;
+            }
         };
         final var accounting = new TargetRecordAccounting(
                 view,
@@ -363,6 +373,8 @@ final class TargetCheckpointLedgerAudit {
     private interface LedgerSource {
         byte[] get(ColumnFamily family, byte[] key);
 
+        ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper);
+
         void requireDefaultEmpty();
 
         void scan(ColumnFamily family, Budget budget, EntryVisitor visitor);
@@ -461,6 +473,18 @@ final class TargetCheckpointLedgerAudit {
         }
 
         @Override
+        public ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper) {
+            try (RocksIterator iterator = db.newIterator(handles.get(family))) {
+                iterator.seek(lower);
+                final var result = iterator.isValid() && Arrays.compareUnsigned(iterator.key(), upper) < 0
+                        ? new ShardStore.KeyValue(iterator.key(), iterator.value()) : null;
+                iterator.status(); return result;
+            } catch (RocksDBException failure) {
+                throw new IllegalArgumentException("cannot read Target checkpoint reference range", failure);
+            }
+        }
+
+        @Override
         public void requireDefaultEmpty() {
             try (RocksIterator empty = db.newIterator(defaultHandle)) {
                 empty.seekToFirst();
@@ -505,6 +529,18 @@ final class TargetCheckpointLedgerAudit {
         @Override
         public byte[] get(final ColumnFamily family, final byte[] key) {
             return store.get(family, key);
+        }
+
+        @Override
+        public ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper) {
+            final ShardStore.KeyValue[] row = {null};
+            final var result = store.visitResult(family, lower, upper, 1, readBudget, (entry, shared) -> {
+                row[0] = entry; return false;
+            });
+            if (result.stop() == ShardStore.VisitStop.INCOMPLETE) throw readBudget.incomplete();
+            if (result.stop() != ShardStore.VisitStop.RANGE_END && result.stop() != ShardStore.VisitStop.VISITOR_STOPPED)
+                throw new IllegalArgumentException("Target reference range minimum was not established");
+            return row[0];
         }
 
         @Override

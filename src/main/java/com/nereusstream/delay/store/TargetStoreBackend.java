@@ -442,6 +442,7 @@ public final class TargetStoreBackend {
         }
 
         /** Finds the first surviving key using at most overlay.size()+1 persisted entries. */
+        @Override
         public ShardStore.KeyValue first(
                 final ColumnFamily family, final byte[] lower, final byte[] upper, final List<Edit> overlay) {
             requireActive();

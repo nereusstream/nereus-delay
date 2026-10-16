@@ -737,17 +737,44 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         applied.reference().requireOwner(owner);
         return closePresentObjectReferences(owner.reference().exactKey(),owner.reference().proofDigest(),proofTrust,reads,current,applied,null);
     }
-    /** Freezes one adopted CONTROL object; shared-use termination and physical retirement remain separate. */
+    /** Historical API lacks complete Native use/Attempt preflight and cannot freeze recovery dependencies. */
     public ClosedObject closeAdoptedControlReferences(TargetExternalEvidenceStore.Adoption applied,int kind,
+            BoundedReadBudget reads,Runnable current){
+        throw new IllegalStateException("CONTROL closure requires complete Native use/Attempt preflight for the captured Root");
+    }
+    /** An immutable actual Root cut, used only while its original owner retains the bounded I/O responsibility. */
+    public static final class ControlReferenceSnapshot {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final TargetExternalEvidenceOwner owner;
+        private final byte[] rootDigest;
+        private final List<ClosedPreparedUse> uses;
+        private ControlReferenceSnapshot(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,Root root,
+                TargetExternalEvidenceOwner owner,Intent intent){
+            this.catalog=catalog;this.owner=owner;rootDigest=Bytes.sha256(root.bytes());
+            uses=intent.uses.stream().map(u->new ClosedPreparedUse(u.id,u.hash,u.retryUntil)).toList();
+        }
+        public TargetExternalEvidenceOwner owner(){return owner;}
+        public List<ClosedPreparedUse> preparedUses(){return uses;}
+    }
+    public ControlReferenceSnapshot captureControlReferences(TargetExternalEvidenceStore.Adoption applied,int kind,
             BoundedReadBudget reads,Runnable current){
         Objects.requireNonNull(applied,"actual Native APPLIED CONTROL object adoption");
         final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
                 :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
         if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
-        return closePresentObjectReferences(owner.exactKey(),owner.artifactDigest(),null,reads,current,null,applied);
+        current.run();final var root=readRoot(reads).root;
+        final var intent=Objects.requireNonNull(findByKey(root,owner.exactKey()),"original CONTROL publication");
+        requireControlOwner(intent,owner);current.run();return new ControlReferenceSnapshot(this,root,owner,intent);
+    }
+    /** Only a complete actual Native preflight for this exact unchanged Root can freeze CONTROL dependencies. */
+    public ClosedObject closeAdoptedControlReferences(TargetExternalEvidenceStore.ControlClosure preflight,
+            BoundedReadBudget reads,Runnable current){
+        final var snapshot=Objects.requireNonNull(preflight,"actual Native CONTROL closure preflight").snapshot();
+        if(snapshot.catalog!=this)throw new IllegalArgumentException("CONTROL closure belongs to another Catalog");
+        return closePresentObjectReferences(snapshot.owner.exactKey(),snapshot.owner.artifactDigest(),null,reads,current,null,snapshot);
     }
     private ClosedObject closePresentObjectReferences(String exactKey,byte[] objectDigest,TargetRecoveryProofTrust proofTrust,
-            BoundedReadBudget reads,Runnable current,TargetRecoveryEvidenceStore.Adoption applied,TargetExternalEvidenceStore.Adoption controlApplied){
+            BoundedReadBudget reads,Runnable current,TargetRecoveryEvidenceStore.Adoption applied,ControlReferenceSnapshot controlSnapshot){
         Objects.requireNonNull(reads);Objects.requireNonNull(current).run();Bytes.requireLength(objectDigest,32,"exact closure object digest");
         final var before=readRoot(reads).root;final var control=findByKey(before,exactKey);RecoveryIntent recovery=null;
         if(control==null)for(var candidate:before.recoveries.values())if(candidate.reference.exactKey().equals(exactKey)){recovery=candidate;break;}
@@ -771,8 +798,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             trust.requireArtifactHistory(protection,protection);
         }else{
             final var artifact=decodeArtifact(control,stored);
-            if(controlApplied!=null){
-                final var owner=subtype==TargetKafkaReceiptControlArtifact.PROTECTION?controlApplied.protection():controlApplied.anchor();
+            if(controlSnapshot!=null){
+                final var owner=controlSnapshot.owner;
                 owner.requireObject(subtype,objectDigest,exactKey,stored.value());
             }
             protection=subtype==1?artifact:readArtifact(requiredDigest(before,1,artifact.protectionDigest()),reads);
@@ -787,8 +814,14 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         try(var permission=trust.currentManagement(authority,Action.CLOSE_EVIDENCE_OBJECT_REFERENCES)){
             final Runnable held=()->{current.run();permission.requireCurrent();if(!reads.beforeTimedWork())throw reads.incomplete();};held.run();
             if(applied!=null)adoptRecovery(applied,held,reads);
-            if(controlApplied!=null)adopt(controlApplied,held,reads);
             final var closed=update(root->{
+                final byte[] rootCutDigest=Bytes.sha256(root.bytes());
+                if(controlSnapshot!=null){
+                    requireExact(rootCutDigest,controlSnapshot.rootDigest);
+                    final var original=Objects.requireNonNull(findByKey(root,controlSnapshot.owner.exactKey()));
+                    requireControlOwner(original,controlSnapshot.owner);
+                    root=root.publication(original.adopt(Bytes.sha256(controlSnapshot.owner.createdAt().source().canonicalBytes())));
+                }
                 final List<PreparedUse> uses;final byte[] origin;final int phase;final byte[] adopted;
                 if(subtype==3){final var original=Objects.requireNonNull(root.recoveries.get(Bytes.hex(publication)),"original recovery intent");
                     requireExact(original.reference.proofDigest(),objectDigest);requireExact(original.reference.valueDigest(),rawDigest);
@@ -806,7 +839,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 final var inventory=publicationInventory(root);
                 return root.close(new Closure(subtype,exactKey,objectDigest,rawDigest,bytes,stored.version().versionId(),publication,origin,
                         preparedUsesDigest(uses),uses.size(),root.closureSequence+1,namespace,phase,adopted,inventory,inventoryDigest(inventory),
-                        Bytes.sha256(root.bytes()),management.image().topicIdentity()));
+                        rootCutDigest,management.image().topicIdentity()));
             },held,reads);
             held.run();final var after=read(exactKey,reads,Math.toIntExact(bytes));
             if(after==null||after.version().versionId()!=stored.version().versionId())throw new IllegalStateException("closed object changed during authenticated reread");

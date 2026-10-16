@@ -1077,3 +1077,11 @@ archive。原Root导出的完整公共history1不是独立信任pin，copy posse
 批准Source或开放Native CONTROL投影。新组合保留独立purpose history及原物理
 Source guards；deny不读blob，missing exporter/version/closure未知。共享引用终止、
 CONTROL cut/签名、confirmation和精确delete仍未接，禁止把closure当保护解除。
+
+2026-10-16 CONTROL正向Source copy现在可进入Native kind1/2投影，但原purpose/
+签名/descriptor3/accepted-tip门禁外仍须原Channel Control event、全部Admission
+first/POSITION及真实共享mapping/Attempt/owner/ref/alias与creator一致。原冻结
+Target保持费用；未结束Attempt拒绝。Root关闭另需真实原Source的完整预检，旧
+单Adoption API不再足够；Root cut变化必重试，action10与原admission guard持至
+CAS/重读退出，不能拿closure切断UNKNOWN恢复证明。此为引用封闭/intent输入与
+投影，不授权物理delete、父保护解除或确认退款；CONTROL准备/签名仍待接。

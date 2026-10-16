@@ -2586,3 +2586,13 @@ Source frame/history/pin/copy/key保留计费，adopt补记也接同一有界读
 复用copy/history独立关闭进度，正向CONTROL不加载Recovery archive，deny不取blob。
 无Native CONTROL投影、owner/ref移除、EVIDENCE退费或GC；完整共享引用收费与
 CONTROL签名准备/确认退款闭环仍待实施，最大真实包络/RSS/故障恢复集中验证后置。
+
+2026-10-16 CONTROL NV51新增copy STATE仍按原context冻结Target owner/accounting
+收费，Native47/48与alias及原EVIDENCE收费保留。增量与独立ledger从同一selected
+View有限遍历该kind全部ref keys，相关digest逐个实际mapping/adoption/Attempt
+核对，applied uses双向齐全；预算耗尽不能当range end或无共享引用。不新增索引/
+格式或抬默认额度，冷退役路径的大scope预算/RSS仍须集中验证。
+关闭前Root allocation现覆盖原retained inputs+Catalog closure窗口+Native read
+上界；预检凭真实Native结果/永久Source fence与终态Attempt，Root cut CAS不符则
+重试，无额外线程/队列。只补记选中对象phase并冻结引用，不移动owner/ref/alias，
+无confirmation/EVIDENCE退款/GC。CONTROL原子故障、差额收费和恢复仍未测证。

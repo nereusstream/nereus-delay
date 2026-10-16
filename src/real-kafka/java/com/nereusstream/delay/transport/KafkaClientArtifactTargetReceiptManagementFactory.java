@@ -462,12 +462,31 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedControlReferences(
                 com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption applied,int kind,
                 com.nereusstream.delay.store.BoundedReadBudget reads){
+            throw new IllegalStateException("CONTROL closure requires the original admitted Source and complete bounded Native preflight");
+        }
+
+        public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedControlReferences(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption applied,int kind,
+                com.nereusstream.delay.store.BoundedReadBudget reads,com.nereusstream.delay.store.BoundedReadBudget nativeReads){
             requireReady();Objects.requireNonNull(applied,"actual Native CONTROL object adoption");
+            Objects.requireNonNull(source);Objects.requireNonNull(reads);Objects.requireNonNull(nativeReads);
+            if(reads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
+                throw new IllegalArgumentException("CONTROL closure requires explicit finite Catalog and Native read bounds");
             final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
                     :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
             if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                    Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),nativeReads.maxBytes()));
+            allocation.requireCovers(new CapacityVector(minimum));
             return closeAdoptedReferences(owner.exactKey(),Bytes.sha256(owner.canonicalBytes()),reads,
-                    current->catalog.closeAdoptedControlReferences(applied,kind,reads,current));
+                    current->{
+                        final Runnable held=()->{current.run();source.requireRetirementReadCurrent(this,current);};
+                        final var snapshot=catalog.captureControlReferences(applied,kind,reads,held);
+                        final var preflight=source.readControlReferenceClosure(this,snapshot,nativeReads,held);
+                        held.run();return catalog.closeAdoptedControlReferences(preflight,reads,held);
+                    });
         }
 
         private java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedReferences(

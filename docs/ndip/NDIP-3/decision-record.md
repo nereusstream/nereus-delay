@@ -1164,3 +1164,16 @@ version/原protection/history/closure/context重建copy并重读，不用当前�
 正向不需Recovery archive，deny无copy仍持完整history。无新wire/默认预算/权限；
 Native CONTROL/shared投影仍明确未接线拒绝，CONTROL cut准备/签名、staging、
 confirmation/退款/GC及真实运行尚未完成，不提升四包/29切片和三个完成flags。
+
+2026-10-16 上述原UNKNOWN保护义务继续落实：前轮CONTROL单Adoption关闭入口
+不足以证明所有共享Attempt均已结束。现旧API拒绝，新原Source入口在原Root cut
+上取得实际Native完整sealed first/POSITION/永久Source fence和终态共享引用预检，
+私有receipt绑定捕获Root；同CAS所见Root变化则拒绝重试，不能封闭UNKNOWN恢复
+proof父依赖。当前action10/原Root/Source admission和完整有限工作窗口仍必需，
+只补记所选对象adoption，不授权物理删除或原保护解除。
+CONTROL kind1/2 Native51投影现按Admission用途核原CONTROL event/owner及完整
+共享mapping/Attempt/ref/alias/creator，增量和checkpoint同View范围核双向完整性，
+原owners/refs/EVIDENCE保留，copy STATE计冻结Target。原adoption读取共用于实际
+Native与immutable image，补exact body hash/lineage/Owner author/first/POSITION。
+无wire/默认预算/新线程；预算不足保未知。CONTROL cut/copy准备和签名、staging、
+实际activation/原pin/环境与confirmation/退款/GC仍待继续，不关闭四包/29切片。
