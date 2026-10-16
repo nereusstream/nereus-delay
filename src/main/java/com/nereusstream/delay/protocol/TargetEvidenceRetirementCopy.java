@@ -43,6 +43,14 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
     public byte[] digest() { return Bytes.sha256(DOMAIN, canonicalBytes()); }
     public void requireContext(TargetEvidenceRetirementContext context) {
         context.requireResource(resource);
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging){
+            final SourcePosition original=resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF
+                    ?TargetRecoveryProof.decode(signedObject).mapping().mutation().source()
+                    :TargetKafkaReceiptControlArtifact.decode(signedObject).authorizedAt();
+            final var preparedSource=context.preparedCut().source();final int order=original.compareTo(preparedSource);
+            if(order>0||order==0&&!Arrays.equals(original.canonicalBytes(),preparedSource.canonicalBytes()))
+                throw new IllegalArgumentException("staging copy changed original Source order or complete metadata");
+        }
         final var closure = closureFields(closureImage);
         if (context.closureRevision() != QueryCodecSupport.uint64Bits(closure.get(11), 12)
                 || context.closureBytes() != closureImage.length
@@ -115,6 +123,9 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
                     ||!Arrays.equals(resource.recoveryLineage(),proof.frozenOwner().recoveryLineage()))
                 throw new IllegalArgumentException("copy changed proof digest/Source/tenant/lineage");
             if (resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery origin) origin.owner().requireProof(proof);
+            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging origin
+                    &&!Arrays.equals(origin.originalAuthorizationDigest(),proof.originalAuthorizationDigest()))
+                throw new IllegalArgumentException("staging proof changed original material authorization");
             final var f = TargetCompatibilityCodec.read(inputs, MAX_PUBLIC_INPUT_BYTES, 12, false, "recovery public history");
             QueryCodecSupport.requireNumbers(f, new int[]{1,2,3,4,5,6,7,8,9,10,11,12}, "recovery public history");
             if (QueryCodecSupport.uint(f.get(0), 1) != 1
@@ -156,6 +167,10 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
             final var artifact = TargetKafkaReceiptControlArtifact.decode(raw);
             if (artifact.kind() != resource.subtype().wireValue() || !Arrays.equals(artifact.digest(), resource.objectDigest()))
                 throw new IllegalArgumentException("copy changed original CONTROL object");
+            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging origin
+                    &&(!resource.shard().equals(artifact.authorizedAt().shardId())
+                        ||!Arrays.equals(origin.originalAuthorizationDigest(),Bytes.sha256(artifact.control().canonicalBytes()))))
+                throw new IllegalArgumentException("staging CONTROL copy changed original authorization/Shard");
             final TargetExternalEvidenceOwner owner=resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection p
                     ?p.owner():resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor a?a.owner():null;
             if(owner!=null&&(!Arrays.equals(owner.originalControlDigest(),Bytes.sha256(artifact.control().canonicalBytes()))

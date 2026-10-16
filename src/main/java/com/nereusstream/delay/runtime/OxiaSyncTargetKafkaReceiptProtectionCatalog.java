@@ -935,12 +935,69 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
         return new RetirementCopy(this,copy);
     }
+    /** Read-only reconstruction from an already closed original reservation; this does not establish writer/I/O exit or authorize deletion. */
+    public RetirementCopy prepareStagingRetirementCopy(ClosedObject original,TargetExternalEvidenceObjectResource resource,
+            TargetRecoveryProofTrust proofTrust,BoundedReadBudget reads,Runnable current){
+        if(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging origin))
+            throw new IllegalArgumentException("staging reconstruction requires explicit capacity-root provenance2");
+        final var actual=readReferenceClosure(original,reads,current);actual.requireObjectFingerprint(resource);
+        if(actual.closure.capturedPhase==ADOPTED||actual.closure.capturedAdoptedSource.length!=0)
+            throw new IllegalStateException("original reservation was already adopted");
+        final var capacity=readCapacityOwner(actual,reads,current);capacity.requireCatalog(this);
+        requireExact(capacity.reference().canonicalBytes(),origin.capacityOwner().canonicalBytes());
+        requireExact(capacity.publicationId(),origin.publicationIntentId());requireExact(capacity.originDigest(),origin.publicationOriginDigest());
+        final var root=readRoot(reads).root;final var captured=closedSnapshot(root,resource.exactKey(),resource.objectDigest());
+        requireExact(captured.canonicalBytes(),actual.canonicalBytes());
+        final var stored=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(stored==null||!Arrays.equals(resource.immutableVersion(),Bytes.u64beBits(stored.version().versionId())))
+            throw new IllegalStateException("staging copy lacks original present object/version");
+        final byte[] inputs;
+        if(resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF){
+            final var reservation=Objects.requireNonNull(root.recoveries.get(Bytes.hex(origin.publicationIntentId())),"original recovery reservation");
+            if(reservation.phase==ADOPTED||reservation.adoptedSource.length!=0)
+                throw new IllegalStateException("recovery reservation acquired an adoption");
+            final var verified=Objects.requireNonNull(proofTrust,"original recovery public history").verify(resource.exactKey(),stored.value());
+            verified.requireExact(reservation.reference);requireExact(reservation.frozenOwner.canonicalBytes(),verified.proof().frozenOwner().canonicalBytes());
+            requireExact(origin.originalAuthorizationDigest(),verified.proof().originalAuthorizationDigest());
+            inputs=proofTrust.historicalPublicInputs(verified);
+        }else{
+            final var reservation=Objects.requireNonNull(findByKey(root,resource.exactKey()),"original CONTROL reservation");
+            if(reservation.phase==ADOPTED||reservation.adoptedSource.length!=0||!shard(reservation.shard).equals(resource.shard()))
+                throw new IllegalStateException("CONTROL reservation changed original unadopted Source scope");
+            final var artifact=decodeArtifact(reservation,stored);
+            final var protection=artifact.kind()==TargetKafkaReceiptControlArtifact.PROTECTION?artifact
+                    :readArtifact(requiredDigest(root,TargetKafkaReceiptControlArtifact.PROTECTION,artifact.protectionDigest()),reads);
+            final String key=artifact.kind()==TargetKafkaReceiptControlArtifact.PROTECTION?protectionObjectKey(artifact.protection()):anchorObjectKey(artifact.digest());
+            if(!key.equals(resource.exactKey()))throw new IllegalStateException("staging CONTROL copy changed canonical key");
+            requireExact(origin.originalAuthorizationDigest(),reservation.controlDigest);
+            inputs=trust.historicalPublicInputs(artifact,protection);
+        }
+        current.run();final var copy=new TargetEvidenceRetirementCopy(resource,stored.value(),inputs,actual.canonicalBytes());
+        readReferenceClosure(actual,reads,current);
+        final var finalCapacity=readCapacityOwner(actual,reads,current);
+        requireExact(capacity.reference().canonicalBytes(),finalCapacity.reference().canonicalBytes());
+        final var finalRoot=readRoot(reads).root;
+        if(resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF){
+            final var reservation=Objects.requireNonNull(finalRoot.recoveries.get(Bytes.hex(origin.publicationIntentId())));
+            if(reservation.phase==ADOPTED||reservation.adoptedSource.length!=0)
+                throw new IllegalStateException("staging recovery reservation was adopted during copy authentication");
+        }else{
+            final var reservation=Objects.requireNonNull(findByKey(finalRoot,resource.exactKey()));
+            if(reservation.phase==ADOPTED||reservation.adoptedSource.length!=0)
+                throw new IllegalStateException("staging CONTROL reservation was adopted during copy authentication");
+        }
+        final var after=read(resource.exactKey(),reads,Math.toIntExact(resource.canonicalValueBytes()));
+        if(after==null||after.version().versionId()!=stored.version().versionId())
+            throw new IllegalStateException("staging object changed during public-copy authentication");
+        requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
+        return new RetirementCopy(this,copy);
+    }
     /** Read-only reconstruction of one already-signed Source input; actual Native joins remain in Source apply. */
     public RetirementCopy readRetirementSourceCopy(TargetEvidenceRetireIntentBody intent,TargetRecoveryProofTrust proofTrust,
             BoundedReadBudget reads,Runnable current){
         Objects.requireNonNull(current).run();final var resource=Objects.requireNonNull(intent).resource();
-        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.StagingProvenance)
-            throw new IllegalStateException("staging historical retirement input is not wired yet");
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Staging)
+            throw new IllegalStateException("legacy staging creation-time provenance cannot be reconstructed from current Root data");
         final var closure=readReferenceClosure(resource.exactKey(),resource.objectDigest(),reads);
         final RetirementCopy actual;
         if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery origin)
@@ -948,7 +1005,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
                 ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
             actual=prepareControlRetirementCopy(closure,resource.provenance(),reads,current);
-        else throw new IllegalStateException("staging historical retirement input is not wired yet");
+        else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
+            actual=prepareStagingRetirementCopy(closure,resource,proofTrust,reads,current);
+        else throw new IllegalStateException("unsupported original retirement provenance");
         if(!Arrays.equals(actual.image().resource().canonicalBytes(),resource.canonicalBytes()))
             throw new IllegalStateException("historical retirement input changed original exact object");
         actual.image().requireContext(intent.context());current.run();return actual;

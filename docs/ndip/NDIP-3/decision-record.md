@@ -1206,3 +1206,16 @@ Stage2 Native前置/本地预检与state1/2原intent前4门禁已接。staging N
 uses永久非APPLIED、精确对象无adoption/ref/alias及实际冻结Source SHARD STATE。
 仍未实施staging closure/copy/provider/准备writer、完整环境/current-purpose、确认
 退款/GC或真实运行。单agent/不Fast，只必要编译，四包/29切片/三个flags不提升。
+
+2026-10-16 上述reservation裁定的copy/Source推进：已经闭合的ReservedStaging可经
+原Root核exact capacity-owner/pubID/origin、原授权history、raw/version/closure与
+captured/current phase后重建公共copy，并重读排除copy期间已adopted。Stage2原授权
+摘要明确CONTROL PreparedControlOperation SHA256或Recovery原CredentialAuthorization
+的digest，原Source同域且不晚于Native prepared cut，同点metadata一致。旧staging
+不拿当前时间/材料补齐。Subtype决定Recovery archive依赖；新Content沿原loan接Stage2，
+deny仅history，其它family/legacy保持原provider。无wire/默认额度/线程变更。
+检查原SDK发现Sync put等future结果及Root PUBLISHED/reread不等于完整未知put/晚
+回调退出证明；故本轮未提供以这些材料单独批准staging关闭的入口。copy receipt不
+授closure/delete/退款，实际原writer/I/O责任、staging关闭/准备writer、完整environment/
+current-purpose、confirmation/GC与真实恢复继续开放。单agent/不Fast，集中验证后置，
+四包/29切片/三个完成flags保持未完成。

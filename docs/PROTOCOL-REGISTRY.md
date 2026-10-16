@@ -4906,3 +4906,33 @@ copy. The public copy must retain the exact publication ID/origin and unadopted
 closure phase. Root staging close/copy/provider/preparation/writer, current-purpose,
 full boot/environment authority, confirmation/refund/GC and actual recovery remain
 open. No staging delete or operational migration has been executed.
+
+2026-10-16 ReservedStaging closed-copy/Source inputs (implementation only): Catalog
+can reconstruct an already closed, unadopted reservation's public copy. It matches
+the exact original capacity-owner ref, publication ID/origin, namespace/Root/key/
+raw digest/length/version and closure, authenticates original CONTROL or Recovery
+history, then rereads capacity/closure/current reservation phase and actual object.
+Captured or current ADOPTED/nonempty adoptedSource is unavailable. An existing
+blob or PUBLISHED phase does not supply the required closure or writer-exit proof.
+
+For provenance2, originalAuthorizationDigest is SHA256(full PreparedControlOperation
+canonical bytes) for CONTROL and TargetRecoveryCredentialAuthorization.digest for
+Recovery public material. The latter is exposed by the data-only proof accessor;
+it is neither current observer authority nor retirement purpose authorization.
+The original CONTROL Source or Recovery Admission Source must be at/before the
+prepared cut in the same authenticated physical Source; equal order also requires
+identical full canonical metadata. These consistency checks do not authenticate
+embedded keys by themselves. Old staging branch4 remains strict and is not rebuilt
+using current time/material as a replacement for missing historical input.
+
+withRetirementSourceInputs now also handles ReservedStaging on the original Source
+owned-I/O/loan path. Positive Recovery subtype inputs need the original Recovery
+archive, including unadopted proof copies; CONTROL needs original CONTROL public
+history. Known denial still retains only complete purpose history, and other
+families/legacy staging continue to their original provider. Recovery-only API
+keeps its previous delegation semantics. Actual prior descriptor4, Native no-adoption/
+permanent-use/SHARD-fee checks and original Source authority remain independent.
+No closure/deletion permission, new wire/budget/thread, operational write or test
+acceptance is claimed. Staging closure needs original unknown-put/late-callback/
+writer-exit responsibility proof; preparation/writer/current-purpose, full original
+Root/environment assembly, confirmation/refund/GC and real recovery remain open.

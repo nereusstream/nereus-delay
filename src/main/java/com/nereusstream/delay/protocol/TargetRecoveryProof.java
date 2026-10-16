@@ -100,6 +100,12 @@ public final class TargetRecoveryProof {
     public byte[] sdkJar(){return Bytes.copy(value(7));}
     public String sourceCommit(){return new String(value(8),StandardCharsets.US_ASCII);}
     public byte[] publicMaterial(){return Bytes.copy(value(11));}
+    /** Original credential/material authorization data, not the current observer or retirement purpose grant. */
+    public byte[] originalAuthorizationDigest(){
+        final var material=QueryCodecSupport.read(value(11),"archived public recovery material");
+        QueryCodecSupport.requireNumbers(material,new int[]{1,2,3,4,5,6,7},"archived public recovery material");
+        return com.nereusstream.delay.ownership.TargetRecoveryCredentialAuthorization.decode(QueryCodecSupport.nested(material.get(1),2)).digest();
+    }
     public TargetQuotaAttemptBudget attempt(){return TargetQuotaAttemptBudget.decode(value(16));}
     public TargetQuotaIncarnation frozenOwner(){return TargetQuotaIncarnation.decode(value(17));}
     public byte[] observation(){return Bytes.copy(value(10));}

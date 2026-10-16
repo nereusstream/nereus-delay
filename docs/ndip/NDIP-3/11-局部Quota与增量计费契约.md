@@ -2615,3 +2615,11 @@ Native staging copy/墓碑STATE只能选该Source实际冻结SHARD allocation/ac
 完整range/first/fence预算不足不能当空集，相同digest的另一exact key费用保留。
 Stage2需原intent前descriptor4，增量/独立ledger同核；actual Root staging copy及
 物理确认/原capacity-root退账、Native退款/GC仍未实施，最大包络/RSS验证后置。
+
+2026-10-16 ReservedStaging copy/Source输入复用原完整byte预核与loan/owned-I/O，
+实际capacity/closure/phase/raw/version多次读取均受同一finite Catalog读预算；失败/
+Stop不虚构成功或释放未退出的原SDK责任。Proof original authorization accessor仅
+返回既有公开material摘要，不新建历史root/证书/Target费用。原planned Recovery
+frozen owner只验来源；实际staging STATE仍由Native核真实Source SHARD，物理费仍
+归原capacity root。无默认额度/线程/队列/Native格式变化，最大包络/RSS和关闭/
+确认退款/GC仍待集中实施/验证。

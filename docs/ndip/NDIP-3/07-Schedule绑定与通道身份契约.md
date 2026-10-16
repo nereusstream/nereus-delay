@@ -1102,3 +1102,11 @@ capacity-owner ref绑定原Catalog namespace/exact root key/实际SDK storage na
 新Stage2要求actual prior descriptor4与exact reader支持；既有3不默认为新能力，
 后来4不追认更早Source。Native无adoption/永久uses及Source SHARD费核是额外门禁，
 都不授物理delete或current-purpose，实际staging writer/provider尚未接通。
+
+2026-10-16 新staging Source原始copy输入只认证已经closed且未adopted的原reservation，
+capacity-owner/ref/pub/origin/current phase、原CONTROL或Recovery material权限均须
+相符。originalAuthorizationDigest不借当前角色/observer，原Source域与prepared cut
+不得串域或重写同点metadata。Subtype=Recovery仍需原archive，CONTROL无需该archive
+但须真实CONTROL公共history；known deny仅history，缺材料为unknown。原Svc purpose/
+prior descriptor4/Native owner与全uses/SHARD费另核，copy不授closure/delete。实际
+staging关闭仍缺原未知put/晚回调/writer退出证明，不以PUBLISHED/年龄/无ref代替。
