@@ -1060,3 +1060,12 @@ Root/Source provider/current append许可、确认及删除闭环仍未接通，
 及独立原pin仍需认证，55所带proof不自授信任。actual55与54/first/POSITION/stamp
 双向关联，未知/回退保留原Source。Bootstrap配置/pin从Native重建、完整Root /
 Source/lifecycle provider/历史pin归档、实际签名交接/当前许可与确认删除仍待继续。
+
+
+2026-10-16 Recovery Root输入组合不增加信任根：独立history grant及原Svc签名先核，
+正向再取真实Root/Catalog认证copy、版本/closure/context及原预算；actual Native3/
+55/first/uses/owner/配额仍另核，Grant locator和公共copy均不能直接授APPLIED。
+known deny只持history，不依赖已删blob/旧signer/transport或已入场Worker；正向
+缺archive不转deny。Content原physical guards和其它family/provenance保留，原
+loan/close实际退出前不释保护；不同prepared候选只能在全部窗口已覆盖时并存重建。
+完整Root启动/activation/其他provenance与当前许可/确认删除仍未实施，不运行环境。

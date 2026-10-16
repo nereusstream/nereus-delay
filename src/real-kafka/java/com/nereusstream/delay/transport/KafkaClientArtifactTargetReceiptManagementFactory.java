@@ -616,17 +616,20 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root input I/O remains owned");
                 final long[] minimum=new long[CapacityDimension.COUNT];
                 final long frameWindow=Math.multiplyExact(4L,Math.addExact(entry.mutation().canonicalBodyLength(),(long)entry.mutation().authorIdentityLength()+4096));
-                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                final var prepared=retirementPreparation==null?null:retirementPreparation.completedValue().orElse(null);
+                final long keptWindow=prepared!=null&&!prepared.released?prepared.reservedWindowBytes:retainedInputBytes;
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(keptWindow,
                         Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),frameWindow));
                 allocation.requireCovers(new CapacityVector(minimum));
-                final var prepared=retirementPreparation==null?null:retirementPreparation.completedValue().orElse(null);
                 if(prepared!=null&&!prepared.released){
                     final var signed=retirementSignature==null?null:retirementSignature.completedValue().orElse(null);
-                    if(prepared.sourceBorrowed||signed==null||!signed.equals(entry.mutation()))
-                        throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original prepared Root input belongs to another Source frame");
-                    prepared.sourceBorrowed=true;loan=new RetirementSourceCopy(this,entry,prepared,frameWindow);
-                    loan.copy=prepared.archived;loan.reading=false;
-                }else loan=new RetirementSourceCopy(this,entry,null,frameWindow);
+                    if(prepared.sourceBorrowed)
+                        throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original prepared Root input remains borrowed");
+                    if(signed!=null&&signed.equals(entry.mutation())){
+                        prepared.sourceBorrowed=true;loan=new RetirementSourceCopy(this,entry,prepared,frameWindow,keptWindow);
+                        loan.copy=prepared.archived;loan.reading=false;
+                    }else loan=new RetirementSourceCopy(this,entry,null,frameWindow,keptWindow);
+                }else loan=new RetirementSourceCopy(this,entry,null,frameWindow,keptWindow);
                 retirementSourceCopy=loan;
             }
             try{
@@ -637,12 +640,112 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         body.resource().canonicalValueBytes(),com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,
                         body.context().closureBytes());
                 final long[] minimum=new long[CapacityDimension.COUNT];
-                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,Math.addExact(
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(loan.keptWindow,Math.addExact(
                         OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),Math.addExact(loan.frameWindow,Math.multiplyExact(4L,copyWindow))));
                 allocation.requireCovers(new CapacityVector(minimum));guard.run();
                 final var actual=catalog.readRetirementSourceCopy(body,history.trust,reads,guard);
                 guard.run();synchronized(this){loan.copy=actual;loan.reading=false;}return loan;
             }catch(RuntimeException|Error failure){synchronized(this){loan.reading=false;loan.releaseLocal();}throw failure;}
+        }
+
+        /** Composes original Root Recovery inputs with the existing complete Source graph and physical guards. */
+        public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content withRecoveryRetirementSourceInputs(
+                com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content original,
+                com.nereusstream.delay.protocol.TargetQuotaScope scope,
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads){
+            Objects.requireNonNull(original);Objects.requireNonNull(scope);Objects.requireNonNull(catalogReads);
+            if(scope.target()!=null)throw new IllegalArgumentException("retirement Source composition requires Shard scope");
+            if(retirementHistoryInputs==null)
+                throw new IllegalStateException("Recovery retirement Source requires independent history configuration");
+            return new com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content((entry,family,current)->{
+                if(family!=com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family.RETIREMENT)
+                    return original.provider().load(entry,family,current);
+                if(!(entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation))
+                    throw new IllegalArgumentException("retirement Source content changed original frame");
+                if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT
+                        ||!(com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody())
+                            .resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
+                    return original.provider().load(entry,family,current);
+                return loadRecoveryRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
+            },original.physical(),original.reads(),original.lookupTimeout(),original.maximumBytes());
+        }
+
+        /** Uses the original Source preparation task; it never queues a nested Root task or requires Worker admission. */
+        private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadRecoveryRetirementSourceInputs(
+                com.nereusstream.delay.ownership.SourceReplayMutation entry,com.nereusstream.delay.protocol.TargetQuotaScope scope,
+                Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads,long maximumBytes,Runnable current){
+            current.run();
+            if(entry.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
+                throw new IllegalArgumentException("Recovery retirement Source provider received another operation");
+            final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody());
+            if(!scope.shard().equals(body.shard())||!Arrays.equals(scope.tenantScope(),body.resource().tenantScope())
+                    ||!(body.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
+                throw new IllegalStateException("Recovery retirement provider requires its exact Source scope/provenance");
+            final var history=readRetirementHistory(entry,current);
+            RetirementSourceCopy copy=null;
+            try{
+                current.run();final var selected=history.grant();
+                final long frameBytes=Math.addExact(entry.mutation().canonicalBodyLength(),(long)entry.mutation().authorIdentityLength()+4096);
+                long bytes=Math.addExact(frameBytes,history.retainedBytes());
+                if(bytes>maximumBytes)throw new IllegalStateException("original retirement history/frame exceeds Source input reservation");
+                if(selected.isPresent()){
+                    final var reads=Objects.requireNonNull(catalogReads.get(),"original Source catalog read budget");
+                    if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("retirement Source needs a finite catalog byte bound");
+                    // The signed exact manifest bounds retained bytes. Root copy loading separately reserves its
+                    // full bounded parse/reread window, and requireContext verifies this declared length/digest.
+                    final long copyUpper=Math.addExact(body.context().copyManifestBytes(),512L);
+                    if(Math.addExact(bytes,Math.addExact(copyUpper,44L))>maximumBytes)
+                        throw new IllegalStateException("complete retirement Source copy exceeds input reservation before loading");
+                    copy=readRetirementSourceCopy(entry,reads,current);copy.requireCurrent();
+                    final var actual=copy.authenticatedCopy();actual.requireCatalog(catalog);
+                    bytes=Math.addExact(bytes,Math.addExact(actual.image().estimatedBytes(),44L));
+                }
+                if(bytes>maximumBytes)throw new IllegalStateException("complete original retirement inputs exceed Source bound");
+                final var held=new RecoveryRetirementSourceInputs(this,entry,scope,history,copy,bytes);
+                held.requireCurrent();current.run();return held;
+            }catch(RuntimeException|Error failure){
+                // Both returned loans have completed synchronous I/O and release only local ownership here.
+                if(copy!=null)try{copy.close();}catch(RuntimeException|Error cleanup){failure.addSuppressed(cleanup);}
+                try{history.close();}catch(RuntimeException|Error cleanup){failure.addSuppressed(cleanup);}throw failure;
+            }
+        }
+
+        private static final class RecoveryRetirementSourceInputs implements com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs {
+            private final Opening root;
+            private final com.nereusstream.delay.ownership.SourceReplayMutation entry;
+            private final RetirementHistoryInput history;
+            private final RetirementSourceCopy copy;
+            private final com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Retirement input;
+            private final long bytes;
+            private boolean copyClosed,historyClosed,closing;
+            private RecoveryRetirementSourceInputs(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
+                    com.nereusstream.delay.protocol.TargetQuotaScope scope,RetirementHistoryInput history,RetirementSourceCopy copy,long bytes){
+                this.root=root;this.entry=entry;this.history=history;this.copy=copy;this.bytes=bytes;
+                final var grant=history.grant();final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Approval approval;
+                if(grant.isEmpty()){
+                    if(copy!=null)throw new IllegalStateException("denied Source input acquired an unrelated copy");approval=null;
+                }else{
+                    final var actual=Objects.requireNonNull(copy,"authenticated original Catalog copy").authenticatedCopy();actual.requireCatalog(root.catalog);
+                    final var original=grant.orElseThrow();
+                    approval=new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Approval(original.writerKey(),actual,this::requireCurrent,
+                            original.activation().tuple(),original);
+                }
+                input=new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Retirement(scope,approval,history.sourceHistory());
+            }
+            public com.nereusstream.delay.ownership.SourceReplayEntry entry(){return entry;}
+            public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs inputs(){return input;}
+            public long retainedBytes(){return bytes;}
+            public void requireCurrent(){synchronized(root){
+                if(copyClosed||historyClosed||closing)throw new IllegalStateException("original retirement Source input closing/closed");
+                root.requireReady();history.requireCurrent();if(copy!=null)copy.requireCurrent();
+            }}
+            public void close(){
+                synchronized(root){if(historyClosed)return;if(closing)throw new IllegalStateException("original Source input close remains owned");closing=true;}
+                try{
+                    if(!copyClosed){if(copy!=null)copy.close();synchronized(root){copyClosed=true;}}
+                    if(!historyClosed){history.close();synchronized(root){historyClosed=true;}}
+                }finally{synchronized(root){closing=false;}}
+            }
         }
 
         /** Authenticates complete history on the existing Source I/O turn; activation/provider/capacity checks remain independent. */
@@ -655,7 +758,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 if(retirementHistoryInput!=null||retirementSourceCopy!=null&&!sameRetirementEntry(retirementSourceCopy.entry,entry))
                     throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root Source history/copy remains owned");
                 final long[] minimum=new long[CapacityDimension.COUNT];
-                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                final var prepared=retirementPreparation==null?null:retirementPreparation.completedValue().orElse(null);
+                final long keptWindow=prepared!=null&&!prepared.released?prepared.reservedWindowBytes:retainedInputBytes;
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(keptWindow,
                         Math.multiplyExact(4L,Math.addExact(entry.mutation().canonicalBodyLength(),(long)entry.mutation().authorIdentityLength()+4096)));
                 allocation.requireCovers(new CapacityVector(minimum));
                 loan=new RetirementHistoryInput(this,entry);retirementHistoryInput=loan;
@@ -739,11 +844,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             private final Opening root;
             private final com.nereusstream.delay.ownership.SourceReplayMutation entry;
             private final RetirementPreparation prepared;
-            private final long frameWindow;
+            private final long frameWindow,keptWindow;
             private OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy;
             private boolean reading=true,borrowed,closed;
             private RetirementSourceCopy(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
-                    RetirementPreparation prepared,long frameWindow){this.root=root;this.entry=entry;this.prepared=prepared;this.frameWindow=frameWindow;}
+                    RetirementPreparation prepared,long frameWindow,long keptWindow){
+                this.root=root;this.entry=entry;this.prepared=prepared;this.frameWindow=frameWindow;this.keptWindow=keptWindow;
+            }
             public void requireCurrent(){synchronized(root){
                 root.requireReady();if(closed||root.retirementSourceCopy!=this)throw new IllegalStateException("original Source copy loan closed");
             }}

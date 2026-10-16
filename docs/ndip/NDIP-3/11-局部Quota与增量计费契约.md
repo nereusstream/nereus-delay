@@ -2568,3 +2568,13 @@ POSITION避免每次扫描全部历史；不增加线程/client/队列。增量/
 Dependencies新增55库存/digest14，companion6同原HistoryImage比较，Native55和其
 原54/first/position仍是保护义务，未新增GC/delete/退费路径。最大包络/RSS/实际
 原子失败与恢复尚待集中验证，完整Root资源组合及确认GC继续开放。
+
+
+2026-10-16 具体Recovery Source hold计frame/history/pin/copy/key真实字节，原Content
+maximumBytes与Root allocation分别核完整保留输入和parse/reread窗口。已签exact
+copy manifest length+有限开销用于保留输入预核，实际copy后仍核length/digest和大小。
+原prepared候选继续占有reservedWindow；Source history/frame以及不同帧copy/closure
+须在它之外显式覆盖重叠，不抬默认配置或把旧候选当可释放缓存。匹配帧复用同对象，
+关闭保留copy/history独立成功进度；Source commit已有Native54/55和51费用不改。
+此轮无新wire/线程/client/队列/删除退款；最大真实包络/RSS、完整进程资源组合及
+close/UNKNOWN/真实恢复的测证继续后置，四包/flags未完成。

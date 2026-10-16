@@ -4763,3 +4763,32 @@ not evidence of a real restart. Root boot configuration/pin seeding from Native,
 concrete complete providers, historical pin/archive migration, actual activation/
 current-purpose permission, confirmation/delete/refund/GC and full recovery remain
 open. Necessary compilation only; no actual environment operation or central test.
+
+
+Root Recovery Source composition (2026-10-16): Opening.withRecoveryRetirementSourceInputs
+wraps the existing Content with the actual independently configured Root history/
+archive/catalog. It preserves original physical read/write guards, lookup timeout
+and maximum bytes, and delegates other families/provenances unchanged. On the
+original Source preparation task it authenticates the exact scope/Recovery input,
+acquires a complete history loan first, and only a purpose/key/signature-approved
+grant acquires the actual version/closure/context-authenticated public copy. Known
+denial has no Approval/copy; its SourceHistory remains held for Native54/55. History
+configuration is mandatory; missing archive on a positive path is unavailable,
+while known denial does not depend on the old blob/archive/signing credentials.
+
+One concrete HeldInputs owns both original loans, counts frame/history/pin/copy/key
+bytes, checks local current state and retains independent close progress. Partial
+load failure closes acquired loans; closing does not release one still-owned loan
+by pretending both succeeded. No nested Root future, new thread/client/queue or
+Worker-admission dependency is added. Signed exact copy length bounds the retained
+snapshot preflight; Root separately reserves bounded parsing/reread windows.
+
+The Root reuses an exact matching signed prepared copy. A different unborrowed
+prepared candidate remains owned while the current Source frame is reconstructed;
+its reserved window, current frame and copy/closure working window must all fit
+original allocation. This avoids waiting for a later candidate in Source FIFO by
+relaxing neither exact matching nor memory bounds. Actual Native activation/tip/
+ownership/closed uses and quota gates remain in Source commit; Source purpose and
+public-copy keys alone do not yield APPLIED. This is Recovery input composition,
+not the whole production provider/boot/activation/CONTROL/shared/staging/confirmation/
+refund/GC or real Broker/recovery closure. Necessary compilation only.

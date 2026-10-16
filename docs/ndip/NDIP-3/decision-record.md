@@ -1144,3 +1144,13 @@ Native门禁为实际决定提供重启保护，仍不声称启动pin装配和�
 Descriptor显式3声明55/tip1，旧1/2原codec不改，不给旧tuple投影自动升级；新写要求
 actual3。源码/必要编译和文档同步，完整Root/provider/旧pin信任归档与实际确认GC
 继续实施；无裁定等待、无环境操作，单agent/不Fast，四包/29切片/flags不变。
+
+
+2026-10-16 按既有“独立历史用途权限、真实Root副本/保护/容量、锁外owned收集及
+actual Native另核”的裁定接Recovery具体Source provider。Content保留原guards与
+其它family/provenance，完整history先核、正向才读copy，known deny无Approval/blob
+仍留proof；原frame/Source/预算和真实close沿同loan持有。没有把signer/copy/tuple
+locator当source激活许可。另补不同未借出prepared候选下的当前Source帧重建及全部
+重叠预算，避免仅等待更晚候选；不释放原候选或增默认资源。仍未闭合整机启动/
+provider/activation/CONTROL/shared/staging/confirmation/refund/GC或运行验证，
+无新裁定等待/环境操作，单agent/不Fast/必要编译，四包/29切片/flags不提升。
