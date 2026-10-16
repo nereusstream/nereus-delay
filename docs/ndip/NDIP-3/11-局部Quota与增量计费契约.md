@@ -2392,3 +2392,9 @@ checkpoint provider在有限读预算内补记真实Native owners，不新建SDK
 注销physical/mux或开normal successor。OwnedCheckpointIo只在新cleanup task实际
 接受后换句柄；shutdown仍报错。没有新增队列/线程/费用项，也不改变外部proof/
 Native owner/ref、prepared uses、共享保护或实际delete后退费义务。
+
+2026-10-16共享P1关闭hint/teardown提交被活池暂满拒绝，仍由原Root/Host有界轮次
+推进原owner，不创建新client或allocation，不提前释放旧client/users费用。Host
+replay-exit只复用实际barrier后已颁的原close permit，actual SDK termination和
+所有user/participant静默条件保持；shutdown/真实SDK失败仍可观察。无新容量项、
+线程或队列，也不改变外部proof/引用/Floor/实际delete的收费与退费契约。

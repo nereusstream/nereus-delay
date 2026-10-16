@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -761,6 +762,9 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
                         }
                     }
                 });
+            } catch (RejectedExecutionException full) {
+                if (io.isShutdown()) { recordFailure(full); }
+                // The original Root/Host close turn retries this same owner; no native work was accepted.
             } catch (RuntimeException | Error failure) { recordFailure(failure); }
             finally { teardownStarting = false; }
         }
@@ -773,6 +777,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
 
     private void scheduleProgress() {
         try { io.execute(this::advanceTermination); }
+        catch (RejectedExecutionException full) { if (io.isShutdown()) { recordFailure(full); } }
         catch (RuntimeException | Error failure) { recordFailure(failure); }
     }
 

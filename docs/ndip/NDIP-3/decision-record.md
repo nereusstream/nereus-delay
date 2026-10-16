@@ -810,3 +810,10 @@ live admitted checkpoint provider可用当前Native实际记录补记Source/Cata
 recovery close提交；shutdown及真实close失败不按暂满处理。正常successor仍等实际
 退出，不放宽原UNKNOWN/Owner/Source/保护条件。必要编译之外验证继续后置，完整
 服务装配和所有包/29切片及退役义务保持。
+
+2026-10-16 shared SDK退场由原调用轮次保证推进，回调hint只是唤醒机会：Host直接
+replay-exit在实际barrier后复用原permit重试close，沿normal drain/quarantine同一
+monitor外方法；未成立barrier不投close，状态查询仍只读。P1 hint/teardown提交的
+活池暂满保留原owner/句柄/first close/费用，shutdown和原生执行错误继续保留。
+不新增后台重试/队列/线程或关闭权限，不弱化真实SDK/users/participants退出和
+Owner/Oxia/Pin退场顺序。集中验证继续后置，完整四包/29切片目标保持。

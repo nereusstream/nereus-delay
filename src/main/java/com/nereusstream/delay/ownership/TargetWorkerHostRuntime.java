@@ -1843,15 +1843,25 @@ public final class TargetWorkerHostRuntime {
         }
         for (var backend : backends) {
             final var frozen = backend.freezeRegistrations();
-            final BackendClosePermit closing;
             synchronized (this) {
                 backendBarrierEstablished = true;
-                closing = backendClosePermits.computeIfAbsent(backend, ignored ->
+                backendClosePermits.computeIfAbsent(backend, ignored ->
                         new BackendClosePermit(this, backend, quarantineGeneration, frozen));
+            }
+        }
+        advanceOwnedBackendClose(backends);
+        return backends.stream().allMatch(TargetOwnedBackendGroup::resourcesTerminated);
+    }
+
+    /** Reuses only permits already issued after this Host's actual barriers; does not fence or authorize a new group. */
+    private void advanceOwnedBackendClose(List<TargetOwnedBackendGroup> backends) {
+        for (var backend : backends) {
+            final BackendClosePermit closing;
+            synchronized (this) {
+                closing = Objects.requireNonNull(backendClosePermits.get(backend), "original backend close permit");
             }
             backend.closeOwnedBackend(closing);
         }
-        return backends.stream().allMatch(TargetOwnedBackendGroup::resourcesTerminated);
     }
 
     /** Binds an actual backend once to the admitted Worker graph, before its first application use. */
@@ -1920,11 +1930,7 @@ public final class TargetWorkerHostRuntime {
                             new BackendClosePermit(this, backend, quarantineGeneration, frozen.get(backend)));
                 }
             }
-            for (var backend : backends) {
-                final BackendClosePermit permit;
-                synchronized (this) { permit = backendClosePermits.get(backend); }
-                backend.closeOwnedBackend(permit);
-            }
+            advanceOwnedBackendClose(backends);
             return backendQuarantineStatus();
         } finally {
             synchronized (this) { quarantineActive = false; notifyAll(); }
@@ -1949,15 +1955,18 @@ public final class TargetWorkerHostRuntime {
     public List<QuarantinedShardExit> exitQuarantinedForReplay(TargetOwnerDrainCoordinator.Request request,
             LongSupplier clock) {
         final List<Shard> current;
+        final List<TargetOwnedBackendGroup> closing;
         final TargetWorkerOrdinaryLoop ordinary;
         synchronized (this) {
             if (!backendQuarantined || quarantineActive || faultExitActive || drainAllActive || !draining.isEmpty()) {
                 throw new IllegalStateException("quarantined fault exit still has a concurrent Host lifecycle owner");
             }
             current = List.copyOf(shards); ordinary = ordinaryLoop;
+            closing = backendBarrierEstablished ? List.copyOf(ownedBackends) : List.of();
             faultExitActive = true;
         }
         try {
+            advanceOwnedBackendClose(closing);
             if (backendQuarantineStatus().status() != BackendQuarantineStatus.BACKEND_TERMINATED) {
                 return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
             }
