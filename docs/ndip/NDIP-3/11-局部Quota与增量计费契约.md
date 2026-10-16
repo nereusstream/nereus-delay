@@ -2536,3 +2536,14 @@ companion1..5明确拒NV53，descriptor要求6，因此当前有效marker在写A
 pending；尚无companion6或完整离线原Root证明/restore。最大合法包络/RSS/原子失败
 仍待集中验证；history证明持久空间和确认handler的NV51/owner/ref/EVIDENCE原子
 退费及protected GC继续开放，无实际新增Native记录或删除/退款操作。
+
+
+2026-10-16 companion6将完整NV53/NV51/NV52及原retirement first帧/Source授权链纳
+同一个snapshot record/byte界限；公有proof最多33*256KiB+2048。捕获和认证读取均
+扣原BoundedReadBudget并核guard/time，不新增线程/队列、配置上限或Native类型。
+Native库存逐条bytes比对，避免对大raw-copy行作全量hex临时展开。旧companion1..5
+bytes不变；retirement first inventory进入semanticInputsDigest12，旧空库存不变。
+实际Source proof的Native原子持久保护及空间收费、restart tip、确认handler中
+NV51/owner/ref/EVIDENCE原子退款/GC仍未完成；companion file纳既有Manifest/对象
+保护并不证明完整生产包络/RSS或退款正确性。仅必要编译，最大合法输入/失败/恢复
+与实际空间账验证仍交后续模型，未执行删除/退款或保护解除。

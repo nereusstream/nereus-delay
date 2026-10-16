@@ -340,6 +340,9 @@ final class TargetCheckpointLedgerAudit {
                         || SystemMutationResult.decode(first.typedPayload()).mutationType()
                                 == SystemMutationType.EVIDENCE_RESOLUTION) {
                     dependencies.outcomeResult(first);
+                } else if (SystemMutationResult.decode(first.typedPayload()).mutationType()==SystemMutationType.RESOURCE_RETIRE_INTENT
+                        ||SystemMutationResult.decode(first.typedPayload()).mutationType()==SystemMutationType.RESOURCE_DELETE_CONFIRMED){
+                    dependencies.retirementResult(first);
                 }
             }
         }

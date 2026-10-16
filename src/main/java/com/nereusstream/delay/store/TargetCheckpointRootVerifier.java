@@ -378,6 +378,20 @@ public final class TargetCheckpointRootVerifier {
     public interface ImageAuthority {
         void requireAuthenticated(CheckpointManifest manifest, LedgerProof ledger,
                 TargetCheckpointSemanticSnapshot snapshot);
+        default void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+            if(proof.dependencies().hasLifecycleInputs())throw new IllegalStateException("image authority lacks original Target lifecycle authentication");
+        }
+    }
+    /** Preserves all existing image obligations and adds mandatory original g8 proof authentication. */
+    public static ImageAuthority withLifecycleAuthority(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
+            java.util.function.Supplier<BoundedReadBudget> budgets,TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
+        Objects.requireNonNull(original);Objects.requireNonNull(lifecycle);Objects.requireNonNull(budgets);Objects.requireNonNull(limits);Objects.requireNonNull(protection);
+        return new ImageAuthority(){
+            public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireAuthenticated(manifest,proof,snapshot);}
+            public void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+                protection.run();snapshot.authenticateLifecycle(proof.dependencies(),limits,lifecycle,Objects.requireNonNull(budgets.get()),protection);protection.run();
+            }
+        };
     }
 
     /** Exact image and mandatory full external authentication, held until upload/Catalog/restore handoff ends. */
@@ -495,6 +509,7 @@ public final class TargetCheckpointRootVerifier {
         snapshot.validateAgainst(inspected.ledger().dependencies(), candidate.semantic());
         snapshot.requireExternalEvidenceComplete(inspected.ledger().dependencies());
         snapshot.requireRecoveryEvidenceComplete(inspected.ledger().dependencies());
+        snapshot.requireLifecycleComplete(inspected.ledger().dependencies(),candidate.semantic());
         candidate.protection().run();
         final var time = pending.checkpointCreatedAt();
         final var parent = pending.parentCheckpointId() == null ? null : new CheckpointManifest.ParentCheckpoint(
@@ -532,6 +547,8 @@ public final class TargetCheckpointRootVerifier {
         protection.run();
         authority.requireAuthenticated(manifest, verified.ledger(), verified.snapshot());
         protection.run();
+        authority.requireLifecycleAuthenticated(manifest,verified.ledger(),verified.snapshot());
+        protection.run();
         return verified.ledger();
     }
 
@@ -557,6 +574,7 @@ public final class TargetCheckpointRootVerifier {
         snapshot.validateAgainst(proof.dependencies(), semanticLimits);
         snapshot.requireExternalEvidenceComplete(proof.dependencies());
         snapshot.requireRecoveryEvidenceComplete(proof.dependencies());
+        snapshot.requireLifecycleComplete(proof.dependencies(),semanticLimits);
         if (!Bytes.constantTimeEquals(manifest.controlStateDigest(), snapshot.snapshotDigest())) {
             throw new IllegalArgumentException("Target Manifest control-state digest differs from its companion");
         }

@@ -97,6 +97,7 @@ public final class TargetCheckpointDependencies {
     private final List<StoredControl> controls;
     private final List<TargetResultRecord> controlResults;
     private final List<TargetResultRecord> outcomeResults;
+    private final List<TargetResultRecord> retirementResults;
     private final List<Admission> admissions;
     private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings;
     private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence;
@@ -119,6 +120,7 @@ public final class TargetCheckpointDependencies {
         controls = List.copyOf(builder.controls.values());
         controlResults = List.copyOf(builder.controlResults.values());
         outcomeResults = List.copyOf(builder.outcomeResults.values());
+        retirementResults=List.copyOf(builder.retirementResults.values());
         this.admissions = List.copyOf(admissions);
         kafkaMappings = List.copyOf(builder.kafkaMappings.values());
         externalEvidence = List.copyOf(builder.externalEvidence.values());
@@ -145,6 +147,8 @@ public final class TargetCheckpointDependencies {
         return controlResults.stream().map(ControlReference::new).toList();
     }
     public List<TargetResultRecord> outcomeResults() { return outcomeResults; }
+    public List<TargetResultRecord> retirementResults(){return retirementResults;}
+    public boolean hasLifecycleInputs(){return !protocolActivations.isEmpty()||!retirements.isEmpty()||!evidenceConfirmations.isEmpty()||!retirementResults.isEmpty();}
     public List<OutcomeReference> outcomeReferences() {
         return outcomeResults.stream().map(OutcomeReference::new).toList();
     }
@@ -700,6 +704,7 @@ public final class TargetCheckpointDependencies {
             for (final var record : retirements) { CanonicalProtobuf.bytes(out, 9, Bytes.sha256(record.canonicalBytes())); }
             for (final var record : evidenceConfirmations) { CanonicalProtobuf.bytes(out, 10, Bytes.sha256(record.canonicalBytes())); }
             for (final var record : protocolActivations) { CanonicalProtobuf.bytes(out, 11, record.digest()); }
+            for(final var first:retirementResults){CanonicalProtobuf.bytes(out,12,Bytes.sha256(first.canonicalBytes()));}
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -726,6 +731,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
+        private final Map<String,TargetResultRecord> retirementResults=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new TreeMap<>();
@@ -749,6 +755,7 @@ public final class TargetCheckpointDependencies {
                     control.valueType(), control.payload()); }
             prior.controlResults.forEach(this::controlResult);
             prior.outcomeResults.forEach(this::outcomeResult);
+            prior.retirementResults.forEach(this::retirementResult);
             prior.kafkaMappings.forEach(this::kafkaMapping);
             prior.externalEvidence.forEach(this::externalEvidence);
             prior.recoveryEvidence.forEach(this::recoveryEvidence);
@@ -806,6 +813,14 @@ public final class TargetCheckpointDependencies {
                 throw new IllegalArgumentException("Target Control reference differs from its root/type/author");
             }
             controlResults.put(Bytes.hex(first.key()), first);
+        }
+
+        void retirementResult(TargetResultRecord first){
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(root.root().identity())
+                    ||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+                throw new IllegalArgumentException("retirement first differs from actual Source root/type");
+            retirementResults.put(Bytes.hex(first.key()),first);
         }
 
         void outcomeResult(TargetResultRecord first) {

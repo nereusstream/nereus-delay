@@ -46,7 +46,14 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
             TargetCheckpointDependencies.ControlImageAuthority controls,
             TargetCheckpointDependencies.OutcomeImageAuthority outcomes,
             TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence,
-            TargetCheckpointDependencies.RecoveryEvidenceAuthority recoveryEvidence) {
+            TargetCheckpointDependencies.RecoveryEvidenceAuthority recoveryEvidence,
+            com.nereusstream.delay.store.TargetCheckpointLifecycleInputs.Authority lifecycle) {
+        public OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority history,
+                com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
+                TargetCheckpointDependencies.ControlImageAuthority controls,TargetCheckpointDependencies.OutcomeImageAuthority outcomes,
+                TargetCheckpointDependencies.ExternalEvidenceAuthority externalEvidence,TargetCheckpointDependencies.RecoveryEvidenceAuthority recoveryEvidence){
+            this(history,admissions,controls,outcomes,externalEvidence,recoveryEvidence,null);
+        }
         public OriginalAuthorities(TargetCheckpointDependencies.AdmissionHistoryAuthority history,
                 com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier.Authority admissions,
                 TargetCheckpointDependencies.ControlImageAuthority controls,
@@ -161,7 +168,11 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
             // Rights may have changed while a Registry future was pending; reauthenticate every original Admission.
             final var complete = authenticate(dependencies, originals, authorities);
             final var budget = Objects.requireNonNull(p.reads().get(), "snapshot read budget");
-            final var snapshot = TargetCheckpointSemanticSnapshot.fromCollectedValues(complete, originals,
+            final var snapshot = complete.hasLifecycleInputs()
+                    ? TargetCheckpointSemanticSnapshot.fromLifecycleValues(complete,originals,values.profiles(),values.retries(),values.trusts(),
+                            control.inputs(),outcome.inputs(),authorities.controls(),authorities.outcomes(),authorities.externalEvidence(),
+                            authorities.recoveryEvidence(),authorities.lifecycle(),budget,p.semanticLimits(),p.protection())
+                    : TargetCheckpointSemanticSnapshot.fromCollectedValues(complete, originals,
                     values.profiles(), values.retries(), values.trusts(), p.semanticLimits(), p.protection())
                     .withControlInputs(complete, control.inputs(), budget, p.semanticLimits(), authorities.controls(),
                             p.protection())

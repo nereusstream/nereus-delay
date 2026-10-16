@@ -1009,8 +1009,9 @@ it is not provider response authentication or write/delete authority.
 NV51 adds its actual STATE key/payload/overhead under the original frozen fee
 owner and retains existing adopted owner/ref/alias/EVIDENCE charges. Independent
 fold checks actual APPLIED intent first/POSITION and the complete local dependency
-inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring/confirmed/Target-activation rows until
-the new offline companion is implemented; their old bytes are not reinterpreted.
+inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring/confirmed/Target-activation rows;
+schema6 retains their complete lifecycle inputs with mandatory original authentication.
+Old companion bytes are not reinterpreted.
 Root public-copy preparation uses bounded owned I/O and exact raw/version/closure
 rereads; historical Source input additionally binds the original signed manifest.
 Actual Source intent handoff/store is implemented. NV52 confirmation writer,
@@ -4557,13 +4558,13 @@ match the actual record, original first and Source. Independent NV51/NV52 fold
 requires activation before the original intent, including local state1/2 stale
 prechecks; a later marker cannot retroactively authorize earlier business.
 
-This descriptor requires companion6 while the current implementation supports
-only companion1..5. A local guard therefore leaves otherwise authorized new markers
-pending before writing APPLIED; writer/runtime use also refuses unsupported NV53.
-Old companions explicitly refuse NV51/NV52/NV53. Dependency inventory/semantic-input
-digest now retain NV53, but full companion6/offline original-trust verification,
-restore/reopen, concrete complete Root reader/environment/runtime provider and
-capability publication, actual signed marker handoff/current admission remain open.
+This descriptor requires companion6, whose representation, collection and mandatory
+original authentication entry points are now implemented below. The local version
+requirement is met in code; it is not deployment verification or an activation receipt.
+Old companions explicitly refuse NV51/NV52/NV53 and retained retirement first inputs.
+Concrete original Root reader/environment/runtime/lifecycle providers, capability
+publication, signed marker handoff/current admission and composed restore/reopen
+remain open; old authority defaults do not approve the new state.
 Full retirement history proof persistence/restart-tip, current SERVICE purpose
 append permission, confirmation handler/provider delete proof/atomic refunds and
 protected GC also remain open. Necessary compilation only; no actual activation,
@@ -4580,3 +4581,63 @@ old byte-field payloads retain their prior path. NV53 reads use Target envelope
 decoding; ControlSystemMutationFactory validates the exact new body when signing
 operation28. Source ACTIVATION dispatch also requires the explicit discriminator.
 No wire/schema version or companion6 capability was added by this follow-up.
+
+
+### Target semantic companion6 and public Source history proof (2026-10-16)
+
+Schemas1..5 keep their exact field/digest branches. Schema6 keeps fields1..15,
+requires field16 TargetCheckpointLifecycleInputs, and uses digest field17 with the
+existing semantic-snapshot domain over fields1..16. Lifecycle schema1 has field1
+schema, repeated2 complete NV53 activation rows, repeated3 complete NV51 retiring
+rows, repeated4 complete NV52 confirmed rows, repeated5 HistoryImage. Native lists
+are sorted/unique by exact Native key; HistoryImage is sorted/unique by mutation ID.
+HistoryImage fields1 bounded original Source,2 complete signed System envelope,
+optional3 PublicProof. Every retained retirement/confirmation SYSTEM first result,
+including rejections, requires exactly one matching frame. APPLIED and unauthorized
+history decisions require complete public history proof; local expiry/stale/
+unactivated rejections may omit it. Publication additionally requires independent
+original Source/rejection-reason authentication, not inferred from these bytes.
+
+PublicProof preserves the Root's previous schema1 export exactly:1 schema,2 original
+CONTROL authority,3 authority key version,4 public X509 Ed25519 key[44],5 baseline
+snapshot digest[32], repeated6 complete signed authorization snapshots. Maximum33
+snapshots, each<=256KiB; total bound33*256KiB+2048. Chain requires exact issuer,
+baseline digest and every immutable generation/parent/sealed-prefix extension.
+Authentication uses an independently trusted original purpose/authority/key/
+baseline/Root/namespace pin, compares its key rather than adopting the proof key,
+then verifies every signature. Coverage/Source identity, SERVICE/key/action and
+original signed frame remain mandatory. Unknown coverage/trust never becomes a
+grant. PublicProof and embedded keys provide no new independent authority.
+
+Lifecycle validation compares complete Native inventories byte-for-byte and joins
+activation to actual APPLIED Control first/Source stamp. Every retained retirement
+first is correlated by exact Source, envelope digest, type/ID/hash/author/retry and
+physical Source result. State1 matches its signed intent; state2 retains both
+original intent and confirmation frames, requires their exact actual stamps and
+resource/context/intent identity, and cannot coexist with state1. APPLIED results
+require OK and Source persistence inside the retry window. All APPLIED retirement
+frames must have the matching actual state1/2, original public grant/signature and
+strictly prior Native activation descriptor/projection/marker/Source binding.
+Original activation Root/Control/reader/environment locks, copy/protection/capacity
+and actual deletion evidence are separately authenticated by held Root providers;
+a positive purpose grant alone cannot override another proved denial.
+
+Collection runs on existing CHECKPOINT preparation, captures every original frame/
+proof under finite record/total-byte/read/time budgets and builds schema6 complete
+in one step. It does not use intermediate schema1..5 to represent g8. Complete
+lifecycle records count toward original snapshot limits; no default budget increase,
+thread/client/queue or new Native value is added. Capture and authentication work
+are charged, and Native byte comparison avoids full-record hex expansion. Native
+retirement first inventory is added to semanticInputsDigest field12; empty old
+inventories preserve their bytes. Root export now uses the shared strict proof codec.
+
+Candidate/Manifest validation requires lifecycle completeness. Whole-image
+ImageAuthority adds a separate mandatory lifecycle authentication method whose
+old default rejects new dependencies; withLifecycleAuthority explicitly adds
+original proof authentication to existing whole-image authentication. Its same
+held authority is retained by AuthenticatedImage/restore authentication for private
+copy and reopen. These are implementation paths, not real restore evidence.
+Concrete providers, durable exact Source proof/accepted-tip integration and restart
+rollback checks, actual activation/publication/current-purpose admission,
+confirmation/delete/refund/GC and full program validation remain open. Necessary
+main/K1/P1 compilation only; no actual activation or environment operation executed.

@@ -57,6 +57,17 @@ public final class TargetRetirementAuthorizationHistory {
         @Override public byte[] targetActivationDigest(){return Bytes.copy(targetActivationDigest);}
         @Override public byte[] markerHash(){return Bytes.copy(markerHash);}
         public PublicKey writerKey() { return decodeKey(publicKey); }
+        /** Matches an independently correlated actual Native activation; a locator alone cannot satisfy this. */
+        public void requireActivation(TargetProtocolActivationRecord record,SourcePosition source){
+            final var payload=Objects.requireNonNull(record).body().payload();
+            if(!activation.tuple().equals(payload.descriptor().tuple())||record.appliedAt().source().compareTo(source)>=0
+                    ||!Arrays.equals(record.digest(),targetActivationDigest)||!Arrays.equals(payload.descriptor().digest(),targetDescriptorDigest)
+                    ||!Arrays.equals(record.marker().mutationHash(),markerHash)||!Arrays.equals(activation.mutationId(),record.marker().systemMutationId())
+                    ||!Arrays.equals(activation.sourcePosition().canonicalBytes(),record.appliedAt().source().canonicalBytes())
+                    ||!Arrays.equals(activation.canonicalSchemaHash(),payload.descriptor().targetSchemaHash())
+                    ||!Arrays.equals(activation.compatibleReaderSetEvidenceHash(),payload.readerEvidenceHash()))
+                throw new IllegalArgumentException("history grant differs from actual prior Target activation");
+        }
         private byte[] identity() {
             return Bytes.concat(Bytes.lp32(service.canonicalBytes()),Bytes.u32beBits(keyVersion),Bytes.u32be(action.wire));
         }
@@ -197,6 +208,62 @@ public final class TargetRetirementAuthorizationHistory {
                     QueryCodecSupport.fixed(f.get(8),9,16),intervals,QueryCodecSupport.fixed(f.get(n+1),12,64));
             if(!Arrays.equals(value.digest(),QueryCodecSupport.fixed(f.get(n),11,32)))throw new IllegalArgumentException("history digest mismatch");
             QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"retirement authorization history");return value;
+        }
+    }
+
+    /** Independent trusted pin, never reconstructed from a PublicProof's own issuer/key fields. */
+    public record Pin(AuthorIdentity authority,int keyVersion,PublicKey key,byte[] baselineDigest,byte[] root,byte[] namespace){
+        public Pin{Objects.requireNonNull(authority);key=decodeKey(Objects.requireNonNull(key).getEncoded());
+            if(authority.kind()!=AuthorIdentity.Kind.CONTROL||keyVersion==0)throw new IllegalArgumentException("invalid original history pin");
+            baselineDigest=TargetCompatibilityCodec.assigned(baselineDigest,32,"history baseline pin");
+            root=TargetCompatibilityCodec.assigned(root,32,"history Root pin");namespace=TargetCompatibilityCodec.assigned(namespace,32,"history namespace pin");}
+        @Override public byte[] baselineDigest(){return Bytes.copy(baselineDigest);}
+        @Override public byte[] root(){return Bytes.copy(root);}
+        @Override public byte[] namespace(){return Bytes.copy(namespace);}
+    }
+    /** Complete public original chain, preserving the existing Root export bytes; data does not supply its own pin. */
+    public record PublicProof(AuthorIdentity authority,int keyVersion,byte[] publicKey,byte[] baselineDigest,List<Snapshot> chain){
+        public static final int MAX_SNAPSHOTS=33;
+        public static final int MAX_BYTES=MAX_SNAPSHOTS*TargetRetirementAuthorizationHistory.MAX_BYTES+2048;
+        public PublicProof{
+            Objects.requireNonNull(authority);publicKey=Bytes.copy(publicKey);decodeKey(publicKey);
+            baselineDigest=TargetCompatibilityCodec.assigned(baselineDigest,32,"original history baseline");chain=List.copyOf(chain);
+            if(authority.kind()!=AuthorIdentity.Kind.CONTROL||keyVersion==0||authority.canonicalBytes().length>1024
+                    ||chain.isEmpty()||chain.size()>MAX_SNAPSHOTS||!Arrays.equals(chain.getFirst().digest(),baselineDigest))
+                throw new IllegalArgumentException("incomplete original public history proof");
+            Snapshot prior=null;
+            for(var value:chain){
+                if(!Arrays.equals(value.authority().canonicalBytes(),authority.canonicalBytes())||value.authorityKeyVersion()!=keyVersion)
+                    throw new IllegalArgumentException("history proof changed issuer");
+                if(prior!=null)value.requireExtensionOf(prior);prior=value;
+            }
+        }
+        @Override public byte[] publicKey(){return Bytes.copy(publicKey);}
+        @Override public byte[] baselineDigest(){return Bytes.copy(baselineDigest);}
+        public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
+            CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,authority.canonicalBytes());
+            CanonicalProtobuf.uint32(out,3,Integer.toUnsignedLong(keyVersion));CanonicalProtobuf.bytes(out,4,publicKey);
+            CanonicalProtobuf.bytes(out,5,baselineDigest);for(var value:chain)CanonicalProtobuf.bytes(out,6,value.canonicalBytes());
+        });}
+        public Verified authenticate(Pin pin){
+            Objects.requireNonNull(pin,"independent original history pin");
+            if(!Arrays.equals(authority.canonicalBytes(),pin.authority().canonicalBytes())||keyVersion!=pin.keyVersion()
+                    ||!Arrays.equals(publicKey,pin.key().getEncoded())||!Arrays.equals(baselineDigest,pin.baselineDigest()))
+                throw new Unavailable("public history proof differs from independent original Root pin");
+            Verified last=null;
+            for(var value:chain)last=verify(value,pin.authority(),pin.keyVersion(),pin.key(),pin.root(),pin.namespace());
+            return Objects.requireNonNull(last);
+        }
+        public static PublicProof decode(byte[] encoded){
+            final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,MAX_SNAPSHOTS+5,true,"public retirement history proof");
+            if(f.size()<6)throw new IllegalArgumentException("incomplete public history proof");
+            QueryCodecSupport.requireNumbers(f.subList(0,5),new int[]{1,2,3,4,5},"public history prefix");
+            if(QueryCodecSupport.uint(f.get(0),1)!=1)throw new IllegalArgumentException("unknown public history proof version");
+            final var values=new ArrayList<Snapshot>();
+            for(int i=5;i<f.size();i++){if(f.get(i).number()!=6)throw new IllegalArgumentException("unknown history chain field");values.add(Snapshot.decode(QueryCodecSupport.bytes(f.get(i),6)));}
+            final var value=new PublicProof(AuthorIdentity.decode(QueryCodecSupport.bytes(f.get(1),2)),QueryCodecSupport.uint32(f.get(2),3),
+                    QueryCodecSupport.fixed(f.get(3),4,44),QueryCodecSupport.fixed(f.get(4),5,32),values);
+            QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"public retirement history proof");return value;
         }
     }
 

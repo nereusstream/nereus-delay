@@ -1113,3 +1113,13 @@ membership/session/revision/环境/SDK provider、声明发布/marker签名交�
 companion6/完整公共证明离线认证恢复及剩余退役生命周期仍待继续，不存在裁定等待。
 仅必要编译，单agent/不Fast，集中验证后置；不执行真实服务/配置/key/grant/Admin/
 delete/迁退/保护解除，所有四包/29切片和三个完成flags保持未完成。
+
+
+2026-10-16 按既有“新companion保留完整公共依赖、独立原Root认证、恢复不采当前
+Owner/session”裁定推进：companion6完整格式/收集/Native库存与原first关联及
+独立Pin/PublicProof整链/用途/签名/actual activation认证入口、Manifest/候选/
+whole-image/原restore authority门禁已接。NV52额外保留原intent帧与原Source授权，
+不从confirmation DTO追认。旧ImageAuthority默认拒新依赖，旧companion bytes不改。
+本地最高现为6，但具体Root完整provider、Source决定时proof持久/重启tip及运行
+交接/许可、实际恢复与确认删除退款仍开放；不声称实际部署/激活完成。当前无裁定
+等待，单agent/不Fast/必要编译/集中验证后置，四包/29切片和三个完成flags不变。

@@ -137,11 +137,7 @@ final class KafkaClientArtifactTargetRetirementHistoryConfiguration {
         Captured { Objects.requireNonNull(authority);Objects.requireNonNull(key);chain=List.copyOf(chain);Objects.requireNonNull(grant); }
         long retainedBytes(){long bytes=authority.canonicalBytes().length+key.getEncoded().length+256L;for(var value:chain)bytes=Math.addExact(bytes,value.snapshot().canonicalBytes().length);return bytes;}
         /** Public proof data requires the independent Root pin again when restored; these embedded bytes do not self-authorize. */
-        byte[] publicInputs(){return CanonicalProtobuf.message(out->{
-            CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,authority.canonicalBytes());
-            CanonicalProtobuf.uint32(out,3,Integer.toUnsignedLong(keyVersion));CanonicalProtobuf.bytes(out,4,key.getEncoded());
-            CanonicalProtobuf.bytes(out,5,chain.getFirst().snapshot().digest());
-            for(var value:chain)CanonicalProtobuf.bytes(out,6,value.snapshot().canonicalBytes());
-        });}
+        byte[] publicInputs(){return new TargetRetirementAuthorizationHistory.PublicProof(authority,keyVersion,key.getEncoded(),
+                chain.getFirst().snapshot().digest(),chain.stream().map(TargetRetirementAuthorizationHistory.Verified::snapshot).toList()).canonicalBytes();}
     }
 }

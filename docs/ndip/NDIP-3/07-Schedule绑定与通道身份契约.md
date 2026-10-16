@@ -1031,3 +1031,13 @@ Target frame reader与NV53 envelope reader现执行独立完整typed body解析�
 版本/错semanticHash不能靠旧Control外层identity解析进入；legacy reader拒新
 varint分支。签名工厂按exact prepared operation28/body校验，Source family只选明确
 新discriminator；读取/签名构造均不替代原CONTROL、Root、实际APPLIED及当前许可。
+
+
+2026-10-16 companion6保留原purpose/Source授权公有链，恢复须由独立原Root/namespace/
+issuer/key/baseline pin重验，不从内附publicKey追认。每个退役first绑定原signed帧和
+Source，state2保留原intent；actualNative activation/descriptor/marker必须严格在
+业务之前。原CONTROL/完整reader/环境与SDK、copy/容量/保护/delete认证仍独立，
+正向purpose grant不覆盖其它确定拒绝。旧ImageAuthority遇新状态默认拒绝，显式
+认证入口随原候选/Manifest/restore保护保留；不要求旧Owner/session今日仍存活。
+本地companion6已落代码；实际Root provider/Source决定时proof持久留存/重启tip、
+声明发布/marker交接/当前SERVICE用途许可与确认删除闭环继续开放，无真实激活。
