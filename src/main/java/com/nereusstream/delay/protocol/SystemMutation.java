@@ -121,6 +121,8 @@ public final class SystemMutation {
     public byte[] canonicalBody() {
         return Bytes.copy(canonicalBody);
     }
+    /** Exact retained length for bounded input preflight, without allocating another body image. */
+    public int canonicalBodyLength() { return canonicalBody.length; }
 
     public byte[] authorIdentity() {
         return Bytes.copy(authorIdentity);

@@ -816,6 +816,18 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireExact(stored.value(),after.value());current.run();if(!reads.beforeTimedWork())throw reads.incomplete();
         return new RetirementCopy(this,copy);
     }
+    /** Read-only reconstruction of one already-signed Source input; actual Native joins remain in Source apply. */
+    public RetirementCopy readRetirementSourceCopy(TargetEvidenceRetireIntentBody intent,TargetRecoveryProofTrust proofTrust,
+            BoundedReadBudget reads,Runnable current){
+        Objects.requireNonNull(current).run();final var resource=Objects.requireNonNull(intent).resource();
+        if(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery origin))
+            throw new IllegalStateException("CONTROL/shared/staging historical retirement input is not wired yet");
+        final var closure=readReferenceClosure(resource.exactKey(),resource.objectDigest(),reads);
+        final var actual=prepareRecoveryRetirementCopy(closure,origin.owner(),proofTrust,reads,current);
+        if(!Arrays.equals(actual.image().resource().canonicalBytes(),resource.canonicalBytes()))
+            throw new IllegalStateException("historical retirement input changed original exact object");
+        actual.image().requireContext(intent.context());current.run();return actual;
+    }
     private ClosedObject closedSnapshot(Root root,String key,byte[] digest){
         final var closure=Objects.requireNonNull(root.closures.get(key),"original durable object closure");requireExact(closure.objectDigest,digest);
         final var management=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.managementTopicId)),"original closure management");

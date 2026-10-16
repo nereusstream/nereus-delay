@@ -990,3 +990,9 @@ writer本地compatible tuple是必要门禁，不能代替原Source时点历史�
 新增显式activatedTuple并随held input冻结，必须等于body8 requiredTuple。旧3参
 构造给空tuple、不会隐式激活；签名正确但未激活只记明确拒绝。Artifact/Route/
 reader准入配置未改，完整历史purpose/保护/capacity批准与冷provider仍未完成。
+
+2026-10-16 历史Source copy读取不要求旧Worker或旧传输写者存活：实际Root按原帧
+认证原公共历史并要求原manifest完全一致，不从新Root当前cut或新key重签/替换。
+Source hold绑定原mutation、位置、connection generation/attestation与同一Catalog
+receipt。副本公钥仍非自授权；原Source时点purpose/Root/activatedTuple/保护/
+capacity批准必须由独立可信provider给出，其完整历史实现及冷组合仍待接通。

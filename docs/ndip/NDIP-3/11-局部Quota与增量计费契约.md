@@ -2496,3 +2496,10 @@ registration退出；Stop仅取消未启动I/O，运行者真退出，已停queu
 state1迟到候选本地STALE拒绝只费新增SHARD first/POSITION/Source/root，不修改
 原NV51/owner/ref或退EVIDENCE。Source新批准必须显式tuple，不从签名/副本数据
 制造权限；只有必要编译，真实Native计费/恢复/transport与全Source容量仍待集中验。
+
+2026-10-16 历史Source公共copy由原Root allocation覆盖：decode前以原body长度
+预核frame窗口，copy读取前再核完整raw/公共输入/closure上界，沿原有限Catalog
+读取窗口；原Source loader仍独立计copy/key，未降低其预算。Root单loan与本地
+prepared/sourceBorrowed互斥，original.close失败保留窗口，最终关闭等实际读取和
+Source借用退出。busy重试沿原Source turn/池且共享首次deadline，不新增调度层。
+本轮没有Native状态变化或退费；最大合法包络、RSS及真实恢复计费留待集中验证。

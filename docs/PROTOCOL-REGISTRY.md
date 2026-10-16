@@ -4354,3 +4354,19 @@ META45 still requires the independent unimplemented Native52 reader and cannot
 be treated as state0. Original same-ID first and expiry take precedence, legacy
 resource kinds1..7 keep their old path. Native apply/cold restore/new checkpoint/
 confirmation/delete/publication authority remain separately bounded obligations.
+
+2026-10-16 historical Source retirement input adds no wire fields or activation.
+Root readRetirementSourceCopy uses the caller's original bounded Source owned-I/O,
+without a nested Root-pool wait or admitted Worker. For Recovery provenance it
+rereads actual immutable Catalog closure/raw/version and original public proof
+history, then requires the signed body's exact resource and original context's
+full closure/use-set/manifest digest and length. It never creates a replacement
+prepared Native cut. Native owner/ref/first/mapping/fence checks remain in actual
+Source apply; missing present-state0 blobs or mismatched history fail closed.
+One Root-owned loan may reuse the exact cached local signed preparation; otherwise
+it reconstructs the public copy. Transfer binds exact Source frame/position/
+connection proof and actual Catalog receipt. Source close must actually succeed
+before Root clears the loan/allocation; failed close retains ownership. Busy input
+may yield only after owned I/O exits, within the original finite admission deadline.
+Complete historical purpose/protection/capacity providers and cold composition,
+CONTROL/shared/staging, NV52/new checkpoint/offline recovery and GC remain open.

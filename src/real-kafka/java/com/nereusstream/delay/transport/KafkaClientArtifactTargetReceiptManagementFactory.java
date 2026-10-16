@@ -323,6 +323,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OwnedCheckpointIo<Boolean> retirementRelease;
         private volatile com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission retirementSubmission;
         private boolean retirementSubmitting;
+        private RetirementSourceCopy retirementSourceCopy;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -474,6 +475,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             closedUsesSource=source;closedUsesSelection=selection;closedUsesRead=next;return next.receipt();
         }
         private void requireRetirementIoExited(){
+            if(retirementSourceCopy!=null)throw new IllegalStateException("original Source retirement input remains owned");
             if(retirementPreparation!=null&&!retirementPreparation.ioExited())
                 throw new IllegalStateException("original retirement preparation I/O remains owned");
             if(retirementPreparation!=null&&retirementPreparation.completedValue().filter(value->!value.released).isPresent())
@@ -526,6 +528,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
             final var original=requireRecoveryArchive();Objects.requireNonNull(source);Objects.requireNonNull(closure);Objects.requireNonNull(applied);
+            if(retirementSourceCopy!=null)throw new IllegalStateException("original Source retirement input remains owned");
             Objects.requireNonNull(catalogReads);Objects.requireNonNull(nativeReads);
             if(catalogReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
                 throw new IllegalArgumentException("retirement preparation requires finite read bytes");
@@ -559,6 +562,111 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
             },this::requireReady,io);
             retirementSource=source;retirementSelection=selection;retirementPreparation=next;return next.receipt();
+        }
+
+        /**
+         * Synchronous history-only input acquisition on the caller's original Source owned-I/O turn.
+         * Does not require an admitted Worker or old signing/transport credentials. Caller closes the loan
+         * or transfers it to a Source hold; native owner/ref/first/cut validation remains in Source apply.
+         */
+        public RetirementSourceCopy readRetirementSourceCopy(com.nereusstream.delay.ownership.SourceReplayMutation entry,
+                com.nereusstream.delay.store.BoundedReadBudget reads,Runnable current){
+            Objects.requireNonNull(entry);Objects.requireNonNull(reads);Objects.requireNonNull(current);
+            if(entry.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT
+                    ||reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("bounded original retirement Source input required");
+            final RetirementSourceCopy loan;final KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded history;
+            synchronized(this){
+                history=requireRecoveryArchive();
+                if(retirementSourceCopy!=null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root Source copy remains owned");
+                if(opening!=null&&!opening.ioExited()||referenceClosure!=null&&!referenceClosure.ioExited()
+                        ||closedUsesRead!=null&&!closedUsesRead.ioExited()||retirementPreparation!=null&&!retirementPreparation.ioExited()
+                        ||retirementSignature!=null&&!retirementSignature.ioExited()||retirementRelease!=null&&!retirementRelease.ioExited())
+                    throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root input I/O remains owned");
+                final long[] minimum=new long[CapacityDimension.COUNT];
+                final long frameWindow=Math.multiplyExact(4L,Math.addExact(entry.mutation().canonicalBodyLength(),(1L<<20)+4096));
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                        Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),frameWindow));
+                allocation.requireCovers(new CapacityVector(minimum));
+                final var prepared=retirementPreparation==null?null:retirementPreparation.completedValue().orElse(null);
+                if(prepared!=null&&!prepared.released){
+                    final var signed=retirementSignature==null?null:retirementSignature.completedValue().orElse(null);
+                    if(prepared.sourceBorrowed||signed==null||!signed.equals(entry.mutation()))
+                        throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original prepared Root input belongs to another Source frame");
+                    prepared.sourceBorrowed=true;loan=new RetirementSourceCopy(this,entry,prepared,frameWindow);
+                    loan.copy=prepared.archived;loan.reading=false;
+                }else loan=new RetirementSourceCopy(this,entry,null,frameWindow);
+                retirementSourceCopy=loan;
+            }
+            try{
+                final Runnable guard=()->{current.run();loan.requireCurrent();};guard.run();
+                if(!loan.reading)return loan;
+                final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(entry.mutation().canonicalBody());
+                final long copyWindow=com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.estimatedBytes(body.resource(),
+                        body.resource().canonicalValueBytes(),com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,
+                        body.context().closureBytes());
+                final long[] minimum=new long[CapacityDimension.COUNT];
+                minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,Math.addExact(
+                        OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),Math.addExact(loan.frameWindow,Math.multiplyExact(4L,copyWindow))));
+                allocation.requireCovers(new CapacityVector(minimum));guard.run();
+                final var actual=catalog.readRetirementSourceCopy(body,history.trust,reads,guard);
+                guard.run();synchronized(this){loan.copy=actual;loan.reading=false;}return loan;
+            }catch(RuntimeException|Error failure){synchronized(this){loan.reading=false;loan.releaseLocal();}throw failure;}
+        }
+
+        /** One Root-owned public-copy loan, also usable before Worker admission during cold Source replay. */
+        public static final class RetirementSourceCopy implements AutoCloseable {
+            private final Opening root;
+            private final com.nereusstream.delay.ownership.SourceReplayMutation entry;
+            private final RetirementPreparation prepared;
+            private final long frameWindow;
+            private OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy;
+            private boolean reading=true,borrowed,closed;
+            private RetirementSourceCopy(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
+                    RetirementPreparation prepared,long frameWindow){this.root=root;this.entry=entry;this.prepared=prepared;this.frameWindow=frameWindow;}
+            public void requireCurrent(){synchronized(root){
+                root.requireReady();if(closed||root.retirementSourceCopy!=this)throw new IllegalStateException("original Source copy loan closed");
+            }}
+            public OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticatedCopy(){synchronized(root){
+                requireCurrent();if(reading||copy==null)throw new IllegalStateException("original Source copy I/O has not exited");return copy;
+            }}
+            /** Caller keeps original rights on failure. On success Source close owns this loan; caller close is harmless. */
+            public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs hold(
+                    com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs original){
+                synchronized(root){
+                    requireCurrent();Objects.requireNonNull(original).requireCurrent();
+                    if(reading||borrowed||copy==null||!(original.entry() instanceof com.nereusstream.delay.ownership.SourceReplayMutation actual)
+                            ||!entry.mutation().equals(actual.mutation())
+                            ||!Arrays.equals(entry.position().canonicalBytes(),actual.position().canonicalBytes())
+                            ||!Objects.equals(entry.sourceConnectionGeneration(),actual.sourceConnectionGeneration())
+                            ||!Arrays.equals(entry.guardAttestationDigest(),actual.guardAttestationDigest())
+                            ||!(original.inputs() instanceof com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Retirement input)
+                            ||input.approval()==null||input.approval().copy()!=copy)
+                        throw new IllegalArgumentException("historical Source hold changed exact entry/actual Catalog copy");
+                    borrowed=true;
+                }
+                return new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs(){
+                    private boolean released,closing;
+                    public com.nereusstream.delay.ownership.SourceReplayEntry entry(){return original.entry();}
+                    public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs inputs(){return original.inputs();}
+                    public long retainedBytes(){return original.retainedBytes();}
+                    public void requireCurrent(){synchronized(root){
+                        if(released||closing)throw new IllegalStateException("historical Source hold closing/closed");
+                        RetirementSourceCopy.this.requireCurrent();original.requireCurrent();
+                    }}
+                    public void close(){
+                        synchronized(root){if(released)return;if(closing)throw new IllegalStateException("historical Source close remains owned");closing=true;}
+                        try{original.close();synchronized(root){released=true;borrowed=false;releaseLocal();}}
+                        finally{synchronized(root){closing=false;}}
+                    }
+                };
+            }
+            private void releaseLocal(){
+                if(reading||borrowed)throw new IllegalStateException("actual Source copy/read remains owned");
+                if(closed)return;closed=true;copy=null;
+                if(prepared!=null)prepared.sourceBorrowed=false;
+                if(root.retirementSourceCopy==this)root.retirementSourceCopy=null;
+            }
+            @Override public void close(){synchronized(root){if(!borrowed)releaseLocal();}}
         }
 
         /** Signs one exact candidate on the original owned I/O pool; this neither appends Source nor permits delete. */
@@ -749,6 +857,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var release=retirementRelease;
             if(release!=null){release.requestStop();release.retryCleanup();if(!release.ioExited())return false;}
             if(retirementSubmitting)return false;
+            if(retirementSourceCopy!=null)return false;
             final var submission=retirementSubmission;
             if(submission!=null){submission.requestStop();if(!submission.ioExited())return false;}
             final var preparedRetirement=retirement==null?null:retirement.completedValue().orElse(null);

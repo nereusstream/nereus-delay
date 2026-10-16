@@ -987,3 +987,12 @@ handle、提交不跨持Root锁，Stop区分未启动与运行I/O，Host drain�
 另补state1迟到expected0候选本地STALE拒绝，核实际NV51/first/POSITION后只费新增
 拒绝Source行，不取旧blob/换winning closure/退费。完整历史provider/冷输入、
 NV52、新companion与protected GC仍开放，未运行Source服务或提升完成flags。
+
+2026-10-16 历史Source输入接线实施更新：Root只读读取原Recovery公共副本已不依赖
+Worker入场，不需要用新Root Native cut改写原signed context；实际Catalog闭包/
+raw/version/公共历史必须重建出原manifest，Native joins留给Source原read view。
+单Root loan可复用同进程原候选，随实际Source hold释放，失败保留所有权；busy沿
+原Source owned-I/O且不重置有限deadline。此为既定原帧/公共历史契约的局部实现，
+不是新的权限裁定：完整历史purpose/保护/capacity provider及cold composition、
+CONTROL/shared/staging、NV52、新companion/离线认证与protected GC仍必做开放。
+仅必要main/K1/P1编译通过，全部完成flags不变；当前会话后续不使用Fast模式。

@@ -13,6 +13,11 @@ import java.util.function.LongSupplier;
 
 /** One protected content snapshot for the existing Source look-ahead, on the root's original bounded I/O pool. */
 public final class TargetSourceAuthorityPreparation {
+    /** No retained partial input; retry on the same Source turn after the failed owned I/O has actually exited. */
+    public static final class InputUnavailable extends RuntimeException {
+        private static final long serialVersionUID=1L;
+        public InputUnavailable(String message){super(message);}
+    }
     public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
@@ -94,10 +99,11 @@ public final class TargetSourceAuthorityPreparation {
     synchronized boolean prepare(SourceReplayEntry expected, Family expectedFamily) {
         if (stopping) throw new IllegalStateException("Source authority preparation stopped");
         if (entry != null && entry != expected) throw new IllegalStateException("Source authority look-ahead changed");
-        if (entry == null) { entry = expected; family = expectedFamily; }
+        if (entry == null) { entry = expected; family = expectedFamily; started = nanos.getAsLong(); }
         if (family != expectedFamily || closing != null) throw new IllegalStateException("Source authority family is changed or closing");
         if (opening == null) {
-            started = nanos.getAsLong();
+            final long elapsed=nanos.getAsLong()-started;
+            if(elapsed<0||elapsed>=timeoutNanos){requestStop();throw new IllegalStateException("Source input admission exceeded its original finite deadline");}
             opening = OwnedCheckpointIo.submitResource(guard -> {
                 final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard), "original content snapshot");
                 try {
@@ -121,7 +127,12 @@ public final class TargetSourceAuthorityPreparation {
             }
             return false;
         }
-        if (opening.receipt().isCompletedExceptionally()) opening.receipt().join();
+        if (opening.receipt().isCompletedExceptionally()) {
+            if(CheckpointInputFuture.ownedFailure(opening.receipt()) instanceof InputUnavailable&&opening.ioExited()){
+                opening=null;return false;
+            }
+            opening.receipt().join();
+        }
         if (!opening.ioExited()) return false;
         held = opening.completedValue().orElseGet(() -> opening.receipt().join());
         held.requireCurrent(); localOwnerAndSource.run();
