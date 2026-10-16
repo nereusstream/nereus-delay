@@ -2523,3 +2523,16 @@ Source hold显式计完整公共proof，original.close失败保留loan/预算，
 同轮补实际body+author长度无复制frame预核，Source hold原计数为负直接拒绝；超
 1024作者不为历史匹配复制/反复编码，但须先确认完整coverage才作确定deny。新增
 Target引用字段仍受原256KiB snapshot/8192 grant/完整Root窗口限制，不抬默认预算。
+
+
+2026-10-16 NV53/meta46按完整key/payload/overhead计入实际Source SHARD STATE，
+与原Control marker APPLIED first/POSITION、Source推进同Native batch；不转移原
+Target EVIDENCE/owner/ref/alias费用。Activation公共材料包含完整prepared/marker/
+reader declarations及原actor/keys/reset，Source owned hold显式计保留字节，reader
+集合在收集时预核<=64/1MiB，默认预算不抬高。依赖库存/semanticInputsDigest新增
+activation inventory（field11），空inventory旧bytes保持；独立fold核真实first/
+POSITION及SHARD owner/lineage，并核NV51/NV52原intent严格晚于activation。
+companion1..5明确拒NV53，descriptor要求6，因此当前有效marker在写APPLIED前
+pending；尚无companion6或完整离线原Root证明/restore。最大合法包络/RSS/原子失败
+仍待集中验证；history证明持久空间和确认handler的NV51/owner/ref/EVIDENCE原子
+退费及protected GC继续开放，无实际新增Native记录或删除/退款操作。

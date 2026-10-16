@@ -23,6 +23,7 @@ import java.util.TreeMap;
 
 /** Closed Target semantic contents and original Admission frames; external control/pin/authentication is required. */
 public final class TargetCheckpointSemanticSnapshot {
+    public static final int MAX_SCHEMA_VERSION=5;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-checkpoint-semantic-snapshot\0");
 
     public record Limits(int maximumRecords, int maximumBytes, long maximumAdmissionFrameBytes) {
@@ -282,7 +283,7 @@ public final class TargetCheckpointSemanticSnapshot {
 
     /** Exact image contents and closure still need historical publication, keys, pins and activation authority. */
     public void validateAgainst(TargetCheckpointDependencies dependencies, Limits limits) {
-        if(!Objects.requireNonNull(dependencies).retirements().isEmpty()||!dependencies.evidenceConfirmations().isEmpty())
+        if(!Objects.requireNonNull(dependencies).retirements().isEmpty()||!dependencies.evidenceConfirmations().isEmpty()||!dependencies.protocolActivations().isEmpty())
             throw new IllegalStateException("retirement evidence requires the independently admitted post-schema5 companion");
         if ((long) profiles.size() + retries.size() + trusts.size() + admissions.size()
                 + controls.size() + outcomes.size() + externalEvidence.size()+recoveryEvidence.size()
@@ -454,7 +455,7 @@ public final class TargetCheckpointSemanticSnapshot {
             throw new IllegalArgumentException("invalid Target semantic snapshot field count");
         }
         final int version = QueryCodecSupport.uint32(fields.get(0), 1);
-        if (version < 1 || version > 5) {
+        if (version < 1 || version > MAX_SCHEMA_VERSION) {
             throw new IllegalArgumentException("unsupported Target semantic snapshot version");
         }
         final var profiles = new ArrayList<ProfileSemanticEnvelope>();

@@ -661,6 +661,7 @@ public final class TargetRecordAccounting {
                 final var retiring=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(
                         key,payload,scope.shard(),scope.tenantScope(),lineage);
                 retiring.appliedAt().requireAtOrBefore(operation);
+                TargetProtocolActivationStore.requirePriorActivation(reader,overlay,scope,lineage,root.owner(),retiring.appliedAt(),operation);
                 TargetEvidenceRetirementStore.requireRetainedUses(reader,overlay,scope,lineage,root.owner(),retiring,operation);
                 final var frozen=retiring.feeOwner();final var owner=descriptor(frozen.identity());
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("retiring copy changed frozen accounting");
@@ -695,6 +696,13 @@ public final class TargetRecordAccounting {
                 TargetEvidenceRetirementStore.requireConfirmedState(reader,overlay,scope,lineage,root.owner(),confirmed,operation);
                 final var frozen=confirmed.feeOwner();final var owner=descriptor(frozen.identity());
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("confirmed row changed frozen accounting");
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
+            case com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var activation=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(key,payload,scope,lineage);
+                TargetProtocolActivationStore.requireApplied(reader,overlay,scope,lineage,root.owner(),activation,operation);
+                final var owner=descriptor(root.owner());
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
             case TargetQuotaAttemptBudget.VALUE_TYPE -> {

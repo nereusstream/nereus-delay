@@ -1101,3 +1101,15 @@ descriptor/reader；5字段仅定位，已在当前未激活history格式强制�
 只补本次g8闭环，不迁所有旧tuple。仍单agent/不Fast/必要编译/文档同步，集中
 验证后置；不运行真实激活、grant/key、service/config/Admin/delete/迁退，所有
 完成flags保持未完成。此裁定已收到，不存在等待主会话的阻塞。
+
+
+2026-10-16 上述裁定的实现进展：独立descriptor/payload/body、CONTROL operation28、
+Capability v3 explicit Target declaration/exact reader set、NV53/meta46及原Source
+ACTIVATION family/first/POSITION/SHARD STATE、实际历史grant绑定和writer/fold
+门禁已实施；旧base/body2/activation不变。Descriptor固定完整闭合版本组合并要求
+companion6；当前最高5，硬门禁留有效marker pending，不声称实际激活完成。数据
+内公钥/reader声明不能自授历史角色、Root或部署批准。具体原Root complete
+membership/session/revision/环境/SDK provider、声明发布/marker签名交接/当前许可、
+companion6/完整公共证明离线认证恢复及剩余退役生命周期仍待继续，不存在裁定等待。
+仅必要编译，单agent/不Fast，集中验证后置；不执行真实服务/配置/key/grant/Admin/
+delete/迁退/保护解除，所有四包/29切片和三个完成flags保持未完成。

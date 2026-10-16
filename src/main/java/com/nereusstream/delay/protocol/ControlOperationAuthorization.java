@@ -69,6 +69,7 @@ public final class ControlOperationAuthorization {
             case REPLAY_DEAD_LETTER -> new ControlRole[] {ControlRole.DEAD_LETTER_OPERATOR};
             case RESOLVE_UNCERTAIN -> resolveRoles(prepared.request());
             case DRAIN_SHARD,
+                    ACTIVATE_TARGET_PROTOCOL,
                     FENCE_SHARD_FOR_MAINTENANCE,
                     FORCE_CHECKPOINT,
                     GET_CHECKPOINT_CATALOG,

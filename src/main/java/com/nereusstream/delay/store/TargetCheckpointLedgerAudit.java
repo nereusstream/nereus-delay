@@ -238,6 +238,9 @@ final class TargetCheckpointLedgerAudit {
                         final var record=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(key,payload,
                                 proof.metadata().shardId(),proof.root().tenantScope(),proof.root().recoveryLineage());
                         record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.evidenceConfirmation(record);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.protocolActivation(record);
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));

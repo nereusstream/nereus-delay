@@ -594,6 +594,9 @@ public final class TargetWorkerShardRuntime
     public synchronized void requireRetirementReadCurrent(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
     }
+    public synchronized void requireRetirementProtocolActive(LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireRetirementProtocolActive(clock);
+    }
     public synchronized java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> retirementMutationResult(
             SystemMutation mutation,LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.retirementMutationResult(mutation,clock);

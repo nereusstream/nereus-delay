@@ -28,7 +28,8 @@ public enum ControlOperationKind {
     CLOSE_TARGET_NATIVE_MEMBER(24),
     CREATE_TARGET_CHANNEL(25),
     RENEW_TARGET_CHANNEL(26),
-    STOP_TARGET_CHANNEL_NEW_WORK(27);
+    STOP_TARGET_CHANNEL_NEW_WORK(27),
+    ACTIVATE_TARGET_PROTOCOL(28);
 
     private final int wireValue;
 

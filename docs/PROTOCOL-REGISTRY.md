@@ -987,7 +987,7 @@ the prepared logical cut, and context/copy must match exactly. The physical
 prepared Store identity is not equated to a later restore's Store identity.
 The intent envelope is bounded by64MiB body +1MiB author +1024; the complete
 record adds the64MiB copy, bounded applied source and256 bytes overhead.
-META44→NV51 and META45→NV52 are registered, with strict value ceiling52.
+META44→NV51, META45→NV52 and META46→NV53 are registered, with strict value ceiling53.
 
 NV52 TargetEvidenceConfirmedRecord uses META key `2d 01 || exactResourceIdentityHash[32]`.
 Closed fields:1 schema1;2 state2;3 complete canonical signed confirmation System
@@ -1009,7 +1009,7 @@ it is not provider response authentication or write/delete authority.
 NV51 adds its actual STATE key/payload/overhead under the original frozen fee
 owner and retains existing adopted owner/ref/alias/EVIDENCE charges. Independent
 fold checks actual APPLIED intent first/POSITION and the complete local dependency
-inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring/confirmed rows until
+inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring/confirmed/Target-activation rows until
 the new offline companion is implemented; their old bytes are not reinterpreted.
 Root public-copy preparation uses bounded owned I/O and exact raw/version/closure
 rereads; historical Source input additionally binds the original signed manifest.
@@ -4482,3 +4482,90 @@ The received activation decision preserves base Artifact schema1/body2 and old
 payloads, adds a distinct bounded Target descriptor/marker and exact Target reader
 declaration/evidence, and requires actual Source APPLIED accounted Native state.
 History grant fields6..9 only bind that future proof; no activation is synthesized.
+
+
+### Target g8 activation extension (2026-10-16; implementation incomplete)
+
+`ControlOperationKind` / `ControlOperationRequest` branch28 is
+`ACTIVATE_TARGET_PROTOCOL`, requiring PLATFORM_OPERATOR and the actual protected
+Shard scope proof. It emits the existing APPLY_SHARD_CONTROL/controlKind1 marker.
+ArtifactGenerationSet schema1/body2, ProtocolVersionActivatePayload legacy3/current5
+fields, old ProtocolActivationState, prior operation values and SystemMutationType
+are unchanged. No SERVICE/copy/history signer obtains activation authority.
+
+TargetProtocolActivationDescriptor schema1 closed fields:1 schema;2 full original
+base ArtifactGenerationSet;3 base setDigest[32];4 original reset manifestDigest[32];
+5 exact targetEvidenceRetirement tuple8;6 independent Target schemaHash[32];7 closed
+version vector;8 worker source commit;9 K1 source commit;10 K1 SDK JAR SHA[32];
+11 P1 SDK JAR SHA[32];12 digest. Source commits are lowercase40hex. Descriptor limit
+8192 bytes; digest is SHA256(`nereus-delay-target-protocol-activation-descriptor\0`
+|| canonical fields1..11). P1 source remains bound by the exact base set. Version
+vector fields1..15 are respectively Store2, Native max53, checkpoint companion6,
+retirement body8, authorization history1, retirement copy1, activation record1,
+activation payload1, capability declaration3, Target reader set1, control kind28,
+NV51 schema1, NV52 schema1, history Target reference1 and activation public evidence1.
+These exact data locks do not establish deployed binary/SDK or environment authority.
+
+TargetProtocolActivatePayload schema1 fields:1 varint schema;2 Shard-only quota
+scope;3 lineage[16];4 full descriptor;5 reader evidence hash[32]. Its first field's
+wire type distinguishes it from old activation payloads; legacy decoders reject it.
+TargetProtocolActivationBody retains fields1/2/3 and10..15 of the existing Shard
+control shape: ShardSubject, APPLY_SHARD_CONTROL, retryUntil, ControlRef,
+controlKind1, semanticVersion1, semanticHash, expectedPrior0 and ControlPayload
+field1 holding the new payload. Semantic hash domain is
+`nereus-delay-target-protocol-activation-control\0`, followed by u16 kind1 and
+payload. Sole Control target is SHARD/index0; prepared request/registered target,
+CONTROL author/role/scope hashes and signed logical ID must match exactly.
+
+ProtocolCapabilityDeclaration version3 retains fields1..6, repeated7 base sets,
+adds repeated8 exact Target descriptors and moves digest to9. Version1/2 canonical
+bytes/digest branches remain unchanged; version2 constant remains2. Version3 has
+1..4 sorted unique descriptors, each with its exact declared base and tuple.
+Only explicit version3 support satisfies a Target descriptor; tuple+base alone
+is insufficient. TargetProtocolReaderSet schema1 fields:1 schema,2 descriptor
+hash, repeated3 Reader(1 publication revision,2 full declaration),4 digest.
+Digest domain is `nereus-delay-target-protocol-eligible-reader-set\0` over1..3.
+The complete set is nonempty, sorted unique by Worker ID, <=64 readers/1MiB;
+aggregate bytes are checked while collecting declarations. Coordinator checks
+publication identity and revision/session-bearing declarations, exact base/tuple/
+descriptor and exact supplied complete membership. The original protected Root
+must independently establish that membership and actual deployment/runtime locks.
+
+NV53 TargetProtocolActivationRecord uses META key
+`2e 01 || SHA256("nereus-delay-target-protocol-activation-key\0" || tuple)`.
+Closed fields:1 schema1,2 full signed marker envelope,3 full signed prepared
+Control,4 actual Source-applied TargetQuotaMutation,5 complete Target reader set,
+6 public evidence,7 digest. Digest domain is
+`nereus-delay-target-protocol-activation-record\0` over fields1..6. Public evidence
+schema1 fields:1 schema,2 original actor hash,3 canonical role set,4 resource-scope
+hash,5 prepared public X509 key[44],6 marker public key[44],7 original reset issuer
+public key[44],8 complete signed DataResetManifest. Public keys/signatures are data
+consistency checks, not independent original Root/role/key/registration authority.
+Record limits compose bounded marker/prepared inputs, bounded Source stamp,
+reader1MiB and public evidence(1MiB+1024); default budgets are not increased.
+
+Source ACTIVATION uses the existing finite authority-preparation execution and
+close ownership. Original authorization/reader/base/reset/public inputs are captured
+outside Native; only frozen protected checks run on commit. New activation record,
+actual APPLIED first/POSITION, Source and SHARD STATE accounting share one Native
+batch. Same-ID replay uses original first; a later candidate for an already applied
+tuple is STALE and cannot replace the record. Unknown original inputs remain pending.
+Retirement signing/queue admission/writer and Source intent now require actual
+activation; Source business must be strictly after its marker. History grant's
+referenceVersion/descriptor/projection/marker hash and five-field locator must
+match the actual record, original first and Source. Independent NV51/NV52 fold
+requires activation before the original intent, including local state1/2 stale
+prechecks; a later marker cannot retroactively authorize earlier business.
+
+This descriptor requires companion6 while the current implementation supports
+only companion1..5. A local guard therefore leaves otherwise authorized new markers
+pending before writing APPLIED; writer/runtime use also refuses unsupported NV53.
+Old companions explicitly refuse NV51/NV52/NV53. Dependency inventory/semantic-input
+digest now retain NV53, but full companion6/offline original-trust verification,
+restore/reopen, concrete complete Root reader/environment/runtime provider and
+capability publication, actual signed marker handoff/current admission remain open.
+Full retirement history proof persistence/restart-tip, current SERVICE purpose
+append permission, confirmation handler/provider delete proof/atomic refunds and
+protected GC also remain open. Necessary compilation only; no actual activation,
+service/config/key/grant/Admin/delete/migration/protection-release operation or
+central validation was executed. All program completion flags remain false.

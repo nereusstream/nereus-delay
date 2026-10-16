@@ -276,6 +276,13 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case ACTIVATE_TARGET_PROTOCOL -> {
+                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
+                requireMutationPresence(values,ControlTargetKind.SHARD,true);
+                final var activation=branch(request,TargetProtocolActivatePayload.class);
+                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(activation.scope().shard()))
+                    throw new IllegalArgumentException("Target activation must select its exact Source Shard at index zero");
+            }
             case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL, STOP_TARGET_CHANNEL_NEW_WORK -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);

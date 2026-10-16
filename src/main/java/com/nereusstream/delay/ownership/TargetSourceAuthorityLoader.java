@@ -33,7 +33,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Activation {}
+    public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
             TargetCommandStore.PayloadProofControls payloadProofs) implements Inputs {}
@@ -107,6 +108,24 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(), commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
             case Retirement value -> retirement(entry, value, held, commit, guard);
+            case Activation value -> {
+                final var original=(SourceReplayMutation)entry;final var body=TargetProtocolActivationBody.decode(original.mutation().canonicalBody());
+                final var a=value.authority();final var frozen=freeze(value.prepared(),entry,a.registrations(),v->a.keys().resolve(v,entry.position()),held,guard);
+                final var captured=Objects.requireNonNull(a.inputs().capture(value.prepared(),original.mutation(),entry.position(),body),"original Target activation snapshot");
+                captured.current().run();held.requireCurrent();guard.run();
+                held.bytes=Math.addExact(held.bytes,captured.retainedBytes());
+                if(held.bytes>maximumBytes)throw new IllegalStateException("complete Target activation inputs exceed Source snapshot bound");
+                final var retained=new TargetProtocolActivationStore.Inputs(captured.readers(),captured.reset(),captured.resetIssuer(),()->{
+                    held.requireCurrent();captured.current().run();held.requireCurrent();
+                });
+                final var authority=new TargetProtocolActivationStore.Authority(frozen,(v,s)->frozen.key(v,s),a.actor(),a.scopeProof(),(prepared,marker,source,actual)->{
+                    held.requireCurrent();requireSource(entry,source);
+                    if(!Arrays.equals(prepared.canonicalBytes(),value.prepared().canonicalBytes())||!marker.equals(original.mutation())
+                            ||!Arrays.equals(actual.canonicalBytes(),body.canonicalBytes()))throw new IllegalStateException("Target activation snapshot changed original marker");
+                    retained.current().run();return retained;
+                });
+                yield new TargetSourceApplyRuntime.ProtocolActivationControl(value.prepared(),authority,commit);
+            }
             case Grant value -> {
                 var a = value.authority(); var frozen = freeze(value.prepared(), entry, a.registrations(),
                         version -> a.keys().resolve((int) version, entry.position()), held, guard);
@@ -159,6 +178,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Outcome ignored -> TargetSourceAuthorityPreparation.Family.OUTCOME;
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
+            case Activation ignored -> TargetSourceAuthorityPreparation.Family.ACTIVATION;
         };
     }
 
@@ -189,7 +209,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             held.bytes = Math.addExact(held.bytes, Math.addExact(body.context().copyManifestBytes(), keyBytes.length));
             frozen = new TargetEvidenceRetirementStore.Approval(key, approved.copy(), () -> {
                 held.requireCurrent(); approved.current().run(); held.requireCurrent();
-            },approved.activatedTuple());
+            },approved.activatedTuple(),approved.historyGrant());
         }
         held.requireCurrent(); guard.run();
         return new TargetSourceApplyRuntime.RetirementControl((scope, actor, actual, source) -> {

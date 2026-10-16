@@ -27,12 +27,14 @@ public final class TargetEvidenceRetirementStore {
 
     /** The key is selected by trusted Source authority, never from the copy's serialized public keys. */
     public record Approval(PublicKey writerKey,
-            OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy, Runnable current,ProtocolTuple activatedTuple) {
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy, Runnable current,ProtocolTuple activatedTuple,
+            TargetRetirementAuthorizationHistory.Grant historyGrant) {
         public Approval { Objects.requireNonNull(writerKey); Objects.requireNonNull(copy); Objects.requireNonNull(current); }
         /** Key/copy possession alone never activates body generation8. */
         public Approval(PublicKey key,OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy,Runnable current){
-            this(key,copy,current,null);
+            this(key,copy,current,null,null);
         }
+        public Approval(PublicKey key,OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy,Runnable current,ProtocolTuple tuple){this(key,copy,current,tuple,null);}
     }
 
     public static final class Prepared {
@@ -84,7 +86,11 @@ public final class TargetEvidenceRetirementStore {
             }
         }
         final var selected = approval;
-        final boolean authorized = selected != null && intent.verifySignature(selected.writerKey());
+        final var grant=selected==null?null:selected.historyGrant();
+        final boolean authorized = selected != null && intent.verifySignature(selected.writerKey())
+                &&(grant==null||grant.action()==TargetRetirementAuthorizationHistory.Action.RETIRE_INTENT
+                    &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
+                    &&Arrays.equals(grant.publicKey(),selected.writerKey().getEncoded()));
         final boolean activated=authorized&&body.requiredTuple().equals(selected.activatedTuple());
         if (activated) {
             requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());
@@ -99,10 +105,16 @@ public final class TargetEvidenceRetirementStore {
             final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
                     Bytes.sha256(intent.canonicalEnvelope()));
             final var root = sourceRoot(reader, stamp);
+            boolean sourceActivated=activated&&TargetProtocolActivationStore.isActivated(reader,scope,lineage,body.requiredTuple(),source);
+            if(sourceActivated){
+                if(grant==null)throw new IllegalStateException("retirement Source history omitted its exact Target activation binding");
+                try{TargetProtocolActivationStore.requireHistoryBinding(reader,scope,lineage,grant,source);}
+                catch(CommandResolutionException denied){if(denied.stableCode()!=StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION)throw denied;sourceActivated=false;}
+            }
             final StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()
                     ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
                     : !authorized ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION
-                    : !activated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
+                    : !sourceActivated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
             if (rejection == null) {
                 selected.current().run();
@@ -296,6 +308,7 @@ public final class TargetEvidenceRetirementStore {
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,
             TargetEvidenceConfirmedRecord record,TargetQuotaMutation frontier){
         record.appliedAt().requireAtOrBefore(frontier);
+        TargetProtocolActivationStore.requirePriorActivation(view,overlay,scope,lineage,sourceOwner,record.intentAppliedAt(),frontier);
         final var body=record.body();final var resource=body.resource();
         if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
                 ||!Arrays.equals(lineage,resource.recoveryLineage()))throw new IllegalStateException("confirmed resource changed actual Source scope");

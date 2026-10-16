@@ -51,6 +51,12 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if(prepared.request().branch() instanceof TargetProtocolActivatePayload expected){
+                    final var body=TargetProtocolActivationBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef,body.controlRef());
+                    if(!expected.equals(body.payload()))throw new IllegalArgumentException("Target activation differs from registered Control request");
+                    expectedLogicalIdentity=body.logicalIdentity();break;
+                }
                 if (prepared.request().branch() instanceof TargetChannelControlRequest expected) {
                     final var body = TargetChannelControlBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef, body.controlRef());
@@ -127,6 +133,7 @@ public final class ControlTargetMutationBinding {
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
             case GRANT_TARGET_MEMBERSHIP,
+                    ACTIVATE_TARGET_PROTOCOL,
                     CLOSE_TARGET_MEMBERSHIP,
                     PUBLISH_TARGET_QUOTA_GRANT,
                     CLOSE_TARGET,

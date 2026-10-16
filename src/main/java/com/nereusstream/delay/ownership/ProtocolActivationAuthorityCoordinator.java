@@ -129,6 +129,37 @@ public final class ProtocolActivationAuthorityCoordinator {
                         () -> new IllegalStateException("Worker has no current protocol capability: " + exactWorkerId));
     }
 
+    /** Caller supplies and protects the authority's complete eligible membership, as for existing activation. */
+    public com.nereusstream.delay.protocol.TargetProtocolReaderSet requireTargetEligibleReaders(
+            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,List<String> eligibleWorkerIds){
+        Objects.requireNonNull(descriptor);
+        if(eligibleWorkerIds.size()>com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_READERS)
+            throw new IllegalArgumentException("Target eligible reader membership exceeds finite bound");
+        final var workerIds=sortedWorkerIds(eligibleWorkerIds);long bytes=128;
+        final var readers=new ArrayList<com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader>();
+        for(var workerId:workerIds){
+            final var publication=authority.current(workerId).orElseThrow(()->new IllegalStateException("eligible Worker has no actual protocol capability"));
+            final var declaration=publication.declaration();
+            if(!workerId.equals(declaration.workerId())||!declaration.isCurrentGeneration()||!declaration.supports(descriptor.base())
+                    ||!declaration.supports(descriptor.tuple())||!declaration.supports(descriptor))
+                throw new IllegalStateException("eligible Worker lacks exact Target descriptor/base/tuple declaration");
+            bytes=Math.addExact(bytes,declaration.canonicalBytes().length+32L);
+            if(bytes>com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_BYTES)
+                throw new IllegalArgumentException("complete Target reader evidence exceeds finite byte bound");
+            readers.add(new com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader(publication.revision(),publication.declaration()));
+        }
+        final var evidence=new com.nereusstream.delay.protocol.TargetProtocolReaderSet(descriptor,readers);
+        evidence.requireMembership(workerIds);evidence.canonicalBytes();return evidence;
+    }
+
+    public com.nereusstream.delay.protocol.TargetProtocolReaderSet authorize(
+            com.nereusstream.delay.protocol.TargetProtocolActivatePayload payload,List<String> eligibleWorkerIds){
+        final var evidence=requireTargetEligibleReaders(payload.descriptor(),eligibleWorkerIds);
+        if(!Bytes.constantTimeEquals(payload.readerEvidenceHash(),evidence.digest()))
+            throw new IllegalStateException("Target activation payload reader evidence is stale or mismatched");
+        return evidence;
+    }
+
     private static byte[] evidenceHash(
             final ProtocolTuple tuple, final List<ProtocolCapabilityAuthority.Publication> publications) {
         return evidenceHash(tuple, null, publications);

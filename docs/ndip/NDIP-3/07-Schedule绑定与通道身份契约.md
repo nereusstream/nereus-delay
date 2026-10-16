@@ -1012,3 +1012,15 @@ policy或known authorized key不验原帧为确定deny，覆盖/读取/认证不
 本阶段只返回认证历史grant及g8激活引用，不授Source Approval/current append/
 删除权限。真实Source/Artifact激活核验与公共proof的Native/Checkpoint持久保护、
 restart tip一致性仍须接通；Artifact schema1固定body2，不能从当前兼容集合自证8。
+
+
+2026-10-16 g8权限交集已加实际Native激活门禁：CONTROL PLATFORM_OPERATOR及真实
+Shard scope/原注册批准的独立Target marker走既有APPLY_SHARD_CONTROL kind1；
+SERVICE/copy/history signer不能激活。Capability v3明确声明exact Target descriptor，
+完整eligible reader/revision/session、原base/环境/SDK仍须独立Root provider核实。
+NV53保存原Control/marker/Source/reader公共材料；Source history grant的descriptor/
+projection/marker hash及原五字段locator必须与实际APPLIED first完全匹配，intent必须
+严格在marker之后。当前signing/writer也等待实际APPLIED，旧Initial兼容集合不足。
+本地尚无companion6，门禁保留有效marker pending；完整Root provider/发布/签名交接、
+原history公共proof持久化/重启tip、当前SERVICE purpose append许可、确认与实际删除
+保护仍未闭合。数据格式和编译不授实际激活/运行/迁退权限，完成状态保持未完成。

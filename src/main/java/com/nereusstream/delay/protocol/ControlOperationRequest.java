@@ -124,6 +124,7 @@ public final class ControlOperationRequest {
 
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
+            case ACTIVATE_TARGET_PROTOCOL -> TargetProtocolActivatePayload.decode(encoded);
             case STOP_NEW_SCHEDULES -> StopNewSchedulesRequest.decode(encoded);
             case PAUSE_DESTINATION_LANE, RESUME_DESTINATION_LANE -> LaneGateRequest.decode(encoded);
             case CLOSE_DESTINATION_LANE -> CloseLaneRequest.decode(encoded);
@@ -155,6 +156,7 @@ public final class ControlOperationRequest {
     private static void validateBranch(final ControlOperationKind kind, final ControlOperationRequestBranch branch) {
         final boolean valid =
                 switch (kind) {
+                    case ACTIVATE_TARGET_PROTOCOL -> branch instanceof TargetProtocolActivatePayload;
                     case STOP_NEW_SCHEDULES -> branch instanceof StopNewSchedulesRequest;
                     case PAUSE_DESTINATION_LANE, RESUME_DESTINATION_LANE -> branch instanceof LaneGateRequest;
                     case CLOSE_DESTINATION_LANE -> branch instanceof CloseLaneRequest;

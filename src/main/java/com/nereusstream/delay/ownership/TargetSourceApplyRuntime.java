@@ -226,6 +226,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     public interface TargetRetirements {
         RetirementControl resolve(SourceReplayMutation entry);
     }
+    public record ProtocolActivationControl(PreparedControlOperation prepared,
+            com.nereusstream.delay.runtime.TargetProtocolActivationStore.Authority authority,TargetStoreBackend.CommitAuthority commit){
+        public ProtocolActivationControl{Objects.requireNonNull(prepared);Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
+    }
+    @FunctionalInterface public interface ProtocolActivations{ProtocolActivationControl resolve(SourceReplayMutation entry);}
 
     public record ChannelControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
@@ -280,7 +285,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetAdmissions admissions,
             TargetOutcomes outcomes,
             ChannelControls channelControls,
-            TargetRetirements retirements) {
+            TargetRetirements retirements,ProtocolActivations protocolActivations) {
+        public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,Fences fences,
+                ExpiryControls expiries,Closes closes,MembershipControls memberships,TargetStoreBackend.CommitAuthority writes,
+                TargetStoreBackend.ReadAuthority reads,Commands commands,NativePolicyControls nativePolicies,TargetAdmissions admissions,
+                TargetOutcomes outcomes,ChannelControls channels,TargetRetirements retirements){
+            this(leases,successor,grants,fences,expiries,closes,memberships,writes,reads,commands,nativePolicies,admissions,outcomes,channels,retirements,
+                    entry->{throw new IllegalStateException("Target protocol activation authorities are not configured");});
+        }
         public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
                 Fences fences, ExpiryControls expiries, Closes closes, MembershipControls membershipControls,
                 TargetStoreBackend.CommitAuthority duplicateWrites, TargetStoreBackend.ReadAuthority reads,
@@ -305,19 +317,23 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"), retirements);
+                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations);
         }
 
         public Authorities withRetirements(final TargetRetirements selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    channelControls, Objects.requireNonNull(selected));
+                    channelControls, Objects.requireNonNull(selected),protocolActivations);
+        }
+        public Authorities withProtocolActivations(ProtocolActivations selected){
+            return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,commands,
+                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected));
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls, retirements);
+                    outcomes, channelControls, retirements,protocolActivations);
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -416,6 +432,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
 
         public Authorities {
+            Objects.requireNonNull(protocolActivations,"protocolActivations");
             Objects.requireNonNull(leases, "leases");
             Objects.requireNonNull(successor, "successor");
             Objects.requireNonNull(grants, "grants");
@@ -554,6 +571,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) return TargetSourceAuthorityPreparation.Family.ADMISSION;
         if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
         if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
+        if (isProtocolActivation(mutation)) return TargetSourceAuthorityPreparation.Family.ACTIVATION;
         if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
         if (isTargetClose(mutation)) return TargetSourceAuthorityPreparation.Family.CLOSE;
         if (isMembershipControl(mutation)) return TargetSourceAuthorityPreparation.Family.MEMBERSHIP;
@@ -1400,9 +1418,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 ||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
             throw new IllegalArgumentException("retirement writer changed Source/operation/SERVICE actor");
         final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        requireRetirementProtocolActive(clock);
+    }
+    synchronized void requireRetirementProtocolActive(LongSupplier clock){
+        requireGcOwner(clock);final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement();
         final var compatible=store.controlSnapshot();
-        if(compatible==null||!compatible.protocolTuples().contains(body.requiredTuple()))
-            throw new IllegalStateException("retirement writer lacks its independently admitted compatible protocol tuple");
+        if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("retirement writer lacks independently admitted compatible tuple");
+        backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            if(com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple)==null)
+                throw new IllegalStateException("retirement writer requires the actual Source APPLIED Target activation marker");
+            return Boolean.TRUE;
+        },workerReads(clock));
     }
 
     synchronized OptionalLong readTargetActiveMessages(
@@ -1830,6 +1856,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = retirement.commit(first, writes(control.commit(), entry, clock));
+            } else if (isProtocolActivation(mutation.mutation())) {
+                final var control=Objects.requireNonNull(authorities.protocolActivations().resolve(mutation),"Target protocol activation authority");
+                final var activations=new com.nereusstream.delay.runtime.TargetProtocolActivationStore(backend,scope,lineage,limits.counters(),limits.domains());
+                final com.nereusstream.delay.runtime.TargetProtocolActivationStore.Prepared first;
+                try{first=activations.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
+                catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                result=activations.commit(first,writes(control.commit(),entry,clock));
             } else if (isChannelControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.channelControls().resolve(mutation),
                         "Target channel lifecycle authority");
@@ -2154,7 +2187,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalArgumentException(
                     "Target source business branch is not wired yet; source must remain pending");
         }
-        if (isChannelControl(mutation.mutation())) {
+        if(isProtocolActivation(mutation.mutation())){
+            com.nereusstream.delay.protocol.TargetProtocolActivationBody.decode(mutation.mutation().canonicalBody());
+        }else if (isChannelControl(mutation.mutation())) {
             TargetChannelControlBody.decode(mutation.mutation().canonicalBody());
         } else if (isTargetClose(mutation.mutation())) {
             TargetCloseBody.decode(mutation.mutation().canonicalBody());
@@ -2177,6 +2212,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return kind == 15 || kind == 16;
     }
 
+    private static boolean isProtocolActivation(com.nereusstream.delay.protocol.SystemMutation mutation){
+        return mutation.type()==SystemMutationType.APPLY_SHARD_CONTROL&&targetControlKind(mutation)==1;
+    }
     private static boolean isNativePolicyControl(com.nereusstream.delay.protocol.SystemMutation mutation) {
         final int kind = targetControlKind(mutation);
         return kind >= 19 && kind <= 23;
@@ -2191,13 +2229,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private static int targetControlKind(com.nereusstream.delay.protocol.SystemMutation mutation) {
         final byte[] body = mutation.canonicalBody();
         if (body.length
-                > Math.max(
+                > Math.max(com.nereusstream.delay.protocol.TargetProtocolActivationBody.MAX_BYTES,Math.max(
                         TargetNativePolicyControlBody.MAX_CANONICAL_BYTES,
                         Math.max(
                                 TargetMembershipControlBody.MAX_CANONICAL_BYTES,
                                 Math.max(
                                         TargetCloseBody.MAX_CANONICAL_BYTES,
-                                        TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES)))) {
+                                        TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES))))) {
             throw new IllegalArgumentException("Target control body exceeds activated codec bounds");
         }
         final var reader = new CanonicalProtobuf.Reader(body);
