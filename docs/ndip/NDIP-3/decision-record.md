@@ -898,3 +898,7 @@ Stop等待实际退出。配置/SDK构造仍用原assembly gate；新增register
 Host转移后的此类Native/history读取及原live checkpoint adoption补记使用，核实际
 Root注册/ready/Stop/失败/转移状态，不恢复构造/SEND/Source签发权限。完整Source
 退役/确认、独立ledger、删除后checkpoint、保护/no-recreate与集中验收继续开放。
+
+2026-10-16实际Native接线发现kind8 codec把原recovery lineage误设32 bytes；原
+NV47/NV49冻结owner固定16 bytes，adopted分支不可能通过相等检查。构造/解码及
+Registry已统一为原16-byte身份，无实际激活或迁移；仍待专用Source/reader接线。

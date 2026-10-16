@@ -92,7 +92,8 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
     public TargetExternalEvidenceObjectResource {
         Objects.requireNonNull(subtype); Objects.requireNonNull(shard); Objects.requireNonNull(provenance);
         catalogNamespaceId = assigned(catalogNamespaceId); deploymentId = assigned(deploymentId);
-        tenantScope = assigned(tenantScope); recoveryLineage = assigned(recoveryLineage);
+        tenantScope = assigned(tenantScope);
+        recoveryLineage = TargetCompatibilityCodec.assigned(recoveryLineage, 16, "external object recovery lineage");
         objectDigest = assigned(objectDigest); valueDigest = assigned(valueDigest);
         Objects.requireNonNull(exactKey);
         if (exactKey.isBlank() || !exactKey.equals(exactKey.trim()) || exactKey.indexOf('\0') >= 0
@@ -157,7 +158,7 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
         final var resource = new TargetExternalEvidenceObjectResource(Subtype.decode(QueryCodecSupport.uint32(f.get(1), 2)),
                 QueryCodecSupport.fixed(f.get(2), 3, 32), QueryCodecSupport.fixed(f.get(3), 4, 32),
                 ShardSubject.decode(QueryCodecSupport.nested(f.get(4), 5)).shardId(), QueryCodecSupport.fixed(f.get(5), 6, 32),
-                QueryCodecSupport.fixed(f.get(6), 7, 32), new String(QueryCodecSupport.bytes(f.get(7), 8), StandardCharsets.UTF_8),
+                QueryCodecSupport.fixed(f.get(6), 7, 16), new String(QueryCodecSupport.bytes(f.get(7), 8), StandardCharsets.UTF_8),
                 QueryCodecSupport.fixed(f.get(8), 9, 32), QueryCodecSupport.fixed(f.get(9), 10, 32), QueryCodecSupport.uint(f.get(10), 11),
                 QueryCodecSupport.bytes(f.get(11), 12), decodeProvenance(QueryCodecSupport.nested(f.get(12), 13)));
         QueryCodecSupport.requireCanonical(encoded, resource.canonicalBytes(), "Target external object identity"); return resource;

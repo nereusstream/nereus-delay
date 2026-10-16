@@ -827,7 +827,7 @@ For Lane controls, outer field 14 `expected_prior_control_version`, when present
 | 5 | `PulsarJournalGenerationResource` | 1 `BrokerResourceIdentity`; 2 partition `uint32`; 3 evidence generation `uint64` |
 | 6 | `LaneChannelResource` | 1 `ChannelResourceIdentity` |
 | 7 | `LocalStoreResource` | 1 `ShardSubject`; 2 Store Incarnation[16]; 3 DB identity[32]; 4 absolute-root-policy digest[32] |
-| 8 | `TargetExternalEvidenceObjectResource` | 1 schema=1; 2 closed subtype; 3 catalog namespace ID[32]; 4 deployment ID[32]; 5 `ShardSubject`; 6 tenant scope[32]; 7 original recovery lineage[32]; 8 exact NFC UTF-8 key (max2048 bytes); 9 artifact/proof digest[32]; 10 complete raw signed value SHA256[32]; 11 actual canonical length; 12 exact immutable-version bytes (max512, empty only if no separate backend version); 13 closed provenance |
+| 8 | `TargetExternalEvidenceObjectResource` | 1 schema=1; 2 closed subtype; 3 catalog namespace ID[32]; 4 deployment ID[32]; 5 `ShardSubject`; 6 tenant scope[32]; 7 original recovery lineage[16]; 8 exact NFC UTF-8 key (max2048 bytes); 9 artifact/proof digest[32]; 10 complete raw signed value SHA256[32]; 11 actual canonical length; 12 exact immutable-version bytes (max512, empty only if no separate backend version); 13 closed provenance |
 
 Kind8 subtype values are 1 CONTROL_PROTECTION, 2 CONTROL_ANCHOR, 3 RECOVERY_PROOF.
 Provenance is a closed oneof: field1 full immutable NV47 protection owner; field2
