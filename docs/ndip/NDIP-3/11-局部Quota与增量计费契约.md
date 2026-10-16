@@ -2426,3 +2426,12 @@ POSITION和SourceAdvance在原native批精确计入Shard root，fence/read-set�
 预算约束；不分配Attempt、不改变Message/evidence cursor，不退原外部blob/owner/
 ref费。旧first走既有重复POSITION收费，不重写或双收first。此拒绝可避免退役后
 读取旧blob的依赖，但不支付或证明尚未实现的逐use结论/retire/confirmation/GC。
+
+2026-10-16完整closed uses的Native读是原management owner的额外输入操作：原
+allocation须显式覆盖retained inputs+320MiB保守Catalog窗口+Native reads.maxBytes，
+两组read bytes拒绝无限sentinel；复用原池、与closure I/O互斥，不加client/thread。
+Native point read先按预算计费，不复制保存全部大first payload；输出仍保留完整
+有序集合及Store/cut/fence/first摘要。Stop/cancel不伪造实际退出，actual I/O退出
+后才清句柄/原输入并退allocation。此为编码/读取输入预留，不是已测RSS或全包
+资源证明；不删blob/owner/ref/alias/first或退EVIDENCE/STATE/物理费，后续durable
+uses/Source/ledger/GC费用仍需按实际记录实施。

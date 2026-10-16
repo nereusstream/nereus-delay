@@ -887,6 +887,19 @@ remote put fencing nor deletion/absence/refund authority. CONTROL/shared/staging
 preflight, permanent per-use conclusions and the full Source/checkpoint/delete/GC
 chain remain implementation work.
 
+The actual Root can now prepare the complete recovery-proof use set from one
+guarded Native cut. ClosedObject binds the exact ref/publication/frozen origin;
+Native rereads owner/ref/Attempt alias, original Admission/mapping/adoption and
+frozen accounting. Each sealed ID/hash/retry must have its exact retained SYSTEM
+first and original POSITION, or be absent under a committed proof-bearing ingress
+fence covering its deadline. The actual adopting APPLIED first must remain present.
+The private preparation result binds Store identity, aggregate Source cut, fence,
+the complete ordered set and retained first/POSITION digests. It defines no new
+wire schema/domain and is not a durable per-use conclusion or deletion permission.
+Actual Source intent must recheck these facts and retain the required obligations.
+Root reads reuse the original management I/O/finite input window; the registered
+read graph remains valid after Host transfer without reopening assembly authority.
+
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 
 `RecoveryFloorRef` exact fields: 1 Recovery Lineage ID[16]; 2 checkpoint ID[16]; 3 manifest SHA-256[32]; 4 nonzero `uint64 catalog_generation`; 5 `SourcePosition applied_source_position`; 6 `uint64 included_mutation_sequence`; 7 repeated `EvidenceCursor evidence_cursors`, strictly sorted by §8; 8 floor digest[32]. Field 8 is SHA-256 of domain `nereus-delay-recovery-floor-ref\0` plus canonical fields 1–7. A scalar position or mutation sequence without fields 1–4/8 never identifies a Floor.

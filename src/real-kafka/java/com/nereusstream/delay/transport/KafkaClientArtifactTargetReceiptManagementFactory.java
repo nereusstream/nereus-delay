@@ -290,6 +290,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OwnedCheckpointIo<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> referenceClosure;
         private String referenceClosureKey;
         private byte[] referenceClosureOwner;
+        private volatile OwnedCheckpointIo<com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses> closedUsesRead;
+        private KafkaClientArtifactTargetWorkerSourceFactory.Opening closedUsesSource;
+        private byte[] closedUsesSelection;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -378,6 +381,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
                 com.nereusstream.delay.store.BoundedReadBudget reads) {
             final var original=requireRecoveryArchive();Objects.requireNonNull(reads);
+            if(closedUsesRead!=null&&!closedUsesRead.ioExited())throw new IllegalStateException("original closed-use read I/O remains owned");
             final var owner=Objects.requireNonNull(applied,"actual Native recovery adoption").owner();
             final String key=owner.reference().exactKey();final byte[] image=Bytes.sha256(owner.canonicalBytes());
             final var previous=referenceClosure;
@@ -397,6 +401,39 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 final var result=catalog.closeAdoptedRecoveryReferences(applied,original.trust,reads,current);current.run();return result;
             },this::requireReady,io);
             referenceClosureKey=key;referenceClosureOwner=image;referenceClosure=next;return next.receipt();
+        }
+
+        /** Complete Native preparation facts, never a durable per-use or external-delete authorization. */
+        public synchronized java.util.concurrent.CompletableFuture<com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses> readClosedRecoveryUses(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads){
+            requireReady();Objects.requireNonNull(source);Objects.requireNonNull(closure);Objects.requireNonNull(applied);
+            Objects.requireNonNull(catalogReads);Objects.requireNonNull(nativeReads);
+            final byte[] selection=Bytes.sha256(closure.canonicalBytes(),applied.owner().canonicalBytes());
+            final var previous=closedUsesRead;
+            if(previous!=null){
+                previous.retryCleanup();
+                if(!previous.ioExited()){
+                    if(source!=closedUsesSource||!Arrays.equals(selection,closedUsesSelection))
+                        throw new IllegalStateException("original closed-use read selection remains owned");
+                    return previous.receipt();
+                }
+            }
+            final var closing=referenceClosure;
+            if(closing!=null&&!closing.ioExited())throw new IllegalStateException("original reference closure I/O remains owned");
+            if(catalogReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
+                throw new IllegalArgumentException("closed-use reads require explicit finite byte limits");
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                    Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),nativeReads.maxBytes()));
+            allocation.requireCovers(new CapacityVector(minimum));
+            final var next=OwnedCheckpointIo.submit(guard->{final Runnable current=()->{guard.run();requireReady();};
+                return source.readClosedRecoveryUses(this,closure,applied,catalogReads,nativeReads,current);
+            },this::requireReady,io);
+            closedUsesSource=source;closedUsesSelection=selection;closedUsesRead=next;return next.receipt();
         }
 
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded requireRecoveryArchive() {
@@ -440,6 +477,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var signing = recoveryArchive; if (signing != null) signing.requestStop();
             final var operation = opening; if (operation != null) operation.requestStop();
             final var closure = referenceClosure; if (closure != null) closure.requestStop();
+            final var uses = closedUsesRead; if (uses != null) uses.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
         @Override public synchronized boolean closeForProcess(TargetWorkerProcessRuntime.ReceiptManagementClosePermit permit) {
@@ -456,12 +494,15 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
             final var closure=referenceClosure;
             if(closure!=null){closure.requestStop();closure.retryCleanup();if(!closure.ioExited())return false;}
+            final var uses=closedUsesRead;
+            if(uses!=null){uses.requestStop();uses.retryCleanup();if(!uses.ioExited())return false;}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
             final var signing = recoveryArchive;
             if (signing != null) signing.close();
             recoveryArchive = null; recoveryInputs = null;
             referenceClosure=null;referenceClosureKey=null;referenceClosureOwner=null;
+            closedUsesRead=null;closedUsesSource=null;closedUsesSelection=null;
             final var charge = allocation;
             if (charge != null) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }
             closed = true; return true;

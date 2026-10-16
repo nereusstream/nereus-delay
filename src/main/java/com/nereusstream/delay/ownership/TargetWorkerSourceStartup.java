@@ -1173,6 +1173,9 @@ public final class TargetWorkerSourceStartup {
     public void requireReceiptManagement(TargetWorkerProcessRuntime.ReceiptManagement original) {
         process.requireReceiptManagement(this, original);
     }
+    public void requireReceiptManagementRead(TargetWorkerProcessRuntime.ReceiptManagement original) {
+        process.requireReceiptManagementRead(this, original);
+    }
 
     public synchronized void retainPublicationDispatch(TargetWorkerShardRuntime actual, TargetWorkerPublicationDispatch dispatch) {
         requireCurrent(); requireAdmittedWorker(actual);

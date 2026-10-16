@@ -584,6 +584,12 @@ public final class TargetWorkerShardRuntime
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.readRecoveryEvidenceAdoption(reads,snapshot,image,clock);
     }
+    public synchronized com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses readClosedRecoveryUses(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.readClosedRecoveryUses(reads,closure,applied,clock);
+    }
 
     @Override
     public void requireFleetComposition(

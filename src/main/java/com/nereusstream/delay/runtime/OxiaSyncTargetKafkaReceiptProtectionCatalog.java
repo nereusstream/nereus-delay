@@ -675,6 +675,13 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         public byte[] publicationOriginDigest(){return Bytes.copy(closure.originDigest);}
         public List<ClosedPreparedUse> preparedUses(){return uses;}
         public List<CatalogPublication> publicationInventory(){return closure.inventory;}
+        public void requireRecoveryOwner(TargetRecoveryEvidenceOwner owner){
+            final var ref=Objects.requireNonNull(owner).reference();
+            if(closure.subtype!=3)throw new IllegalArgumentException("closure is not a recovery proof");
+            closure.requireFingerprint(ref.exactKey(),ref.proofDigest(),ref.valueDigest(),ref.canonicalValueBytes());
+            final byte[] id=recoveryId(ref.mappingId(),ref.evidenceId());requireExact(closure.publicationId,id);
+            requireExact(closure.originDigest,new RecoveryIntent(id,ref,owner.primaryOwner(),RESERVED,List.of(),new byte[0]).originDigest());
+        }
         /** This matches object bytes/version only; actual Source/billing/staging provenance still requires Native joins. */
         public void requireObjectFingerprint(TargetExternalEvidenceObjectResource resource){
             if(resource.subtype().wireValue()!=closure.subtype)throw new IllegalArgumentException("closure subtype differs from resource");
@@ -764,6 +771,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public ClosedObject readReferenceClosure(String exactKey,byte[] objectDigest,BoundedReadBudget reads){
         final var root=readRoot(Objects.requireNonNull(reads)).root;final var receipt=closedSnapshot(root,exactKey,objectDigest);
         if(!reads.beforeTimedWork())throw reads.incomplete();return receipt;
+    }
+    public ClosedObject readReferenceClosure(ClosedObject original,BoundedReadBudget reads,Runnable current){
+        if(Objects.requireNonNull(original).catalog!=this)throw new IllegalArgumentException("closure belongs to another actual Catalog");
+        return original.reread(reads,current);
     }
     private ClosedObject closedSnapshot(Root root,String key,byte[] digest){
         final var closure=Objects.requireNonNull(root.closures.get(key),"original durable object closure");requireExact(closure.objectDigest,digest);

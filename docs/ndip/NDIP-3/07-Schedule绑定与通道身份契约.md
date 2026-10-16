@@ -937,3 +937,10 @@ Source mutation、物理delete或费用解除权，CONTROL/shared/staging终止�
 POSITION而不加载旧外部proof/作者材料；这只是拒绝，没有授予业务权限。开放窗口
 仍须完整原历史/tuple/证据认证。旧first保持原replay/费用保护，外部key缺失、
 墙钟或取消本身不触发此分支。逐use永久结论与原Floor/迟到责任仍须独立闭合。
+
+2026-10-16逐use准备仅沿真实Catalog closure及原Native Adoption进入，原Worker/
+Owner/Store guarded read核完整owner/ref/alias/Attempt/mapping、actual first/POSITION
+或已提交Source fence，未知不导出部分成功。原management只暴露私有构造准备快照，
+不暴露新key或Source/delete权限。同Root registered read gate在Host转移后仍核
+注册/ready/Stop/失败/转移状态；原assembly构造gate保持，用于live checkpoint的
+存量adoption补记不再误用构造期gate。全Source intent及持久逐use义务仍待落地。

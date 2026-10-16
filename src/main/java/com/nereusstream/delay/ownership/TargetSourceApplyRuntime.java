@@ -1181,6 +1181,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var proof=com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.readAdoption(backend,reads,scope,lineage,snapshot,mutation,workerReads(clock));
         requireGcOwner(clock);return proof;
     }
+    synchronized com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses readClosedRecoveryUses(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,LongSupplier clock){
+        requireGcOwner(clock);
+        final var actual=com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.readClosedUses(
+                backend,reads,scope,lineage,closure,applied,workerReads(clock));
+        requireGcOwner(clock);return actual;
+    }
 
     synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,

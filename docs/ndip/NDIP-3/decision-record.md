@@ -885,3 +885,16 @@ first时未检查原Native ingress fence，且外部authority准备可能先要�
 first/POSITION/Source/根费用；direct first store也先核同一水位。保留first仍走
 原重复路径，开放窗口完整验权。此拒绝不授业务或删除权限；没有把水位查询、
 首结果或缺blob单独升级为全部逐use终止/GC/退费证明，其余退役门禁继续实施。
+
+2026-10-16完整uses的Native准备组件：只从真实Catalog ClosedObject与原Native
+Adoption进入，原guarded read复读owner/ref/alias、resolved Attempt、mapping/Admission
+及冻结计费，每个sealed ID/hash/retry逐项核actual retained first/POSITION或已提交
+fence；实际采用该proof的APPLIED first仍须在场。输出私有构造的准备快照，绑定
+Store/source cut/fence与完整结论集合，没有caller subset或无first即成功分支。
+Source intent尚须再核并持久保留义务，本快照不独立授永久结论/退款/删除权。
+
+原management Root有界owned I/O前后回读同一Catalog closure，串行于封闭操作，
+Stop等待实际退出。配置/SDK构造仍用原assembly gate；新增registered read gate供
+Host转移后的此类Native/history读取及原live checkpoint adoption补记使用，核实际
+Root注册/ready/Stop/失败/转移状态，不恢复构造/SEND/Source签发权限。完整Source
+退役/确认、独立ledger、删除后checkpoint、保护/no-recreate与集中验收继续开放。

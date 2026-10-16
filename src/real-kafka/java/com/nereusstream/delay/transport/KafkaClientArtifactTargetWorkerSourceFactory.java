@@ -386,15 +386,30 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
             java.util.Objects.requireNonNull(proofTrust);java.util.Objects.requireNonNull(reads);
             return (owner,input)->{
-                startup.requireReceiptManagement(management);
+                startup.requireReceiptManagementRead(management);
                 final var budget=java.util.Objects.requireNonNull(reads.get(),"bounded original reconciliation reads");
                 if(!budget.beforeRead()||!budget.tryCharge(com.nereusstream.delay.protocol.Bytes.utf8(owner.reference().exactKey()).length,
                         Math.toIntExact(owner.reference().canonicalValueBytes())))throw budget.incomplete();
                 final var actual=management.catalog().retainedRecovery(owner,input.image(),proofTrust);
                 final var applied=original.readRecoveryEvidenceAdoption(budget,actual,input.image(),clock);
-                management.catalog().adoptRecovery(applied);startup.requireReceiptManagement(management);
+                management.catalog().adoptRecovery(applied);startup.requireReceiptManagementRead(management);
                 return actual;
             };
+        }
+
+        /** Actual same-process Catalog and admitted Native cut, kept inside the management owner's I/O operation. */
+        com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses readClosedRecoveryUses(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption applied,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var actualClosure=management.catalog().readReferenceClosure(closure,catalogReads,current);
+            final var actual=original.readClosedRecoveryUses(nativeReads,actualClosure,applied,clock);
+            management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
+            startup.requireReceiptManagementRead(management);current.run();return actual;
         }
 
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */

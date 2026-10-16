@@ -292,6 +292,13 @@ public final class TargetWorkerProcessRuntime {
         if (!receiptManagement.containsValue(original) || !original.ready())
             throw new IllegalArgumentException("receipt backing is not this original process's ready management owner");
     }
+    /** Existing Native/history reads remain usable after Host transfer; this does not admit construction or SEND. */
+    synchronized void requireReceiptManagementRead(TargetWorkerSourceStartup source, ReceiptManagement original) {
+        if (stopping || receiptManagementFailed || preparingHost || !sources.containsValue(source)
+                || !receiptManagement.containsValue(original) || !original.ready()) {
+            throw new IllegalStateException("original Source/receipt read graph is unavailable");
+        }
+    }
 
     public static final class ReceiptManagementConstruction implements AutoCloseable {
         private final TargetWorkerProcessRuntime root;
