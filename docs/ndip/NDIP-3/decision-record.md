@@ -1134,3 +1134,13 @@ whole-image/原restore authority门禁已接。NV52额外保留原intent帧与�
 Companion6复用Native54原材料，Root accepted-tip重启对照/完整具体provider、实际
 confirmation/current-purpose许可/原子退款/GC仍待继续。仅必要编译，单agent/不Fast，
 未执行服务/配置/key/grant/Admin/delete/保护解除，四包/29切片/三个完成flags不变。
+
+
+2026-10-16 按“重启仍核对已接受tip、历史材料不可回退/分叉”的原裁定继续实现：
+Native55/meta48持久化每个历史scope的accepted proof及真实Source决定ID/stamp，与
+54/first/POSITION/Source及STATE同batch，Source决定前点读并最终view复核，漏旧
+signed tip为Unavailable；换baseline不在键上，不能绕过。原Root仅内存accepted不足，
+Native门禁为实际决定提供重启保护，仍不声称启动pin装配和真实恢复已完成。
+Descriptor显式3声明55/tip1，旧1/2原codec不改，不给旧tuple投影自动升级；新写要求
+actual3。源码/必要编译和文档同步，完整Root/provider/旧pin信任归档与实际确认GC
+继续实施；无裁定等待、无环境操作，单agent/不Fast，四包/29切片/flags不变。

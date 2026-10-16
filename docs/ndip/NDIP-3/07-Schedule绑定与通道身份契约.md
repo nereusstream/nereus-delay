@@ -1051,3 +1051,12 @@ Source，state2保留原intent；actualNative activation/descriptor/marker必须
 批准或确定拒绝所用完整证明随NV54原子保留，附带公钥不自证；coverage/输入未知
 不变成永久拒绝。Checkpoint不能用今天文件改写Native原证明；重启tip对照、实际
 Root/Source provider/current append许可、确认及删除闭环仍未接通，未运行服务。
+
+
+2026-10-16 当前g8 writer门禁升级为实际descriptor3（Native55/tip1），1/2历史codec/
+原first读取不补新能力、同tuple旧activation不覆盖。Source决定前从实际Native55
+核候选原history链含已接受signed tip的generation/digest；换当前head/baseline不能
+绕过该scope键或写成永久deny。原CONTROL/purpose/key/Root/namespace/完整coverage
+及独立原pin仍需认证，55所带proof不自授信任。actual55与54/first/POSITION/stamp
+双向关联，未知/回退保留原Source。Bootstrap配置/pin从Native重建、完整Root /
+Source/lifecycle provider/历史pin归档、实际签名交接/当前许可与确认删除仍待继续。

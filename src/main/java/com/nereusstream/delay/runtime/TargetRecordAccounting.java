@@ -700,6 +700,13 @@ public final class TargetRecordAccounting {
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("confirmed row changed frozen accounting");
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var tip=com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.decodeForStore(key,payload,scope,lineage);
+                TargetRetirementSourceHistoryStore.requireTip(reader,overlay,scope,lineage,root.owner(),tip,operation);
+                final var owner=descriptor(root.owner());
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
             case com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.VALUE_TYPE -> {
                 requireFamily(family,ColumnFamily.META);
                 final var retained=com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.decodeForStore(key,payload,scope,lineage);

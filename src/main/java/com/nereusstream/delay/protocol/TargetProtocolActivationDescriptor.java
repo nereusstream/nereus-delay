@@ -9,14 +9,15 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         byte[] targetSchemaHash,String workerSourceCommit,String kafkaSourceCommit,byte[] kafkaSdkJar,byte[] pulsarSdkJar,int schemaVersion) {
     public static final int MAX_BYTES=8192;
     public static final int TARGET_CHECKPOINT_SCHEMA=6;
-    public static final int TARGET_NATIVE_MAX=54;
+    public static final int TARGET_NATIVE_MAX=55;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-protocol-activation-descriptor\0");
     public TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte[] reset,byte[] schema,String worker,String kafka,byte[] kafkaJar,byte[] pulsarJar){
-        this(base,reset,schema,worker,kafka,kafkaJar,pulsarJar,2);
+        this(base,reset,schema,worker,kafka,kafkaJar,pulsarJar,3);
     }
     public boolean supportsSourceHistoryRecords(){return schemaVersion>=2;}
+    public boolean supportsAcceptedHistoryTip(){return schemaVersion>=3;}
     public TargetProtocolActivationDescriptor {
-        if(schemaVersion!=1&&schemaVersion!=2)throw new IllegalArgumentException("unsupported Target descriptor schema");
+        if(schemaVersion<1||schemaVersion>3)throw new IllegalArgumentException("unsupported Target descriptor schema");
         Objects.requireNonNull(base);
         baseResetManifest=TargetCompatibilityCodec.assigned(baseResetManifest,32,"original base reset manifest");
         targetSchemaHash=TargetCompatibilityCodec.assigned(targetSchemaHash,32,"independent Target schema hash");
@@ -31,13 +32,14 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     @Override public byte[] pulsarSdkJar(){return Bytes.copy(pulsarSdkJar);}
     public ProtocolTuple tuple(){return ProtocolTuple.targetEvidenceRetirement();}
     private static byte[] versions(int version){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version==1?53:TARGET_NATIVE_MAX);
+        CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version==1?53:version==2?54:TARGET_NATIVE_MAX);
         CanonicalProtobuf.uint32(out,3,TARGET_CHECKPOINT_SCHEMA);CanonicalProtobuf.uint32(out,4,8);
         CanonicalProtobuf.uint32(out,5,1);CanonicalProtobuf.uint32(out,6,1);
         CanonicalProtobuf.uint32(out,7,1);CanonicalProtobuf.uint32(out,8,1);
         CanonicalProtobuf.uint32(out,9,3);CanonicalProtobuf.uint32(out,10,1);CanonicalProtobuf.uint32(out,11,28);
         CanonicalProtobuf.uint32(out,12,1);CanonicalProtobuf.uint32(out,13,1);CanonicalProtobuf.uint32(out,14,1);CanonicalProtobuf.uint32(out,15,1);
         if(version>=2)CanonicalProtobuf.uint32(out,16,1);
+        if(version>=3)CanonicalProtobuf.uint32(out,17,1);
     });}
     private byte[] fields(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,schemaVersion);CanonicalProtobuf.bytes(out,2,base.canonicalBytes());CanonicalProtobuf.bytes(out,3,base.setDigest());
@@ -57,7 +59,7 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,12,false,"Target activation descriptor");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7,8,9,10,11,12},"Target activation descriptor");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if((version!=1&&version!=2)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
+        if((version<1||version>3)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
             throw new IllegalArgumentException("unsupported Target activation descriptor/version combination");
         final var descriptor=new TargetProtocolActivationDescriptor(ArtifactGenerationSet.decode(QueryCodecSupport.bytes(f.get(1),2)),
                 QueryCodecSupport.fixed(f.get(3),4,32),QueryCodecSupport.fixed(f.get(5),6,32),

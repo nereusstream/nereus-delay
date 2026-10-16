@@ -2558,3 +2558,13 @@ Source hold另计完整PublicProof+独立Pin/公钥保留字节，原owned读/cl
 Dependencies新增完整54库存/digest13，companion6复用其原frame/proof，仍计原全量
 record/byte/read/time窗口。无新线程/client/队列，无history GC/delete/退款操作；
 proof接受tip重启整合和确认handler原子退款及完整GC仍开放，不能提前释放保护。
+
+
+2026-10-16 NV55每个精确历史scope一个accepted chain，实际key/payload/overhead及
+后继替换差额计原Source SHARD STATE，随54/first/POSITION/Source原子更新；完整
+PublicProof上界+bounded stamp+256为有限行界，不抬配置。点读tip及其原54/first/
+POSITION避免每次扫描全部历史；不增加线程/client/队列。增量/独立fold核tip当前
+原决定及对所有旧54的Source/ancestry覆盖，避免只保留旧pointer伪装恢复进度。
+Dependencies新增55库存/digest14，companion6同原HistoryImage比较，Native55和其
+原54/first/position仍是保护义务，未新增GC/delete/退费路径。最大包络/RSS/实际
+原子失败与恢复尚待集中验证，完整Root资源组合及确认GC继续开放。

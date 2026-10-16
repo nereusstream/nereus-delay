@@ -1426,8 +1426,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("retirement writer lacks independently admitted compatible tuple");
         backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
             final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
-            if(activation==null||!activation.body().payload().descriptor().supportsSourceHistoryRecords())
-                throw new IllegalStateException("retirement writer requires actual Source APPLIED descriptor2/Native54 capability");
+            if(activation==null||!activation.body().payload().descriptor().supportsAcceptedHistoryTip())
+                throw new IllegalStateException("retirement writer requires actual Source APPLIED descriptor3/Native55 capability");
             return Boolean.TRUE;
         },workerReads(clock));
     }

@@ -100,6 +100,8 @@ public final class TargetEvidenceRetirementStore {
             if(actor!=null){
                 history=Objects.requireNonNull(authority.history(scope,actor,intent,source),"complete original Source history");
                 selectedGrant=history.select(body.resource(),intent,source).orElse(null);
+                final var candidate=history.proof();
+                backend.prepareRead(budget,reader->{TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,candidate);return Boolean.TRUE;});
                 if(selectedGrant!=null&&intent.verifySignature(selectedGrant.writerKey())){
                     approval = authority.resolve(scope, actor, intent, source);
                     if (approval != null) approval.current().run();
@@ -145,8 +147,12 @@ public final class TargetEvidenceRetirementStore {
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
             if(retainedHistory!=null&&nativeReady){
                 retainedHistory.current().run();final var retained=new TargetRetirementSourceHistoryRecord(intent,stamp,retainedHistory.proof());
+                final var previous=TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,retainedHistory.proof());
+                final var accepted=new TargetRetirementHistoryTipRecord(retained);
+                if(previous!=null)accepted.requireAfter(previous);
                 requireAbsent(reader,ColumnFamily.META,retained.key());
                 edits.add(reader.replace(ColumnFamily.META,retained.key(),TargetRetirementSourceHistoryRecord.VALUE_TYPE,retained.canonicalBytes()));
+                edits.add(reader.replace(ColumnFamily.META,accepted.key(),TargetRetirementHistoryTipRecord.VALUE_TYPE,accepted.canonicalBytes()));
             }
             if (rejection == null) {
                 selected.current().run();

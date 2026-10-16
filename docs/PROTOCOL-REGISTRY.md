@@ -987,7 +987,7 @@ the prepared logical cut, and context/copy must match exactly. The physical
 prepared Store identity is not equated to a later restore's Store identity.
 The intent envelope is bounded by64MiB body +1MiB author +1024; the complete
 record adds the64MiB copy, bounded applied source and256 bytes overhead.
-META44→NV51, META45→NV52, META46→NV53 and META47→NV54 are registered, with strict value ceiling54.
+META44→NV51, META45→NV52, META46→NV53, META47→NV54 and META48→NV55 are registered, with strict value ceiling55.
 
 NV52 TargetEvidenceConfirmedRecord uses META key `2d 01 || exactResourceIdentityHash[32]`.
 Closed fields:1 schema1;2 state2;3 complete canonical signed confirmation System
@@ -4647,10 +4647,10 @@ main/K1/P1 compilation only; no actual activation or environment operation execu
 
 TargetProtocolActivationDescriptor schema2 keeps the twelve outer fields and digest
 domain; version vector field2 is Native maximum54 and new field16 is Source history
-record schema1. The seven-argument constructor now creates this explicit current
-combination. Schema1 decoding preserves its original Native53/fifteen-field vector
-and exact bytes/digest; it is not silently upgraded. Current g8 signing/writer/
-first-Source admission requires an actual prior APPLIED descriptor2 activation.
+record schema1. Schema2 remains a distinct readable combination; the current constructor is
+described by the accepted-tip extension below. Schema1 decoding preserves its original Native53/fifteen-field vector
+and exact bytes/digest; it is not silently upgraded. Descriptor2 introduced the persisted Source history requirement; current g8
+writer admission additionally requires the accepted-tip extension below.
 Original first-result replay and historical schema1 reading remain separate. A
 retained same-tuple descriptor1 activation is not overwritten/reapproved as2;
 controlled old-scope migration/retirement remains required, not performed here.
@@ -4704,3 +4704,62 @@ confirmation writer, concrete full Root/Source/lifecycle provider, restart accep
 tip comparison/current-head initialization, actual activation/handoff/current-purpose
 permission and full recovery/GC remain open. No actual environment operation or
 central validation was run; necessary main/K1/P1 compilation only.
+
+
+### Persisted accepted Source history tip (2026-10-16)
+
+TargetProtocolActivationDescriptor schema3 retains the twelve outer fields and
+existing digest domain. Its closed version vector has Native maximum55, original
+field16 Source history record1 and new field17 accepted-history-tip record1.
+The seven-argument constructor emits3; schema1/2 decode with their original exact
+Native53/54 vectors and bytes/digests. Current g8 signing/writer/first admission
+requires actual prior APPLIED descriptor3. No old same-tuple activation is
+rewritten or inferred to possess the new capability; old first replay remains
+separate, and controlled old-scope migration is still unimplemented/not executed.
+
+NV55 TargetRetirementHistoryTipRecord is one retained accepted chain per exact
+management Root/namespace/Shard/tenant/lineage/physical Source. META key is
+`30 01 || SHA256("nereus-delay-target-retirement-accepted-history-tip-key\0" ||
+root32 || namespace32 || lp32(scopeCanonical) || lineage16 || lp32(sourceIdentity))`.
+sourceIdentity reuses the canonical Source position with order/time metadata zeroed:
+Kafka offset0/absent leaderEpoch/time0, preserving authenticated cluster/topic UUID/
+Shard; Pulsar ledger0/entry0/index0/size1/NON_BATCH/time0, preserving broker resource
+incarnation/topic/Shard. Configuration baseline digest and moving source offset are
+not key dimensions, so repinning cannot evade the actual previous accepted scope.
+
+Closed fields:1 schema1,2 complete PublicProof,3 actual decision SystemMutationId[32],
+4 actual decided TargetQuotaMutation,5 SHA256(
+`nereus-delay-target-retirement-accepted-history-tip\0` || canonical fields1..4).
+Maximum is PublicProof bound + bounded Source stamp +256 bytes. The selected decision
+is an actual NV54 with exactly the same proof/ID/stamp. Tip advancement strictly
+advances Source and contains the previous exact signed snapshot generation/digest.
+It may retain the same history generation on a later Source decision, but cannot
+roll back/fork or drop the accepted prefix. An independently pinned new baseline
+must still provide a chain containing the prior tip; no implicit trust migration.
+
+Before a first Source decision, the Store point-reads actual NV55 and checks candidate
+ancestry, then repeats it on the exact Native preparation view. Rollback/fork/omitted
+tip raises history Unavailable, without writing a permanent denial/first. Authorized
+and known-denied history decisions atomically write/update NV55 together with NV54,
+first/POSITION/Source/SHARD STATE and successful NV51. Current files and Root in-memory
+accepted state cannot override this persisted gate after restart. The lookup does
+not require an already admitted Worker or a scan of all retained history rows.
+
+Incremental and independent ledger require tip's exact NV54/first/POSITION, actual
+prior descriptor3 activation and original Source owner/lineage. Every descriptor3
+NV54 must be covered by actual tip's ancestry and no later than its decision stamp,
+so a fabricated older pointer cannot hide a newer retained decision. Changed/new
+tips must equal the actual new Source operation; changes strictly extend old Native
+tip. Full key/payload/overhead and replacement delta are charged to original Source
+SHARD STATE; no default read/memory limit, new thread/client/queue or GC is added.
+The one-scope tip avoids scanning all historical NV54 on every first decision.
+
+Dependencies retain NV55 inventory and semanticInputsDigest field14 (empty older
+inventory unchanged). Companion6 keeps its wire layout, correlates every tip with
+its actual retained Native54 and already retained HistoryImage, and requires exact
+proof/stamp matching. Original independent Source/purpose/pin/rejection/copy/delete
+authentication remains mandatory. This is the Source commit/reopen validation path,
+not evidence of a real restart. Root boot configuration/pin seeding from Native,
+concrete complete providers, historical pin/archive migration, actual activation/
+current-purpose permission, confirmation/delete/refund/GC and full recovery remain
+open. Necessary compilation only; no actual environment operation or central test.

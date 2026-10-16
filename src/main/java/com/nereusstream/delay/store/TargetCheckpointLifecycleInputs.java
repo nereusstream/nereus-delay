@@ -105,6 +105,14 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
                     ||input.proof()==null||!Arrays.equals(input.proof().canonicalBytes(),retained.proof().canonicalBytes()))
                 throw new IllegalArgumentException("checkpoint replaced original atomic Source history");
         }
+        final var nativeHistories=new TreeMap<String,TargetRetirementSourceHistoryRecord>();
+        for(var retained:d.sourceHistories())nativeHistories.put(Bytes.hex(retained.input().systemMutationId()),retained);
+        for(var tip:d.historyTips()){
+            final var retained=Objects.requireNonNull(nativeHistories.get(Bytes.hex(tip.mutationId())),"accepted tip lost original Native history");
+            tip.requireDecision(retained);tip.decidedAt().requireAtOrBefore(d.root().aggregate().mutation());
+            final var input=Objects.requireNonNull(byId.get(Bytes.hex(tip.mutationId())),"checkpoint omitted accepted tip Source frame");
+            if(input.proof()==null||!Arrays.equals(input.proof().canonicalBytes(),tip.proof().canonicalBytes()))throw new IllegalArgumentException("checkpoint changed actual persisted accepted tip");
+        }
         final var controls=new TreeMap<String,TargetResultRecord>();
         for(var first:d.controlResults())controls.put(Bytes.hex(SystemMutationResult.decode(first.typedPayload()).mutationId()),first);
         for(var value:activations){

@@ -166,7 +166,7 @@ public final class TargetProtocolActivationStore {
         requireApplied(view,overlay,scope,lineage,sourceOwner,activation,frontier);business.requireAfter(activation.appliedAt());
     }
     public static boolean isActivated(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple,SourcePosition source){
-        final var record=applied(reader,scope,lineage,tuple);return record!=null&&record.body().payload().descriptor().supportsSourceHistoryRecords()&&record.appliedAt().source().compareTo(source)<0;
+        final var record=applied(reader,scope,lineage,tuple);return record!=null&&record.body().payload().descriptor().supportsAcceptedHistoryTip()&&record.appliedAt().source().compareTo(source)<0;
     }
     public static TargetProtocolActivationRecord applied(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple){
         final byte[] key=TargetProtocolActivationRecord.key(tuple),raw=reader.get(ColumnFamily.META,key);if(raw==null)return null;

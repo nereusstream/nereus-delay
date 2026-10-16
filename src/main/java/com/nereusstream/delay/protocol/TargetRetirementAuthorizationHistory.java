@@ -245,6 +245,12 @@ public final class TargetRetirementAuthorizationHistory {
             CanonicalProtobuf.uint32(out,3,Integer.toUnsignedLong(keyVersion));CanonicalProtobuf.bytes(out,4,publicKey);
             CanonicalProtobuf.bytes(out,5,baselineDigest);for(var value:chain)CanonicalProtobuf.bytes(out,6,value.canonicalBytes());
         });}
+        /** Monotone public ancestry comparison only, never an independent signature/purpose authorization. */
+        public void requireContainsTip(PublicProof previous){
+            final var tip=Objects.requireNonNull(previous).chain().getLast();
+            if(chain.stream().noneMatch(value->value.generation()==tip.generation()&&Arrays.equals(value.digest(),tip.digest())))
+                throw new Unavailable("history proof omits or forks the actual persisted accepted tip");
+        }
         public Verified authenticate(Pin pin){
             Objects.requireNonNull(pin,"independent original history pin");
             if(!Arrays.equals(authority.canonicalBytes(),pin.authority().canonicalBytes())||keyVersion!=pin.keyVersion()

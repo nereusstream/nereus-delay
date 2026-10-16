@@ -238,6 +238,9 @@ final class TargetCheckpointLedgerAudit {
                         final var record=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(key,payload,
                                 proof.metadata().shardId(),proof.root().tenantScope(),proof.root().recoveryLineage());
                         record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.evidenceConfirmation(record);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.VALUE_TYPE){
+                        final var tip=com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        tip.decidedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.historyTip(tip);
                     } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.VALUE_TYPE){
                         final var record=com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
                         record.decidedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.sourceHistory(record);
