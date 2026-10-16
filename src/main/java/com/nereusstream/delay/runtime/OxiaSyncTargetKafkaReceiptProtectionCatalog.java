@@ -662,8 +662,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
         private final Closure closure;
         private final List<ClosedPreparedUse> uses;
-        private ClosedObject(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,Closure closure,List<PreparedUse> uses){
+        private final byte[] deploymentRootDigest;
+        private ClosedObject(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,Closure closure,List<PreparedUse> uses,byte[] deploymentRootDigest){
             this.catalog=catalog;this.closure=closure;this.uses=uses.stream().map(u->new ClosedPreparedUse(u.id,u.hash,u.retryUntil)).toList();
+            this.deploymentRootDigest=Bytes.copy(deploymentRootDigest);
         }
         public String exactKey(){return closure.key;}
         public int subtype(){return closure.subtype;}
@@ -675,6 +677,14 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         public byte[] publicationOriginDigest(){return Bytes.copy(closure.originDigest);}
         public List<ClosedPreparedUse> preparedUses(){return uses;}
         public List<CatalogPublication> publicationInventory(){return closure.inventory;}
+        /** Immutable identity data; actual Native adoption is authenticated separately, never inferred from this builder. */
+        public TargetExternalEvidenceObjectResource recoveryResource(TargetRecoveryEvidenceOwner owner){
+            requireRecoveryOwner(owner);final var frozen=owner.primaryOwner();
+            return new TargetExternalEvidenceObjectResource(TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF,
+                    closure.namespaceId,deploymentRootDigest,frozen.identity().shard(),frozen.tenantScope(),frozen.recoveryLineage(),
+                    closure.key,closure.objectDigest,closure.valueDigest,closure.valueBytes,Bytes.u64beBits(closure.blobVersion),
+                    new TargetExternalEvidenceObjectResource.Recovery(owner));
+        }
         public void requireRecoveryOwner(TargetRecoveryEvidenceOwner owner){
             final var ref=Objects.requireNonNull(owner).reference();
             if(closure.subtype!=3)throw new IllegalArgumentException("closure is not a recovery proof");
@@ -687,6 +697,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             if(resource.subtype().wireValue()!=closure.subtype)throw new IllegalArgumentException("closure subtype differs from resource");
             closure.requireFingerprint(resource.exactKey(),resource.objectDigest(),resource.valueDigest(),resource.canonicalValueBytes());
             requireExact(resource.catalogNamespaceId(),closure.namespaceId);requireExact(resource.immutableVersion(),Bytes.u64beBits(closure.blobVersion));
+            requireExact(resource.deploymentRootDigest(),deploymentRootDigest);
         }
         /** Reauthentication of the original freeze remains possible after blob deletion, while Root metadata is retained. */
         public ClosedObject reread(BoundedReadBudget reads,Runnable current){
@@ -781,7 +792,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         final var management=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.managementTopicId)),"original closure management");
         trust.requireManagementHistory(management.artifact);requireExact(closure.namespaceId,namespaceId(management.image()));
         final var uses=closure.subtype==3?root.recoveries.get(Bytes.hex(closure.publicationId)).uses:root.publications.get(Bytes.hex(closure.publicationId)).uses;
-        return new ClosedObject(this,closure,uses);
+        return new ClosedObject(this,closure,uses,management.image().deploymentRootDigest());
     }
     private byte[] namespaceId(TargetKafkaReceiptManagementImage image){return Bytes.sha256(Bytes.utf8("nereus-delay-target-evidence-catalog-namespace\0"),
             image.deploymentRootDigest(),Bytes.lp32(Bytes.utf8(prefix)),limits.capacitySourceDigest);}

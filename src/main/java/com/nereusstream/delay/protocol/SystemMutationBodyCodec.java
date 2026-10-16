@@ -15,8 +15,20 @@ public final class SystemMutationBodyCodec {
     public static void validate(final SystemMutationType type, final byte[] canonicalBody) {
         Objects.requireNonNull(type, "type");
         final List<CanonicalProtobuf.Reader.Field> fields =
-                readAll(new CanonicalProtobuf.Reader(Objects.requireNonNull(canonicalBody, "canonicalBody")));
+                readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
         Spec[] specs = specs(type);
+        final boolean targetRetirement = (type == SystemMutationType.RESOURCE_RETIRE_INTENT
+                || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+                && fields.size() > 3 && fields.get(3).number() == 9;
+        if (targetRetirement) {
+            if (canonicalBody.length > TargetEvidenceRetireIntentBody.MAX_CANONICAL_BYTES
+                    || fields.get(3).wireType() != 0
+                    || fields.get(3).unsignedValue() != TargetEvidenceRetireIntentBody.BODY_VERSION)
+                throw new IllegalArgumentException("unsupported Target evidence retirement body generation");
+            specs = type == SystemMutationType.RESOURCE_RETIRE_INTENT
+                    ? new Spec[]{varint(9),varint(10),nested(11),varint(12),nested(13),nested(14)}
+                    : new Spec[]{varint(9),nested(10),varint(11),nested(12),nested(13),nested(14),nested(15),varint(16)};
+        }
         if ((type == SystemMutationType.PUBLISH_OUTCOME || type == SystemMutationType.EVIDENCE_RESOLUTION)
                 && fields.size() > 3 && fields.get(3).number() == 9) {
             if (fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() != PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION)
@@ -43,7 +55,7 @@ public final class SystemMutationBodyCodec {
         int fieldIndex = 3;
         for (Spec spec : specs) {
             if (fieldIndex < fields.size() && fields.get(fieldIndex).number() == spec.number()) {
-                validateField(fields.get(fieldIndex), spec, type);
+                validateField(fields.get(fieldIndex), spec, type, targetRetirement);
                 fieldIndex++;
             } else if (spec.required()) {
                 throw new IllegalArgumentException("missing System Mutation body field " + spec.number());
@@ -52,6 +64,13 @@ public final class SystemMutationBodyCodec {
         if (fieldIndex != fields.size()) {
             throw new IllegalArgumentException("unknown or out-of-order System Mutation body field "
                     + fields.get(fieldIndex).number());
+        }
+        if (targetRetirement) {
+            if (type == SystemMutationType.RESOURCE_RETIRE_INTENT) {
+                if (fields.get(4).unsignedValue() != ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT.wireValue())
+                    throw new IllegalArgumentException("generation8 only admits Target external evidence kind8");
+                TargetEvidenceRetireIntentBody.decodeResource(fields.get(5).rawValue());
+            } else TargetEvidenceRetireIntentBody.decodeResource(fields.get(8).rawValue());
         }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION
@@ -215,7 +234,8 @@ public final class SystemMutationBodyCodec {
     }
 
     private static void validateField(
-            final CanonicalProtobuf.Reader.Field field, final Spec spec, final SystemMutationType type) {
+            final CanonicalProtobuf.Reader.Field field, final Spec spec, final SystemMutationType type,
+            final boolean targetRetirement) {
         if (field.wireType() != spec.wireType()) {
             throw new IllegalArgumentException(
                     "System Mutation body field " + spec.number() + " has the wrong wire type");
@@ -238,6 +258,24 @@ public final class SystemMutationBodyCodec {
             if (value.length == 0) {
                 throw new IllegalArgumentException(
                         "nested System Mutation body field " + spec.number() + " must not be empty");
+            }
+            if (targetRetirement) {
+                if (type == SystemMutationType.RESOURCE_DELETE_CONFIRMED) {
+                    if (field.number() == 10) { TargetEvidenceDeleteConfirmedBody.decodeIntent(value); return; }
+                    if (field.number() == 12) { TargetEvidenceDeleteConfirmedBody.decodeEvidence(value); return; }
+                    if (field.number() == 13) { TargetEvidenceDeleteConfirmedBody.decodeTime(value); return; }
+                }
+                if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 13) {
+                    TargetEvidenceRetireIntentBody.decodeProtections(value); return;
+                }
+                if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 14
+                        || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED && field.number() == 15) {
+                    TargetEvidenceRetirementContext.decode(value); return;
+                }
+                if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 11
+                        || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED && field.number() == 14) {
+                    TargetEvidenceRetireIntentBody.decodeResource(value); return;
+                }
             }
             final boolean repeatedCanonicalFields = type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                     && (field.number() == 19 || field.number() == 20);
@@ -276,6 +314,17 @@ public final class SystemMutationBodyCodec {
     private static List<CanonicalProtobuf.Reader.Field> readAll(final CanonicalProtobuf.Reader reader) {
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        return fields;
+    }
+
+    private static List<CanonicalProtobuf.Reader.Field> readBodyFields(final byte[] encoded) {
+        final var reader = new CanonicalProtobuf.Reader(encoded);
+        final var fields = new ArrayList<CanonicalProtobuf.Reader.Field>();
+        // Every registered operation has at most 32 top-level fields, including all explicit body generations.
+        while (reader.hasRemaining()) {
+            if (fields.size() == 32) throw new IllegalArgumentException("System Mutation body has excess fields");
             fields.add(reader.next());
         }
         return fields;

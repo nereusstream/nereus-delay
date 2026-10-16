@@ -944,3 +944,11 @@ Owner/Store guarded read核完整owner/ref/alias/Attempt/mapping、actual first/
 不暴露新key或Source/delete权限。同Root registered read gate在Host转移后仍核
 注册/ready/Stop/失败/转移状态；原assembly构造gate保持，用于live checkpoint的
 存量adoption补记不再误用构造期gate。全Source intent及持久逐use义务仍待落地。
+
+2026-10-16 kind8 field4只认原历史management.deploymentRootDigest[32]，原Owner/
+Registry deploymentId仍是原始bytes，不能互认/截断/hash补长度。generation8 tuple
+须显式reader/Artifact准入；退役SERVICE还须该用途的原现时/历史权限，不因data
+codec、enum或公钥存在获得授权。Body签完整closure/uses/cut/fence/副本manifest与
+冻结fee owner，原intent expected0和确认要求state1分别表达。重放比较Source逻辑
+前缀和当前Native ref/monotone fence，不强绑旧物理Store。当前只有codec/身份投影，
+无新Source签发或apply权限、无reader激活；各真实Root/Source/GC门禁继续实施。

@@ -902,3 +902,38 @@ Root注册/ready/Stop/失败/转移状态，不恢复构造/SEND/Source签发权
 2026-10-16实际Native接线发现kind8 codec把原recovery lineage误设32 bytes；原
 NV47/NV49冻结owner固定16 bytes，adopted分支不可能通过相等检查。构造/解码及
 Registry已统一为原16-byte身份，无实际激活或迁移；仍待专用Source/reader接线。
+
+2026-10-16主会话补充持久格式裁定已下发：field4明确为原历史已认证management
+deploymentRootDigest[32]，不是固定长度的原Owner deploymentId，不自行hash/截断。
+批准专用Target retire/confirm body generation8，只认kind8；原10..13 nested语义/
+System envelope/旧1..7保持，Source tuple/Artifact/reader须单独准入。新增签名字段
+绑定closure/reference、完整排序uses结论、原Native准备cut/fence、离线公共副本
+manifest digest/length及冻结费用owner。Source重放核逻辑有序前缀/实际ref/monotone
+fence，不能要求旧物理Store/native sequence相同，也不跳过本次commit read view。
+
+批准NV51/meta44 retiring与NV52/meta45 confirmed：两者均无且原来源全部核实才
+state0，intent expected0首次APPLIED写state1；同ID/hash幂等，冲突不换closure/收费。
+confirmation旧RetireIntentRef.expectedVersion仍是0，另带expectedRetireStateVersion1；
+首次APPLIED才同批state2墓碑、移NV51/已闭合owner/ref并按原费用结算。NV52存在
+不能因NV51缺失回到0。重复/恢复先查实际first/墓碑，不要求再次读已删blob。
+
+NV51保存完整原signed raw及独立历史认证所需public keys/issuer/authorization/
+probe/Source公共材料，无secret/私钥。锁外有界认证，Source签完整manifest digest/
+length与对象/closure/uses关联，apply按精确引用物化；无需把整份raw无界塞Source。
+首次intent同Native批持久完整副本/first/POSITION/Source/STATE，成功前不可delete。
+新增显式checkpoint schema，只有exact state1+closure/ref时collector/audit/restore
+可用NV51离线材料，正常live对象仍真实Catalog；Floor base在blob已删且confirmation
+未apply时必须独立认证恢复，不能提前删owner/ref/退费打破环。
+
+adopted NV51/索引按原冻结Target实际STATE收费，原NV47/48或NV49/50/EVIDENCE继续
+保留；staging物理费归原deployment，本地退役/墓碑STATE明确签入该Source真实冻结
+SHARD owner，不伪造Target owner。完整frame/uses/public材料/单行整批/I/O/空间
+峰值有限，容量不足不出intent或delete，不truncate/改旧预算。确认后可用紧凑NV52
+替NV51，退实际STATE差额与原闭合owner/ref/EVIDENCE，墓碑仍同原归属收费，保留
+identity/intent/closure/delete摘要/Source/version/不可复活事实；合法旧checkpoint
+自含NV51并能replay确认，仍受保护的旧材料不可提前删。最终压缩继续等全Floor/
+Pin/保护门禁。仍无真实delete/Admin/迁退授权、单agent不Fast、测试/Broker后置。
+
+当前代码落实仅Root精确身份构造、generation8与RetirementContext严格codec/旧
+parser拒绝门禁，字段/硬界限见Registry。Native NV51/52、writer/fold/checkpoint/
+actual GC尚未落地，未准入新reader、未关闭包或提升完成flags。

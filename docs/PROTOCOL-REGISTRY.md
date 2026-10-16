@@ -827,7 +827,7 @@ For Lane controls, outer field 14 `expected_prior_control_version`, when present
 | 5 | `PulsarJournalGenerationResource` | 1 `BrokerResourceIdentity`; 2 partition `uint32`; 3 evidence generation `uint64` |
 | 6 | `LaneChannelResource` | 1 `ChannelResourceIdentity` |
 | 7 | `LocalStoreResource` | 1 `ShardSubject`; 2 Store Incarnation[16]; 3 DB identity[32]; 4 absolute-root-policy digest[32] |
-| 8 | `TargetExternalEvidenceObjectResource` | 1 schema=1; 2 closed subtype; 3 catalog namespace ID[32]; 4 deployment ID[32]; 5 `ShardSubject`; 6 tenant scope[32]; 7 original recovery lineage[16]; 8 exact NFC UTF-8 key (max2048 bytes); 9 artifact/proof digest[32]; 10 complete raw signed value SHA256[32]; 11 actual canonical length; 12 exact immutable-version bytes (max512, empty only if no separate backend version); 13 closed provenance |
+| 8 | `TargetExternalEvidenceObjectResource` | 1 schema=1; 2 closed subtype; 3 catalog namespace ID[32]; 4 historical deploymentRootDigest[32]; 5 `ShardSubject`; 6 tenant scope[32]; 7 original recovery lineage[16]; 8 exact NFC UTF-8 key (max2048 bytes); 9 artifact/proof digest[32]; 10 complete raw signed value SHA256[32]; 11 actual canonical length; 12 exact immutable-version bytes (max512, empty only if no separate backend version); 13 closed provenance |
 
 Kind8 subtype values are 1 CONTROL_PROTECTION, 2 CONTROL_ANCHOR, 3 RECOVERY_PROOF.
 Provenance is a closed oneof: field1 full immutable NV47 protection owner; field2
@@ -899,6 +899,55 @@ wire schema/domain and is not a durable per-use conclusion or deletion permissio
 Actual Source intent must recheck these facts and retain the required obligations.
 Root reads reuse the original management I/O/finite input window; the registered
 read graph remains valid after Host transfer without reopening assembly authority.
+
+Kind8 field4 is the historical authenticated ManagementImage.deploymentRootDigest,
+not the variable original OwnerIdentity.deploymentId. ClosedObject retains this
+original binding; Native ClosedUses can derive the exact recovery identity with
+the real namespace, original owner/lineage16 and pinned Oxia version. Fingerprint
+matching also checks this deployment root; current operator/config cannot replace it.
+
+Target external evidence retirement operation body generation8 is registered as a
+separate tuple `(1,1,SYSTEM_MUTATION,1,8)`, without Artifact/reader activation. Existing
+System envelope semantics and kinds1..7 remain unchanged. Retire fields are:
+1 ShardSubject; 2 RESOURCE_RETIRE_INTENT; 3 retryUntil; 9 generation8; 10 kind8;
+11 exact resource oneof8; 12 original expectedResourceStateVersion=0; 13 ProtectionSet;
+14 TargetEvidenceRetirementContext. Logical identity uses the existing retire rule.
+Confirmation fields1/2/3/9 use the corresponding operation; 10 original RetireIntentRef;
+11 DeleteOutcome; 12 ExternalDeleteEvidence; 13 confirmedAt retain their old nested
+meaning. New14 exact resource oneof8, 15 the same retirement context, and
+16 expectedRetireStateVersion=1. RetireIntentRef still carries original expected0,
+not state1. Confirmation logical identity is the original intent mutation ID.
+The legacy confirmation parser rejects generation8; legacy retire still rejects
+kind8. Unknown versions, other resource branches, missing/duplicate fields and
+noncanonical encodings reject; generic validation does not grant operation authority.
+
+RetirementContext schema1 fields: 1 schema1; 2 nonzero closure revision(uint64 bits);
+3 closure digest[32]; 4 exact closure length; 5 original prepared StoreMetadata;
+6 complete TargetQuotaMutation prepared cut; 7 exact IngressFenceState bytes;
+8 repeated uses strictly sorted/unique by ID; 9 offline-copy manifest digest[32];
+10 manifest length; 11 full frozen fee-owner incarnation. Each use has 1 ID[32],
+2 hash[32], 3 retryUntil, 4 conclusion=1 RETAINED_APPLIED/2 RETAINED_REJECTED/
+3 SOURCE_FENCED. Retained branches require5 first digest[32] and6 POSITION digest[32];
+fenced absence forbids them and needs the declared proof-bearing fence to cover
+retryUntil. Prepared-use-set digest reuses the existing closure domain over exact
+ID/hash/retry triples. Actual completeness/retention and committed fence status still
+require original Catalog and Native authentication; the data codec cannot prove them.
+
+Finite format ceilings are128 uses,16MiB closure,64MiB offline public-copy manifest,
+4096/16MiB protections and64MiB operation body. These are hard format bounds, not
+default runtime allocations: original Source frame/native batch/read/I/O/space budgets
+must cover the actual complete peak and may be smaller. No truncation or automatic
+budget increase. Frozen fee owner must exactly match adopted provenance; staging
+uses an actual frozen SHARD owner, never a fictitious Target/EVIDENCE adoption.
+Prepared physical Store identity is an observed preparation fact, not a requirement
+that a later recovery use the same physical Store. Source/Native writer, paid NV51/
+NV52 state0→1→2, explicit offline checkpoint schema and deletion gates remain to be
+implemented and admitted; compilation of these codecs does not activate them.
+Target confirmation additionally bounds delete evidence to4KiB and each trusted
+time image to422 bytes, with at most512 version bytes. Existing optional version/
+etag field presence is retained; the Oxia object has no etag, DELETED must match
+its pinned version, and authoritative ALREADY_ABSENT still needs actual provider
+and closed-intent proof beyond these data codecs.
 
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 

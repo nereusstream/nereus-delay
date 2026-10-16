@@ -33,6 +33,8 @@ public final class ResourceDeleteConfirmedBody {
     public static ResourceDeleteConfirmedBody decode(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOURCE_DELETE_CONFIRMED, canonicalBody);
+        if (fields.stream().anyMatch(field -> field.number() == 9))
+            throw new IllegalArgumentException("Target confirmation requires its independently activated body/reader generation");
         final RetireIntentRef intent = RetireIntentRef.decode(nested(field(fields, 10), 10));
         final DeleteOutcome outcome = DeleteOutcome.fromWire(unsigned(field(fields, 11), 11));
         final ExternalDeleteEvidence evidence = ExternalDeleteEvidence.decode(nested(field(fields, 12), 12));
@@ -116,7 +118,7 @@ public final class ResourceDeleteConfirmedBody {
             });
         }
 
-        private static RetireIntentRef decode(final byte[] encoded) {
+        static RetireIntentRef decode(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "RetireIntentRef");
             requireExact(fields, 4, "RetireIntentRef");
             final RetireIntentRef result = new RetireIntentRef(
@@ -200,7 +202,7 @@ public final class ResourceDeleteConfirmedBody {
             });
         }
 
-        private static ExternalDeleteEvidence decode(final byte[] encoded) {
+        static ExternalDeleteEvidence decode(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ExternalDeleteEvidence");
             if (fields.size() < 5 || fields.size() > 7) {
                 throw new IllegalArgumentException("ExternalDeleteEvidence fields are incomplete");

@@ -87,9 +87,21 @@ public final class TargetRecoveryEvidenceStore {
         public OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure(){return closure;}
         public TargetRecoveryEvidenceOwner owner(){return owner;}
         public StoreMetadata store(){return store;}
+        public TargetExternalEvidenceObjectResource resource(){return closure.recoveryResource(owner);}
         public TargetQuotaMutation cut(){return cut;}
         public IngressFenceState fence(){return fence;}
         public List<ClosedUse> uses(){return uses;}
+        /** Data projection only; the owning Root must authenticate the exact offline copy before signing Source. */
+        public TargetEvidenceRetirementContext retirementContext(byte[] copyManifestDigest,long copyManifestBytes){
+            final var declared=uses.stream().map(use->new TargetEvidenceRetirementContext.Use(
+                    use.prepared.id(),use.prepared.hash(),use.prepared.retryUntil(),switch(use.conclusion){
+                        case RETAINED_APPLIED->TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED;
+                        case RETAINED_REJECTED->TargetEvidenceRetirementContext.Conclusion.RETAINED_REJECTED;
+                        case SOURCE_FENCED->TargetEvidenceRetirementContext.Conclusion.SOURCE_FENCED;
+                    },use.firstDigest,use.positionDigest)).toList();
+            return new TargetEvidenceRetirementContext(closure.revision(),closure.digest(),closure.canonicalBytes().length,
+                    store,cut,fence,declared,copyManifestDigest,copyManifestBytes,owner.primaryOwner());
+        }
     }
 
     /** Reads the full sealed set; a missing first without a committed fence is still possible future adoption. */

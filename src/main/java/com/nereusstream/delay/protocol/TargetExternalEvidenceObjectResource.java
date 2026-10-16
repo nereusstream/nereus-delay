@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /** Exact immutable object identity, not a closure snapshot, Source adoption proof or deletion permission. */
-public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catalogNamespaceId, byte[] deploymentId,
+public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catalogNamespaceId, byte[] deploymentRootDigest,
         ShardId shard, byte[] tenantScope, byte[] recoveryLineage, String exactKey, byte[] objectDigest,
         byte[] valueDigest, long canonicalValueBytes, byte[] immutableVersion, Provenance provenance) {
     public static final int SCHEMA_VERSION = 1;
@@ -91,7 +91,7 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
 
     public TargetExternalEvidenceObjectResource {
         Objects.requireNonNull(subtype); Objects.requireNonNull(shard); Objects.requireNonNull(provenance);
-        catalogNamespaceId = assigned(catalogNamespaceId); deploymentId = assigned(deploymentId);
+        catalogNamespaceId = assigned(catalogNamespaceId); deploymentRootDigest = assigned(deploymentRootDigest);
         tenantScope = assigned(tenantScope);
         recoveryLineage = TargetCompatibilityCodec.assigned(recoveryLineage, 16, "external object recovery lineage");
         objectDigest = assigned(objectDigest); valueDigest = assigned(valueDigest);
@@ -130,7 +130,7 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
     }
 
     @Override public byte[] catalogNamespaceId() { return Bytes.copy(catalogNamespaceId); }
-    @Override public byte[] deploymentId() { return Bytes.copy(deploymentId); }
+    @Override public byte[] deploymentRootDigest() { return Bytes.copy(deploymentRootDigest); }
     @Override public byte[] tenantScope() { return Bytes.copy(tenantScope); }
     @Override public byte[] recoveryLineage() { return Bytes.copy(recoveryLineage); }
     @Override public byte[] objectDigest() { return Bytes.copy(objectDigest); }
@@ -139,7 +139,7 @@ public record TargetExternalEvidenceObjectResource(Subtype subtype, byte[] catal
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.uint32(out, 1, SCHEMA_VERSION); CanonicalProtobuf.uint32(out, 2, subtype.wireValue());
-            CanonicalProtobuf.bytes(out, 3, catalogNamespaceId); CanonicalProtobuf.bytes(out, 4, deploymentId);
+            CanonicalProtobuf.bytes(out, 3, catalogNamespaceId); CanonicalProtobuf.bytes(out, 4, deploymentRootDigest);
             CanonicalProtobuf.bytes(out, 5, new ShardSubject(shard).canonicalBytes()); CanonicalProtobuf.bytes(out, 6, tenantScope);
             CanonicalProtobuf.bytes(out, 7, recoveryLineage); CanonicalProtobuf.bytes(out, 8, Bytes.utf8(exactKey));
             CanonicalProtobuf.bytes(out, 9, objectDigest); CanonicalProtobuf.bytes(out, 10, valueDigest);

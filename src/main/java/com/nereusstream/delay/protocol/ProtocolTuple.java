@@ -68,6 +68,9 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetKafkaRecoveryOutcome() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION);
     }
+    public static ProtocolTuple targetEvidenceRetirement() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetEvidenceRetireIntentBody.BODY_VERSION);
+    }
 
     public long framingVersion() {
         return framingVersion;

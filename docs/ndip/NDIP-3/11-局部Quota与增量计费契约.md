@@ -2435,3 +2435,12 @@ Native point read先按预算计费，不复制保存全部大first payload；�
 后才清句柄/原输入并退allocation。此为编码/读取输入预留，不是已测RSS或全包
 资源证明；不删blob/owner/ref/alias/first或退EVIDENCE/STATE/物理费，后续durable
 uses/Source/ledger/GC费用仍需按实际记录实施。
+
+2026-10-16批准的NV51离线公共副本须首次intent同Native批按实际STATE收费，原
+NV47/48或NV49/50及EVIDENCE继续保留；adopted归原冻结Target，staging本地STATE
+绑定真实冻结SHARD，外部物理费仍原deployment。确认首次APPLIED才允许紧凑NV52
+替NV51并退实际差额/闭合owner/ref/EVIDENCE，NV52仍同原归属收费并保留防复活。
+当前context codec已显式携fee owner，拒绝与adopted provenance不符或staging伪
+Target；实际NV/独立fold/退款还未实施。格式有128 uses、16MiB closure、64MiB
+copy manifest/body及4096/16MiB protections硬界限，仍须Source frame/单行整批/
+I/O/空间配置核完整实际峰值，不能把硬界限当已有allocation/default或RSS证据。
