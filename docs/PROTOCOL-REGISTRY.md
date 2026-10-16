@@ -4984,3 +4984,30 @@ Source/Floor/checkpoint/Pin/shared-reference gates and trusted conditional-write
 history remain mandatory. Marker/key/Root records continue charging the original
 capacity root; no final key deletion is authorized without additional real
 server fencing. Full implementation/validation and all completion flags stay open.
+
+2026-10-16 Native confirmation business transition (not a provider approval or live
+Source confirmation entry): confirmationEdits reads exact actual NV51, its APPLIED
+intent first/POSITION and retained history, prior activation, complete prepared
+uses and original scope. It binds the confirmation to that exact intent/resource/
+context and returns one business edit set replacing NV51 with NV52. Adopted proof
+removes exact owner49/ref50/Attempt alias; CONTROL removes selected owner47 and all
+closed ref48/anchor aliases; staging never invents a Target EVIDENCE owner. The
+caller must still authenticate the actual original Root conditional operation and
+observation, approve Source purpose and protections, add confirmation history and
+first/POSITION, and use the same Source accounting/commit batch. No such provider
+or Source confirmation route is supplied by this helper.
+CONTROL preflight now scans the entire finite ref48 primary+alias range; orphan
+aliases cannot hide outside the selected primary kind. Each selected reference
+joins actual immutable mapping/Admission/Attempt/first/POSITION and its selected
+owner, without requiring the sibling CONTROL owner to remain alive. Ordinary
+Admission adoption continues to require both live owners. A live adopted recovery
+proof depending on selected CONTROL prevents confirmation; its owner49 range and
+mapping dependencies are read completely. Budget exhaustion stays unknown.
+NV52 independent same-view/image validation now covers Recovery, CONTROL/shared
+and staging, requiring removal of all relevant owners/refs/aliases, retained uses,
+creator first and original histories/capabilities. Marker publication/origin also
+matches the original NV51 closure for adopted objects. Selected-owner closure/
+preparation APIs reauthenticate actual Native facts before any Root CAS or signing;
+the selector is data, not authority, and permits sibling retirement across reopen.
+No new wire/default budget/thread. Actual Root marker/provider/purpose, Source
+confirmation apply/refund, physical accounting and complete recovery remain open.

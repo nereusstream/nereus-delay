@@ -766,6 +766,12 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
                 :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
         if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
+        return captureControlReferences(owner,reads,current);
+    }
+    /** Selection data only; close still requires complete actual Native preflight for this captured Root. */
+    public ControlReferenceSnapshot captureControlReferences(TargetExternalEvidenceOwner owner,
+            BoundedReadBudget reads,Runnable current){
+        Objects.requireNonNull(owner);
         current.run();final var root=readRoot(reads).root;
         final var intent=Objects.requireNonNull(findByKey(root,owner.exactKey()),"original CONTROL publication");
         requireControlOwner(intent,owner);current.run();return new ControlReferenceSnapshot(this,root,owner,intent);

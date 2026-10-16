@@ -41,6 +41,13 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
         });
     }
     public byte[] digest() { return Bytes.sha256(DOMAIN, canonicalBytes()); }
+    /** Binds adopted as well as staging markers to the original immutable publication, not a replacement Root entry. */
+    public void requireMarker(TargetEvidenceRetiredMarker marker){
+        final var closure=closureFields(closureImage);
+        if(!Arrays.equals(marker.publicationId(),QueryCodecSupport.fixed(closure.get(7),8,32))
+                ||!Arrays.equals(marker.publicationOriginDigest(),QueryCodecSupport.fixed(closure.get(8),9,32)))
+            throw new IllegalArgumentException("retired marker changed original copied publication/origin");
+    }
     public void requireContext(TargetEvidenceRetirementContext context) {
         context.requireResource(resource);
         if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging){

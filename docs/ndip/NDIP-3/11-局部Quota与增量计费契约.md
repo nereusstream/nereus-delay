@@ -2638,3 +2638,11 @@ origin/hash/bytes不改写，用新投影记录实际marker。首次有效Source
 payload差额，key+marker+闭合防复活元数据继续原root bytes/records/publication容量，不
 压力逐出/超额写。新codec固定有限上界并保actual payload/marker长度，但真实Root峰值/
 projection/退账和确认apply尚未实施；无server fencing最终record/key回收仍不具权限。
+
+2026-10-16 确认业务编辑按原before/after设计：NV51替NV52，已adopted owner47/49
+及全部闭合ref48/50和alias删除，拟由同一SourceAccounting精确计算唯一EVIDENCE与
+STATE差额及相应owner/tenant counters；staging仅实际SHARD STATE。此静态入口尚无
+live确认Source/Root provider，未发生或实测退款。CONTROL shared refs全部有限扫描，
+同一anchor alias不重复业务删除，孤立alias/仍存proof依赖/预算耗尽拒绝。原counter/
+record/byte额度不默认提高，实际多incarnation费用和峰值须集中验证。marker物理bytes/
+records与Root元数据继续原capacity root，Native编辑不授物理退账/marker GC。

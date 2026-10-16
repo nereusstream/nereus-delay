@@ -263,6 +263,67 @@ public final class TargetEvidenceRetirementStore {
         return List.of(reader.replace(ColumnFamily.META, record.key(), TargetEvidenceRetiringRecord.VALUE_TYPE, record.canonicalBytes()));
     }
 
+    /**
+     * Business edits for one confirmed Source batch, never provider/purpose/Floor approval or a commit shortcut.
+     * The caller must authenticate the original Root's actual conditional-operation/observation receipt before
+     * calling, and append exact confirmation history/first/POSITION in this same accounting batch.
+     */
+    public static List<TargetStoreBackend.Edit> confirmationEdits(TargetStoreBackend.Reader reader,
+            TargetQuotaScope scope,byte[] lineage,SystemMutation confirmation,TargetQuotaMutation stamp){
+        final var body=TargetEvidenceDeleteConfirmedBody.decode(confirmation.canonicalBody());
+        final var resource=body.resource();
+        if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
+                ||!Arrays.equals(lineage,resource.recoveryLineage()))
+            throw new IllegalArgumentException("confirmation changed actual Source SHARD/tenant/lineage");
+        final var cut=Objects.requireNonNull(reader.aggregate().mutation(),"established confirmation Native cut");
+        stamp.requireAfter(cut);
+        final var sourceOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+        final byte[] key=TargetEvidenceRetiringRecord.key(resource.exactIdentity().identityHash());
+        final var prior=TargetEvidenceRetiringRecord.decodeForStore(key,
+                payload(reader,ColumnFamily.META,key,TargetEvidenceRetiringRecord.VALUE_TYPE),scope.shard(),scope.tenantScope(),lineage);
+        prior.appliedAt().requireAtOrBefore(cut);
+        TargetProtocolActivationStore.requirePriorActivation(reader,List.of(),scope,lineage,sourceOwner,prior.appliedAt(),cut);
+        TargetRetirementSourceHistoryStore.requireRetained(reader,List.of(),scope,lineage,sourceOwner,prior.intent().systemMutationId(),prior.appliedAt(),cut);
+        requireAppliedFirst(reader,List.of(),scope,lineage,sourceOwner,prior.intent().systemMutationId(),prior.intent().mutationHash(),
+                SystemMutationType.RESOURCE_RETIRE_INTENT,prior.appliedAt(),prior.intent(),cut);
+        requireRetainedUses(reader,List.of(),scope,lineage,sourceOwner,prior,cut);
+        final var next=TargetEvidenceConfirmedRecord.fromRetiring(prior,confirmation,stamp);
+        requireAbsent(reader,ColumnFamily.META,next.key());
+        requireAbsent(reader,ColumnFamily.DEDUPE,resultKey(confirmation.systemMutationId()));
+        requireAbsent(reader,ColumnFamily.DEDUPE,positionKey(stamp.source()));
+        if(!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),stamp.source(),resource))
+            throw new IllegalStateException("confirmation lacks actual prior Target capability");
+        if(body.markerRetained()){
+            TargetProtocolActivationStore.requireRetainedMarkerConfirmation(reader,List.of(),scope,lineage,sourceOwner,stamp,cut);
+            prior.copy().requireMarker(body.markerEvidence().marker());
+        }
+        final var edits=new ArrayList<TargetStoreBackend.Edit>();
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery){
+            final var owner=recovery.owner();
+            requireSame(owner.canonicalBytes(),payload(reader,ColumnFamily.META,owner.key(),TargetRecoveryEvidenceOwner.VALUE_TYPE));
+            requireRecoveryReferences(reader,List.of(),scope,lineage,owner);
+            final var ref=owner.referenceRecord();
+            edits.add(reader.replace(ColumnFamily.META,ref.key(),TargetRecoveryEvidenceReference.VALUE_TYPE,null));
+            edits.add(reader.replace(ColumnFamily.META,ref.attemptKey(),TargetRecoveryEvidenceReference.VALUE_TYPE,null));
+            edits.add(reader.replace(ColumnFamily.META,owner.key(),TargetRecoveryEvidenceOwner.VALUE_TYPE,null));
+        }else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
+                ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor){
+            final var owner=controlOwner(resource);
+            requireNoRecoveryDependents(reader,List.of(),scope,lineage,owner,cut);
+            final var refs=requireControlReferences(reader,List.of(),scope,lineage,sourceOwner,owner,
+                    resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor a?a:null,body.context().uses(),body.context().preparedCut(),cut);
+            for(var ref:refs){
+                edits.add(reader.replace(ColumnFamily.META,ref.key(),TargetExternalEvidenceReference.VALUE_TYPE,null));
+                if(ref.kind()==TargetKafkaReceiptControlArtifact.ANCHOR)
+                    edits.add(reader.replace(ColumnFamily.META,TargetExternalEvidenceStore.referenceByAttemptKey(ref.attemptId()),TargetExternalEvidenceReference.VALUE_TYPE,null));
+            }
+            edits.add(reader.replace(ColumnFamily.META,owner.key(),TargetExternalEvidenceOwner.VALUE_TYPE,null));
+        }
+        edits.add(reader.replace(ColumnFamily.META,prior.key(),TargetEvidenceRetiringRecord.VALUE_TYPE,null));
+        edits.add(reader.replace(ColumnFamily.META,next.key(),TargetEvidenceConfirmedRecord.VALUE_TYPE,next.canonicalBytes()));
+        reader.requireWithinElapsedBudget();return List.copyOf(edits);
+    }
+
     /** Shared Native contract over actual bytes, also used by immutable-image accounting; no Catalog I/O. */
     public static void requireRetainedUses(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity sourceOwner,
@@ -430,7 +491,7 @@ public final class TargetEvidenceRetirementStore {
     }
 
     /** Shared by actual Native closure preflight and state1 accounting; every applied use must retain exact refs. */
-    static void requireControlReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+    static List<TargetExternalEvidenceReference> requireControlReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetExternalEvidenceOwner owner,
             TargetExternalEvidenceObjectResource.Anchor anchor,List<TargetEvidenceRetirementContext.Use> uses,
             TargetQuotaMutation preparedCut,TargetQuotaMutation frontier){
@@ -439,9 +500,9 @@ public final class TargetEvidenceRetirementStore {
         final var applied=new java.util.HashMap<String,TargetEvidenceRetirementContext.Use>();
         for(var use:uses)if(use.conclusion()==TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED)
             applied.put(Bytes.hex(use.id()),use);
-        final var joined=new java.util.HashSet<String>();boolean creator=false;
-        byte[] lower={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT,(byte)owner.kind()};
-        final byte[] upper={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT,(byte)(owner.kind()+1)};
+        final var joined=new java.util.LinkedHashMap<String,TargetExternalEvidenceReference>();boolean creator=false;
+        byte[] lower={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT};
+        final byte[] upper={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
             final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             if(Arrays.compareUnsigned(row.key(),lower)<0||Arrays.compareUnsigned(row.key(),upper)>=0)
@@ -449,24 +510,40 @@ public final class TargetEvidenceRetirementStore {
             lower=Bytes.concat(row.key(),new byte[]{0});
             final var ref=TargetExternalEvidenceReference.decodeForStore(row.key(),
                     TargetValueEnvelope.decode(row.value(),TargetExternalEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
-            if(!Arrays.equals(ref.artifactDigest(),owner.artifactDigest()))continue;
+            if(ref.kind()!=owner.kind()||!Arrays.equals(ref.artifactDigest(),owner.artifactDigest()))continue;
+            // Scan aliases too. An orphan or changed alias cannot hide outside the primary kind range.
+            requireSame(ref.canonicalBytes(),payload(view,overlay,ColumnFamily.META,ref.key(),TargetExternalEvidenceReference.VALUE_TYPE));
+            if(ref.kind()==TargetKafkaReceiptControlArtifact.ANCHOR)
+                requireSame(ref.canonicalBytes(),payload(view,overlay,ColumnFamily.META,
+                        TargetExternalEvidenceStore.referenceByAttemptKey(ref.attemptId()),TargetExternalEvidenceReference.VALUE_TYPE));
             final byte[] mappingKey=Bytes.concat(new byte[]{TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG,TargetKeyCodec.KEY_FORMAT},ref.mappingId());
             final var mapping=TargetKafkaReceiptMapping.decodeForStore(mappingKey,
                     payload(view,overlay,ColumnFamily.META,mappingKey,TargetKafkaReceiptMapping.VALUE_TYPE),scope.shard());
-            final var adoption=TargetExternalEvidenceStore.readAdoption(view,overlay,mapping,scope,lineage,frontier,sourceOwner);
-            final byte[] attemptKey=Bytes.concat(new byte[]{TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,TargetKeyCodec.KEY_FORMAT},ref.attemptId());
-            final var attempt=TargetQuotaAttemptBudget.decodeForStore(attemptKey,
-                    payload(view,overlay,ColumnFamily.META,attemptKey,TargetQuotaAttemptBudget.VALUE_TYPE),scope.shard());
+            final var original=TargetExternalEvidenceStore.readMappingUse(view,overlay,mapping,scope,lineage,frontier,sourceOwner);
+            final var attempt=original.attempt();
             if(attempt.phase()==TargetQuotaAttemptBudget.Phase.ADMITTED||attempt.phase()==TargetQuotaAttemptBudget.Phase.UNKNOWN)
                 throw new IllegalStateException("CONTROL closure still has an unresolved Attempt needing its original recovery dependencies");
-            final var actual=owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION?adoption.protection():adoption.anchor();
-            requireSame(owner.canonicalBytes(),actual.canonicalBytes());mapping.mutation().requireAtOrBefore(preparedCut);
+            final byte[] expectedDigest=owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION
+                    ?mapping.admission().kafkaReceipt().retentionProtectionDigest():mapping.admission().kafkaReceipt().scanObservationDigest();
+            final byte[] feeKey=owner.primaryOwner().identity().key();feeKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var fee=TargetQuotaIncarnation.decodeForStore(feeKey,payload(view,overlay,ColumnFamily.META,feeKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
+            fee.latestMutation().requireAtOrBefore(frontier);owner.createdAt().requireAtOrBefore(mapping.mutation());
+            if(!ref.mutation().equals(mapping.mutation())||!Arrays.equals(ref.attemptId(),attempt.publishAttemptId())
+                    ||!ref.referenceOwner().equals(attempt.primaryIdentity())||!ref.accounting().equals(attempt.accounting())
+                    ||!Arrays.equals(expectedDigest,owner.artifactDigest())||!Arrays.equals(fee.recoveryLineage(),lineage)
+                    ||!fee.accounting().equals(owner.primaryOwner().accounting())
+                    ||!fee.identity().target().equals(attempt.primaryIdentity().target())
+                    ||!owner.originalDomain().equals(mapping.admission().channel().context().domain()))
+                throw new IllegalStateException("CONTROL reference changed its selected original owner/Admission/Attempt");
+            mapping.mutation().requireAtOrBefore(preparedCut);
             final byte[] id=SystemMutation.computeSystemMutationId(scope.shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,
                     mapping.admission().publishAttemptId(),mapping.mutationHash());
             final String identity=Bytes.hex(id);final var use=applied.get(identity);
-            if(use==null||!joined.add(identity)||!Arrays.equals(use.hash(),mapping.mutationHash())
+            if(use==null||!Arrays.equals(use.hash(),mapping.mutationHash())
                     ||use.retryUntil()!=mapping.admission().retryUntilEpochMs())
                 throw new IllegalStateException("retiring CONTROL object lacks complete sealed mapping references");
+            final var previous=joined.putIfAbsent(identity,ref);
+            if(previous!=null)requireSame(previous.canonicalBytes(),ref.canonicalBytes());
             if(mapping.mutation().equals(owner.createdAt())){
                 if(owner.kind()==TargetKafkaReceiptControlArtifact.ANCHOR
                         &&(!Arrays.equals(owner.creatorAttemptId(),mapping.admission().publishAttemptId())
@@ -478,7 +555,78 @@ public final class TargetEvidenceRetirementStore {
         }
         if(!creator||joined.size()!=applied.size())
             throw new IllegalStateException("retiring CONTROL object lost original adoption or a shared mapping/ref/alias");
+        return List.copyOf(joined.values());
     }
+    private static TargetExternalEvidenceOwner controlOwner(TargetExternalEvidenceObjectResource resource){
+        return resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection p?p.owner()
+                :((TargetExternalEvidenceObjectResource.Anchor)resource.provenance()).owner();
+    }
+
+    private static void requireRecoveryReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetRecoveryEvidenceOwner owner){
+        final var expected=owner.referenceRecord();final var found=new java.util.HashSet<String>();
+        byte[] lower={TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT};
+        final byte[] upper={TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
+        while(true){
+            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
+            final var ref=TargetRecoveryEvidenceReference.decodeForStore(row.key(),
+                    TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
+            if(!Arrays.equals(ref.proofDigest(),owner.reference().proofDigest()))continue;
+            requireSame(ref.canonicalBytes(),expected.canonicalBytes());
+            found.add(Bytes.hex(row.key()));
+        }
+        if(found.size()!=2||!found.contains(Bytes.hex(expected.key()))||!found.contains(Bytes.hex(expected.attemptKey())))
+            throw new IllegalStateException("retiring proof lost exact complete reference/Attempt alias");
+    }
+
+    /** A live adopted proof still needs its original CONTROL dependencies, even if its Attempt has settled. */
+    private static void requireNoRecoveryDependents(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetExternalEvidenceOwner owner,TargetQuotaMutation frontier){
+        byte[] lower={TargetKeyCodec.RECOVERY_EVIDENCE_OWNER_TAG,TargetKeyCodec.KEY_FORMAT};
+        final byte[] upper={TargetKeyCodec.RECOVERY_EVIDENCE_OWNER_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
+        while(true){
+            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
+            final var proof=TargetRecoveryEvidenceOwner.decodeForStore(row.key(),
+                    TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage);
+            proof.adoptedAt().requireAtOrBefore(frontier);
+            final byte[] mappingKey=Bytes.concat(new byte[]{TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG,TargetKeyCodec.KEY_FORMAT},proof.reference().mappingId());
+            final var mapping=TargetKafkaReceiptMapping.decodeForStore(mappingKey,
+                    payload(view,overlay,ColumnFamily.META,mappingKey,TargetKafkaReceiptMapping.VALUE_TYPE),scope.shard());
+            mapping.mutation().requireAtOrBefore(frontier);
+            final byte[] digest=owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION
+                    ?mapping.admission().kafkaReceipt().retentionProtectionDigest():mapping.admission().kafkaReceipt().scanObservationDigest();
+            if(Arrays.equals(digest,owner.artifactDigest()))
+                throw new IllegalStateException("CONTROL retirement still has an adopted recovery-proof dependency");
+        }
+    }
+    private static void requireNoReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetExternalEvidenceObjectResource resource){
+        final boolean recovery=resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
+        final byte tag=(byte)(recovery?TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG:TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG);
+        byte[] lower={tag,TargetKeyCodec.KEY_FORMAT};final byte[] upper={tag,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
+        while(true){
+            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
+            final boolean matches;
+            if(recovery){
+                final var ref=TargetRecoveryEvidenceReference.decodeForStore(row.key(),
+                        TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
+                matches=Arrays.equals(ref.proofDigest(),resource.objectDigest());
+            }else{
+                final var ref=TargetExternalEvidenceReference.decodeForStore(row.key(),
+                        TargetValueEnvelope.decode(row.value(),TargetExternalEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
+                matches=ref.kind()==resource.subtype().wireValue()&&Arrays.equals(ref.artifactDigest(),resource.objectDigest());
+            }
+            if(matches)throw new IllegalStateException("confirmed object retained a reference/Attempt alias");
+        }
+    }
+    private static void requireRange(byte[] key,byte[] lower,byte[] upper){
+        if(Arrays.compareUnsigned(key,lower)<0||Arrays.compareUnsigned(key,upper)>=0)
+            throw new IllegalStateException("retirement dependency read escaped its finite range");
+    }
+
     /** Exact state2 invariant over actual bytes; neither a tombstone codec nor absence alone grants delete authority. */
     public static void requireConfirmedState(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,
@@ -497,12 +645,29 @@ public final class TargetEvidenceRetirementStore {
         requireRetainedUses(view,overlay,scope,lineage,sourceOwner,resource,body.context(),frontier);
         if(view.projected(ColumnFamily.META,TargetEvidenceRetiringRecord.key(resource.exactIdentity().identityHash()),overlay)!=null)
             throw new IllegalStateException("confirmed object still has a retiring copy");
-        if(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery))
-            throw new IllegalStateException("CONTROL/shared/staging confirmed projection is not wired yet");
-        final var owner=recovery.owner();final var ref=owner.referenceRecord();
-        for(byte[] key:List.of(owner.key(),ref.key(),ref.attemptKey()))
-            if(view.projected(ColumnFamily.META,key,overlay)!=null)
-                throw new IllegalStateException("confirmed object retained an adopted owner/reference/alias");
+        if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery){
+            if(view.projected(ColumnFamily.META,recovery.owner().key(),overlay)!=null)
+                throw new IllegalStateException("confirmed proof retained its adopted owner");
+            requireNoReferences(view,overlay,scope,lineage,resource);
+        }else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
+                ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor){
+            final var owner=controlOwner(resource);
+            if(view.projected(ColumnFamily.META,owner.key(),overlay)!=null)
+                throw new IllegalStateException("confirmed CONTROL object retained its adopted owner");
+            requireNoReferences(view,overlay,scope,lineage,resource);
+            requireNoRecoveryDependents(view,overlay,scope,lineage,owner,frontier);
+            boolean creator=false;
+            for(var use:body.context().uses())if(use.conclusion()==TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED){
+                final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,resultKey(use.id()),TargetResultRecord.VALUE_TYPE));
+                if(first.mutation().equals(owner.createdAt())){
+                    if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor anchor
+                            &&(!Arrays.equals(use.id(),anchor.admissionId())||!Arrays.equals(use.hash(),anchor.admissionHash())))
+                        throw new IllegalStateException("confirmed anchor changed original creator Admission");
+                    creator=true;
+                }
+            }
+            if(!creator)throw new IllegalStateException("confirmed CONTROL object lost its original creator first");
+        }
         requireAppliedFirst(view,overlay,scope,lineage,sourceOwner,body.intent().mutationId(),body.intent().mutationHash(),
                 SystemMutationType.RESOURCE_RETIRE_INTENT,record.intentAppliedAt(),null,frontier);
         final var confirmation=record.confirmation();

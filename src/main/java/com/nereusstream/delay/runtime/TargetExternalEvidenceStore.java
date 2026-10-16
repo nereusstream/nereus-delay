@@ -88,22 +88,28 @@ public final class TargetExternalEvidenceStore {
     public static ClosedUses readClosedControlUses(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget reads,
             TargetQuotaScope scope,byte[] lineage,OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
             Adoption applied,int kind,TargetStoreBackend.ReadAuthority authority){
-        if(scope.target()!=null||reads.maxBytes()==Long.MAX_VALUE
-                ||closure.preparedUses().size()>com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.MAX_USES)
-            throw new IllegalArgumentException("closed CONTROL uses require actual Shard scope and finite complete read bounds");
         final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?Objects.requireNonNull(applied).protection()
                 :kind==TargetKafkaReceiptControlArtifact.ANCHOR?Objects.requireNonNull(applied).anchor():null;
         if(owner==null)throw new IllegalArgumentException("closed CONTROL uses require protection or anchor");
+        return readClosedControlUses(backend,reads,scope,lineage,closure,owner,authority);
+    }
+    /** Owner is only a selector; actual retained Native owner/refs/first facts authenticate the receipt. */
+    public static ClosedUses readClosedControlUses(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget reads,
+            TargetQuotaScope scope,byte[] lineage,OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+            TargetExternalEvidenceOwner owner,TargetStoreBackend.ReadAuthority authority){
+        if(scope.target()!=null||reads.maxBytes()==Long.MAX_VALUE
+                ||closure.preparedUses().size()>com.nereusstream.delay.protocol.TargetEvidenceRetirementContext.MAX_USES)
+            throw new IllegalArgumentException("closed CONTROL uses require actual Shard scope and finite complete read bounds");
         return backend.guardedRead(reads,reader->{
             final com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Provenance provenance;
             final com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor anchor;
-            if(kind==TargetKafkaReceiptControlArtifact.PROTECTION){
+            if(owner.kind()==TargetKafkaReceiptControlArtifact.PROTECTION){
                 anchor=null;provenance=new com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Protection(owner);
             }else{
                 final byte[] indexKey=referenceByAttemptKey(owner.creatorAttemptId());
                 final var creator=TargetExternalEvidenceReference.decodeForStore(indexKey,
                         payload(reader,indexKey,TargetExternalEvidenceReference.VALUE_TYPE),scope.shard(),lineage);
-                if(creator.kind()!=kind||!Arrays.equals(creator.artifactDigest(),owner.artifactDigest())
+                if(creator.kind()!=owner.kind()||!Arrays.equals(creator.artifactDigest(),owner.artifactDigest())
                         ||!Arrays.equals(creator.attemptId(),owner.creatorAttemptId()))
                     throw new IllegalStateException("closed anchor lost actual creator Attempt alias");
                 final byte[] mappingKey=Bytes.concat(new byte[]{TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG,TargetKeyCodec.KEY_FORMAT},creator.mappingId());
@@ -167,8 +173,10 @@ public final class TargetExternalEvidenceStore {
         reader.requireWithinElapsedBudget();return result;
     }
 
-    /** Same exact joins over the selected projected view, including immutable recovery accounting. */
-    static Adoption readAdoption(TargetRecordAccounting.View reader,List<TargetStoreBackend.Edit> overlay,
+    record MappingUse(TargetKafkaReceiptMapping mapping,TargetQuotaAttemptBudget attempt) {}
+
+    /** Original immutable Admission/Attempt/first/POSITION joins, independent of either artifact's later retirement. */
+    static MappingUse readMappingUse(TargetRecordAccounting.View reader,List<TargetStoreBackend.Edit> overlay,
             TargetKafkaReceiptMapping mapping,TargetQuotaScope scope,byte[] lineage,
             com.nereusstream.delay.protocol.TargetQuotaMutation frontier,TargetQuotaIdentity sourceOwner) {
         if(sourceOwner.kind()!=TargetQuotaIdentity.Kind.SHARD||!sourceOwner.shard().equals(scope.shard()))
@@ -221,6 +229,17 @@ public final class TargetExternalEvidenceStore {
                 || !Arrays.equals(budget.recoveryLineage(),lineage)) {
             throw new IllegalStateException("external adoption lacks its exact original Admission/Attempt commitment");
         }
+        first.requireOwner(descriptor(reader,overlay,sourceOwner,scope,lineage));
+        position.requireOwner(descriptor(reader,overlay,sourceOwner,scope,lineage));
+        return new MappingUse(actual,budget);
+    }
+
+    /** Same exact joins over the selected projected view, including immutable recovery accounting. */
+    static Adoption readAdoption(TargetRecordAccounting.View reader,List<TargetStoreBackend.Edit> overlay,
+            TargetKafkaReceiptMapping mapping,TargetQuotaScope scope,byte[] lineage,
+            com.nereusstream.delay.protocol.TargetQuotaMutation frontier,TargetQuotaIdentity sourceOwner){
+        final var original=readMappingUse(reader,overlay,mapping,scope,lineage,frontier,sourceOwner);
+        final var actual=original.mapping();final var budget=original.attempt();
         final var owners = new ArrayList<TargetExternalEvidenceOwner>();
         for (int kind : List.of(TargetKafkaReceiptControlArtifact.PROTECTION, TargetKafkaReceiptControlArtifact.ANCHOR)) {
             final byte[] refKey = TargetExternalEvidenceReference.key(kind, actual.mappingId());
@@ -254,8 +273,6 @@ public final class TargetExternalEvidenceStore {
             }
             owners.add(owner);
         }
-        first.requireOwner(descriptor(reader, overlay, sourceOwner, scope, lineage));
-        position.requireOwner(descriptor(reader, overlay, sourceOwner, scope, lineage));
         return new Adoption(actual, owners.get(0), owners.get(1));
     }
 

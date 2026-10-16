@@ -1126,3 +1126,10 @@ evidence1，原payload身份/version与新marker版本独立，Root/publication/
 实际Source intent stamp均绑定；原Source当前purpose和原本地I/O/close责任不因marker
 减免。Descriptor5/Native52schema2/companion7识别新语义；实现尚未授实际CAS/确认apply/
 退款或最终key GC权限。
+
+2026-10-16 原确认Source语义继续要求Root实际条件I/O/exact reread的私有凭据。新增
+confirmationEdits只核实际Native51及原Source意图/历史/uses后生成业务编辑，不准许签名/
+provider操作，也不构成Source确认批准；现有Source分发仍只接intent。原CONTROL owner
+选择器可在sibling已退役后从实际Native独立重认证，普通Admission不能借该路径绕过双
+live owner要求。孤立Attempt alias不漏扫、live Recovery proof依赖阻止父CONTROL确认，
+原creator first/Source metadata/lineage和prior4/5及独立历史门禁仍保留。

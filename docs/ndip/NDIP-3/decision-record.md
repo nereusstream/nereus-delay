@@ -1252,3 +1252,15 @@ companion7及实际Native/历史capability检查；旧outcome/1..7/Descriptor1..
 companion1..6保原分支。codec不授actual I/O或身份历史权限，原publication关闭/Root
 marker投影和计费/当前purpose/条件provider/Source确认apply/refund/GC仍待接线。
 仅必要编译、集中验证后置；未运行真实marker/Admin/delete/迁退/保护解除。
+
+2026-10-16 Native确认转换及CONTROL独立退役推进：实际Source确认仍缺原Root条件操作/
+exact读回私有凭据，未降级为签名/DTO/true。先提供同Source批次business confirmationEdits，
+核实际NV51/原APPLIED intent history/first/POSITION、完整uses/capability并绑定新确认，
+返回精确NV51→NV52及闭合owner/ref/alias删除；不批准provider或Source purpose，也不
+独立commit。NV52独立账本补齐CONTROL/shared/staging，保完整引用/creator/历史/激活。
+修正CONTROL原primary kind扫描遗漏孤立alias的风险，完整有限ref48扫描且按自身真实
+mapping/Admission/Attempt/first验证，不要求另一CONTROL owner继续存活；原普通adoption
+双owner保证不变。增加单owner选择器接原Root关闭/准备/实际Native验证，不能由selector
+自证。live adopted proof依赖必须先退役，有限读耗尽不当无依赖；不新增协议/预算/线程。
+真实Root operation/私有receipt/物理计费、Source确认分发/当前purpose/退款及全恢复仍待
+实施验证；单agent/不Fast、集中验证后置，四包/29切片和完成flags保持未完成。

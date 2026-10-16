@@ -476,6 +476,16 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
                     :kind==TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
             if(owner==null)throw new IllegalArgumentException("CONTROL closure requires protection or anchor");
+            return closeAdoptedControlReferences(source,owner,reads,nativeReads);
+        }
+        /** A selected immutable owner is reauthenticated from actual Native facts; its sibling may already be retired. */
+        public synchronized java.util.concurrent.CompletableFuture<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> closeAdoptedControlReferences(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner owner,
+                com.nereusstream.delay.store.BoundedReadBudget reads,com.nereusstream.delay.store.BoundedReadBudget nativeReads){
+            requireReady();Objects.requireNonNull(source);Objects.requireNonNull(owner);Objects.requireNonNull(reads);Objects.requireNonNull(nativeReads);
+            if(reads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
+                throw new IllegalArgumentException("CONTROL closure requires explicit finite Catalog and Native read bounds");
             final long[] minimum=new long[CapacityDimension.COUNT];
             minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
                     Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),nativeReads.maxBytes()));
@@ -483,7 +493,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             return closeAdoptedReferences(owner.exactKey(),Bytes.sha256(owner.canonicalBytes()),reads,
                     current->{
                         final Runnable held=()->{current.run();source.requireRetirementReadCurrent(this,current);};
-                        final var snapshot=catalog.captureControlReferences(applied,kind,reads,held);
+                        final var snapshot=catalog.captureControlReferences(owner,reads,held);
                         final var preflight=source.readControlReferenceClosure(this,snapshot,nativeReads,held);
                         held.run();return catalog.closeAdoptedControlReferences(preflight,reads,held);
                     });
@@ -621,7 +631,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
             requireRecoveryArchive();
-            return prepareRetirement(source,closure,Objects.requireNonNull(applied),null,3,catalogReads,nativeReads);
+            return prepareRetirement(source,closure,Objects.requireNonNull(applied),null,catalogReads,nativeReads);
         }
         public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareControlRetirement(
                 KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
@@ -632,7 +642,17 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             requireReady();
             if(kind!=TargetKafkaReceiptControlArtifact.PROTECTION&&kind!=TargetKafkaReceiptControlArtifact.ANCHOR)
                 throw new IllegalArgumentException("CONTROL retirement preparation requires protection or anchor");
-            return prepareRetirement(source,closure,null,Objects.requireNonNull(applied),kind,catalogReads,nativeReads);
+            final var owner=kind==TargetKafkaReceiptControlArtifact.PROTECTION?Objects.requireNonNull(applied).protection():Objects.requireNonNull(applied).anchor();
+            return prepareControlRetirement(source,closure,owner,catalogReads,nativeReads);
+        }
+        public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareControlRetirement(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner selected,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads){
+            requireReady();Objects.requireNonNull(selected);
+            return prepareRetirement(source,closure,null,selected,catalogReads,nativeReads);
         }
         /** Already-closed reservation only; closing original publication I/O and physical retirement are separate obligations. */
         public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareStagingRetirement(
@@ -641,19 +661,18 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
             requireReady();
-            return prepareRetirement(source,Objects.requireNonNull(closure),null,null,closure.subtype(),catalogReads,nativeReads);
+            return prepareRetirement(source,Objects.requireNonNull(closure),null,null,catalogReads,nativeReads);
         }
         private java.util.concurrent.CompletableFuture<RetirementPreparation> prepareRetirement(
                 KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
                 OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
                 com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption recovery,
-                com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption control,int kind,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner controlOwner,
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads){
             Objects.requireNonNull(source);Objects.requireNonNull(closure);
-            final boolean staging=recovery==null&&control==null;
+            final boolean staging=recovery==null&&controlOwner==null;
             final var original=recovery!=null||staging&&closure.subtype()==3?requireRecoveryArchive():null;
-            final var controlOwner=control==null?null:kind==TargetKafkaReceiptControlArtifact.PROTECTION?control.protection():control.anchor();
             if(retirementHistoryInput!=null)throw new IllegalStateException("original Source retirement history remains owned");
             if(retirementSourceCopy!=null)throw new IllegalStateException("original Source retirement input remains owned");
             Objects.requireNonNull(catalogReads);Objects.requireNonNull(nativeReads);
@@ -706,7 +725,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     final var copy=catalog.prepareRecoveryRetirementCopy(uses.closure(),uses.owner(),original.trust,catalogReads,current);
                     current.run();return new RetirementPreparation(this,uses,copy,minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
                 }
-                final var uses=source.readClosedControlUses(this,closure,control,kind,catalogReads,nativeReads,current);
+                final var uses=source.readClosedControlUses(this,closure,controlOwner,catalogReads,nativeReads,current);
                 final var copy=catalog.prepareControlRetirementCopy(uses.closure(),uses.resource().provenance(),catalogReads,current);
                 current.run();return new RetirementPreparation(this,uses,copy,minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
             },this::requireReady,io);

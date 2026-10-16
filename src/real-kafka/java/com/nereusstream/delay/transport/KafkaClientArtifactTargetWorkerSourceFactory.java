@@ -426,10 +426,21 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                 com.nereusstream.delay.runtime.TargetExternalEvidenceStore.Adoption applied,int kind,
                 com.nereusstream.delay.store.BoundedReadBudget catalogReads,
                 com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
+            final var owner=kind==com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact.PROTECTION?applied.protection()
+                    :kind==com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact.ANCHOR?applied.anchor():null;
+            if(owner==null)throw new IllegalArgumentException("CONTROL selection requires protection or anchor");
+            return readClosedControlUses(management,closure,owner,catalogReads,nativeReads,current);
+        }
+        com.nereusstream.delay.runtime.TargetExternalEvidenceStore.ClosedUses readClosedControlUses(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
+                com.nereusstream.delay.protocol.TargetExternalEvidenceOwner owner,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
             current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
             final var actualClosure=management.catalog().readReferenceClosure(closure,catalogReads,current);
-            final var actual=original.readClosedControlUses(nativeReads,actualClosure,applied,kind,clock);
+            final var actual=original.readClosedControlUses(nativeReads,actualClosure,owner,clock);
             management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
