@@ -34,6 +34,8 @@ public record TargetEvidenceConfirmedRecord(SystemMutation confirmation, TargetQ
                 || body.confirmedAt().latestEpochMs() > body.retryUntil())
             throw new IllegalArgumentException("confirmed row changed exact applied Source confirmation");
         intentAppliedAt.requireAfter(body.context().preparedCut()); appliedAt.requireAfter(intentAppliedAt);
+        if(body.markerRetained()&&!body.markerEvidence().marker().intentAppliedAt().equals(intentAppliedAt))
+            throw new IllegalArgumentException("retained marker changed actual Source intent stamp");
     }
 
     /** Exact state1 replacement facts; this does not authenticate a provider response or authorize a write. */
@@ -59,7 +61,7 @@ public record TargetEvidenceConfirmedRecord(SystemMutation confirmation, TargetQ
     }
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, 1); CanonicalProtobuf.uint32(out, 2, 2);
+            CanonicalProtobuf.uint32(out, 1, body().markerRetained()?2:1); CanonicalProtobuf.uint32(out, 2, 2);
             CanonicalProtobuf.bytes(out, 3, confirmation.canonicalEnvelope());
             CanonicalProtobuf.bytes(out, 4, intentAppliedAt.canonicalBytes());
             CanonicalProtobuf.bytes(out, 5, appliedAt.canonicalBytes());
@@ -74,7 +76,8 @@ public record TargetEvidenceConfirmedRecord(SystemMutation confirmation, TargetQ
     public static TargetEvidenceConfirmedRecord decode(byte[] encoded) {
         final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 6, false, "Target confirmed record");
         QueryCodecSupport.requireNumbers(f, new int[]{1,2,3,4,5,6}, "Target confirmed record");
-        if (QueryCodecSupport.uint(f.get(0), 1) != 1 || QueryCodecSupport.uint(f.get(1), 2) != 2)
+        final long version=QueryCodecSupport.uint(f.get(0),1);
+        if ((version!=1&&version!=2) || QueryCodecSupport.uint(f.get(1), 2) != 2)
             throw new IllegalArgumentException("unknown Target confirmed schema/state");
         final byte[] frame = QueryCodecSupport.nested(f.get(2), 3);
         if (frame.length > MAX_CONFIRMATION_BYTES) throw new IllegalArgumentException("confirmation exceeds byte bound");

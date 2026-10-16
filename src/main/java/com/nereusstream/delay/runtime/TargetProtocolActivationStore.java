@@ -190,6 +190,14 @@ public final class TargetProtocolActivationStore {
         final var owner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
         requireApplied(reader,List.of(),scope,lineage,owner,record,reader.aggregate().mutation());return record;
     }
+    public static void requireRetainedMarkerConfirmation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){
+        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final var record=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
+        requireApplied(view,overlay,scope,lineage,sourceOwner,record,frontier);business.requireAfter(record.appliedAt());
+        if(!record.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+            throw new IllegalStateException("retained marker confirmation requires actual descriptor5 activation");
+    }
     public static void requireHistoryBinding(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
             TargetRetirementAuthorizationHistory.Grant grant,SourcePosition source){
         final var record=applied(reader,scope,lineage,grant.activation().tuple());
@@ -205,7 +213,7 @@ public final class TargetProtocolActivationStore {
     private static byte[] resultKey(byte[] id){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},id);}
     private static void requireLocalCompanion(boolean needed){
         if(needed&&TargetCheckpointSemanticSnapshot.MAX_SCHEMA_VERSION<TargetProtocolActivationDescriptor.TARGET_CHECKPOINT_SCHEMA)
-            throw new IllegalStateException("Target activation requires the independently implemented checkpoint companion6");
+            throw new IllegalStateException("Target activation requires the independently implemented checkpoint companion7");
     }
     private static byte[] positionKey(SourcePosition source){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},source.canonicalBytes());}
     private static void absent(TargetStoreBackend.Reader reader,ColumnFamily family,byte[] key){if(reader.get(family,key)!=null)throw new IllegalStateException("first activation encountered existing Source result");}

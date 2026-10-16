@@ -1229,3 +1229,26 @@ Root准备/sign/Source借用/UNKNOWN/release沿原有限slot，Recovery按subtyp
 first重放不变。此推进不授closure/delete/退款；原I/O/no-recreate裁定、完整环境/current-
 purpose、confirmation/GC与真实Broker/恢复继续开放。单agent/不Fast，仅必要编译，
 四包/29切片与三个完成flags不提升。
+
+2026-10-16 主决策会话批准原key条件CAS no-recreate marker，修订原物理delete-key前置。
+同一key保留非ephemeral/无TTL marker，已核原raw/hash/length/version后IfVersionIdEquals
+替换；它阻断旧IfAbsent/旧version CAS生效，不证明旧请求已完成。exact marker幂等，
+外来marker/不同intent或原值/version冲突拒绝，无无条件覆盖/另key tombstone方案。
+必须先有原Root closure及完整uses/candidates永久future-first否定、真实Source APPLIED
+intent/NV51完整copy及合法Floor/checkpoint/Pin/共享引用条件。原本地owned I/O/晚回调/
+buffer/SDK close责任不因marker释放；closure持续拒绝新seal/publish/adopt。满足全部门禁
+后原key缺失可IfAbsent占位，旧put先赢只核确为原payload后CAS；无材料/外来值/不确定仍
+Unavailable。跨重启缺每put参与者清单可用受信协议/部署历史证明所有旧写入仅IfAbsent/
+旧exact-version CAS；当前源码不足为未知历史writer或无条件write/deleteRange背书。
+Root必须预留marker与元数据实际有界峰值，旧publication origin/hash/bytes不改写。
+新增kind8 outcome3明确payload退役、marker保留，不能编码DELETED/ALREADY_ABSENT；仅
+actual条件操作及exact读回/原Root私有确认可签。首次Source APPLIED确认才沿原规则
+结算逻辑EVIDENCE/STATE；UNKNOWN/REJECTED/重复不重复减费，确认未apply时NV51继续支撑
+离线恢复且保守计费。物理费只回收真实payload差额，marker/key/Root防复活记录及容量
+继续归原capacity root，不释放record/publication数、不压力逐出。没有额外真实server
+fencing时即使Floor/Pin满足也不可最终删marker；当前SDK关闭/等待均不构成证明。
+本轮先实施marker/evidence schema1、g8 outcome3独立证据、NV52 schema2、Descriptor5/
+companion7及实际Native/历史capability检查；旧outcome/1..7/Descriptor1..4/NV52 schema1/
+companion1..6保原分支。codec不授actual I/O或身份历史权限，原publication关闭/Root
+marker投影和计费/当前purpose/条件provider/Source确认apply/refund/GC仍待接线。
+仅必要编译、集中验证后置；未运行真实marker/Admin/delete/迁退/保护解除。

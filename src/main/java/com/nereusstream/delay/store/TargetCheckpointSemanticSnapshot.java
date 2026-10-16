@@ -23,7 +23,7 @@ import java.util.TreeMap;
 
 /** Closed Target semantic contents and original Admission frames; external control/pin/authentication is required. */
 public final class TargetCheckpointSemanticSnapshot {
-    public static final int MAX_SCHEMA_VERSION=6;
+    public static final int MAX_SCHEMA_VERSION=7;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-checkpoint-semantic-snapshot\0");
 
     public record Limits(int maximumRecords, int maximumBytes, long maximumAdmissionFrameBytes) {
@@ -91,7 +91,9 @@ public final class TargetCheckpointSemanticSnapshot {
             List<TargetCheckpointDependencies.AdmissionImage> admissions,List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence,
             List<TargetCheckpointDependencies.RecoveryEvidenceImage> recoveryEvidence,TargetCheckpointLifecycleInputs lifecycle,Limits limits){
-        if ((version==6)!=(lifecycle!=null))throw new IllegalArgumentException("Target lifecycle companion requires explicit schema6");
+        if ((version>=6)!=(lifecycle!=null))throw new IllegalArgumentException("Target lifecycle companion requires explicit schema6/7");
+        if(version==6&&lifecycle.requiresRetainedMarkerCapability())
+            throw new IllegalArgumentException("retained marker lifecycle requires explicit schema7 companion");
         this.lifecycle=lifecycle;
         if (version < 1 || version > MAX_SCHEMA_VERSION || version == 1 && !controls.isEmpty()
                 || version < 3 && !outcomes.isEmpty() || version < 4 && !externalEvidence.isEmpty()||version<5&&!recoveryEvidence.isEmpty()) {
@@ -293,7 +295,7 @@ public final class TargetCheckpointSemanticSnapshot {
             throw new IllegalStateException("checkpoint recovery proof differs from authenticated original raw Catalog object/seal");
     }
 
-    /** Schema6 is built complete in one step; old component schemas cannot temporarily stand in for g8 inputs. */
+    /** Complete lifecycle inputs use schema6, or explicit schema7 for retained markers; component images cannot stand in for them. */
     public static TargetCheckpointSemanticSnapshot fromLifecycleValues(TargetCheckpointDependencies dependencies,
             List<TargetCheckpointDependencies.AdmissionImage> admissions,List<ProfileSemanticEnvelope> profiles,
             List<RetryPolicySemantic> retries,List<PayloadProofTrustSetSemantic> trusts,
@@ -308,7 +310,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var recovery=complete.resolveRecoveryEvidence(originalOutcomes,recoveryAuthority,budget,guard);
         final var lifecycle=TargetCheckpointLifecycleInputs.collect(complete,lifecycleAuthority,budget,limits,guard);
         final var root=complete.root();
-        final var result=new TargetCheckpointSemanticSnapshot(6,root.metadata(),root.source(),root.mutationSequence(),
+        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
                 root.root().recoveryLineage(),complete.storedControlsDigest(),complete.semanticInputsDigest(),profiles,retries,trusts,
                 admissions,originalControls,originalOutcomes,external,recovery,lifecycle,limits);
         result.validateAgainst(complete,limits);guard.run();if(!budget.beforeTimedWork())throw budget.incomplete();return result;
@@ -551,7 +553,7 @@ public final class TargetCheckpointSemanticSnapshot {
         }
         final TargetCheckpointLifecycleInputs lifecycle;
         if(version>=6){
-            if(index>=fields.size()||fields.get(index).number()!=16)throw new IllegalArgumentException("schema6 omits mandatory lifecycle image");
+            if(index>=fields.size()||fields.get(index).number()!=16)throw new IllegalArgumentException("schema6/7 omits mandatory lifecycle image");
             lifecycle=TargetCheckpointLifecycleInputs.decode(QueryCodecSupport.bytes(fields.get(index++),16),limits);
         }else lifecycle=null;
         if (index + 1 != fields.size()) {
@@ -570,7 +572,7 @@ public final class TargetCheckpointSemanticSnapshot {
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target semantic snapshot");
         return result;
     }
-    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6->17;
+    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7->17;
         default->throw new IllegalArgumentException("unknown Target semantic snapshot version");};}
 
     private static void before(BoundedReadBudget budget, Runnable guard) {

@@ -117,6 +117,8 @@ public final class ResourceRetireIntentBody {
             final byte[] observedImmutableVersion,
             final byte[] observedEtag,
             final ResourceDeleteConfirmedBody.DeleteOutcome outcome) {
+        if(outcome==ResourceDeleteConfirmedBody.DeleteOutcome.PAYLOAD_RETIRED_MARKER_RETAINED)
+            throw new IllegalArgumentException("retained marker is not external delete/absence evidence");
         final ExactResourceIdentity identity = decodeResourceIdentity(kind, encoded);
         Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
         Objects.requireNonNull(observedEtag, "observedEtag");

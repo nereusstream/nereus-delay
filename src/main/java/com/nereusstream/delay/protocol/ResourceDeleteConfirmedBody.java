@@ -60,7 +60,8 @@ public final class ResourceDeleteConfirmedBody {
 
     public enum DeleteOutcome {
         DELETED(1),
-        ALREADY_ABSENT(2);
+        ALREADY_ABSENT(2),
+        PAYLOAD_RETIRED_MARKER_RETAINED(3);
 
         private final int wireValue;
 
@@ -146,6 +147,8 @@ public final class ResourceDeleteConfirmedBody {
             Bytes.requireLength(resourceIdentityHash, HASH_LENGTH, "delete resourceIdentityHash");
             Bytes.requireLength(providerRequestIdHash, HASH_LENGTH, "providerRequestIdHash");
             Objects.requireNonNull(outcome, "outcome");
+            if(outcome==DeleteOutcome.PAYLOAD_RETIRED_MARKER_RETAINED)
+                throw new IllegalArgumentException("retained marker requires explicit Target marker evidence");
             Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
             Objects.requireNonNull(observedEtag, "observedEtag");
             Bytes.requireLength(responseHash, HASH_LENGTH, "delete responseHash");

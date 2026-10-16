@@ -1118,3 +1118,11 @@ EvidenceResolution须永久非APPLIED，原SHARD/tenant/lineage及同一Source c
 签名前和实际新writer enqueue/append均核APPLIED descriptor4；CONTROL不需Recovery
 archive，proof仍需原history。原first重放/未知Source append/原借用与退出责任保留。
 签名/prepare不等于原publication关闭、Source当前purpose或物理删除/退账许可。
+
+2026-10-16 原key marker裁定：只有受信历史协议/部署能证明所有可能旧写入均IfAbsent或
+原version CAS，才可在全Source/Root/Floor/Pin/共享引用门禁后用同key存在性屏障防复活。
+未知旧writer/外部覆盖权限、搬迁或owner无法证明仍Unavailable。marker确认显式outcome3/
+evidence1，原payload身份/version与新marker版本独立，Root/publication/origin/closure与
+实际Source intent stamp均绑定；原Source当前purpose和原本地I/O/close责任不因marker
+减免。Descriptor5/Native52schema2/companion7识别新语义；实现尚未授实际CAS/确认apply/
+退款或最终key GC权限。

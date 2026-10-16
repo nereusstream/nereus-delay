@@ -488,6 +488,8 @@ public final class TargetEvidenceRetirementStore {
         TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.body().intent().mutationId(),record.intentAppliedAt(),frontier);
         TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,record.confirmation().systemMutationId(),record.appliedAt(),frontier);
         final var body=record.body();final var resource=body.resource();
+        if(body.markerRetained())TargetProtocolActivationStore.requireRetainedMarkerConfirmation(
+                view,overlay,scope,lineage,sourceOwner,record.appliedAt(),frontier);
         if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
             TargetProtocolActivationStore.requireCapacityOwnerStaging(view,overlay,scope,lineage,sourceOwner,record.intentAppliedAt(),frontier);
         if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())

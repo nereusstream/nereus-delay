@@ -54,6 +54,12 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
         activations=ordered(activations,TargetProtocolActivationRecord::key);retirements=ordered(retirements,TargetEvidenceRetiringRecord::key);
         confirmations=ordered(confirmations,TargetEvidenceConfirmedRecord::key);histories=ordered(histories,v->v.image().systemMutationId());
     }
+    public boolean requiresRetainedMarkerCapability(){
+        return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+                ||confirmations.stream().anyMatch(v->v.body().markerRetained())
+                ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                    &&TargetEvidenceDeleteConfirmedBody.decode(v.image().canonicalBody()).markerRetained());
+    }
     public int recordCount(){return Math.addExact(Math.addExact(activations.size(),retirements.size()),Math.addExact(confirmations.size(),histories.size()));}
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,1);
@@ -162,7 +168,12 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             if(!input.image().verifySignature(grant.writerKey()))throw new IllegalArgumentException("retirement original signature is invalid");
             final var activation=activations.stream().filter(a->a.body().payload().descriptor().tuple().equals(grant.activation().tuple())).findFirst()
                     .orElseThrow(()->new IllegalStateException("retirement proof lacks actual prior activation"));
-            grant.requireActivation(activation,input.source());grants.put(Bytes.hex(input.image().systemMutationId()),grant);after(budget,guard);
+            grant.requireActivation(activation,input.source());
+            if(input.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                    &&TargetEvidenceDeleteConfirmedBody.decode(input.image().canonicalBody()).markerRetained()
+                    &&!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+                throw new IllegalStateException("APPLIED retained marker history lacks actual descriptor5 capability");
+            grants.put(Bytes.hex(input.image().systemMutationId()),grant);after(budget,guard);
         }
         for(var value:retirements){before(budget,guard);charge(budget,value.key().length,value.canonicalBytes().length);authority.requireRetiring(value,grants.get(Bytes.hex(value.intent().systemMutationId())));after(budget,guard);}
         final var images=images();

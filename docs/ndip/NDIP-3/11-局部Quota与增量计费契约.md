@@ -2630,3 +2630,11 @@ public copy读受同一finite catalog budget；INCOMPLETE不可作为无引用�
 原closure/native和完整resource/copy窗口，再复用单slot/signing/borrow/UNKNOWN/release
 责任；Recovery subtype仍须原archive。物理预算仍归原capacity root，准备/签名不返还
 payload或record费用，也不构成关闭/no-recreate/确认/退款/GC；最大包络/RSS集中验证后置。
+
+2026-10-16 marker费用裁定：替换前须原capacity root预留actual marker及新增Root元数据
+有限峰值；marker可能因完整Source metadata比旧value大，不得假定只减bytes。旧publication
+origin/hash/bytes不改写，用新投影记录实际marker。首次有效Source APPLIED确认才沿原规则
+结算逻辑EVIDENCE和STATE，物理确认未apply时NV51/逻辑费用保守保留。物理账只返真实消失
+payload差额，key+marker+闭合防复活元数据继续原root bytes/records/publication容量，不
+压力逐出/超额写。新codec固定有限上界并保actual payload/marker长度，但真实Root峰值/
+projection/退账和确认apply尚未实施；无server fencing最终record/key回收仍不具权限。

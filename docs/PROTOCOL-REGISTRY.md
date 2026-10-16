@@ -4951,3 +4951,36 @@ plus original SHARD/tenant/lineage. Existing first-result replay stays first.
 No wire or default budget change. This path consumes an already-closed object;
 original publication closure/no-recreate, current-purpose/environment assembly,
 confirmation/refund/GC and real recovery remain required and incomplete.
+
+2026-10-16 retained-marker protocol revision (implementation foundation only):
+kind8 Target confirmation outcome3 is PAYLOAD_RETIRED_MARKER_RETAINED. Outcomes1/2
+and kind1..7 keep their deletion/absence meaning; legacy ExternalDeleteEvidence
+and external-delete identity validation explicitly reject outcome3. Target g8
+field12 instead carries marker evidence schema1. No marker version is written
+into the old deleted-payload version field.
+TargetEvidenceRetiredMarker schema1 fields1..16 bind schema, original full
+capacity-owner ref, deployment root, publication ID/origin, exact key, resource
+identity hash, typed-object digest, payload raw SHA/length/version8, closure
+revision/digest, retire-intent ID/hash and complete actual intent Source stamp.
+The marker has no TTL/ephemeral/reopen/GC authorization. Its bound retains the
+existing complete Source-position ceiling, including long Pulsar topic names;
+physical peak reservation must use actual encoded bytes, not assume a tiny marker.
+Evidence schema1 fields1..10 bind schema, full marker, observed raw SHA/length,
+actual marker version8, conditional request kind (1=CAS original payload version,
+2=claim absent original key), exact request version (old version or empty),
+actual request/response hashes and observed trusted-time evidence. Raw/length,
+version separation and intent/resource/closure binding are strict; codecs are
+public data and cannot authenticate a provider operation or Root permission.
+NV52 schema1 remains deletion/absence; schema2 explicitly retains marker result
+and actual original intent stamp. Descriptor5 keeps old1..4 byte branches and adds
+vector20=marker1,21=markerEvidence1,22=outcome3; vector13=NV52 schema2 and vector3=
+checkpoint7. Actual marker confirmation requires prior APPLIED descriptor5.
+Complete lifecycle companions select schema7 for descriptor5 or marker results/
+history and schema6 rejects those inputs; other schema1..6 branches remain.
+This does not implement conditional provider I/O, Root marker projection/reserve,
+original publisher closure, current-purpose/confirmation writer/apply/refunds or
+protected GC. Actual same-key CAS plus exact reread/private Root evidence, all
+Source/Floor/checkpoint/Pin/shared-reference gates and trusted conditional-writer
+history remain mandatory. Marker/key/Root records continue charging the original
+capacity root; no final key deletion is authorized without additional real
+server fencing. Full implementation/validation and all completion flags stay open.
