@@ -325,12 +325,22 @@ public final class TargetSystemReplayStore {
         }
     }
 
-    /** A different candidate cannot repeat state0 after actual state1, even when its external blob is gone. */
+    /** A different candidate cannot repeat state0 after actual state1/state2, even when its external blob is gone. */
     private boolean retirementAlreadyApplied(TargetStoreBackend.Reader reader,SystemMutation mutation){
         final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
         final byte[] identity=body.resource().exactIdentity().identityHash();
-        if(reader.get(ColumnFamily.META,com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.confirmedKey(identity))!=null)
-            throw new IllegalStateException("confirmed retirement needs its independently admitted Native52 reader");
+        final byte[] confirmedKey=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.confirmedKey(identity);
+        final byte[] confirmedRaw=reader.get(ColumnFamily.META,confirmedKey);
+        if(confirmedRaw!=null){
+            final var confirmed=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(confirmedKey,
+                    TargetValueEnvelope.decode(confirmedRaw,com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE).payload(),
+                    scope.shard(),scope.tenantScope(),lineage);
+            if(!Arrays.equals(confirmed.body().resource().canonicalBytes(),body.resource().canonicalBytes()))
+                throw new IllegalStateException("confirmed identity changed exact original resource");
+            final var sourceOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            TargetEvidenceRetirementStore.requireConfirmedState(reader,java.util.List.of(),scope,lineage,sourceOwner,confirmed,reader.aggregate().mutation());
+            reader.requireWithinElapsedBudget();return true;
+        }
         final byte[] key=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.key(identity);
         final byte[] raw=reader.get(ColumnFamily.META,key);
         if(raw==null)return false;

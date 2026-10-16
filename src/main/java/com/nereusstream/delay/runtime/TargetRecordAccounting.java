@@ -688,6 +688,15 @@ public final class TargetRecordAccounting {
                 }
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var confirmed=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(
+                        key,payload,scope.shard(),scope.tenantScope(),lineage);
+                TargetEvidenceRetirementStore.requireConfirmedState(reader,overlay,scope,lineage,root.owner(),confirmed,operation);
+                final var frozen=confirmed.feeOwner();final var owner=descriptor(frozen.identity());
+                if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("confirmed row changed frozen accounting");
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
             case TargetQuotaAttemptBudget.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var budget = TargetQuotaAttemptBudget.decodeForStore(key, payload, scope.shard());

@@ -2503,3 +2503,10 @@ state1迟到候选本地STALE拒绝只费新增SHARD first/POSITION/Source/root�
 prepared/sourceBorrowed互斥，original.close失败保留窗口，最终关闭等实际读取和
 Source借用退出。busy重试沿原Source turn/池且共享首次deadline，不新增调度层。
 本轮没有Native状态变化或退费；最大合法包络、RSS及真实恢复计费留待集中验证。
+
+2026-10-16 NV52不保留NV51 raw copy，仅保留完整signed确认及原intent/confirmation
+stamp；其原context冻结fee owner/accounting不换成当前Owner。严格record/整帧上界
+与decode前body预核已实施，默认Source/Native预算不变。独立fold只按actual STATE
+key/payload/overhead收费，核两阶段first/POSITION及原owner/ref/alias/NV51已不存在；
+实际NV51差额与EVIDENCE退款尚无确认handler，未声称已完成。同view invariants不是
+外部delete许可；真实最大包络/RSS/Native原子退款及恢复仍留集中验证。

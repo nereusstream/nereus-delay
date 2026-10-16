@@ -996,3 +996,11 @@ reader准入配置未改，完整历史purpose/保护/capacity批准与冷provid
 Source hold绑定原mutation、位置、connection generation/attestation与同一Catalog
 receipt。副本公钥仍非自授权；原Source时点purpose/Root/activatedTuple/保护/
 capacity批准必须由独立可信provider给出，其完整历史实现及冷组合仍待接通。
+
+2026-10-16 NV52只保存Source已应用确认的严格事实，不把SERVICE标签或delete
+证据DTO当授权。必须由后续实际provider/Source handler证明原purpose/key/tuple/
+Root/保护/容量及精确删除，才能产生有效state2。当前reader/独立计费已核真实两阶段
+first/POSITION、原scope/lineage和完整uses/fence。主会话已批准独立purpose签名、
+Root pin的历史manifest/provider，完整Source coverage、撤销边界及原tuple激活证明
+均须核实，具体实现继续开放；旧recovery/retirement signing配置均不自动授Source
+apply权限。

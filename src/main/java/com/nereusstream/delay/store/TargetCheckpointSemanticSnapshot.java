@@ -282,8 +282,8 @@ public final class TargetCheckpointSemanticSnapshot {
 
     /** Exact image contents and closure still need historical publication, keys, pins and activation authority. */
     public void validateAgainst(TargetCheckpointDependencies dependencies, Limits limits) {
-        if(!Objects.requireNonNull(dependencies).retirements().isEmpty())
-            throw new IllegalStateException("retiring offline evidence requires the independently admitted post-schema5 companion");
+        if(!Objects.requireNonNull(dependencies).retirements().isEmpty()||!dependencies.evidenceConfirmations().isEmpty())
+            throw new IllegalStateException("retirement evidence requires the independently admitted post-schema5 companion");
         if ((long) profiles.size() + retries.size() + trusts.size() + admissions.size()
                 + controls.size() + outcomes.size() + externalEvidence.size()+recoveryEvidence.size()
                         > limits.maximumRecords()

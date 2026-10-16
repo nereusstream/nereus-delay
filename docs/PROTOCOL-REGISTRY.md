@@ -940,9 +940,10 @@ must cover the actual complete peak and may be smaller. No truncation or automat
 budget increase. Frozen fee owner must exactly match adopted provenance; staging
 uses an actual frozen SHARD owner, never a fictitious Target/EVIDENCE adoption.
 Prepared physical Store identity is an observed preparation fact, not a requirement
-that a later recovery use the same physical Store. Source/Native writer, paid NV51/
-NV52 state0→1→2, explicit offline checkpoint schema and deletion gates remain to be
-implemented and admitted; compilation of these codecs does not activate them.
+that a later recovery use the same physical Store. NV51 intent handoff/store and
+NV52 strict representation/STATE fold are implemented; the confirmation writer,
+explicit offline checkpoint schema and deletion gates remain open and unadmitted.
+Compilation of these codecs does not activate them.
 Target confirmation additionally bounds delete evidence to4KiB and each trusted
 time image to422 bytes, with at most512 version bytes. Existing optional version/
 etag field presence is retained; the Oxia object has no etag, DELETED must match
@@ -986,17 +987,35 @@ the prepared logical cut, and context/copy must match exactly. The physical
 prepared Store identity is not equated to a later restore's Store identity.
 The intent envelope is bounded by64MiB body +1MiB author +1024; the complete
 record adds the64MiB copy, bounded applied source and256 bytes overhead.
-META44→NV51 and strict value ceiling51 are registered; NV52 remains unimplemented.
+META44→NV51 and META45→NV52 are registered, with strict value ceiling52.
+
+NV52 TargetEvidenceConfirmedRecord uses META key `2d 01 || exactResourceIdentityHash[32]`.
+Closed fields:1 schema1;2 state2;3 complete canonical signed confirmation System
+envelope;4 original intent applied TargetQuotaMutation;5 confirmation applied
+TargetQuotaMutation;6 SHA256 of domain
+`nereus-delay-target-evidence-confirmed-record\0` plus canonical fields1..5.
+Confirmation keeps the exact resource, original intent ID/hash/expectedVersion0,
+context/closure/manifest/use-set/frozen fee owner and provider delete evidence;
+expectedRetireStateVersion remains1. Applied confirmation is strictly after intent,
+which is strictly after prepared logical cut. Source persistence and confirmedAt
+latest must not exceed retryUntil. SERVICE author and envelope logical-ID/hash
+bindings remain strict. Raw object/public-history/closure-image copy is omitted.
+The complete body preflight is resource maximum + context maximum +4096 evidence
++422 time +2048; envelope adds1MiB author +2048, row adds two bounded Source
+stamps +256. These are finite representation ceilings, not new runtime defaults.
+fromRetiring requires exact old intent ID/hash/resource/context before projection;
+it is not provider response authentication or write/delete authority.
 
 NV51 adds its actual STATE key/payload/overhead under the original frozen fee
 owner and retains existing adopted owner/ref/alias/EVIDENCE charges. Independent
 fold checks actual APPLIED intent first/POSITION and the complete local dependency
-inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring rows until
+inventory. Semantic checkpoint schemas1..5 explicitly refuse retiring/confirmed rows until
 the new offline companion is implemented; their old bytes are not reinterpreted.
-Root public-copy preparation is actual bounded owned I/O with exact raw/version/
-closure rereads and current Native Owner checks. It does not enqueue a Source
-intent or write NV51: atomic Source writer, NV52, offline checkpoint/restore,
-historical copy authentication and full deletion gates remain open work.
+Root public-copy preparation uses bounded owned I/O and exact raw/version/closure
+rereads; historical Source input additionally binds the original signed manifest.
+Actual Source intent handoff/store is implemented. NV52 confirmation writer,
+offline checkpoint/restore, full historical Source-purpose provider and physical
+deletion gates remain open work; no runtime/deployment activation is implied.
 
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 
@@ -4238,8 +4257,8 @@ old physical Store/native sequence equality is not required. A SOURCE_FENCED use
 may later have its exact expired REJECTED first after that prepared cut, without
 reopening adoption. Missing retained first/POSITION or altered Root/digest/status
 rejects; independent NV51 accounting checks the same retained-use contract.
-META tag45 is reserved for confirmed identity absence checks only: NV52 remains
-unregistered/unimplemented. Presence of that key cannot be reinterpreted as state0.
+META tag45 now selects strict NV52. Its actual Source/absence invariants are
+verified before reuse; presence cannot be reinterpreted as state0.
 No physical delete/refund, new checkpoint schema or deployment activation is added.
 
 
@@ -4350,8 +4369,8 @@ existing STALE_SYSTEM_MUTATION. The same actual Native view validates exact NV51
 resource, original APPLIED intent first/SHARD owner/stamp/ID/hash/retry/author/Source
 and POSITION. It preserves the winning NV51/owner/ref/EVIDENCE and charges only the
 new Source result/root metadata. No old blob is needed. Missing/corrupt facts fail;
-META45 still requires the independent unimplemented Native52 reader and cannot
-be treated as state0. Original same-ID first and expiry take precedence, legacy
+META45 now uses the independent strict Native52 reader and cannot be treated as
+state0 or accepted from mere presence. Original same-ID first and expiry take precedence, legacy
 resource kinds1..7 keep their old path. Native apply/cold restore/new checkpoint/
 confirmation/delete/publication authority remain separately bounded obligations.
 
@@ -4370,3 +4389,16 @@ before Root clears the loan/allocation; failed close retains ownership. Busy inp
 may yield only after owned I/O exits, within the original finite admission deadline.
 Complete historical purpose/protection/capacity providers and cold composition,
 CONTROL/shared/staging, NV52/new checkpoint/offline recovery and GC remain open.
+
+2026-10-16 NV52 accounting/replay wiring checks the actual same Native view:
+no NV51, no original Recovery owner/ref/Attempt alias, both exact APPLIED
+intent/confirmation first and POSITION under the actual SHARD accounting root,
+complete retained-use conclusions and monotone fence. Frozen original STATE
+key/payload/overhead remains charged; no copy or EVIDENCE refund occurs merely
+because a codec succeeds. Normal/cold missing-first state0 candidates against
+verified state2 receive the existing Source-accounted STALE_SYSTEM_MUTATION
+rejection before external copy acquisition. Invalid/missing facts fail closed.
+Dependency inventory/copy and semantic digest field10 preserve confirmed rows;
+empty prior inventories retain old digest bytes. Schemas1..5 reject both states.
+Confirmation Source apply/provider proof, NV51 replacement/refund, new companion,
+CONTROL/shared/staging and GC remain open; no actual physical delete was run.

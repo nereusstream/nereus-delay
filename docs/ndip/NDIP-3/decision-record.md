@@ -996,3 +996,51 @@ raw/version/公共历史必须重建出原manifest，Native joins留给Source原
 不是新的权限裁定：完整历史purpose/保护/capacity provider及cold composition、
 CONTROL/shared/staging、NV52、新companion/离线认证与protected GC仍必做开放。
 仅必要main/K1/P1编译通过，全部完成flags不变；当前会话后续不使用Fast模式。
+
+2026-10-16 NV52既定裁定实施更新：META45→strict NV52已注册，墓碑保留原signed
+confirmation（原intent ID/hash/0、resource、完整context/closure/manifest/uses/
+冻结fee owner及delete证据）、两个实际Source stamp及独立checksum，不含raw副本。
+独立STATE/ledger和正常/冷state2预检核真实两阶段first/POSITION、原Recovery owner/
+ref/alias及NV51全无，完整uses/fence仍保留；迟到候选STALE拒绝不取blob。依赖copy/
+digest纳入NV52，旧companion继续拒绝两种退役状态；确认handler/原子退款/实际
+provider证明、新companion及全GC仍开放。具体历史SERVICE用途数据源尚无实现，
+已向主会话请求一个授权语义裁定，未自行把本地签名配置或copy当Source权限。
+
+2026-10-16 主会话裁定历史Source退役授权数据源（本轮收到，具体provider待实施）：
+允许独立、原可信Root有界加载的公开history manifest，不新建IAM/grant链或另一
+运行服务。它须由原deployment/control root明确启用本用途的authority以独立签名域/
+issuer-key版本发布，Root独立pin来源；内嵌key/copy signer/current角色不能自证。
+每entry绑定完整SERVICE(serviceId/run/configGeneration)、System keyVersion/公钥、
+Root32/namespace/Shard/tenant/lineage、kind8和分别明确的RETIRE/CONFIRM action，
+tuple8批准仍须关联原Source之前已生效的真实protocol/Artifact激活证据。
+
+区间采用真实canonical SourcePosition的(afterExclusive,throughInclusive]，先核同
+Shard及物理Source incarnation/资源域；不靠墙钟、offset算术或无限上界拼接。
+snapshot须有authority generation及原签名/完整性依据，完整覆盖该purpose的grant/
+key/tuple变更与撤销；allow清单不是完整性证明。已封区间不可冲突/回退/重写，后继
+只能一致扩展。未关闭grant不证明无限未来；决定Source点S前必须有真实authority
+覆盖到S。缺材料/水位落后/认证父版本失败是unknown，不能判deny。
+
+future sign/enqueue另持原Root真实当前purpose/key/scope许可与实际已激活tuple，
+每边界核当前保护，不预知offset。实际落点后按原历史snapshot判定；可受控补齐
+immutable generation，Root只在现有owned-I/O捕获认证，HeldInputs持原immutable
+版本、Store锁内不刷新。覆盖不足保留原pending帧/费用/cleanup，不ACK/换帧重发/
+借当前角色apply；无当前许可或可推进历史来源时writer不可无限生产pending。
+
+撤销/rotation/tuple关闭由权威认证Source边界R effective-after生效：R及之前原有效
+授权保留历史效力，R之后deny；迟到旧key帧按实际落点判定，不靠自报enqueue时间
+逃过撤销。当前过期/Owner更替不追溯撤销合法旧first，也不把历史grant当当前许可；
+根或签名事实冲突停止为未知，不改已有first或账。
+
+完整可信区间内精确批准为allow，明确无权限/签名不匹配已知授权key为确定deny
+（可记REJECTED）；缺历史/覆盖/读取或认证完整性失败为unavailable/incomplete，
+保留entry且不生成永久拒绝。Retirement.approval=null仅确定deny。commit callback
+只核原snapshot本地hold/version/pin及frame/scope，无远程I/O/当前角色重采样。
+
+精确public snapshot及key/tuple/撤销/coverage证明沿原材料owner/Source/Checkpoint/
+Floor保护留存并计入实际字节，不能只缓存key/approved标志或因current配置变化删旧
+版本。先捕获小manifest并预留全部有限输入，再owned加载有限文件/entry/key/range/
+总字节，管理immutable版本/路径；close成功前保留原loan/预算。provider须同时覆盖
+intent与confirmation，分别结合实际copy/Native/capacity/delete证据门禁；其它family
+保持原provider。实现只处理加载/范围/认证/完整覆盖/版本及局部snapshot，不杜撰
+未来授权，也不生成生产材料或执行实际服务/配置/Admin/delete/迁退/保护解除。

@@ -216,9 +216,14 @@ public final class TargetEvidenceRetirementStore {
     public static void requireRetainedUses(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity sourceOwner,
             TargetEvidenceRetiringRecord record, TargetQuotaMutation frontier) {
+        requireRetainedUses(view,overlay,scope,lineage,sourceOwner,record.copy().resource(),record.body().context(),frontier);
+    }
+
+    private static void requireRetainedUses(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity sourceOwner,
+            TargetExternalEvidenceObjectResource resource,TargetEvidenceRetirementContext context,TargetQuotaMutation frontier) {
         if (sourceOwner.kind() != TargetQuotaIdentity.Kind.SHARD || !sourceOwner.shard().equals(scope.shard()))
             throw new IllegalArgumentException("retirement requires the actual Source accounting root");
-        final var context = record.body().context();
         context.preparedCut().requireAtOrBefore(frontier);
         final byte[] rawFence = view.projected(ColumnFamily.META, KeyCodec.metaFixed(4), overlay);
         final var fence = rawFence == null ? new IngressFenceState(IngressFenceState.OPEN, null)
@@ -226,7 +231,6 @@ public final class TargetEvidenceRetirementStore {
         if (fence.closedThroughEpochMs() < context.fence().closedThroughEpochMs()
                 || context.fence().proofId() != null && fence.proofId() == null)
             throw new IllegalStateException("retirement lost its committed prepared ingress fence");
-        final var resource = record.copy().resource();
         final var adopted = resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery r ? r.owner() : null;
         if (adopted != null) adopted.adoptedAt().requireAtOrBefore(context.preparedCut());
         boolean adoptingFirst = false;
@@ -287,6 +291,55 @@ public final class TargetEvidenceRetirementStore {
     private static byte[] resultKey(byte[] id) {
         return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, id);
     }
+    /** Exact state2 invariant over actual bytes; neither a tombstone codec nor absence alone grants delete authority. */
+    public static void requireConfirmedState(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,
+            TargetEvidenceConfirmedRecord record,TargetQuotaMutation frontier){
+        record.appliedAt().requireAtOrBefore(frontier);
+        final var body=record.body();final var resource=body.resource();
+        if(scope.target()!=null||!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
+                ||!Arrays.equals(lineage,resource.recoveryLineage()))throw new IllegalStateException("confirmed resource changed actual Source scope");
+        requireRetainedUses(view,overlay,scope,lineage,sourceOwner,resource,body.context(),frontier);
+        if(view.projected(ColumnFamily.META,TargetEvidenceRetiringRecord.key(resource.exactIdentity().identityHash()),overlay)!=null)
+            throw new IllegalStateException("confirmed object still has a retiring copy");
+        if(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery))
+            throw new IllegalStateException("CONTROL/shared/staging confirmed projection is not wired yet");
+        final var owner=recovery.owner();final var ref=owner.referenceRecord();
+        for(byte[] key:List.of(owner.key(),ref.key(),ref.attemptKey()))
+            if(view.projected(ColumnFamily.META,key,overlay)!=null)
+                throw new IllegalStateException("confirmed object retained an adopted owner/reference/alias");
+        requireAppliedFirst(view,overlay,scope,lineage,sourceOwner,body.intent().mutationId(),body.intent().mutationHash(),
+                SystemMutationType.RESOURCE_RETIRE_INTENT,record.intentAppliedAt(),null,frontier);
+        final var confirmation=record.confirmation();
+        requireAppliedFirst(view,overlay,scope,lineage,sourceOwner,confirmation.systemMutationId(),confirmation.mutationHash(),
+                SystemMutationType.RESOURCE_DELETE_CONFIRMED,record.appliedAt(),confirmation,frontier);
+    }
+
+    private static void requireAppliedFirst(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,byte[] id,byte[] hash,
+            SystemMutationType type,TargetQuotaMutation appliedAt,SystemMutation signed,TargetQuotaMutation frontier){
+        final byte[] key=resultKey(id);final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));
+        first.requireStored(key,TargetResultRecord.VALUE_TYPE,first.canonicalBytes());
+        final var result=SystemMutationResult.decode(first.typedPayload());
+        if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(sourceOwner)||!first.mutation().equals(appliedAt)
+                ||result.mutationType()!=type||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK
+                ||!Arrays.equals(result.mutationId(),id)||!Arrays.equals(result.mutationHash(),hash)
+                ||!Arrays.equals(result.appliedSourcePosition(),appliedAt.source().canonicalBytes())
+                ||AuthorIdentity.decode(result.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE
+                ||signed!=null&&(result.retryUntilEpochMs()!=signed.retryUntilEpochMs()||!Arrays.equals(result.authorIdentity(),signed.authorIdentity())))
+            throw new IllegalStateException("confirmed row lost its actual exact APPLIED Source first");
+        final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var owner=TargetQuotaIncarnation.decodeForStore(ownerKey,payload(view,overlay,ColumnFamily.META,ownerKey,TargetQuotaIncarnation.VALUE_TYPE),
+                scope.shard(),scope.tenantScope());
+        if(!Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("confirmed first changed Source lineage");
+        owner.latestMutation().requireAtOrBefore(frontier);first.requireOwner(owner);
+        final byte[] positionKey=positionKey(appliedAt.source());
+        final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
+        position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(owner);
+        if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(appliedAt))
+            throw new IllegalStateException("confirmed row lost original Source POSITION");
+    }
+
     private static byte[] positionKey(SourcePosition source) {
         return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
     }

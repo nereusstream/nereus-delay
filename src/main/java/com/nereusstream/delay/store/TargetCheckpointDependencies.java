@@ -102,6 +102,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence;
     private final List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements;
+    private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
     private final List<TargetScheduleBinding> bindings;
@@ -122,6 +123,7 @@ public final class TargetCheckpointDependencies {
         externalEvidence = List.copyOf(builder.externalEvidence.values());
         recoveryEvidence = List.copyOf(builder.recoveryEvidence.values());
         retirements = List.copyOf(builder.retirements.values());
+        evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
         bindings = List.copyOf(builder.bindings.values());
@@ -149,6 +151,7 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence() { return externalEvidence; }
     public List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence() { return recoveryEvidence; }
     public List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements() { return retirements; }
+    public List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations() { return evidenceConfirmations; }
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -692,6 +695,7 @@ public final class TargetCheckpointDependencies {
             for (final var owner : externalEvidence) { CanonicalProtobuf.bytes(out, 7, owner.canonicalBytes()); }
             for (final var owner : recoveryEvidence) { CanonicalProtobuf.bytes(out, 8, owner.canonicalBytes()); }
             for (final var record : retirements) { CanonicalProtobuf.bytes(out, 9, Bytes.sha256(record.canonicalBytes())); }
+            for (final var record : evidenceConfirmations) { CanonicalProtobuf.bytes(out, 10, Bytes.sha256(record.canonicalBytes())); }
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -721,6 +725,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
@@ -743,6 +748,7 @@ public final class TargetCheckpointDependencies {
             prior.externalEvidence.forEach(this::externalEvidence);
             prior.recoveryEvidence.forEach(this::recoveryEvidence);
             prior.retirements.forEach(this::retirement);
+            prior.evidenceConfirmations.forEach(this::evidenceConfirmation);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
             prior.bindings.forEach(this::binding);
@@ -764,6 +770,10 @@ public final class TargetCheckpointDependencies {
         void retirement(com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord record) {
             if(retirements.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target retiring identity");
+        }
+        void evidenceConfirmation(com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord record) {
+            if(evidenceConfirmations.putIfAbsent(Bytes.hex(record.key()),record)!=null)
+                throw new IllegalStateException("duplicate Target confirmed identity");
         }
         void kafkaMapping(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
             final String attempt = Bytes.hex(mapping.admission().publishAttemptId());

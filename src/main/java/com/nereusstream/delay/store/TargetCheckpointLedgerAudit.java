@@ -234,6 +234,10 @@ final class TargetCheckpointLedgerAudit {
                     } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
                         grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().tenantScope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.evidenceConfirmation(record);
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
