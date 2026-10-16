@@ -28,6 +28,8 @@ public record TargetEvidenceRetirementCopy(TargetExternalEvidenceObjectResource 
         return Math.addExact(256L + resource.exactIdentity().canonicalBytes().length,
                 Math.addExact(objectBytes, Math.addExact(inputBytes, closureBytes)));
     }
+    /** Complete bound without copying any raw value; used before Source snapshot encoding. */
+    public long estimatedBytes() { return estimatedBytes(resource, signedObject.length, publicInputs.length, closureImage.length); }
     @Override public byte[] signedObject() { return Bytes.copy(signedObject); }
     @Override public byte[] publicInputs() { return Bytes.copy(publicInputs); }
     @Override public byte[] closureImage() { return Bytes.copy(closureImage); }

@@ -33,7 +33,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
             TargetCommandStore.PayloadProofControls payloadProofs) implements Inputs {}
@@ -48,6 +48,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     public record Admission(TargetPublishAdmissionVerifier.Authority authority) implements Inputs {}
     public record Outcome(TargetPublishOutcomeVerifier.Authority authority) implements Inputs {}
     public record Channel(PreparedControlOperation prepared, TargetChannelControlVerifier.Authority authority) implements Inputs {}
+    /** Provider-approved original Source purpose/Root/capacity and actual Catalog copy; null approval is a proved denial. */
+    public record Retirement(TargetQuotaScope scope, TargetEvidenceRetirementStore.Approval approval) implements Inputs {
+        public Retirement { Objects.requireNonNull(scope); if (scope.target() != null) throw new IllegalArgumentException("retirement needs Source scope"); }
+    }
 
     private final Provider provider;
     private final TargetStoreBackend.CommitAuthority originalCommit;
@@ -102,6 +106,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Expiry value -> new TargetSourceApplyRuntime.ExpiryControl(value.authority(), commit);
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(), commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
+            case Retirement value -> retirement(entry, value, held, commit, guard);
             case Grant value -> {
                 var a = value.authority(); var frozen = freeze(value.prepared(), entry, a.registrations(),
                         version -> a.keys().resolve((int) version, entry.position()), held, guard);
@@ -153,7 +158,48 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Admission ignored -> TargetSourceAuthorityPreparation.Family.ADMISSION;
             case Outcome ignored -> TargetSourceAuthorityPreparation.Family.OUTCOME;
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
+            case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
         };
+    }
+
+    private TargetSourceApplyRuntime.RetirementControl retirement(SourceReplayEntry entry, Retirement input,
+            Held held, TargetStoreBackend.CommitAuthority commit, Runnable guard) {
+        if (!(entry instanceof SourceReplayMutation original) || original.mutation().type() != SystemMutationType.RESOURCE_RETIRE_INTENT)
+            throw new IllegalArgumentException("retirement snapshot changed its original Source operation");
+        final var mutation = original.mutation();
+        final var body = TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        input.scope().requireRoute(body.shard(), body.resource().tenantScope());
+        final var approved = input.approval();
+        final TargetEvidenceRetirementStore.Approval frozen;
+        if (approved == null) frozen = null;
+        else {
+            approved.current().run(); held.requireCurrent(); guard.run();
+            final var copy = approved.copy().image();
+            // Preflight using actual held lengths, before serializing/hashing the complete copy.
+            final byte[] keyBytes = approved.writerKey().getEncoded();
+            if (keyBytes == null || keyBytes.length != 44) throw new IllegalStateException("invalid original retirement Source public key");
+            final long upper = Math.addExact(copy.estimatedBytes(), keyBytes.length);
+            if (upper > maximumBytes - held.bytes) throw new IllegalStateException("complete retirement Source input exceeds byte bound");
+            if (!Arrays.equals(copy.resource().canonicalBytes(), body.resource().canonicalBytes()))
+                throw new IllegalStateException("retirement Source snapshot replaced the exact Root object");
+            copy.requireContext(body.context());
+            final PublicKey key;
+            try { key = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(keyBytes)); }
+            catch (java.security.GeneralSecurityException invalid) { throw new IllegalStateException("invalid original retirement Source public key", invalid); }
+            held.bytes = Math.addExact(held.bytes, Math.addExact(body.context().copyManifestBytes(), keyBytes.length));
+            frozen = new TargetEvidenceRetirementStore.Approval(key, approved.copy(), () -> {
+                held.requireCurrent(); approved.current().run(); held.requireCurrent();
+            });
+        }
+        held.requireCurrent(); guard.run();
+        return new TargetSourceApplyRuntime.RetirementControl((scope, actor, actual, source) -> {
+            held.requireCurrent(); requireSource(entry, source);
+            if (!scope.equals(input.scope()) || !Arrays.equals(actor.canonicalBytes(), mutation.authorIdentity())
+                    || actual != mutation && !Arrays.equals(held.digest, Bytes.sha256(actual.canonicalEnvelope())))
+                throw new IllegalStateException("retirement snapshot changed its original scope/actor/Source frame");
+            if (frozen != null) frozen.current().run();
+            return frozen;
+        }, commit);
     }
 
     @FunctionalInterface private interface Keys { PublicKey resolve(long version); }

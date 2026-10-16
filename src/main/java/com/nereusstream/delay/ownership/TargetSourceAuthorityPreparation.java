@@ -13,7 +13,7 @@ import java.util.function.LongSupplier;
 
 /** One protected content snapshot for the existing Source look-ahead, on the root's original bounded I/O pool. */
 public final class TargetSourceAuthorityPreparation {
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
@@ -79,7 +79,8 @@ public final class TargetSourceAuthorityPreparation {
                 value -> require(value, TargetSourceApplyRuntime.NativePolicyControl.class),
                 value -> require(value, TargetSourceApplyRuntime.AdmissionControl.class),
                 value -> require(value, TargetSourceApplyRuntime.OutcomeControl.class),
-                value -> require(value, TargetSourceApplyRuntime.ChannelControl.class));
+                value -> require(value, TargetSourceApplyRuntime.ChannelControl.class),
+                value -> require(value, TargetSourceApplyRuntime.RetirementControl.class));
         return authorities;
     }
 
@@ -212,6 +213,7 @@ public final class TargetSourceAuthorityPreparation {
         if (control instanceof TargetSourceApplyRuntime.AdmissionControl) return Family.ADMISSION;
         if (control instanceof TargetSourceApplyRuntime.OutcomeControl) return Family.OUTCOME;
         if (control instanceof TargetSourceApplyRuntime.ChannelControl) return Family.CHANNEL;
+        if (control instanceof TargetSourceApplyRuntime.RetirementControl) return Family.RETIREMENT;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }
 

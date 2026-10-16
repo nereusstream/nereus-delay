@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** System-result replay, closed publication windows and physical-position accounting without rerunning business. */
+/** System-result replay, closed Source windows and physical-position accounting without rerunning business. */
 public final class TargetSystemReplayStore {
     private record Inspection(TargetResultRecord first, SystemMutationResult result, boolean samePosition) {}
 
@@ -112,7 +112,7 @@ public final class TargetSystemReplayStore {
                 Objects.requireNonNull(reads, "readAuthority"));
     }
 
-    /** Retained first results take precedence; closed publication windows reject without external blob reads. */
+    /** Retained first results take precedence; closed publication/retirement windows need no external blob. */
     public Optional<Prepared> prepareIfPresent(
             final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
         Objects.requireNonNull(mutation, "mutation");
@@ -124,7 +124,7 @@ public final class TargetSystemReplayStore {
         if (probe.value().first() == null) {
             return probe.value().result() == null
                     ? Optional.empty()
-                    : Optional.of(prepareClosedPublication(budget, mutation, source));
+                    : Optional.of(prepareExpiredFirst(budget, mutation, source));
         }
         if (probe.value().samePosition()) {
             return Optional.of(new Prepared(this, probe, null, probe.value().result()));
@@ -173,7 +173,7 @@ public final class TargetSystemReplayStore {
         return Optional.of(new Prepared(this, null, batch, result[0]));
     }
 
-    private Prepared prepareClosedPublication(
+    private Prepared prepareExpiredFirst(
             final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
         final var result = new SystemMutationResult[1];
         final var batch = backend.prepare(budget, reader -> {
@@ -274,7 +274,9 @@ public final class TargetSystemReplayStore {
             final boolean publication = mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION
                     || mutation.type() == SystemMutationType.PUBLISH_OUTCOME
                     || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
-            final var expired = publication && reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
+            final boolean retirement = isTargetRetirement(mutation);
+            final var expired = ((publication || retirement) && reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
+                    || retirement && source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs())
                     ? SystemMutationResult.from(mutation, ApplyStatus.REJECTED,
                             StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, source.canonicalBytes())
                     : null;
@@ -312,6 +314,16 @@ public final class TargetSystemReplayStore {
                         source.canonicalBytes())
                 : original;
         return new Inspection(first, outcome, order == 0);
+    }
+
+    private static boolean isTargetRetirement(SystemMutation mutation) {
+        if (mutation.type() != SystemMutationType.RESOURCE_RETIRE_INTENT) return false;
+        try {
+            com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+            return true;
+        } catch (IllegalArgumentException legacyOrMalformed) {
+            return false;
+        }
     }
 
     private TargetResultRecord result(final TargetStoreBackend.Reader reader, final byte[] key) {

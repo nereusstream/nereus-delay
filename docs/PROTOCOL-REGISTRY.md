@@ -4228,8 +4228,8 @@ CONTROL/shared/staging projections remain pending. Trusted deployment Source
 approval must select the exact SERVICE actor/key/purpose, historical Source,
 actual Root/closure/protections and full capacity reservation outside Native locks.
 The key is never taken from the public-copy data. Local approval and actual commit
-guards are checked again at each guarded native boundary. This Store component
-is not yet dispatched by TargetSourceApplyRuntime and admits no Source reader.
+guards are checked again at each guarded native boundary. TargetSourceApplyRuntime now dispatches this component through its original Source loop.
+Deployment Artifact/tuple activation and concrete Root retirement approval remain separate.
 
 The same-view Native recheck requires actual original owner/ref/Attempt alias,
 mapping/anchor/settled Attempt and complete sealed first/POSITION conclusions.
@@ -4241,3 +4241,30 @@ rejects; independent NV51 accounting checks the same retained-use contract.
 META tag45 is reserved for confirmed identity absence checks only: NV52 remains
 unregistered/unimplemented. Presence of that key cannot be reinterpreted as state0.
 No physical delete/refund, new checkpoint schema or deployment activation is added.
+
+
+2026-10-16 Source dispatch/preparation wiring: normal and cold Target Source now
+recognize only the dedicated generation8/kind8 retire body, route it after the
+original immutable-first/expiry precheck, and use the actual Native intent Store
+under the original Source/Owner/assignment/commit and ACK barriers. Legacy1..7
+retirement bodies are still not Target business operations. Existing authority
+constructors retain a failing unconfigured retirement provider; successor/channel
+replacement preserves an explicitly selected provider. No default limit grows.
+
+The existing bounded Source content family set adds RETIREMENT. Typed input holds
+the original Source scope and provider-approved actual Catalog copy receipt/key;
+null approval is a proved denial. The loader preflights actual complete-copy size
+plus44-byte Ed25519 key before encoding, freezes the key image and exact Source
+scope/actor/envelope, and explicitly counts the complete manifest/key in retained
+input bytes. Held original pins/local versions are rechecked through the native
+commit and released by existing owned cleanup before ACK/next-entry progress.
+Unknown, Stop, stale scope/frame, budget or release failure retains its obligations.
+
+A missing first for a generation8 retire intent already covered by the committed
+fence, or persisted by the Broker after retryUntil, gets a source-accounted expired
+REJECTED first/POSITION without loading the external copy. Existing retained-first
+replay and legacy retirement semantics remain unchanged. This extends the local
+precheck to both normal and cold preparation, not permission to delete anything.
+Concrete Root retirement-purpose configuration/signing/input ownership transfer,
+new checkpoint/offline-copy authentication,NV52 and protected GC remain open;
+no deployment Artifact/Source tuple configuration or actual service was activated.

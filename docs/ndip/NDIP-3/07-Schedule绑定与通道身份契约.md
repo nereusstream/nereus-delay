@@ -967,3 +967,10 @@ purpose、历史Source、actual Root/resource/closure/protections及capacity；c
 公钥不能替代它。原签名在锁外验证，提交时原held本地approval和actual commit
 防护在每次Native边界复核。配置化provider/实际Source writer尚未接入，不因
 Approval record/codec存在或任意SERVICE key能验签而取得权限。
+
+
+2026-10-16 configured Source loader现可持有RETIREMENT typed input并冻结原scope/
+actor/full envelope、独立Source Ed25519 key和实际private Catalog receipt；每次
+回调先核原entry/source/scope及held local protection。它消费可信provider的
+retirement purpose/Root/capacity批准，不从copy公钥或旧recovery sourceSigner
+自动扩权。具体Root退役purpose配置/签发与实际部署准入仍待接通。

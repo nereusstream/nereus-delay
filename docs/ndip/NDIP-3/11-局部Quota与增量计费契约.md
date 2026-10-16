@@ -2464,3 +2464,12 @@ Source批准方须先保护完整capacity与copy输入直到commit；实际配�
 writer生命周期仍待接通。独立计费遇NV51逐sealed use核原first/POSITION或永久
 fence，缺记录/错Root/改摘要不能靠计费subtotal相等通过；所有point reads沿原
 有限read/audit budget，无退役行时无新增该成本。不声称最大合法包络/RSS已测。
+
+
+2026-10-16 Source held输入现显式计完整退役copy manifest与冻结44-byte key，
+在任何完整copy编码前先核actual内部长度的保守上界+基础held bytes是否落在原
+maximumBytes。若基础provider已计copy则保守重复，不自动涨默认值或把估算当RSS。
+一个原look-ahead持snapshot直至原owned close实际完成，失败保留并阻止ACK/推进；
+具体Root准备到Source的持有/预算移交仍待provider/签发接线。过期first的本地分支
+只费原SHARD first/POSITION/Source，不产生NV51或退EVIDENCE；counter不足的新intent
+不能成功，不改变旧runtime startup所需界限。

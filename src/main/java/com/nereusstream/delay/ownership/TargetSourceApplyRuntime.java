@@ -216,6 +216,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         OutcomeControl resolve(SourceReplayMutation entry);
     }
 
+    public record RetirementControl(
+            com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public RetirementControl { Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
+
+    @FunctionalInterface
+    public interface TargetRetirements {
+        RetirementControl resolve(SourceReplayMutation entry);
+    }
+
     public record ChannelControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
             TargetStoreBackend.CommitAuthority commit) {
@@ -268,7 +279,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             NativePolicyControls nativePolicyControls,
             TargetAdmissions admissions,
             TargetOutcomes outcomes,
-            ChannelControls channelControls) {
+            ChannelControls channelControls,
+            TargetRetirements retirements) {
+        public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
+                Fences fences, ExpiryControls expiries, Closes closes, MembershipControls membershipControls,
+                TargetStoreBackend.CommitAuthority duplicateWrites, TargetStoreBackend.ReadAuthority reads,
+                Commands commands, NativePolicyControls nativePolicyControls, TargetAdmissions admissions,
+                TargetOutcomes outcomes, ChannelControls channelControls) {
+            this(leases, successor, grants, fences, expiries, closes, membershipControls, duplicateWrites, reads,
+                    commands, nativePolicyControls, admissions, outcomes, channelControls, entry -> {
+                        throw new IllegalStateException("Target evidence retirement authorities are not configured");
+                    });
+        }
         public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
                 Fences fences, ExpiryControls expiries, Closes closes, MembershipControls membershipControls,
                 TargetStoreBackend.CommitAuthority duplicateWrites, TargetStoreBackend.ReadAuthority reads,
@@ -283,13 +305,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"));
+                    Objects.requireNonNull(selected, "channelControls"), retirements);
+        }
+
+        public Authorities withRetirements(final TargetRetirements selected) {
+            return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
+                    duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
+                    channelControls, Objects.requireNonNull(selected));
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls);
+                    outcomes, channelControls, retirements);
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -402,6 +430,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(admissions, "admissions");
             Objects.requireNonNull(outcomes, "outcomes");
             Objects.requireNonNull(channelControls, "channelControls");
+            Objects.requireNonNull(retirements, "retirements");
         }
     }
 
@@ -524,6 +553,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.EXPIRE_GENERATION) return TargetSourceAuthorityPreparation.Family.EXPIRY;
         if (mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) return TargetSourceAuthorityPreparation.Family.ADMISSION;
         if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
+        if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
         if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
         if (isTargetClose(mutation)) return TargetSourceAuthorityPreparation.Family.CLOSE;
         if (isMembershipControl(mutation)) return TargetSourceAuthorityPreparation.Family.MEMBERSHIP;
@@ -1768,6 +1798,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
+            } else if (mutation.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT) {
+                final var control = Objects.requireNonNull(authorities.retirements().resolve(mutation),
+                        "Target evidence retirement authority");
+                // This operation needs four counters; existing smaller runtime limits retain their old scope.
+                final var retirement = new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore(
+                        backend, scope, lineage, limits.counters(), limits.domains());
+                final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Prepared first;
+                try {
+                    first = retirement.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) {
+                    throw new ReadYield(incomplete);
+                }
+                result = retirement.commit(first, writes(control.commit(), entry, clock));
             } else if (isChannelControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.channelControls().resolve(mutation),
                         "Target channel lifecycle authority");
@@ -2080,6 +2123,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } else {
                 PublishOutcomeBody.decode(outcome.mutation().canonicalBody());
             }
+            return;
+        }
+        if (entry instanceof SourceReplayMutation retirement
+                && retirement.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT) {
+            com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(retirement.mutation().canonicalBody());
             return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)

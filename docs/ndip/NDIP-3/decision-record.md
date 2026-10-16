@@ -957,3 +957,12 @@ write边界；新copy keys不能自授权。明确拒绝只记拒绝first，unkn
 独立计费也核完整retained-use，late exact expired first不推翻prepared fence。
 目前只是实际Native store组件，原Source runtime分派/配置化provider/签发/准备
 输入保留、新companion/NV52与GC仍未接通，不开放新reader或实际退役/删除。
+
+
+2026-10-16 Source接线实施更新：原正常/冷恢复Source runtime现在分派body8/kind8
+intent到Native原子组件，配置化Source preparation新增RETIREMENT typed hold，
+冻结原scope/actor/full frame、Source key和实际Root Catalog receipt并显式计费。
+沿原look-ahead/有限I/O/owned release，不追加线程/队列。已有first或本地已证明
+过期先于外部copy加载；过期只记Source-accounted REJECTED first/POSITION。
+具体Root退役purpose配置/实际签发/准备输入移交仍未接，旧recovery signer不自动
+获退役权；Artifact/Source tuple准入配置未改，NV52/new companion/完整GC继续开放。
