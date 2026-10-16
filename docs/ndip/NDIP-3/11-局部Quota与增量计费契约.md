@@ -2473,3 +2473,15 @@ maximumBytes。若基础provider已计copy则保守重复，不自动涨默认�
 具体Root准备到Source的持有/预算移交仍待provider/签发接线。过期first的本地分支
 只费原SHARD first/POSITION/Source，不产生NV51或退EVIDENCE；counter不足的新intent
 不能成功，不改变旧runtime startup所需界限。
+
+
+2026-10-16 Root preparation的copy不因I/O退出而释放/替换；Source借用及cached
+signed image在原Root选择内保留。签发前额外预核4份有界protection/context/
+resource/author编码窗口，manifest/key input预算单列入原retainedInputBytes，
+私钥文件读取只在allocation之后。Source原输入budget仍显式计copy/key，保守重叠
+不自动缩减；整个物理heap/RSS/full-frame/Native/空间最大包络仍未测证。
+
+Source借用只有original.close实际成功才退出；UNKNOWN signed输入须实际Native
+first才能本地释放，错误/池拒绝/未退出保留同一窗口。Root最终关闭还等原sign/
+release I/O与borrow后才退allocation/清私钥。未发生外部对象/NV退费。实际Source
+append/reconcile的所有权及冷恢复历史copy/provider生命周期仍是必做开放项。

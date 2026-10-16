@@ -1386,6 +1386,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 mutation, workerReads(clock));
     }
 
+    synchronized Optional<SystemMutationResult> retirementMutationResult(SystemMutation mutation,LongSupplier clock){
+        requireGcOwner(clock);
+        if(mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT||!scope.shard().equals(mutation.shardId()))
+            throw new IllegalArgumentException("retirement result requires its exact Source operation/Shard");
+        com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        return replay.appliedResult(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),
+                mutation,workerReads(clock));
+    }
+
     synchronized OptionalLong readTargetActiveMessages(
             final BoundedReadBudget budget, final TargetPartitionId target, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");

@@ -293,6 +293,8 @@ public final class ResourceRetireIntentBody {
 
     /** Canonical ProtectionSet projection. */
     public record ProtectionSet(List<ProtectionRef> references, byte[] canonicalBytes, byte[] digest) {
+        /** Length without making an encoded copy; bounded Root callers must preflight before encoding. */
+        public int canonicalByteLength() { return canonicalBytes.length; }
         public ProtectionSet {
             Objects.requireNonNull(references, "references");
             Objects.requireNonNull(canonicalBytes, "canonicalBytes");

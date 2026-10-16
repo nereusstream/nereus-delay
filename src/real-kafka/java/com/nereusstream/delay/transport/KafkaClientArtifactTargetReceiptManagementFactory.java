@@ -174,6 +174,15 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             Path currentPolicy, Path recoveryArchive,
             List<TargetRecoveryCredentialAuthorization.Trust> originalRecoveryMaterialHistory,
             TargetDestinationSdkBudget budget, TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
+        return openConfigured(root, configuration, controlHistory, currentPolicy, recoveryArchive, null,
+                originalRecoveryMaterialHistory, budget, authenticator);
+    }
+
+    /** Retirement uses a separate explicit signing-purpose manifest; recovery signing never implies this purpose. */
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
+            Path currentPolicy, Path recoveryArchive, Path retirementSigning,
+            List<TargetRecoveryCredentialAuthorization.Trust> originalRecoveryMaterialHistory,
+            TargetDestinationSdkBudget budget, TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
         Objects.requireNonNull(authenticator, "original live CONTROL authenticator");
         final var config = load(configuration);
         final var captured = TargetReceiptControlHistory.prepare(controlHistory);
@@ -182,9 +191,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 recoveryArchive, config.catalogPrefix(), originalRecoveryMaterialHistory);
         if (recovery == null && !originalRecoveryMaterialHistory.isEmpty())
             throw new IllegalArgumentException("recovery material history requires its explicit archive configuration");
+        if (retirementSigning != null && recovery == null)
+            throw new IllegalArgumentException("recovery-object retirement requires original archive history");
+        final var retirement = retirementSigning == null ? null : KafkaClientArtifactTargetEvidenceRetirementConfiguration.prepare(
+                retirementSigning, TargetKafkaReceiptManagementImage.decode(config.management().image()).deploymentRootDigest());
         final long bytes = Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
                 Math.addExact(retainedConfigurationBytes(config.management(), config.admin(), config.receipts()),
-                        recovery == null ? 0 : recovery.maximumRetainedBytes()));
+                        Math.addExact(recovery == null ? 0 : recovery.maximumRetainedBytes(),
+                                retirement == null ? 0 : retirement.maximumRetainedBytes())));
         if (config.cost().amount(CapacityDimension.BUFFERED_BYTES) < bytes)
             throw new IllegalArgumentException("management reservation omits its history/current-policy input bounds");
         return openLoaded(root, config, budget, guard -> {
@@ -199,7 +213,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
                 return new TrustInputs(history, history, history, current);
             } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
-        }, recovery, bytes);
+        }, recovery, retirement, bytes);
     }
 
     /** No native SDK or request is created until this exact owner and cost have been retained by the original root. */
@@ -224,7 +238,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
             TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader,
             KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recovery,long retainedInputBytes) {
-        final var original = new Opening(root, config, budget, trustLoader, recovery,retainedInputBytes);
+        return openLoaded(root, config, budget, trustLoader, recovery, null, retainedInputBytes);
+    }
+    private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
+            TargetDestinationSdkBudget budget, java.util.function.Function<Runnable,TrustInputs> trustLoader,
+            KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recovery,
+            KafkaClientArtifactTargetEvidenceRetirementConfiguration.Inputs retirement,long retainedInputBytes) {
+        final var original = new Opening(root, config, budget, trustLoader, recovery,retirement,retainedInputBytes);
         try (var construction = root.beginReceiptManagementConstruction(original, budget)) {
             original.registered = true;
             construction.requireCurrent(); original.start(construction.graph()); construction.requireCurrent(); return original;
@@ -286,6 +306,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs;
         private volatile KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded recoveryArchive;
+        private KafkaClientArtifactTargetEvidenceRetirementConfiguration.Inputs retirementSigningInputs;
+        private volatile KafkaClientArtifactTargetEvidenceRetirementConfiguration.Loaded retirementSigning;
         private final long retainedInputBytes;
         private volatile OwnedCheckpointIo<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> referenceClosure;
         private String referenceClosureKey;
@@ -296,6 +318,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile OwnedCheckpointIo<RetirementPreparation> retirementPreparation;
         private KafkaClientArtifactTargetWorkerSourceFactory.Opening retirementSource;
         private byte[] retirementSelection;
+        private volatile OwnedCheckpointIo<com.nereusstream.delay.protocol.SystemMutation> retirementSignature;
+        private byte[] retirementSignatureSelection;
+        private volatile OwnedCheckpointIo<Boolean> retirementRelease;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
         private Map<String,KafkaClientArtifactTargetReceiptProvider.AnchorPublisher> publishers = Map.of();
         private volatile boolean registered;
@@ -306,10 +331,12 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile Throwable failure;
         private Opening(TargetWorkerProcessRuntime root, Configuration config, TargetDestinationSdkBudget budget,
                 java.util.function.Function<Runnable,TrustInputs> trustLoader,
-                KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs,long retainedInputBytes) {
+                KafkaClientArtifactTargetRecoveryArchiveConfiguration.Inputs recoveryInputs,
+                KafkaClientArtifactTargetEvidenceRetirementConfiguration.Inputs retirementSigningInputs,long retainedInputBytes) {
             this.root = Objects.requireNonNull(root); this.config = config; this.budget = Objects.requireNonNull(budget);
             this.trustLoader = Objects.requireNonNull(trustLoader);
             this.recoveryInputs = recoveryInputs;
+            this.retirementSigningInputs = retirementSigningInputs;
             this.retainedInputBytes=retainedInputBytes;
             identity = TargetKafkaReceiptManagementImage.decode(config.management().image()).topicIdentity();
         }
@@ -324,6 +351,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         try { recoveryArchive = KafkaClientArtifactTargetRecoveryArchiveConfiguration.load(recoveryInputs, guard); }
                         catch (IOException rejected) { throw new IllegalStateException("original recovery signing input materialization failed", rejected); }
                         if (stopping) recoveryArchive.requestStop();
+                    }
+                    if (retirementSigningInputs != null) {
+                        try { retirementSigning = KafkaClientArtifactTargetEvidenceRetirementConfiguration.load(retirementSigningInputs, guard); }
+                        catch (IOException rejected) { throw new IllegalStateException("original retirement signing input materialization failed", rejected); }
+                        if (stopping) retirementSigning.requestStop();
                     }
                     guard.run();
                     final var trust = new TargetKafkaReceiptProtectionTrust(graph.oxia().providers().registrations(),
@@ -442,27 +474,47 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private void requireRetirementIoExited(){
             if(retirementPreparation!=null&&!retirementPreparation.ioExited())
                 throw new IllegalStateException("original retirement preparation I/O remains owned");
+            if(retirementPreparation!=null&&retirementPreparation.completedValue().filter(value->!value.released).isPresent())
+                throw new IllegalStateException("original prepared retirement input remains owned");
+            requireRetirementAuxiliaryIoExited();
+        }
+        private void requireRetirementAuxiliaryIoExited(){
+            if(retirementSignature!=null&&!retirementSignature.ioExited()||retirementRelease!=null&&!retirementRelease.ioExited())
+                throw new IllegalStateException("original retirement signing/release I/O remains owned");
         }
         /** Actual prepared public bytes and Native cut. Source signing/apply must still revalidate its own authority/state. */
         public static final class RetirementPreparation {
             private final Opening root;
-            private final com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses;
-            private final OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived;
-            private final com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context;
+            private com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses;
+            private OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived;
+            private com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context;
+            private final long reservedWindowBytes;
+            private boolean released,sourceBorrowed;
             private RetirementPreparation(Opening root,com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses,
-                    OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived){
-                this.root=root;this.uses=uses;this.archived=archived;archived.requireCatalog(root.catalog);
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy archived,long reservedWindowBytes){
+                this.root=root;this.uses=uses;this.archived=archived;this.reservedWindowBytes=reservedWindowBytes;archived.requireCatalog(root.catalog);
                 final var copy=archived.image();
                 if(!Arrays.equals(copy.resource().canonicalBytes(),uses.resource().canonicalBytes()))
                     throw new IllegalStateException("prepared copy changed actual Native owner/resource");
                 context=uses.retirementContext(copy.digest(),copy.canonicalBytes().length);copy.requireContext(context);
             }
-            public com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses(){return uses;}
-            public com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy copy(){return archived.image();}
-            public com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context(){return context;}
+            public com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses(){synchronized(root){requireRoot(root);return uses;}}
+            public com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy copy(){synchronized(root){requireRoot(root);return archived.image();}}
+            public com.nereusstream.delay.protocol.TargetEvidenceRetirementContext context(){synchronized(root){requireRoot(root);return context;}}
+            /** Actual receipt only; Source purpose/history/capacity approval remains independent and mandatory. */
+            public OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy authenticatedCopy(){synchronized(root){requireRoot(root);return archived;}}
             public void requireRoot(Opening expected){
-                if(root!=expected)throw new IllegalArgumentException("retirement preparation belongs to another original Root");
-                root.requireReady();
+                synchronized(root){
+                    if(root!=expected)throw new IllegalArgumentException("retirement preparation belongs to another original Root");
+                    root.requireReady();
+                    if(released||root.retirementPreparation==null||!root.retirementPreparation.ioExited()
+                            ||root.retirementPreparation.completedValue().orElse(null)!=this)
+                        throw new IllegalStateException("original prepared retirement input is released or unavailable");
+                }
+            }
+            private void releaseLocal(){
+                if(sourceBorrowed)throw new IllegalStateException("original Source still holds retirement input");
+                released=true;uses=null;archived=null;context=null;
             }
         }
         public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareRecoveryRetirement(
@@ -481,13 +533,15 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             allocation.requireCovers(new CapacityVector(baseInput));
             final byte[] selection=Bytes.sha256(closure.canonicalBytes(),applied.owner().canonicalBytes());
             final var previous=retirementPreparation;
-            if(previous!=null){previous.retryCleanup();if(!previous.ioExited()){
+            requireRetirementAuxiliaryIoExited();
+            if(previous!=null){previous.retryCleanup();if(!previous.ioExited()||previous.completedValue().filter(value->!value.released).isPresent()){
                 if(source!=retirementSource||!Arrays.equals(selection,retirementSelection))
                     throw new IllegalStateException("original retirement preparation selection remains owned");
                 return previous.receipt();
             }}
             if(referenceClosure!=null&&!referenceClosure.ioExited()||closedUsesRead!=null&&!closedUsesRead.ioExited())
                 throw new IllegalStateException("original closure/use I/O remains owned");
+            retirementSignature=null;retirementSignatureSelection=null;retirementRelease=null;
             final var resource=closure.recoveryResource(applied.owner());
             final long copyWindow=com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.estimatedBytes(resource,
                     resource.canonicalValueBytes(),com.nereusstream.delay.protocol.TargetEvidenceRetirementCopy.MAX_PUBLIC_INPUT_BYTES,
@@ -499,9 +553,100 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var next=OwnedCheckpointIo.submit(guard->{final Runnable current=()->{guard.run();requireReady();};
                 final var uses=source.readClosedRecoveryUses(this,closure,applied,catalogReads,nativeReads,current);
                 final var copy=catalog.prepareRecoveryRetirementCopy(uses.closure(),uses.owner(),original.trust,catalogReads,current);
-                source.requireRetirementReadCurrent(this,current);return new RetirementPreparation(this,uses,copy);
+                source.requireRetirementReadCurrent(this,current);return new RetirementPreparation(this,uses,copy,
+                        minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
             },this::requireReady,io);
             retirementSource=source;retirementSelection=selection;retirementPreparation=next;return next.receipt();
+        }
+
+        /** Signs one exact candidate on the original owned I/O pool; this neither appends Source nor permits delete. */
+        public synchronized java.util.concurrent.CompletableFuture<com.nereusstream.delay.protocol.SystemMutation> signRetirementIntent(
+                RetirementPreparation prepared,com.nereusstream.delay.protocol.ResourceRetireIntentBody.ProtectionSet protections,
+                long retryUntil){
+            prepared.requireRoot(this);Objects.requireNonNull(protections);
+            final var signer=Objects.requireNonNull(retirementSigning,"explicit original retirement signing configuration");
+            if(protections.references().size()>com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.MAX_PROTECTIONS
+                    ||protections.canonicalByteLength()>com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.MAX_PROTECTION_BYTES)
+                throw new IllegalArgumentException("retirement protections exceed finite signing bound");
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(prepared.reservedWindowBytes,signer.signingWindowBytes());
+            allocation.requireCovers(new CapacityVector(minimum));
+            final byte[] selection=Bytes.sha256(prepared.context.canonicalBytes(),protections.digest(),
+                    Bytes.u64beBits(retryUntil));
+            final var previous=retirementSignature;
+            if(previous!=null){
+                if(!Arrays.equals(selection,retirementSignatureSelection))throw new IllegalStateException("original signed retirement candidate remains owned");
+                previous.retryCleanup();
+                if(!previous.ioExited()||previous.completedValue().isPresent())return previous.receipt();
+                retirementSignature=null;retirementSignatureSelection=null;
+            }
+            discardFailedRetirementRelease();
+            if(retirementRelease!=null)throw new IllegalStateException("original retirement input release is pending");
+            final var source=Objects.requireNonNull(retirementSource);
+            final var next=OwnedCheckpointIo.submit(guard->{
+                final Runnable current=()->{guard.run();prepared.requireRoot(this);};
+                final var time=source.retirementSigningTime(this,current);
+                final var signed=signer.sign(prepared.uses,prepared.archived,protections,retryUntil,time,current);
+                source.requireRetirementReadCurrent(this,current);return signed;
+            },this::requireReady,io);
+            retirementSignatureSelection=selection;retirementSignature=next;return next.receipt();
+        }
+
+        /** One same-process Source look-ahead may borrow this exact candidate. Caller keeps its original hold on failure. */
+        public synchronized com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs holdRetirementSourceInputs(
+                RetirementPreparation prepared,com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs original){
+            prepared.requireRoot(this);Objects.requireNonNull(original).requireCurrent();
+            discardFailedRetirementRelease();
+            if(prepared.sourceBorrowed||retirementRelease!=null||retirementSignature==null||!retirementSignature.ioExited())
+                throw new IllegalStateException("original retirement Source input is already held or not signed");
+            final var signed=retirementSignature.completedValue().orElseThrow();
+            if(!(original.entry() instanceof com.nereusstream.delay.ownership.SourceReplayMutation entry)
+                    ||!Arrays.equals(entry.mutation().canonicalEnvelope(),signed.canonicalEnvelope())
+                    ||!(original.inputs() instanceof com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Retirement input)
+                    ||input.approval()==null||input.approval().copy()!=prepared.archived)
+                throw new IllegalArgumentException("Source hold changed original signed frame or actual Catalog receipt");
+            Objects.requireNonNull(retirementSigning).requireSigned(signed);
+            prepared.sourceBorrowed=true;
+            return new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs(){
+                private boolean closed,closing;
+                public com.nereusstream.delay.ownership.SourceReplayEntry entry(){return original.entry();}
+                public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs inputs(){return original.inputs();}
+                public long retainedBytes(){return original.retainedBytes();}
+                public void requireCurrent(){synchronized(Opening.this){
+                    if(closed||closing)throw new IllegalStateException("original retirement Source hold closing/closed");
+                    prepared.requireRoot(Opening.this);original.requireCurrent();
+                }}
+                public void close(){
+                    synchronized(Opening.this){if(closed)return;if(closing)throw new IllegalStateException("original Source input close remains owned");closing=true;}
+                    try{original.close();synchronized(Opening.this){closed=true;prepared.sourceBorrowed=false;}}
+                    finally{synchronized(Opening.this){closing=false;}}
+                }
+            };
+        }
+
+        /** Signed/UNKNOWN candidates stay retained until an actual Native first is known; caller DTOs cannot release them. */
+        public synchronized java.util.concurrent.CompletableFuture<Boolean> releaseRetirementPreparation(RetirementPreparation prepared){
+            prepared.requireRoot(this);
+            if(retirementSignature!=null&&!retirementSignature.ioExited())throw new IllegalStateException("original retirement signing I/O remains owned");
+            if(prepared.sourceBorrowed)throw new IllegalStateException("actual Source still holds retirement input");
+            if(retirementRelease!=null){
+                retirementRelease.retryCleanup();
+                if(!retirementRelease.ioExited()||retirementRelease.completedValue().isPresent())return retirementRelease.receipt();
+                retirementRelease=null;
+            }
+            final var signed=retirementSignature==null?null:retirementSignature.completedValue().orElse(null);
+            final var source=Objects.requireNonNull(retirementSource);
+            final var next=OwnedCheckpointIo.submit(guard->{
+                final Runnable current=()->{guard.run();prepared.requireRoot(this);};
+                if(signed!=null&&source.retirementMutationResult(this,signed,current).isEmpty())
+                    throw new IllegalStateException("original signed retirement Source outcome is still unknown");
+                current.run();synchronized(this){prepared.releaseLocal();}return true;
+            },this::requireReady,io);
+            retirementRelease=next;return next.receipt();
+        }
+        private void discardFailedRetirementRelease(){
+            final var release=retirementRelease;
+            if(release!=null){release.retryCleanup();if(release.ioExited()&&release.completedValue().isEmpty())retirementRelease=null;}
         }
 
         private KafkaClientArtifactTargetRecoveryArchiveConfiguration.Loaded requireRecoveryArchive() {
@@ -543,10 +688,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         @Override public void requestStop() {
             stopping = true;
             final var signing = recoveryArchive; if (signing != null) signing.requestStop();
+            final var retireSigning=retirementSigning;if(retireSigning!=null)retireSigning.requestStop();
             final var operation = opening; if (operation != null) operation.requestStop();
             final var closure = referenceClosure; if (closure != null) closure.requestStop();
             final var uses = closedUsesRead; if (uses != null) uses.requestStop();
             final var retirement = retirementPreparation; if (retirement != null) retirement.requestStop();
+            final var signature=retirementSignature;if(signature!=null)signature.requestStop();
+            final var release=retirementRelease;if(release!=null)release.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
         @Override public synchronized boolean closeForProcess(TargetWorkerProcessRuntime.ReceiptManagementClosePermit permit) {
@@ -567,14 +715,23 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(uses!=null){uses.requestStop();uses.retryCleanup();if(!uses.ioExited())return false;}
             final var retirement=retirementPreparation;
             if(retirement!=null){retirement.requestStop();retirement.retryCleanup();if(!retirement.ioExited())return false;}
+            final var signature=retirementSignature;
+            if(signature!=null){signature.requestStop();signature.retryCleanup();if(!signature.ioExited())return false;}
+            final var release=retirementRelease;
+            if(release!=null){release.requestStop();release.retryCleanup();if(!release.ioExited())return false;}
+            final var preparedRetirement=retirement==null?null:retirement.completedValue().orElse(null);
+            if(preparedRetirement!=null){if(preparedRetirement.sourceBorrowed)return false;preparedRetirement.releaseLocal();}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
             final var signing = recoveryArchive;
             if (signing != null) signing.close();
+            final var retireSigning=retirementSigning;if(retireSigning!=null)retireSigning.close();
             recoveryArchive = null; recoveryInputs = null;
+            retirementSigning=null;retirementSigningInputs=null;
             referenceClosure=null;referenceClosureKey=null;referenceClosureOwner=null;
             closedUsesRead=null;closedUsesSource=null;closedUsesSelection=null;
             retirementPreparation=null;retirementSource=null;retirementSelection=null;
+            retirementSignature=null;retirementSignatureSelection=null;retirementRelease=null;
             final var charge = allocation;
             if (charge != null) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }
             closed = true; return true;

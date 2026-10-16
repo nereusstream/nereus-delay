@@ -4265,6 +4265,51 @@ fence, or persisted by the Broker after retryUntil, gets a source-accounted expi
 REJECTED first/POSITION without loading the external copy. Existing retained-first
 replay and legacy retirement semantics remain unchanged. This extends the local
 precheck to both normal and cold preparation, not permission to delete anything.
-Concrete Root retirement-purpose configuration/signing/input ownership transfer,
-new checkpoint/offline-copy authentication,NV52 and protected GC remain open;
+Root-local retirement signing/input ownership is now implemented below. Concrete
+Source approval/append/reconcile,cold input reconstruction,new checkpoint/offline
+authentication,NV52 and protected GC remain open;
 no deployment Artifact/Source tuple configuration or actual service was activated.
+
+
+2026-10-16 Root-local retirement signature/input ownership uses no new wire domain
+or body version. An optional independent signing manifest is accepted only by the
+new receipt-management open overload; old overloads have no retirement signer.
+The closed local fields are signing.purpose=TARGET_EXTERNAL_EVIDENCE_RETIREMENT,
+signing.deploymentRootDigest (the exact original management Root32),
+signing.serviceIdentityFile,signing.keyVersion,signing.publicKeyFile,
+signing.privateKeyFile,signing.notBeforeMs,signing.notAfterMs,
+signing.maximumDecisionWidthMs and signing.maximumInputBytes. Unknown/missing
+fields fail. SERVICE identity and key files each have1024-byte bounds; public key
+is Ed25519 X50944 and private key DER PKCS8. Key version is nonzero uint32, interval
+is nonempty, width1..60000ms, and input budget covers32KiB plus twice all path bytes,
+at most1MiB. Referenced files load only after original Root reservation on its
+existing finite I/O. Private encoded bytes are zeroed and key pair matching uses
+local NEREUS_DELAY_ROOT_RETIREMENT_KEY_MATCH_V1\0, not a new wire signature domain.
+
+Root signRetirementIntent accepts only its current private preparation, original
+Catalog receipt and actual Native ClosedUses. Time comes from the original Source
+provider on owned I/O with current same-Root Worker/Owner checks; no caller UTC DTO
+is accepted. Dedicated SERVICE/key/window checks surround existing System signing
+of body8/expected0. Full protection/context/resource/author encoding reservation is
+four bounded images in addition to the prepared window, checked before encoding;
+ProtectionSet.canonicalByteLength adds no legacy byte change. Manifest labels,
+signatures and public keys alone grant no Source apply or delete authority.
+
+One completed preparation now remains owned until explicit release; it cannot be
+replaced merely because I/O exited. An exact signature candidate is cached and
+cannot be replaced by different context/protection/retry bytes. A failed signing
+operation may retry only after actual exit with no published value. Positive
+same-process Source inputs may borrow one exact candidate/Catalog receipt while
+the original provider independently retains purpose/history/protection/capacity
+rights. Failed original close keeps this borrow and Root allocation; external
+close runs outside the Root monitor. Signed/UNKNOWN input release rereads actual
+Native first through original admitted Worker/Owner/Store; absence/error retains
+it, failed release may retry, no caller result DTO substitutes. Release clears
+copy references; process close waits all original signing/release I/O and Source
+borrows before dropping private keys/allocation. No blob deletion or fee refund.
+
+This is local signing and a same-process input bridge. Actual Source append and
+reconciliation,complete historical-purpose/capacity provider,cold reconstruction,
+CONTROL/shared/staging lifetimes,NV52,new checkpoint/offline trust and protected
+GC remain mandatory open work. No actual configuration/key files were generated,
+loaded or deployed by this implementation step; no Artifact/tuple activation.

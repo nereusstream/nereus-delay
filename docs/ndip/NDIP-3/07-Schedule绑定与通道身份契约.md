@@ -974,3 +974,11 @@ actor/full envelope、独立Source Ed25519 key和实际private Catalog receipt�
 回调先核原entry/source/scope及held local protection。它消费可信provider的
 retirement purpose/Root/capacity批准，不从copy公钥或旧recovery sourceSigner
 自动扩权。具体Root退役purpose配置/签发与实际部署准入仍待接通。
+
+
+2026-10-16 原Root新增独立退役签名配置，明确purpose/Root32/SERVICE/key/window，
+不复用recovery签名许可。输入在原Root allocation后owned加载，原Source time
+provider与实际Worker/Owner guard决定本地签发窗口，不接受caller UTC样本。
+同进程Source借用必须匹配原cached signed frame及同一个private Catalog receipt，
+原Source provider仍独立批准历史purpose/Root/保护/capacity；新manifest/Root签名
+不是Source apply权限。实际append/reconcile与历史provider/冷重建尚未完成。

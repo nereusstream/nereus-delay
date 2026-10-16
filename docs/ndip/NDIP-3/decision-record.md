@@ -966,3 +966,13 @@ intent到Native原子组件，配置化Source preparation新增RETIREMENT typed 
 过期先于外部copy加载；过期只记Source-accounted REJECTED first/POSITION。
 具体Root退役purpose配置/实际签发/准备输入移交仍未接，旧recovery signer不自动
 获退役权；Artifact/Source tuple准入配置未改，NV52/new companion/完整GC继续开放。
+
+
+2026-10-16 Root本地签发/持有实施更新：独立可选retirement signing manifest不
+借用recovery purpose，原Root预留后owned加载/核key，原Source time与Worker/
+Owner前后检查后签body8/expected0。完整prepared结果与一个签名候选在原slot保留，
+不会因I/O退出被覆盖；同进程Source原provider可借exact frame/private Catalog
+receipt，原purpose/保护/capacity批准仍独立。original.close失败保留borrow；
+已签UNKNOWN release只认实际Native first，不认caller结果。Root Stop/close等所有
+原I/O/borrow再清key/退预算。尚未实际Source append/reconcile或实现完整历史
+provider/冷输入重建，NV52/new companion/全GC仍开放，所有完成flags不变。

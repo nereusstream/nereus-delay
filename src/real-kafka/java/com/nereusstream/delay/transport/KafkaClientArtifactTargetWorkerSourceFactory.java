@@ -416,6 +416,20 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
             original.requireRetirementReadCurrent(clock);startup.requireReceiptManagementRead(management);current.run();
         }
+        java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> retirementMutationResult(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.SystemMutation mutation,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var result=original.retirementMutationResult(mutation,clock);
+            startup.requireReceiptManagementRead(management);current.run();return result;
+        }
+        com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence retirementSigningTime(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
+            requireRetirementReadCurrent(management,current);
+            final var observed=Objects.requireNonNull(time.get(),"original Source time provider");
+            requireRetirementReadCurrent(management,current);return observed;
+        }
 
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(
