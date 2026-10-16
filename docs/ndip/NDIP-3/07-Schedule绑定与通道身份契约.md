@@ -1133,3 +1133,11 @@ provider操作，也不构成Source确认批准；现有Source分发仍只接int
 选择器可在sibling已退役后从实际Native独立重认证，普通Admission不能借该路径绕过双
 live owner要求。孤立Attempt alias不漏扫、live Recovery proof依赖阻止父CONTROL确认，
 原creator first/Source metadata/lineage和prior4/5及独立历史门禁仍保留。
+
+2026-10-16 marker pending预留只接实际Source Native51 receipt，原intent/frame/first/
+POSITION/history/uses和descriptor5不可由caller DTO拼出；Raw marker中的Source仍是原
+真实APPLIED intent stamp。原Root/namespace/SDK binding/closure/pub/origin/capacity ref
+保持，当前CLOSE_REFERENCES只批准metadata预留，不批准payload CAS或Source CONFIRM。
+Root4 marker预留没有provider事实，后续仍须受信历史conditional-only部署与实际Floor/
+checkpoint/Pin/query/共享引用门禁；原本地I/O/晚回调/UNKNOWN责任不变。缺旧Root不得
+当fresh namespace重初始化的启动保护未闭合，不能据此进入运行或保护清退。

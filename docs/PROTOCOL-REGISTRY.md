@@ -5011,3 +5011,36 @@ preparation APIs reauthenticate actual Native facts before any Root CAS or signi
 the selector is data, not authority, and permits sibling retirement across reopen.
 No new wire/default budget/thread. Actual Root marker/provider/purpose, Source
 confirmation apply/refund, physical accounting and complete recovery remain open.
+
+2026-10-16 pending marker capacity-root schema4: Root fields1..12 keep their old
+meaning; repeated13 contains sorted unique MarkerReservation schema1 (1=version1,
+2=full strict TargetEvidenceRetiredMarker1). Schemas1..3 keep their byte branches
+and do not silently gain marker data. Root4 requires retained closures, original
+members and at least one reservation. Later topic/publication/recovery/closure
+updates preserve schema4 and every reservation. The original Intent/RecoveryIntent
+origin/hash/value length is never replaced by marker metadata.
+Each reservation binds original closure revision/fingerprint/version/pubID/origin,
+namespace/deployment root and original capacity source. Every Root4 read also
+checks the exact persistent root key and actual managed SDK storage namespace;
+borrowed/moved/unprovable ownership fails. Complete original Native state1 reads
+produce private AppliedIntent only after actual intent APPLIED first/POSITION,
+history, retained owner/ref/use facts and actual descriptor5; dependent proof49
+prevents reserving parent CONTROL retirement. The same state1 invariant now serves
+live reads and independent image accounting, including exact original first.
+Catalog reserveRetiredMarker accepts only that private Native receipt, derives
+the marker from the original Root/copy and performs an idempotent Root CAS under
+current CLOSE_REFERENCES metadata permission. Conflicting intent/origin fails;
+existing original limits/cardinality stay authoritative. It reserves the complete
+bounded future observed-marker evidence and same-family Source reference window,
+plus max(0, marker value bytes - original payload bytes). Original key/record/
+publication charges remain; no payload difference, record slot or physical budget
+is refunded. Root byte/cardinality exhaustion fails before the CAS.
+ReservedMarker is pending capacity data only. It cannot authorize or attest a
+payload write, prove no-recreate/SDK exit, sign a confirmation or release protection.
+No payload key is written/read as marker by this API. Full Root-owned operation/
+UNKNOWN ownership, trusted historical conditional-writer eligibility, current
+provider purpose, actual Floor/checkpoint/Pin/query/shared-reference protection,
+conditional payload CAS/exact observation, Source confirmation and physical
+settlement remain unimplemented. Old-namespace missing-Root/bootstrap protection
+also remains required before operational rollout; no present-code-only history or
+missing Root may be used as fresh capacity. Final marker/key GC is not authorized.

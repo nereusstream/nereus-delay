@@ -2646,3 +2646,12 @@ live确认Source/Root provider，未发生或实测退款。CONTROL shared refs�
 同一anchor alias不重复业务删除，孤立alias/仍存proof依赖/预算耗尽拒绝。原counter/
 record/byte额度不默认提高，实际多incarnation费用和峰值须集中验证。marker物理bytes/
 records与Root元数据继续原capacity root，Native编辑不授物理退账/marker GC。
+
+2026-10-16 Root4 marker预留与原publication物理账分列：原Intent/RecoveryIntent bytes/
+hash/origin不改，原key+payload+record/publication槽继续计费。额外预留marker value
+超过旧payload的正增量，以及marker reservation完整meta、未来observed evidence/time
+与同Source family确认引用窗口，均受原limits/16MiB Root/physicalBytes/records约束；
+pending不退payload差额、不释放record、不产生Target费用。实际read/CAS受finite Catalog
+预算，Native read受finite Source预算；Root4实际读还核原SDK namespace/root key绑定。
+原Root-owned task与buffer/UNKNOWN退场接线、actual payload操作/Source确认与物理结算
+仍未实现；元数据reread只证明pending存在，不能证明旧SDK put已退出或借此归还额度。

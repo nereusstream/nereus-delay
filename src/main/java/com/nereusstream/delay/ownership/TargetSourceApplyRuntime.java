@@ -1273,6 +1273,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);return actual;
     }
 
+    synchronized com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readAppliedRetirementIntent(
+            BoundedReadBudget reads,SystemMutation selected,LongSupplier clock){
+        requireGcOwner(clock);
+        final var actual=com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.readAppliedIntent(
+                backend,reads,scope,lineage,selected,workerReads(clock));
+        requireGcOwner(clock);return actual;
+    }
+
     synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {

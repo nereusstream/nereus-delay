@@ -456,6 +456,14 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             management.catalog().readReferenceClosure(actualClosure,catalogReads,current);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
+        com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readAppliedRetirementIntent(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,com.nereusstream.delay.protocol.SystemMutation selected,
+                com.nereusstream.delay.store.BoundedReadBudget reads,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var actual=original.readAppliedRetirementIntent(reads,selected,clock);
+            startup.requireReceiptManagementRead(management);current.run();return actual;
+        }
         void requireRetirementReadCurrent(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
             current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}

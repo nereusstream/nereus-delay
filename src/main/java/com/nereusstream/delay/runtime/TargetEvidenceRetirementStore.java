@@ -205,6 +205,66 @@ public final class TargetEvidenceRetirementStore {
         return prepared.result;
     }
 
+    /** Actual retained Native intent/cut; this grants no provider, Floor, Pin or current-purpose permission. */
+    public static final class AppliedIntent {
+        private final TargetEvidenceRetiringRecord record;
+        private final TargetQuotaMutation cut;
+        private AppliedIntent(TargetEvidenceRetiringRecord record,TargetQuotaMutation cut){this.record=record;this.cut=cut;}
+        public TargetEvidenceRetiringRecord record(){return record;}
+        public TargetQuotaMutation cut(){return cut;}
+    }
+    public static AppliedIntent readAppliedIntent(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
+            TargetQuotaScope scope,byte[] lineage,SystemMutation selected,TargetStoreBackend.ReadAuthority authority){
+        if(scope.target()!=null||budget.maxBytes()==Long.MAX_VALUE||selected.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT)
+            throw new IllegalArgumentException("marker reservation requires bounded actual SHARD intent reads");
+        final var body=TargetEvidenceRetireIntentBody.decode(selected.canonicalBody());
+        return backend.guardedRead(budget,reader->{
+            final var cut=reader.aggregate().mutation();cut.requireAtOrBefore(reader.sourceSequence(),reader.source());
+            final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            final byte[] key=TargetEvidenceRetiringRecord.key(body.resource().exactIdentity().identityHash());
+            final var retained=TargetEvidenceRetiringRecord.decodeForStore(key,payload(reader,ColumnFamily.META,key,TargetEvidenceRetiringRecord.VALUE_TYPE),scope.shard(),scope.tenantScope(),lineage);
+            requireSame(selected.canonicalEnvelope(),retained.intent().canonicalEnvelope());
+            requireRetiringState(reader,List.of(),scope,lineage,root,retained,cut);
+            final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
+            if(activation==null||!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+                throw new IllegalStateException("marker reservation requires actual APPLIED descriptor5");
+            final var resource=retained.copy().resource();
+            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery)
+                requireRecoveryReferences(reader,List.of(),scope,lineage,recovery.owner());
+            else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection
+                    ||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
+                requireNoRecoveryDependents(reader,List.of(),scope,lineage,controlOwner(resource),cut);
+            reader.requireWithinElapsedBudget();return new AppliedIntent(retained,cut);
+        },authority);
+    }
+
+    /** Same original state1 facts for live reads and immutable-image accounting, without Catalog/provider I/O. */
+    public static TargetQuotaIncarnation requireRetiringState(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetEvidenceRetiringRecord retiring,TargetQuotaMutation frontier){
+        retiring.appliedAt().requireAtOrBefore(frontier);
+        TargetProtocolActivationStore.requirePriorActivation(view,overlay,scope,lineage,sourceOwner,retiring.appliedAt(),frontier);
+        TargetRetirementSourceHistoryStore.requireRetained(view,overlay,scope,lineage,sourceOwner,retiring.intent().systemMutationId(),retiring.appliedAt(),frontier);
+        requireAppliedFirst(view,overlay,scope,lineage,sourceOwner,retiring.intent().systemMutationId(),retiring.intent().mutationHash(),
+                SystemMutationType.RESOURCE_RETIRE_INTENT,retiring.appliedAt(),retiring.intent(),frontier);
+        requireRetainedUses(view,overlay,scope,lineage,sourceOwner,retiring,frontier);
+        final var origin=retiring.copy().resource().provenance();
+        if(origin instanceof TargetExternalEvidenceObjectResource.Recovery recovery){
+            final var owner=recovery.owner();
+            requireSame(owner.canonicalBytes(),payload(view,overlay,ColumnFamily.META,owner.key(),TargetRecoveryEvidenceOwner.VALUE_TYPE));
+            final var ref=owner.referenceRecord();
+            for(byte[] key:List.of(ref.key(),ref.attemptKey()))
+                requireSame(ref.canonicalBytes(),payload(view,overlay,ColumnFamily.META,key,TargetRecoveryEvidenceReference.VALUE_TYPE));
+        }else if(origin instanceof TargetExternalEvidenceObjectResource.Protection p)
+            requireSame(p.owner().canonicalBytes(),payload(view,overlay,ColumnFamily.META,p.owner().key(),TargetExternalEvidenceOwner.VALUE_TYPE));
+        else if(origin instanceof TargetExternalEvidenceObjectResource.Anchor a)
+            requireSame(a.owner().canonicalBytes(),payload(view,overlay,ColumnFamily.META,a.owner().key(),TargetExternalEvidenceOwner.VALUE_TYPE));
+        final var frozen=retiring.feeOwner();final byte[] feeKey=frozen.identity().key();feeKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var fee=TargetQuotaIncarnation.decodeForStore(feeKey,payload(view,overlay,ColumnFamily.META,feeKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
+        if(!fee.identity().equals(frozen.identity())||!Arrays.equals(fee.recoveryLineage(),lineage)||!fee.accounting().equals(frozen.accounting()))
+            throw new IllegalStateException("retiring copy changed actual frozen fee owner/accounting");
+        fee.latestMutation().requireAtOrBefore(frontier);return fee;
+    }
+
     private TargetQuotaIncarnation sourceRoot(TargetStoreBackend.Reader reader, TargetQuotaMutation stamp) {
         final var id = new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD, scope.shard(), reader.aggregate().accountingIncarnation(), null, null);
         final byte[] key = id.key(); key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;

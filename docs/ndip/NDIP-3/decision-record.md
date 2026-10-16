@@ -1264,3 +1264,15 @@ mapping/Admission/Attempt/first验证，不要求另一CONTROL owner继续存活
 自证。live adopted proof依赖必须先退役，有限读耗尽不当无依赖；不新增协议/预算/线程。
 真实Root operation/私有receipt/物理计费、Source确认分发/当前purpose/退款及全恢复仍待
 实施验证；单agent/不Fast、集中验证后置，四包/29切片和完成flags保持未完成。
+
+2026-10-16 marker实际provider前的Root持久预留推进，保留先前全部批准门禁。现有
+checkpoint reaping predicate只覆盖checkpoint，不能批准kind8；未拿hash/布尔/签名
+替代真实Floor/Pin/query/历史writer资格和原Root条件I/O。先增加Actual Native AppliedIntent
+receipt及共享state1核验、Root4 pending MarkerReservation1与Catalog metadata CAS。
+旧Root1..3和原publication origin/raw账不改；新record核actual native first/history/
+owner/uses/5及原Root closure/capacity/SDK binding，预留future证据与Source引用窗口和值
+正增量，保原records/publication槽。不提供provider success/Source确认或物理退款，
+当前CLOSE_REFERENCES仅用于metadata准备。原Root owned-I/O/UNKNOWN/local budget、旧
+namespace缺Root的bootstrap保护、实际conditional-writer来源与Floor/Pin/共享保护、
+原payload CAS/观察私有receipt、Source确认/物理结算仍未闭合。marker/key最终GC仍无
+server级保证，不进入真实操作。单agent/不Fast，集中验证后置，不提升四包/29切片flags。

@@ -667,34 +667,7 @@ public final class TargetRecordAccounting {
                 requireFamily(family,ColumnFamily.META);
                 final var retiring=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(
                         key,payload,scope.shard(),scope.tenantScope(),lineage);
-                retiring.appliedAt().requireAtOrBefore(operation);
-                TargetProtocolActivationStore.requirePriorActivation(reader,overlay,scope,lineage,root.owner(),retiring.appliedAt(),operation);
-                TargetRetirementSourceHistoryStore.requireRetained(reader,overlay,scope,lineage,root.owner(),retiring.intent().systemMutationId(),retiring.appliedAt(),operation);
-                TargetEvidenceRetirementStore.requireRetainedUses(reader,overlay,scope,lineage,root.owner(),retiring,operation);
-                final var frozen=retiring.feeOwner();final var owner=descriptor(frozen.identity());
-                if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("retiring copy changed frozen accounting");
-                final var origin=retiring.copy().resource().provenance();
-                if(origin instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery recovery){
-                    final var original=recovery.owner();
-                    if(!Arrays.equals(original.canonicalBytes(),payload(ColumnFamily.META,original.key(),
-                            com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.VALUE_TYPE)))
-                        throw new IllegalStateException("retiring proof lost its still-charged actual owner");
-                    final var ref=original.referenceRecord();
-                    for(byte[] refKey:List.of(ref.key(),ref.attemptKey()))
-                        if(!Arrays.equals(ref.canonicalBytes(),payload(ColumnFamily.META,refKey,
-                                com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.VALUE_TYPE)))
-                            throw new IllegalStateException("retiring proof lost its still-charged reference/alias");
-                }else if(origin instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Protection protection){
-                    final var original=protection.owner();
-                    if(!Arrays.equals(original.canonicalBytes(),payload(ColumnFamily.META,original.key(),
-                            com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE)))
-                        throw new IllegalStateException("retiring protection lost its still-charged original owner");
-                }else if(origin instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Anchor anchor){
-                    final var original=anchor.owner();
-                    if(!Arrays.equals(original.canonicalBytes(),payload(ColumnFamily.META,original.key(),
-                            com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE)))
-                        throw new IllegalStateException("retiring anchor lost its still-charged original owner");
-                }
+                final var owner=TargetEvidenceRetirementStore.requireRetiringState(reader,overlay,scope,lineage,root.owner(),retiring,operation);
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
             case com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE -> {
