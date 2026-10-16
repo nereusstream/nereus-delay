@@ -92,7 +92,7 @@ Supporting body enums:
 | `OrderingMode` | 1 `BEST_EFFORT`, 2 `DELIVERY_TIME_FIFO` |
 | `ControlKind` | 1 `PROTOCOL_VERSION_ACTIVATE`, 2 `PROFILE_BINDING_ACTIVATE`, 3 `PROFILE_NEW_BINDING_CLOSE`, 4 `STOP_NEW_SCHEDULES`, 5 `GRANT_DECREASE_OR_HOLD`, 6 `GRANT_SHRINK_DRAINED`, 7 `GRANT_INCREASE_ACTIVATE`, 8 `PAUSE_DESTINATION_LANE`, 9 `RESUME_DESTINATION_LANE`, 10 `BREAK_ORDERING_DOMAIN`, 11 `CLOSE_DESTINATION_LANE`, 12 `PAYLOAD_PROOF_TRUST_SET_ACTIVATE`, 13 `PAYLOAD_PROOF_ISSUANCE_CLOSE`, 14 `INITIAL_ROUTE_CONTROL_ACTIVATE` |
 | `UncertainResolutionKind` | 1 `ATTACH_PUBLISHED_EVIDENCE`, 2 `ATTACH_NOT_PUBLISHED_EVIDENCE`, 3 `RETRY_ALLOW_POSSIBLE_DUPLICATE`, 4 `TERMINALIZE_POSSIBLE_DELIVERY` |
-| `ResourceKind` | 1 payload object, 2 checkpoint, 3 DLQ export object, 4 Kafka receipt slot, 5 Pulsar Attempt Journal generation, 6 Lane channel/producer identity, 7 local Store incarnation |
+| `ResourceKind` | 1 payload object, 2 checkpoint, 3 DLQ export object, 4 Kafka receipt slot, 5 Pulsar Attempt Journal generation, 6 Lane channel/producer identity, 7 local Store incarnation, 8 Target external evidence catalog object |
 | `DeleteOutcome` | 1 `DELETED`, 2 `ALREADY_ABSENT` |
 | `EvidenceVerificationStatus` | 1 `VERIFIED_PUBLISHED`, 2 `VERIFIED_NOT_PUBLISHED`, 3 `UNRESOLVED` |
 | `ChannelKind` | 1 `BASELINE_PRODUCER`, 2 `KAFKA_TRANSACTIONAL_RECEIPT`, 3 `PULSAR_DEDUP_PRODUCER`, 4 `PULSAR_NATIVE_DELAYED`, 5 `DLQ_EXPORT` |
@@ -827,6 +827,29 @@ For Lane controls, outer field 14 `expected_prior_control_version`, when present
 | 5 | `PulsarJournalGenerationResource` | 1 `BrokerResourceIdentity`; 2 partition `uint32`; 3 evidence generation `uint64` |
 | 6 | `LaneChannelResource` | 1 `ChannelResourceIdentity` |
 | 7 | `LocalStoreResource` | 1 `ShardSubject`; 2 Store Incarnation[16]; 3 DB identity[32]; 4 absolute-root-policy digest[32] |
+| 8 | `TargetExternalEvidenceObjectResource` | 1 schema=1; 2 closed subtype; 3 catalog namespace ID[32]; 4 deployment ID[32]; 5 `ShardSubject`; 6 tenant scope[32]; 7 original recovery lineage[32]; 8 exact NFC UTF-8 key (max2048 bytes); 9 artifact/proof digest[32]; 10 complete raw signed value SHA256[32]; 11 actual canonical length; 12 exact immutable-version bytes (max512, empty only if no separate backend version); 13 closed provenance |
+
+Kind8 subtype values are 1 CONTROL_PROTECTION, 2 CONTROL_ANCHOR, 3 RECOVERY_PROOF.
+Provenance is a closed oneof: field1 full immutable NV47 protection owner; field2
+anchor origin (1 full NV47 anchor owner, 2 creator mapping ID[32], 3 original Admission
+hash[32]); field3 full immutable NV49 recovery owner; field4 unadopted staging origin
+(1 original publication intent ID[32], 2 immutable publication-origin digest[32],
+3 deployment physical owner[32], 4 authorization kind=1 CONTROL/2 RECOVERY_PROOF,
+5 original authorization digest[32], 6 original creation TrustedUtcIntervalEvidence).
+The staging origin digest excludes mutable phase/prepared-use/reference state and
+does not invent a Source adoption or Target logical charge owner. Adopted owner
+key/digests/length/Shard/tenant/lineage must exactly match the outer identity;
+subtype/provenance or authorization-family mixing is rejected. Original owner
+accounting/provenance is retained without copying the large proof blob.
+
+This registers the identity codec only. The existing retire body explicitly rejects
+kind8 until its independent Target body/reader generation and accounted Native
+handler are installed; no Artifact/reader is activated. Existing kinds1..7 and
+canonical bytes remain unchanged. Identity/version matching never supplies closure,
+no-future-first, Floor/Pin/reference release or actual delete authority. For kind8
+DELETED evidence must retain a pinned immutable version when present; any supplied
+version must match. ALREADY_ABSENT still requires authoritative original closed
+intent evidence in the future handler, not a bare missing-object observation.
 
 `ProtectionRef` exact fields: 1 `ProtectionKind protection_kind`; 2 `bytes protected_resource_id`=32; 3 `uint64 protection_generation`; optional 4 `SourcePosition minimum_source_position`; optional 5 Recovery Lineage ID[16]; optional 6 checkpoint ID[16]; optional 7 manifest hash[32]. Presence is kind-specific: `RECOVERY_FLOOR` requires fields 4–7; `QUERY_OR_AUDIT_RETENTION` and `REPLAY_OR_RETRY_WINDOW` require field 4 and forbid 5–7; the other kinds forbid 4–7 and bind their exact external generation through fields 2–3. `ProtectionSet` field 1 is a strictly canonical-byte-sorted unique repeated list of `ProtectionRef`; field 2 is SHA-256 of domain `nereus-delay-protection-set\0` plus the canonical repeated list.
 

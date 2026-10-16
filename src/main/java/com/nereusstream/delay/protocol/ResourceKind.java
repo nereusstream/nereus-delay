@@ -8,7 +8,8 @@ public enum ResourceKind {
     KAFKA_RECEIPT_SLOT(4),
     PULSAR_JOURNAL_GENERATION(5),
     LANE_CHANNEL(6),
-    LOCAL_STORE(7);
+    LOCAL_STORE(7),
+    TARGET_EXTERNAL_EVIDENCE_OBJECT(8);
 
     private final int wireValue;
 

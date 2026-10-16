@@ -2398,3 +2398,12 @@ Native owner/ref、prepared uses、共享保护或实际delete后退费义务。
 replay-exit只复用实际barrier后已颁的原close permit，actual SDK termination和
 所有user/participant静默条件保持；shutdown/真实SDK失败仍可观察。无新容量项、
 线程或队列，也不改变外部proof/引用/Floor/实际delete的收费与退费契约。
+
+2026-10-16退役裁定：kind8已采用身份保留原不可变NV47/NV49 Target owner及完整
+accounting，不按当前executor/Owner/session改价。staging独立原publication intent/
+deployment physical owner来源，不虚构Target EVIDENCE退款。closure/retire intent
+均保留blob/owner/ref/alias费；须真实exact delete且Source confirmation首次APPLIED
+后才同批移闭合行/精确退款，重复/拒绝/不确定不退。Floor base须保留仍计费owner/
+ref与retire/closure并在原blob已删后独立恢复，不能提前退费打破循环。closure/
+uses结论/墓碑继续占实际STATE/物理费，原Floor/保护退出后才压缩；本轮仅身份
+codec，原子writer/独立fold/checkpoint/实际delete仍待接，无退款或权威提升。

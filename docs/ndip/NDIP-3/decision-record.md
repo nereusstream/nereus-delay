@@ -817,3 +817,50 @@ monitor外方法；未成立barrier不投close，状态查询仍只读。P1 hint
 活池暂满保留原owner/句柄/first close/费用，shutdown和原生执行错误继续保留。
 不新增后台重试/队列/线程或关闭权限，不弱化真实SDK/users/participants退出和
 Owner/Oxia/Pin退场顺序。集中验证继续后置，完整四包/29切片目标保持。
+
+## 2026-10-16：Target外部证据对象独立退役裁定与身份开发
+
+授权主会话已裁定新增ResourceKind8 TARGET_EXTERNAL_EVIDENCE_OBJECT，内部封闭
+CONTROL_PROTECTION/CONTROL_ANCHOR/RECOVERY_PROOF，不借其它七类或CONTROL/SERVICE
+权限。身份绑定真实Catalog/deployment namespace、Source Shard/tenant/原lineage、
+exact key/type digest/raw SHA/length/后端独立version、原冻结计费owner/accounting及
+原创建/首次Source adoption。当前executor/Owner/session和mutable uses/ref状态
+不进身份。未采用staging明确独立分支，绑定原durable publication intent与不可变
+origin、deployment physical owner/原授权/创建时刻，不虚构NV47/NV49或Target费用。
+
+必须先由原Root CAS closure封住该exact对象的新publication/seal/adoption引用，
+保留完整真实uses及revision/digest。每个prepared use逐个证明永久不能future-first：
+exact已APPLIED/REJECTED且保留首事实，或原协议认可的Source有序期限/关闭和迟到
+禁止事实；墙钟过期、Owner失效、取消、未找到、无ref/删uses台账均不构成证明。
+UNKNOWN enqueue/晚回调继续保护。Target intent锁外认证完整object/closure/protection，
+锁内核当前native state/expected version/所有owner/ref/alias与uses结论；intent/
+closure/first/POSITION/Source/STATE费同批，此时不移owner/ref、不减费、不破坏合法
+历史读取。
+
+物理删除前：真实Source APPLIED intent与closure仍匹配且封住新增uses；业务/重放/
+pending UNKNOWN/Journal/Attempt均闭合；完整跨mapping/Target共享引用核完，活channel/
+slot还能产生新protection使用时不可退它。原Catalog parent-hash Floor覆盖intent/
+引用关闭cut与sequence，所有合法可选checkpoint、candidate/observed Floor Pin及
+query/audit/history/replay/retry/export/control保护按ProtectionSet逐项释放。当前
+Root/Owner/session/目录权限、占用和owned I/O有效，实际读取/回调退出；未知或预算/
+列表不完整拒绝。单个结束Attempt的anchor/proof可独立回收，不需整个slot退役。
+
+Floor base必须能在原blob删除后独立认证恢复“待删除结算”的retire/closure/仍计费
+owner/ref；优先schema5自包含材料，必要时最小显式扩展。不得恢复时仍从待删key
+取blob，也不得提前移owner/ref/退费解除循环。ResourceGcGuard只用于确认后墓碑
+压缩的必要条件，不能冒作删除前授权。
+
+外部adapter只条件删除这个exact Catalog object；删除前重读raw/hash/length/version，
+不做prefix/batch或Kafka DeleteRecords/DeleteTopics/slot rotation/父保护解除。
+不确定保留原request责任/no-recreate barrier。Source confirmation绑定exact intent
+ID/hash/resource/state version/实际request/response/观察时刻，严格在intent之后；
+ALREADY_ABSENT必须原已认证closed intent下的真实authoritative absence。只有首次
+有效APPLIED confirmation同批移对应闭合ref/alias/owner并按原冻结owner精确退
+EVIDENCE/实际STATE，保留墓碑/first/Source/账本。重复不双退，冲突/UNKNOWN/REJECTED
+不退；物理已删而确认丢失仍保守收费并对账原请求。
+
+Catalog closure/uses永久结论/delete墓碑自身保留计费，待原Floor覆盖intent+
+confirmation、全部保护退出且no-recreate/no-future-first保持后才压缩。Target新
+handler必须接accounted native path、独立ledger fold、checkpoint/restore/reopen/
+history与有限GC WorkClass，不借旧DelayShard投影。本轮仅落精确身份codec/旧body
+拒绝门禁；完整closure/writer/checkpoint环/实际delete仍待实施，不关闭包1/2或全目标。

@@ -41,6 +41,9 @@ public final class ResourceRetireIntentBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOURCE_RETIRE_INTENT, canonicalBody);
         final ResourceKind kind = ResourceKind.fromWire(unsigned(field(fields, 10), 10));
+        if (kind == ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT) {
+            throw new IllegalArgumentException("Target external evidence lifecycle requires its independently activated body/reader generation");
+        }
         final ExactResourceIdentity resource = decodeResourceIdentity(kind, nested(field(fields, 11), 11));
         final long expectedVersion = rawUnsigned(field(fields, 12), 12);
         final ProtectionSet protections = ProtectionSet.decode(nested(field(fields, 13), 13));
@@ -119,6 +122,18 @@ public final class ResourceRetireIntentBody {
         Objects.requireNonNull(observedEtag, "observedEtag");
         final CanonicalProtobuf.Reader.Field branchField =
                 new CanonicalProtobuf.Reader(identity.canonicalBytes()).next();
+        if (kind == ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT) {
+            final var resource = TargetExternalEvidenceObjectResource.decode(branchField.rawValue());
+            final byte[] exactVersion = resource.immutableVersion();
+            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED && exactVersion.length != 0
+                    && observedImmutableVersion.length == 0) {
+                throw new IllegalArgumentException("DELETED Target catalog object requires its pinned immutable version");
+            }
+            if (observedImmutableVersion.length != 0 && !Arrays.equals(exactVersion, observedImmutableVersion)) {
+                throw new IllegalArgumentException("delete evidence version differs from the exact Target catalog object");
+            }
+            return;
+        }
         final List<CanonicalProtobuf.Reader.Field> fields = read(branchField.rawValue(), kind + " resource");
         if (kind == ResourceKind.PAYLOAD_OBJECT) {
             final byte[] exactVersion = bytes(field(fields, 4), 4);
@@ -271,6 +286,7 @@ public final class ResourceRetireIntentBody {
                     fixed(bytes(field(fields, 3), 3), HASH_LENGTH, 3);
                     fixed(bytes(field(fields, 4), 4), HASH_LENGTH, 4);
                 }
+                case TARGET_EXTERNAL_EVIDENCE_OBJECT -> TargetExternalEvidenceObjectResource.decode(branch);
             }
         }
     }
