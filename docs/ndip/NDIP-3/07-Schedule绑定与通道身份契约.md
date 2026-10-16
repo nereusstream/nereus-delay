@@ -960,3 +960,10 @@ scope/receipt/management/protection与公钥。完整raw与实际copy digest进�
 抹原验证，但新准备仍检查实际Root/Source/Owner和owned I/O。字节包的公钥不是
 新trust root，Source apply/restore仍须实际认证原copy approval。body8默认logical
 ID解码已接原规则；Source purpose授权、handler与新checkpoint尚未准入/贯通。
+
+
+2026-10-16 Native intent组件的Authority明确单独批准原SERVICE actor/key的退役
+purpose、历史Source、actual Root/resource/closure/protections及capacity；copy
+公钥不能替代它。原签名在锁外验证，提交时原held本地approval和actual commit
+防护在每次Native边界复核。配置化provider/实际Source writer尚未接入，不因
+Approval record/codec存在或任意SERVICE key能验签而取得权限。

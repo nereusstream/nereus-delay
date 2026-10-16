@@ -31,6 +31,11 @@ public record TargetEvidenceRetiringRecord(SystemMutation intent,TargetQuotaMuta
         return Bytes.concat(new byte[]{TargetKeyCodec.EVIDENCE_RETIRING_TAG,TargetKeyCodec.KEY_FORMAT},
                 TargetCompatibilityCodec.assigned(identityHash,32,"retiring exact identity"));
     }
+    /** Reserved confirmed identity; its presence must never be interpreted as unretired state0. */
+    public static byte[] confirmedKey(byte[] identityHash) {
+        return Bytes.concat(new byte[]{TargetKeyCodec.EVIDENCE_CONFIRMED_TAG,TargetKeyCodec.KEY_FORMAT},
+                TargetCompatibilityCodec.assigned(identityHash,32,"confirmed exact identity"));
+    }
     public CapacityVector stateCharge() {
         return feeOwner().accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key().length,canonicalBytes().length);
     }

@@ -4218,3 +4218,26 @@ Source or material authority. Configured history/bootstrap/live-checkpoint wrapp
 keep signing factories out of Worker results. Stop disables new signing; historical
 verification remains valid and private key references are cleared after dependent
 I/O/native exit. Full deployment and Broker/recovery validation remain deferred.
+
+
+2026-10-16 Native intent projection implementation adds no body/envelope version.
+TargetEvidenceRetirementStore now has a bounded first-application Native batch:
+full NV51 plus actual APPLIED first/POSITION, Source stamp and exact original
+STATE accounting. It supports adopted recovery-proof provenance; authenticated
+CONTROL/shared/staging projections remain pending. Trusted deployment Source
+approval must select the exact SERVICE actor/key/purpose, historical Source,
+actual Root/closure/protections and full capacity reservation outside Native locks.
+The key is never taken from the public-copy data. Local approval and actual commit
+guards are checked again at each guarded native boundary. This Store component
+is not yet dispatched by TargetSourceApplyRuntime and admits no Source reader.
+
+The same-view Native recheck requires actual original owner/ref/Attempt alias,
+mapping/anchor/settled Attempt and complete sealed first/POSITION conclusions.
+Prepared semantic Source cut and monotone committed fence survive reconstruction;
+old physical Store/native sequence equality is not required. A SOURCE_FENCED use
+may later have its exact expired REJECTED first after that prepared cut, without
+reopening adoption. Missing retained first/POSITION or altered Root/digest/status
+rejects; independent NV51 accounting checks the same retained-use contract.
+META tag45 is reserved for confirmed identity absence checks only: NV52 remains
+unregistered/unimplemented. Presence of that key cannot be reinterpreted as state0.
+No physical delete/refund, new checkpoint schema or deployment activation is added.

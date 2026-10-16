@@ -947,3 +947,13 @@ first/POSITION。默认System envelope logical-ID推导已识别body8，不靠ca
 新Native51可严格解码但尚无原子Source writer产行，NV52/新checkpoint还未实现；
 旧schema1..5明确拒绝含退役行，不重释旧离线能力。完整恢复认证仍须验证原批准
 的copy输入，公开keys不会自成trust root。仍只必要编译，不关闭包或抬完成flags。
+
+
+2026-10-16 Native intent组件实施落点：TargetEvidenceRetirementStore在原Native
+view核逻辑cut/单调fence/原owner-ref-Attempt-mapping及逐sealed first/POSITION，
+把完整NV51与actual APPLIED first/POSITION/Source和冻结STATE同batch组装。原Source
+purpose/Root/保护/capacity批准在锁外，held本地版本随actual commit guard核每个
+write边界；新copy keys不能自授权。明确拒绝只记拒绝first，unknown不写成功。
+独立计费也核完整retained-use，late exact expired first不推翻prepared fence。
+目前只是实际Native store组件，原Source runtime分派/配置化provider/签发/准备
+输入保留、新companion/NV52与GC仍未接通，不开放新reader或实际退役/删除。

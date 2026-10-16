@@ -661,6 +661,7 @@ public final class TargetRecordAccounting {
                 final var retiring=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(
                         key,payload,scope.shard(),scope.tenantScope(),lineage);
                 retiring.appliedAt().requireAtOrBefore(operation);
+                TargetEvidenceRetirementStore.requireRetainedUses(reader,overlay,scope,lineage,root.owner(),retiring,operation);
                 final var frozen=retiring.feeOwner();final var owner=descriptor(frozen.identity());
                 if(!owner.accounting().equals(frozen.accounting()))throw new IllegalStateException("retiring copy changed frozen accounting");
                 final var origin=retiring.copy().resource().provenance();

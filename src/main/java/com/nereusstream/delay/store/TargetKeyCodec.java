@@ -53,6 +53,7 @@ public final class TargetKeyCodec {
     public static final int RECOVERY_EVIDENCE_OWNER_TAG = 42;
     public static final int RECOVERY_EVIDENCE_REFERENCE_TAG = 43;
     public static final int EVIDENCE_RETIRING_TAG = 44;
+    public static final int EVIDENCE_CONFIRMED_TAG = 45;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

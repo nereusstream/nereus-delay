@@ -2456,3 +2456,11 @@ Root准备预先核retained inputs+320MiB Catalog窗口+有限Native reads，再
 沿原池串行占用，不涨默认预算或新建线程/client。原I/O退出后才释放Root窗口；
 后续服务中的Source prepared input保留/结算还须随原子writer接通。Source frame/
 Native单行整批/heap/RSS/空间的完整最大合法包络及真实性能仍待集中验证。
+
+
+2026-10-16 Native intent store组件沿原TargetSourceAccounting同批计算完整NV51、
+first/POSITION/Source/root/Target及tenant费用，不做独立写或原EVIDENCE退款。
+Source批准方须先保护完整capacity与copy输入直到commit；实际配置化provider/
+writer生命周期仍待接通。独立计费遇NV51逐sealed use核原first/POSITION或永久
+fence，缺记录/错Root/改摘要不能靠计费subtotal相等通过；所有point reads沿原
+有限read/audit budget，无退役行时无新增该成本。不声称最大合法包络/RSS已测。
