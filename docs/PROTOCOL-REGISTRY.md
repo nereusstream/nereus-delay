@@ -5125,3 +5125,44 @@ fee is refunded. Startup preflights retained/root windows, requires explicit roo
 inputs and READY before constructing Admin. Its captured Registry input owner predates
 Catalog/session RPCs, so early construction failure also retains the exact charge until
 original SDK termination. No actual bootstrap/adoption/guard/payload operation was run.
+
+2026-10-22 Source confirmation transaction wiring (development only): generation8/kind8
+RESOURCE_DELETE_CONFIRMED now enters the existing RETIREMENT content family and the same
+bounded Source/OUTCOME_AND_CONTROL handoff as intent. Separate intent/confirmation public
+entry points preserve their type checks. New confirmations require actual APPLIED descriptor5
+for retained markers; first-result replay still precedes fresh input/key/provider acquisition.
+TargetEvidenceRetirementStore prepares confirmation with the same original Source history,
+accepted-tip, subject/signature/action/activation and deadline checks, then commits business
+NV51→NV52, closed owner/ref/alias removal, history/tip, exact first/POSITION and accounting in
+one Native batch. Unknown approval throws, known denial/rejection does not edit state1, and
+only first APPLIED confirmation can settle the original logical fees. No physical refund
+is performed by this transaction. Intent behavior uses the same original path.
+ConfirmationApproval requires the original Catalog's opaque ObservedRetiredMarker, actual
+DELETE_CONFIRMATION history grant, exact writer key/tuple and held local-current protection.
+The private receipt binds actual Catalog reservation, Native AppliedIntent, resource/context,
+intent stamp and full marker observation. It distinguishes CONDITION_SUCCEEDED from
+CONDITION_REJECTED_EXACT_MARKER. Pending ReservedMarker, evidence DTOs and signatures cannot
+construct it. Its provider producer is not implemented in this batch: no actual physical
+operation or new positive receipt was created, and concrete Root content/signing/borrow/cold
+reconstruction remains required. Frozen Source snapshots check finite receipt/history/key
+bytes before matching/using it and perform no Registry/provider I/O during Native commit.
+The independently decided idempotence contract is: after all physical gates, issue a new
+actual old-payload-version CAS or IfAbsent on the original managed provider. Only the matching
+explicit conditional rejection may be followed by actual persistent exact-marker GET to
+issue a new observation; bare matching GET cannot skip that request. CAS never substitutes
+the marker version. Timeout/cancellation/transport/RuntimeException remains UNKNOWN with
+its original owner/slot/charge; matching readback in that catch cannot synthesize success.
+requestKind retains its original1/2 bytes and describes this actual request. request-id hash
+binds this actual local dispatch/request identity and must not claim an SDK-absent server ID;
+responseHash must use a deterministic domain/result-category canonical digest binding that
+request, its actual success/explicit rejection and exact observed key/raw hash/length/version.
+The future private producer must preserve this distinction; no new wire/schema/RequestKind
+or generic provider log is introduced. A new recovery observation never settles old SDK I/O.
+Current management appends RETIRE_EVIDENCE_OBJECT_PAYLOAD after all old actions (policy wire value11, Java ordinal10);
+old ordinals/policy bytes remain unchanged. CLOSE_EVIDENCE_OBJECT_REFERENCES remains metadata
+only. Neither operator role, BEGIN/CLOSE, root initialize/adopt nor a historical signature
+inherits physical permission. The actual operation must additionally bind the original
+READY Root/namespace/deployment/management and exact retiring-object chain, all Floor/Pin/
+query/shared protections and qualified conditional-only writer/deployment history. These
+physical gates/provider, Source Root signing/content and recoverable physical-difference
+settlement remain open. No marker/key/guard/record/publication GC or real operation is granted.

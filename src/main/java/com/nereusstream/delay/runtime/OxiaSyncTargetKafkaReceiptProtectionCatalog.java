@@ -1004,6 +1004,38 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             if(catalog!=expected)throw new IllegalArgumentException("marker reservation belongs to another original Catalog");
         }
     }
+    /** Actual provider-operation observation only. Pending metadata or an evidence DTO cannot construct this receipt. */
+    public static final class ObservedRetiredMarker {
+        public enum ConditionalResult { CONDITION_SUCCEEDED, CONDITION_REJECTED_EXACT_MARKER }
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final TargetEvidenceRetiredMarkerEvidence evidence;
+        private final TargetExternalEvidenceObjectResource resource;
+        private final TargetEvidenceRetirementContext context;
+        private final ResourceDeleteConfirmedBody.RetireIntentRef intent;
+        private final long retainedBytes;
+        private final ConditionalResult conditionalResult;
+        private ObservedRetiredMarker(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+                ReservedMarker reserved,TargetEvidenceRetirementStore.AppliedIntent applied,TargetEvidenceRetiredMarkerEvidence evidence,ConditionalResult conditionalResult){
+            this.catalog=catalog;this.evidence=Objects.requireNonNull(evidence);
+            this.conditionalResult=Objects.requireNonNull(conditionalResult);
+            Objects.requireNonNull(reserved).requireCatalog(catalog);requireExact(reserved.marker.canonicalBytes(),evidence.marker().canonicalBytes());
+            final var actual=Objects.requireNonNull(applied).record();resource=actual.copy().resource();context=actual.body().context();
+            intent=new ResourceDeleteConfirmedBody.RetireIntentRef(actual.intent().systemMutationId(),actual.intent().mutationHash(),resource.exactIdentity().identityHash(),0);
+            evidence.marker().requireBindings(resource,context,intent);actual.copy().requireMarker(evidence.marker());
+            if(!actual.appliedAt().equals(evidence.marker().intentAppliedAt()))throw new IllegalArgumentException("provider observation changed actual Native intent stamp");
+            retainedBytes=Math.addExact(evidence.canonicalBytes().length,Math.addExact(resource.canonicalBytes().length,context.canonicalBytes().length+128L));
+        }
+        public TargetEvidenceRetiredMarkerEvidence evidence(){return evidence;}
+        public ConditionalResult conditionalResult(){return conditionalResult;}
+        public void requireCatalog(OxiaSyncTargetKafkaReceiptProtectionCatalog expected){if(catalog!=expected)throw new IllegalArgumentException("provider receipt belongs to another original Catalog");}
+        /** Pure local matching for Source prepare/commit; performs no provider or Registry I/O. */
+        public void requireConfirmation(TargetEvidenceDeleteConfirmedBody body){
+            if(!body.markerRetained())throw new IllegalArgumentException("retained-marker receipt cannot authenticate deletion/absence");
+            requireExact(body.resource().canonicalBytes(),resource.canonicalBytes());requireExact(body.context().canonicalBytes(),context.canonicalBytes());
+            requireExact(body.intent().canonicalBytes(),intent.canonicalBytes());requireExact(body.markerEvidence().canonicalBytes(),evidence.canonicalBytes());
+        }
+        public long retainedBytes(){return retainedBytes;}
+    }
     /** Local budget handoff only, after the caller's other SDKs/methods close; no server outcome is inferred. */
     public void retainClientInputsUntilStorageSdkTermination(com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client input){
         retainStorageInput.accept(Objects.requireNonNull(input));

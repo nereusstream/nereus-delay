@@ -570,7 +570,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.EXPIRE_GENERATION) return TargetSourceAuthorityPreparation.Family.EXPIRY;
         if (mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) return TargetSourceAuthorityPreparation.Family.ADMISSION;
         if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
-        if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
+        if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
         if (isProtocolActivation(mutation)) return TargetSourceAuthorityPreparation.Family.ACTIVATION;
         if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
         if (isTargetClose(mutation)) return TargetSourceAuthorityPreparation.Family.CLOSE;
@@ -1449,25 +1449,32 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized Optional<SystemMutationResult> retirementMutationResult(SystemMutation mutation,LongSupplier clock){
         requireGcOwner(clock);
-        if(mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT||!scope.shard().equals(mutation.shardId()))
+        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)||!scope.shard().equals(mutation.shardId()))
             throw new IllegalArgumentException("retirement result requires its exact Source operation/Shard");
-        com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT)com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        else com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());
         return replay.appliedResult(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),
                 mutation,workerReads(clock));
     }
     synchronized void requireRetirementWriter(SystemMutation mutation,LongSupplier clock){
         requireGcOwner(clock);
-        if(mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT||!scope.shard().equals(mutation.shardId())
+        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)||!scope.shard().equals(mutation.shardId())
                 ||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
             throw new IllegalArgumentException("retirement writer changed Source/operation/SERVICE actor");
-        final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
-        requireRetirementProtocolActive(body.resource(),clock);
+        if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT){
+            final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());requireRetirementProtocolActive(body.resource(),clock);
+        }else{
+            final var body=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());requireRetirementProtocolActive(body.resource(),body.markerRetained(),clock);
+        }
     }
     synchronized void requireRetirementProtocolActive(LongSupplier clock){
         requireRetirementProtocolActive(null,clock);
     }
     synchronized void requireRetirementProtocolActive(
             com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,LongSupplier clock){
+        requireRetirementProtocolActive(resource,false,clock);
+    }
+    private void requireRetirementProtocolActive(com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource resource,boolean marker,LongSupplier clock){
         requireGcOwner(clock);final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement();
         if(resource!=null&&(!scope.shard().equals(resource.shard())||!Arrays.equals(scope.tenantScope(),resource.tenantScope())
                 ||!Arrays.equals(lineage,resource.recoveryLineage())))
@@ -1481,6 +1488,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if(resource!=null&&resource.provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.ReservedStaging
                     &&!activation.body().payload().descriptor().supportsCapacityOwnerStaging())
                 throw new IllegalStateException("staging writer requires actual Source APPLIED descriptor4 capacity-root capability");
+            if(marker&&!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+                throw new IllegalStateException("marker confirmation writer requires actual APPLIED descriptor5 capability");
             return Boolean.TRUE;
         },workerReads(clock));
     }
@@ -1897,7 +1906,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
-            } else if (mutation.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT) {
+            } else if (mutation.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) {
                 final var control = Objects.requireNonNull(authorities.retirements().resolve(mutation),
                         "Target evidence retirement authority");
                 // This operation needs four counters; existing smaller runtime limits retain their old scope.
@@ -1905,7 +1914,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         backend, scope, lineage, limits.counters(), limits.domains());
                 final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Prepared first;
                 try {
-                    first = retirement.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority());
+                    first = mutation.mutation().type()==SystemMutationType.RESOURCE_RETIRE_INTENT
+                            ?retirement.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority())
+                            :retirement.prepareConfirmationFirst(budget,mutation.mutation(),entry.position(),control.authority());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -2235,6 +2246,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 && retirement.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT) {
             com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(retirement.mutation().canonicalBody());
             return;
+        }
+        if(entry instanceof SourceReplayMutation confirmation&&confirmation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED){
+            com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(confirmation.mutation().canonicalBody());return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)
                 || mutation.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL) {

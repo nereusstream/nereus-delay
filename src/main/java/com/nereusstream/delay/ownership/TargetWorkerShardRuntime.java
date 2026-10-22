@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetHeadRef;
 import com.nereusstream.delay.protocol.TargetPartitionId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -638,6 +639,18 @@ public final class TargetWorkerShardRuntime
     public TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementIntent(SystemMutation image,
             OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
             java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+        if(image.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT)throw new IllegalArgumentException("retirement intent type required");
+        return submitRetirement(image,writer,protection,clock,retained);
+    }
+    public TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementConfirmation(SystemMutation image,
+            OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
+            java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+        if(image.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
+        return submitRetirement(image,writer,protection,clock,retained);
+    }
+    private TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirement(SystemMutation image,
+            OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
+            java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
         final TargetEvidenceRetirementWorkClassExecutor handoff;
         synchronized(this){
             requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
@@ -673,6 +686,14 @@ public final class TargetWorkerShardRuntime
         }catch(RuntimeException|Error unknown){target.fence();throw unknown;}
     }
     public Optional<SystemMutationResult> settleRetirementIntent(SystemMutation image,LongSupplier clock){
+        if(image.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT)throw new IllegalArgumentException("retirement intent type required");
+        return settleRetirement(image,clock);
+    }
+    public Optional<SystemMutationResult> settleRetirementConfirmation(SystemMutation image,LongSupplier clock){
+        if(image.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
+        return settleRetirement(image,clock);
+    }
+    private Optional<SystemMutationResult> settleRetirement(SystemMutation image,LongSupplier clock){
         final var handoff=retirementHandoff;return handoff==null?retirementMutationResult(image,clock):handoff.settle(image,clock);
     }
 

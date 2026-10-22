@@ -2677,3 +2677,13 @@ Root opening先核retained inputs+原完整closure/root window；真实Registry 
 构造前捕获，metadata/guard或更早session/history失败的Client也保至实际SDK termination。
 外部allocation authority须自己承担有界transport/输入责任，不由此新建服务或借Root预算。
 物理退款、Target账本结算与完整RSS/并发/故障恢复验收仍未闭合。
+
+2026-10-22 Source confirmation同批费用：实际opaque provider observation与原完整Source
+grant/history/activation批准后，NV51→NV52、闭合owner/ref/alias与history/tip/first/
+POSITION同TargetSourceAccounting批次。仅首次APPLIED沿冻结fee-owner/counters结算，
+拒绝保原NV51/费用，UNKNOWN不写成功，重复first不再业务转换。Source snapshot预核完整
+observation/history/public-key有限保留字节，仍共用原单pending queue/SDK/window，不新
+增预算/线程或队列。当前没有实际receipt producer/物理操作，因此未发生这类实际结算。
+物理Root账独立待接：真实payload差额只能在原可恢复capacity Root幂等结算，重复观察
+不得双退，marker/key/Root关联/guard/records/publication额度保留；新观察不退旧SDK仍
+持有的inputs。显式条件拒绝/SDK退出均不授最终GC，完整资源/并发/恢复验收继续后置。

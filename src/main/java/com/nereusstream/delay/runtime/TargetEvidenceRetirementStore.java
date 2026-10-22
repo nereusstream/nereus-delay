@@ -13,7 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Atomic Native retirement intent/first/POSITION accounting under protected deployment Source approval. */
+/** Atomic Native retirement/confirmation, exact first/POSITION/history and accounting under protected Source approval. */
 public final class TargetEvidenceRetirementStore {
     /**
      * The deployment must approve this exact SERVICE actor/key for retirement at the original Source,
@@ -23,6 +23,10 @@ public final class TargetEvidenceRetirementStore {
     @FunctionalInterface
     public interface Authority {
         Approval resolve(TargetQuotaScope scope, AuthorIdentity actor, SystemMutation intent, SourcePosition source);
+        /** Null is a proved Source-purpose denial; missing actual observation/protection must throw, never masquerade as denial. */
+        default ConfirmationApproval resolveConfirmation(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation confirmation,SourcePosition source){
+            throw new IllegalStateException("actual Root provider observation/confirmation approval is unavailable");
+        }
         default SourceHistory history(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation input,SourcePosition source){
             throw new IllegalStateException("original retirement Source history/pin is not configured");
         }
@@ -51,15 +55,22 @@ public final class TargetEvidenceRetirementStore {
         public Approval(PublicKey key,OxiaSyncTargetKafkaReceiptProtectionCatalog.RetirementCopy copy,Runnable current,ProtocolTuple tuple){this(key,copy,current,tuple,null);}
     }
 
+    /** Source permission plus the original Root's opaque actual observation, never pending metadata or serialized evidence. */
+    public record ConfirmationApproval(PublicKey writerKey,OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,
+            Runnable current,ProtocolTuple activatedTuple,TargetRetirementAuthorizationHistory.Grant historyGrant){
+        public ConfirmationApproval{Objects.requireNonNull(writerKey);Objects.requireNonNull(observation);Objects.requireNonNull(current);
+            Objects.requireNonNull(activatedTuple);Objects.requireNonNull(historyGrant);}
+    }
+
     public static final class Prepared {
         private final TargetEvidenceRetirementStore owner;
         private final TargetStoreBackend.Prepared batch;
         private final SystemMutationResult result;
-        private final Approval approval;
+        private final Runnable approvalCurrent;
         private final SourceHistory history;
         private Prepared(TargetEvidenceRetirementStore owner, TargetStoreBackend.Prepared batch,
-                SystemMutationResult result, Approval approval,SourceHistory history) {
-            this.owner = owner; this.batch = batch; this.result = result; this.approval = approval;this.history=history;
+                SystemMutationResult result, Runnable approvalCurrent,SourceHistory history) {
+            this.owner = owner; this.batch = batch; this.result = result; this.approvalCurrent = approvalCurrent;this.history=history;
         }
     }
 
@@ -81,46 +92,66 @@ public final class TargetEvidenceRetirementStore {
     /** Caller routes retained first-result replay before this entry. No Source/reader activation is implicit. */
     public Prepared prepareFirst(com.nereusstream.delay.store.BoundedReadBudget budget, SystemMutation intent,
             SourcePosition source, Authority authority) {
+        if(intent.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT)throw new IllegalArgumentException("retirement intent type required");
+        return prepareRetirementFirst(budget,intent,source,authority,false);
+    }
+    public Prepared prepareConfirmationFirst(com.nereusstream.delay.store.BoundedReadBudget budget,SystemMutation confirmation,
+            SourcePosition source,Authority authority){
+        if(confirmation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
+        return prepareRetirementFirst(budget,confirmation,source,authority,true);
+    }
+    private Prepared prepareRetirementFirst(com.nereusstream.delay.store.BoundedReadBudget budget,SystemMutation intent,
+            SourcePosition source,Authority authority,boolean confirming){
         Objects.requireNonNull(authority); TargetSourcePosition.requireBounded(source);
-        final var body = TargetEvidenceRetireIntentBody.decode(intent.canonicalBody());
-        if (intent.type() != SystemMutationType.RESOURCE_RETIRE_INTENT || !scope.shard().equals(source.shardId())
-                || !scope.shard().equals(intent.shardId()) || !body.shard().equals(scope.shard())
-                || body.retryUntil() != intent.retryUntilEpochMs()
-                || !Arrays.equals(body.logicalOperationIdentity(), intent.logicalOperationIdentity()))
+        final var body = confirming?null:TargetEvidenceRetireIntentBody.decode(intent.canonicalBody());
+        final var confirmation=confirming?TargetEvidenceDeleteConfirmedBody.decode(intent.canonicalBody()):null;
+        final var resource=confirming?confirmation.resource():body.resource();
+        final var tuple=confirming?confirmation.requiredTuple():body.requiredTuple();
+        final boolean marker=confirming&&confirmation.markerRetained();
+        if (!scope.shard().equals(source.shardId())||!scope.shard().equals(intent.shardId())||!resource.shard().equals(scope.shard())
+                || (confirming?confirmation.retryUntil():body.retryUntil()) != intent.retryUntilEpochMs()
+                || !Arrays.equals(confirming?confirmation.logicalOperationIdentity():body.logicalOperationIdentity(), intent.logicalOperationIdentity()))
             throw new IllegalArgumentException("retirement Source/operation mismatch");
         final boolean expired = source.brokerPersistenceTimeEpochMs() > intent.retryUntilEpochMs()
+                ||confirming&&confirmation.confirmedAt().latestEpochMs()>intent.retryUntilEpochMs()
                 || backend.prepareRead(budget, reader -> reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()).value();
         final boolean protocolReady=expired?false:backend.prepareRead(budget,
-                reader->TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource())).value();
-        Approval approval = null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
+                reader->retirementProtocolReady(reader,tuple,source,resource,marker)).value();
+        Approval approval = null;ConfirmationApproval confirmed=null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
         if (!expired && protocolReady && intent.authorIdentity().length <= (1 << 20)) {
             AuthorIdentity actor;
             try { actor = AuthorIdentity.decode(intent.authorIdentity()); }
             catch (IllegalArgumentException malformed) { actor = null; }
             if(actor!=null){
                 history=Objects.requireNonNull(authority.history(scope,actor,intent,source),"complete original Source history");
-                selectedGrant=history.select(body.resource(),intent,source).orElse(null);
+                selectedGrant=history.select(resource,intent,source).orElse(null);
                 final var candidate=history.proof();
                 backend.prepareRead(budget,reader->{TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,candidate);return Boolean.TRUE;});
                 if(selectedGrant!=null&&intent.verifySignature(selectedGrant.writerKey())){
-                    approval = authority.resolve(scope, actor, intent, source);
-                    if (approval != null) approval.current().run();
+                    if(confirming){confirmed=authority.resolveConfirmation(scope,actor,intent,source);if(confirmed!=null)confirmed.current().run();}
+                    else {approval = authority.resolve(scope, actor, intent, source);if (approval != null) approval.current().run();}
                 }
             }
         }
         final var selected = approval;
+        final var selectedConfirmation=confirmed;
+        final PublicKey selectedKey=selected!=null?selected.writerKey():selectedConfirmation==null?null:selectedConfirmation.writerKey();
+        final Runnable approvedCurrent=selected!=null?selected.current():selectedConfirmation==null?null:selectedConfirmation.current();
+        final var approvalGrant=selected!=null?selected.historyGrant():selectedConfirmation==null?null:selectedConfirmation.historyGrant();
+        final var approvalTuple=selected!=null?selected.activatedTuple():selectedConfirmation==null?null:selectedConfirmation.activatedTuple();
         final var retainedHistory=history;final var grant=selectedGrant;
-        if(selected!=null&&(selected.historyGrant()==null||grant==null
-                ||!Arrays.equals(selected.historyGrant().canonicalBytes(),grant.canonicalBytes())))
+        if(selectedKey!=null&&(approvalGrant==null||grant==null
+                ||!Arrays.equals(approvalGrant.canonicalBytes(),grant.canonicalBytes())))
             throw new IllegalStateException("retirement approval changed authenticated original history grant");
-        final boolean authorized = selected != null && grant!=null&&intent.verifySignature(selected.writerKey())
-                &&grant.action()==TargetRetirementAuthorizationHistory.Action.RETIRE_INTENT
+        final boolean authorized = selectedKey != null && grant!=null&&intent.verifySignature(selectedKey)
+                &&grant.action()==TargetRetirementAuthorizationHistory.Action.of(intent.type())
                 &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
-                &&Arrays.equals(grant.publicKey(),selected.writerKey().getEncoded());
-        final boolean activated=authorized&&body.requiredTuple().equals(selected.activatedTuple());
+                &&Arrays.equals(grant.publicKey(),selectedKey.getEncoded());
+        final boolean activated=authorized&&tuple.equals(approvalTuple);
         if (activated) {
-            requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());
-            selected.copy().image().requireContext(body.context()); selected.current().run();
+            if(confirming)selectedConfirmation.observation().requireConfirmation(confirmation);
+            else {requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());selected.copy().image().requireContext(body.context());}
+            approvedCurrent.run();
         }
         final var result = new SystemMutationResult[1];
         final var batch = backend.prepare(budget, reader -> {
@@ -131,7 +162,7 @@ public final class TargetEvidenceRetirementStore {
             final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
                     Bytes.sha256(intent.canonicalEnvelope()));
             final var root = sourceRoot(reader, stamp);
-            final boolean nativeReady=TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource());
+            final boolean nativeReady=retirementProtocolReady(reader,tuple,source,resource,marker);
             if(nativeReady&&!expired&&retainedHistory==null)throw new IllegalStateException("original Source protocol/input changed; retain and retry");
             boolean sourceActivated=activated&&nativeReady;
             if(sourceActivated){
@@ -155,8 +186,9 @@ public final class TargetEvidenceRetirementStore {
                 edits.add(reader.replace(ColumnFamily.META,accepted.key(),TargetRetirementHistoryTipRecord.VALUE_TYPE,accepted.canonicalBytes()));
             }
             if (rejection == null) {
-                selected.current().run();
-                edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
+                approvedCurrent.run();
+                if(confirming){selectedConfirmation.observation().requireConfirmation(confirmation);edits.addAll(confirmationEdits(reader,scope,lineage,intent,stamp));}
+                else edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
             }
             final var outcome = SystemMutationResult.from(intent, rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
                     rejection == null ? StableCode.OK : rejection, source.canonicalBytes());
@@ -184,7 +216,15 @@ public final class TargetEvidenceRetirementStore {
             return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
                     .assemble(reader, edits);
         });
-        return new Prepared(this, batch, result[0], selected,retainedHistory);
+        return new Prepared(this, batch, result[0], approvedCurrent,retainedHistory);
+    }
+
+    private boolean retirementProtocolReady(TargetStoreBackend.Reader reader,ProtocolTuple tuple,SourcePosition source,
+            TargetExternalEvidenceObjectResource resource,boolean marker){
+        if(!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,tuple,source,resource))return false;
+        if(!marker)return true;
+        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
+        return activation!=null&&activation.body().payload().descriptor().supportsRetainedMarkerConfirmation();
     }
 
     public SystemMutationResult commit(Prepared prepared, TargetStoreBackend.CommitAuthority authority) {
@@ -195,7 +235,7 @@ public final class TargetEvidenceRetirementStore {
             return new TargetStoreBackend.CommitGuard() {
                 @Override public void requireCurrent() {
                     guard.requireCurrent();
-                    if (prepared.approval != null) prepared.approval.current().run();
+                    if (prepared.approvalCurrent != null) prepared.approvalCurrent.run();
                     if(prepared.history!=null)prepared.history.current().run();
                     guard.requireCurrent();
                 }

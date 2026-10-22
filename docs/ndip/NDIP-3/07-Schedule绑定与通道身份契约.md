@@ -1158,3 +1158,11 @@ exact prefix/root/guard key、deployment/capacity及原allocation/nonce，curren
 接管只保原实际完整Root与历史。普通启动只接READY+LIVE、原PENDING actual version及原
 initial事实匹配的Root；丢失/降级/重建晚写均不自动bootstrap。实际fresh authority/材料/
 部署资格缺失仍Unavailable，不由配置文件或caller boolean补造，无Source新actor或签发链。
+
+2026-10-22 Source确认身份链：generation8确认与intent共享原Source/Host/Writer和有限
+handoff，类型入口分开；新marker确认需actual5，重复first先于新history/key/provider。
+确认独立核原完整DELETE_CONFIRMATION history grant、SERVICE/key/Source/SHARD/tenant/
+lineage与原Root opaque观察，数据hash/签名/pending不替provider事实。私有观察必须由
+未来真实provider生产，当前类型不可由caller构造，也未创建任何实例或做物理请求。
+物理当前action RETIRE_EVIDENCE_OBJECT_PAYLOAD独立于CLOSE/BEGIN/角色/Root初始化接管；
+明确拒绝后新exact观察不代表旧UNKNOWN退出或远端最终fencing，marker/key/guard继续保留。

@@ -504,6 +504,20 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             final var first=original.settleRetirementIntent(image,clock);
             startup.requireReceiptManagementRead(management);current.run();return first;
         }
+        com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementConfirmation(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,com.nereusstream.delay.protocol.SystemMutation image,
+                com.nereusstream.delay.ownership.OwnedSourceSystemWriter writer,Runnable protection,
+                java.util.function.Consumer<com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+            startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            return original.submitRetirementConfirmation(image,writer,protection,clock,retained);
+        }
+        java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> settleRetirementConfirmation(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,com.nereusstream.delay.protocol.SystemMutation image,Runnable current){
+            current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            final var first=original.settleRetirementConfirmation(image,clock);startup.requireReceiptManagementRead(management);current.run();return first;
+        }
 
         /** Distinct normal-work continuation; the independent recovery entry never returns a SEND resource. */
         public KafkaClientArtifactTargetReceiptFactory.RecoveryReopen configureReceiptRecoveryReopen(

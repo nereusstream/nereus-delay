@@ -1314,3 +1314,21 @@ opening；普通Root读取与更新已切为protected READY/LIVE，默认缺材�
 接口，不新增allocator/IAM/本地file事实/Source CONTROL链；未装入或运行任何实际材料/
 初始化/接管/guard/Admin/迁移/保护解除。真实server契约、外部provider、完整运行及恢复
 验证仍开放；guard与marker GC/物理退款仍无新权限，四包/29切片/三个flags不提升。
+
+2026-10-22 主会话明确exact marker幂等：必须先全部current physical-purpose、原READY
+Root/reservation、Source APPLIED NV51、closure、Floor/checkpoint/Pin/query/shared及历史
+conditional-only/实际部署资格门禁。再本次真实原payload-version CAS或IfAbsent，只有与
+该请求对应的SDK明确条件拒绝后，actual exact persistent marker GET可形成新Root私有
+观察，不能换marker version做CAS、不先裸GET跳请求，不声称本次写成功或旧UNKNOWN退出。
+schema1/RequestKind1..2不变；request hash绑定实际dispatch/请求，不伪造旧或SDK无的
+server ID；response hash带确定domain/结果类别及实际条件结果/读回key/raw/len/version。
+Unknown一律保原owner/slot/费用与fault，不在其catch匹配读回转成功；恢复时新合法Root
+可新观察，但不结清旧SDK输入/failed backing。无需新通用provider日志/重试层。原Root
+物理差额结算仍需恢复幂等，记录/publication/marker/guard不退，无最终marker/key GC。
+批准独立current action RETIRE_EVIDENCE_OBJECT_PAYLOAD，metadata CLOSE_REFERENCES不继承，
+原枚举ordinal/policy bytes不变，约束原Root/namespace/deployment/管理资源及exact对象链。
+本批接Source确认prepare/commit、完整history/grant/actual5、opaque receipt约束及同批
+NV51→NV52/owner/ref/alias/history/tip/first/POSITION/accounting，接原writer/WorkClass/
+正常冷恢复分派。Opaque观察类型无public构造；其actual provider/mint、Root确认签名/
+content/loan/冷重建及完整physical gates、实际物理对账仍未实施，不拿pending/DTO补齐。
+仅代码/必要编译，未运行tests/真实provider或环境操作，四包/29切片/三个flags不提升。

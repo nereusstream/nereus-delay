@@ -33,7 +33,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Activation {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation {}
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
@@ -54,6 +54,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             TargetEvidenceRetirementStore.SourceHistory history) implements Inputs {
         public Retirement(TargetQuotaScope scope,TargetEvidenceRetirementStore.Approval approval){this(scope,approval,null);}
         public Retirement { Objects.requireNonNull(scope); if (scope.target() != null) throw new IllegalArgumentException("retirement needs Source scope"); }
+    }
+    public record Confirmation(TargetQuotaScope scope,TargetEvidenceRetirementStore.ConfirmationApproval approval,
+            TargetEvidenceRetirementStore.SourceHistory history) implements Inputs {
+        public Confirmation{Objects.requireNonNull(scope);Objects.requireNonNull(history);if(scope.target()!=null)throw new IllegalArgumentException("confirmation requires original Source scope");}
     }
 
     private final Provider provider;
@@ -110,6 +114,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(), commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
             case Retirement value -> retirement(entry, value, held, commit, guard);
+            case Confirmation value -> confirmation(entry,value,held,commit,guard);
             case Activation value -> {
                 final var original=(SourceReplayMutation)entry;final var body=TargetProtocolActivationBody.decode(original.mutation().canonicalBody());
                 final var a=value.authority();final var frozen=freeze(value.prepared(),entry,a.registrations(),v->a.keys().resolve(v,entry.position()),held,guard);
@@ -180,6 +185,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Outcome ignored -> TargetSourceAuthorityPreparation.Family.OUTCOME;
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
+            case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Activation ignored -> TargetSourceAuthorityPreparation.Family.ACTIVATION;
         };
     }
@@ -239,6 +245,57 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 requireEntry(scope,actor,actual,source);history.current().run();return history;
             }
         }, commit);
+    }
+
+    private TargetSourceApplyRuntime.RetirementControl confirmation(SourceReplayEntry entry,Confirmation input,
+            Held held,TargetStoreBackend.CommitAuthority commit,Runnable guard){
+        if(!(entry instanceof SourceReplayMutation original)||original.mutation().type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+            throw new IllegalArgumentException("confirmation snapshot changed its original Source operation");
+        final var mutation=original.mutation();final var body=TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());
+        input.scope().requireRoute(body.shard(),body.resource().tenantScope());
+        final var prior=Objects.requireNonNull(input.history());prior.select(body.resource(),mutation,entry.position());
+        held.requireCurrent();guard.run();final var pin=prior.pin();
+        held.bytes=Math.addExact(held.bytes,Math.addExact(prior.proof().canonicalBytes().length,
+                Math.addExact(pin.authority().canonicalBytes().length,pin.key().getEncoded().length+256L)));
+        if(held.bytes>maximumBytes)throw new IllegalStateException("complete confirmation history exceeds Source input bound");
+        final var history=new TargetEvidenceRetirementStore.SourceHistory(prior.proof(),new TargetRetirementAuthorizationHistory.Pin(
+                pin.authority(),pin.keyVersion(),pin.key(),pin.baselineDigest(),pin.root(),pin.namespace()),()->{
+            held.requireCurrent();prior.current().run();held.requireCurrent();
+        });
+        final var approved=input.approval();final TargetEvidenceRetirementStore.ConfirmationApproval frozen;
+        if(approved==null)frozen=null;
+        else{
+            approved.current().run();held.requireCurrent();guard.run();
+            final var observed=approved.observation();final byte[] encoded=approved.writerKey().getEncoded();
+            if(encoded==null||encoded.length!=44)throw new IllegalStateException("confirmation writer requires original Ed25519 key");
+            final long upper=Math.addExact(observed.retainedBytes(),encoded.length);
+            if(upper>maximumBytes-held.bytes)throw new IllegalStateException("complete confirmation receipt exceeds reserved Source inputs");
+            observed.requireConfirmation(body);final PublicKey key;
+            try{key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));}
+            catch(java.security.GeneralSecurityException invalid){throw new IllegalStateException("invalid original confirmation Source key",invalid);}
+            held.bytes=Math.addExact(held.bytes,upper);
+            frozen=new TargetEvidenceRetirementStore.ConfirmationApproval(key,observed,()->{
+                held.requireCurrent();approved.current().run();held.requireCurrent();
+            },approved.activatedTuple(),approved.historyGrant());
+        }
+        held.requireCurrent();guard.run();
+        return new TargetSourceApplyRuntime.RetirementControl(new TargetEvidenceRetirementStore.Authority(){
+            private void requireEntry(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                held.requireCurrent();requireSource(entry,source);
+                if(!scope.equals(input.scope())||!Arrays.equals(actor.canonicalBytes(),mutation.authorIdentity())
+                        ||actual!=mutation&&!Arrays.equals(held.digest,Bytes.sha256(actual.canonicalEnvelope())))
+                    throw new IllegalStateException("confirmation snapshot changed original Source/subject/frame");
+            }
+            public TargetEvidenceRetirementStore.Approval resolve(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                throw new IllegalArgumentException("confirmation snapshot cannot approve a retirement intent");
+            }
+            public TargetEvidenceRetirementStore.ConfirmationApproval resolveConfirmation(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                requireEntry(scope,actor,actual,source);if(frozen!=null)frozen.current().run();return frozen;
+            }
+            public TargetEvidenceRetirementStore.SourceHistory history(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
+                requireEntry(scope,actor,actual,source);history.current().run();return history;
+            }
+        },commit);
     }
 
     @FunctionalInterface private interface Keys { PublicKey resolve(long version); }
