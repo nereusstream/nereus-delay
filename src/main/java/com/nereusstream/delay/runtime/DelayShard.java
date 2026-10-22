@@ -2262,6 +2262,8 @@ public final class DelayShard {
      */
     public synchronized SystemMutationResult applySystemMutation(
             final SystemMutation mutation, final SourcePosition sourcePosition, final PublicKey verificationKey) {
+        if(Objects.requireNonNull(mutation,"mutation").type()==SystemMutationType.TARGET_RESOURCE_RECLAIM)
+            throw new IllegalArgumentException("Target generation9 reclaim cannot execute in the legacy Lane core");
         return runReadRetryableMutation(() -> applySystemMutationInTurn(mutation, sourcePosition, verificationKey));
     }
 

@@ -83,6 +83,7 @@ offset  size  field
 | `CLAIM_RESULT` | 11 |
 | `DLQ_EXPORT_RESULT` | 12 |
 | `TARGET_PUBLISH_ADMISSION` | 13 |
+| `TARGET_RESOURCE_RECLAIM` | 14 |
 
 Supporting body enums:
 
@@ -1173,7 +1174,7 @@ replay 的新实例；没有 ACK 不分配新的 mapping/sequence。新进程恢
 record/byte 预算有限，恢复耗尽不导出部分可发送状态；无限 sentinel 被拒绝。该边界不授权新 Source
 tuple、Native template、Target evidence cursor、checkpoint/Floor、retention/GC 或生产 Owner 接管。
 
-Outer `AuthorIdentity` branch is closed by mutation type: `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`, and `RESOLVE_UNCERTAIN` require `control`; `TIME_FENCE` requires `fence`; `PUBLISH_ADMISSION`, `PUBLISH_OUTCOME`, `EXPIRE_GENERATION`, `CLAIM_RESULT`, and `TARGET_PUBLISH_ADMISSION` require `owner`; `EVIDENCE_RESOLUTION`, both resource mutations, and `DLQ_EXPORT_RESULT` require `service`. Legacy Admission outer Owner must equal body field 10 and Claim precondition Owner; Target Admission outer Owner must equal Target body field 11. Target Admission field 16 is its Claim-derived `PublishAttemptId` and must equal the outer logical operation identity. Claim Result outer Owner must equal precondition Owner. Publish Outcome's Owner is checked against the immutable attempt ledger (the recovery-unknown Outcome is authored by the new current Owner and uses the explicit recovery code). Every signing key and service/fence/control generation must be in the Route's source-protected historical accepted-writer set for that record, retained through its retry/Recovery-Floor replay window. Owner authorization is likewise historical: an accepted signature, typed Owner and exact lease-fencing digest/body equalities are validated, but apply-time current Owner mismatch alone cannot invalidate an earlier Admission. Current lease/Store/certificate state only gates a new physical call. Wrong branch, unproved generation or equality mismatch is `UNAUTHORIZED_SYSTEM_MUTATION`, never a fallback branch. Nereus Delay assumes accepted service writers are non-Byzantine; a compromised accepted signing key is outside the normal failure model.
+Outer `AuthorIdentity` branch is closed by mutation type: `APPLY_SHARD_CONTROL`, `REPLAY_DEAD_LETTER`, and `RESOLVE_UNCERTAIN` require `control`; `TIME_FENCE` requires `fence`; `PUBLISH_ADMISSION`, `PUBLISH_OUTCOME`, `EXPIRE_GENERATION`, `CLAIM_RESULT`, and `TARGET_PUBLISH_ADMISSION` require `owner`; `EVIDENCE_RESOLUTION`, both resource mutations, `DLQ_EXPORT_RESULT`, and `TARGET_RESOURCE_RECLAIM` require `service`. Legacy Admission outer Owner must equal body field 10 and Claim precondition Owner; Target Admission outer Owner must equal Target body field 11. Target Admission field 16 is its Claim-derived `PublishAttemptId` and must equal the outer logical operation identity. Claim Result outer Owner must equal precondition Owner. Publish Outcome's Owner is checked against the immutable attempt ledger (the recovery-unknown Outcome is authored by the new current Owner and uses the explicit recovery code). Every signing key and service/fence/control generation must be in the Route's source-protected historical accepted-writer set for that record, retained through its retry/Recovery-Floor replay window. Owner authorization is likewise historical: an accepted signature, typed Owner and exact lease-fencing digest/body equalities are validated, but apply-time current Owner mismatch alone cannot invalidate an earlier Admission. Current lease/Store/certificate state only gates a new physical call. Wrong branch, unproved generation or equality mismatch is `UNAUTHORIZED_SYSTEM_MUTATION`, never a fallback branch. Nereus Delay assumes accepted service writers are non-Byzantine; a compromised accepted signing key is outside the normal failure model.
 
 For `PUBLISH_ADMISSION`, descriptor fields 4–5/10–13 must equal body fields 13–17/21, and field 18 must equal the descriptor hash formula. Certificate fields 2–6/16 must equal body Owner/Store/Lane/channel/digest, and certificate fields 13–15 must equal channel fields 14–16. Claim-precondition fields 1–3/5–6/14–15 must equal body fields 12/15–16/13–14/10–11, and its materialization must be the exact projection of descriptor fields 6–9/11–12/15–16/18–20. Any mismatch is `STALE_SYSTEM_MUTATION`; a hash-valid descriptor is persisted in full before Producer authorization.
 
@@ -5236,3 +5237,36 @@ Native51、历史CONFIRM grant/实际先行descriptor5、原完整closure与保�
 stamp的exact Native52；热物理请求仍只接受Native51。历史分支要求当前OBSERVE与实际
 qualified admission hold，不要求旧SERVICE今天重新获得RETIRE或签名权。无新PUT、hash/
 time/UUID、转换热观察、签名、Source enqueue或退款权限；Source/Native/marker wire不变。
+
+
+### Target 原生资源回收分支（2026-10-23，body9）
+
+System type14 TARGET_RESOURCE_RECLAIM是同Shard的SERVICE signed Source请求，外层
+framing/logEnvelope/envelope/bodyVersion仍为1，独立tuple为(1,1,SYSTEM_MUTATION,1,9)。
+不重释type1..13、body1..8、ResourceKind1..8或kind8授权。Body字段：
+
+| field | 内容 |
+|---:|---|
+| 1/2/3 | 原ShardSubject/type14/retryUntil |
+| 9 | Target body generation=9 |
+| 10 | 完整SHARD TargetQuotaScope1 |
+| 11/12/13 | 原lineage16/deploymentRoot32/namespace32，均非零 |
+| 14 | 完整RecoveryFloorRef，Source有界且同Shard/lineage |
+| 15 | OperationGroup：repeated字段1，按operation identity无符号升序、唯一 |
+
+Group为1..32项，整个body至多8388608bytes；这是schema ceiling，不认证运行配置的
+服务上界。当前封闭operation仅schema1/kind1 UNUSED_ATTEMPT_RESERVE：字段1=1、2=1、
+3=完整预期TargetQuotaAttemptBudget。预期必须RESOLVED_AWAITING_FLOOR、同scope/
+lineage，Floor结构覆盖其最新mutation；完整值包含原owner/accounting、revision/digest、
+allocation/resolution，解析不证明实际Store/保护。该kind1是本body内操作编号，不是
+legacy ResourceKind1。没有caller CF/key/value/delta/prefix delete字段；未知操作拒绝。
+逻辑身份=SHA256(domain `nereus-delay-target-resource-reclaim-logical-identity\0` + scope
+canonical + lineage + deploymentRoot + namespace + OperationGroup canonical)，不含retry/
+Floor，不用UUID；外层mutation hash仍覆盖完整body，第一次实际apply须重验预期值。
+
+Source历史追加Action3 RESOURCE_RECLAIM，只配tuple9；Action1/2仍只配tuple8。沿独立
+Root pin/完整历史区间验签，body自身精确scope/root/namespace/lineage/Source覆盖；kind8
+resource选择API拒Action3。旧history canonical branches不变，旧reader遇新action/type
+明确拒绝，legacy Lane core在dedupe/写入前拒type14，不能默认APPLIED/STALE。
+当前落地仅封闭请求/身份/历史用途；descriptor、companion、实际Source writer/Native
+phase与减费仍待接入，不凭本codec或grant声明激活或退款。

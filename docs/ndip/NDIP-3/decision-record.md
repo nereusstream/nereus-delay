@@ -1393,3 +1393,25 @@ Source→namespace/exact publication配置绑定，同DB重启从原Content配�
 历史分支不转换Observed、不新写/签/入队/退款，commit仅本地held检查；Native gate已能
 在provider前处理确定过期/未激活，保retained-first优先。无未知ID/gen Ref降级与材料
 补造，完整实现和部署/集中验证责任不缩减。
+
+
+## 2026-10-23：原生资源回收必须使用独立 signed Source
+
+主会话确认admission/HeldAdmission/FreshAllocation为可信composition-root的外部部署
+权威边界，具体provider/获取释放失效协议及材料归部署集成；仓库保精确身份scope、
+有界输入、held责任与默认拒绝，不造服务、IAM/allocator/通用库存，不将具体部署缺失
+写成已生产可用。未定义ProtectionRef ID/generation限制继续保留。
+
+原生Unused reserve、retained allocation、payload release、terminal/result reclaim批准
+独立SERVICE type14 TARGET_RESOURCE_RECLAIM/body9/独立用途与tuple，沿原Source/
+有界WorkClass/单pending/UNKNOWN/drain，不新增local ordinal。封闭有界组冻结实际
+身份/原owner/lineage/预期完整状态与Floor；只有首次实际Source apply同批改phase/删
+记录/减费并保history/first/POSITION，未知保护不假拒绝或视作空。Unused reserve仅
+RESOLVED且全部reserved writer结束；retained实占按真实删记录精确减少；inline/
+Native payload同批真实primary Message清理并保RELEASED owner STATE。外部payload先
+Source持久retire-intent/禁止新用，再锁外真实有界条件provider，最后Source确认释放；
+不借legacy kind1或kind8 receipt/GET授权。terminal/result只能删受保护闭合叶子/组，
+保surviving first/Attempt/history/query/replay/export/control和永久fence，不自删本次
+GC幂等依据。实际Catalog/Floor/ancestry/Pin/image、原Native/Journal/SDK持有责任、历史
+SERVICE/key/用途/撤销区间/actual activation必须完整，commit只核held本地事实。
+当前仅协议/历史用途基础，actual Source写者及全闭环继续实施，未授权环境删除或迁退。

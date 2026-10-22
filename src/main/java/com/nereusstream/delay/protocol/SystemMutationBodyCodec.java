@@ -14,6 +14,7 @@ public final class SystemMutationBodyCodec {
     /** Validates required/optional operation fields without interpreting their nested semantic objects. */
     public static void validate(final SystemMutationType type, final byte[] canonicalBody) {
         Objects.requireNonNull(type, "type");
+        if(type==SystemMutationType.TARGET_RESOURCE_RECLAIM){TargetResourceReclaimBody.decode(canonicalBody);return;}
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
         Spec[] specs = specs(type);
@@ -109,6 +110,7 @@ public final class SystemMutationBodyCodec {
 
     private static Spec[] specs(final SystemMutationType type) {
         return switch (type) {
+            case TARGET_RESOURCE_RECLAIM -> throw new IllegalStateException("reclaim uses its closed typed body codec");
             case APPLY_SHARD_CONTROL ->
                 new Spec[] {nested(10), varint(11), varint(12), fixed(13, 32, true), optionalVarint(14), nested(15)};
             case REPLAY_DEAD_LETTER ->

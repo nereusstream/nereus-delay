@@ -14,7 +14,8 @@ public enum SystemMutationType {
     RESOURCE_DELETE_CONFIRMED(10),
     CLAIM_RESULT(11),
     DLQ_EXPORT_RESULT(12),
-    TARGET_PUBLISH_ADMISSION(13);
+    TARGET_PUBLISH_ADMISSION(13),
+    TARGET_RESOURCE_RECLAIM(14);
 
     private final int wireValue;
 

@@ -71,6 +71,9 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetEvidenceRetirement() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetEvidenceRetireIntentBody.BODY_VERSION);
     }
+    public static ProtocolTuple targetResourceReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.BODY_VERSION);
+    }
 
     public long framingVersion() {
         return framingVersion;

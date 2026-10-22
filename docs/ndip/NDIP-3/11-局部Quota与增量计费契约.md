@@ -2738,3 +2738,11 @@ bytes和MAX_HISTORY_BYTES=32768预扣一个record/输入上界，读取后与验
 elapsed/current；不足或已超时不得创建Admin或发布可用资格。独立Inputs.load入口也
 必须取得显式有限预算。普通有界文件/不跟随symlink/前后身份校验、原SDK费用和失败
 owner责任保持，不因deadline拒绝认定尚未退出的I/O已终止。
+
+
+2026-10-23 原生回收请求采用type14/body9。UnusedAttemptReserve只冻结完整预期Budget
+和Floor；不能由codec、phase或Floor DTO减额度。实际retainAfterCheckpoint仍须全部
+reserved writer已结束、最新相关写入受Floor覆盖且本次Source/sequence严格晚于Floor，
+与新history/first/POSITION和真实before/after charge同批。ADMITTED/UNKNOWN不动；
+后续retained实占只按真实已删分类/费用减少，独立SDK/zombie/外部provider责任不释放。
+当前无Native写者/减费实现，本批不改变任何存量账本。

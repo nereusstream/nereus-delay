@@ -21,7 +21,7 @@ public final class TargetRetirementAuthorizationHistory {
     private TargetRetirementAuthorizationHistory() {}
 
     public enum Action {
-        RETIRE_INTENT(1), DELETE_CONFIRMATION(2);
+        RETIRE_INTENT(1), DELETE_CONFIRMATION(2), RESOURCE_RECLAIM(3);
         private final int wire;
         Action(int wire) { this.wire=wire; }
         public int wireValue() { return wire; }
@@ -29,6 +29,7 @@ public final class TargetRetirementAuthorizationHistory {
             return switch(type) {
                 case RESOURCE_RETIRE_INTENT -> RETIRE_INTENT;
                 case RESOURCE_DELETE_CONFIRMED -> DELETE_CONFIRMATION;
+                case TARGET_RESOURCE_RECLAIM -> RESOURCE_RECLAIM;
                 default -> throw new IllegalArgumentException("not a Target retirement action");
             };
         }
@@ -44,9 +45,9 @@ public final class TargetRetirementAuthorizationHistory {
         public Grant {
             Objects.requireNonNull(service); Objects.requireNonNull(action); Objects.requireNonNull(activation);
             if(service.kind()!=AuthorIdentity.Kind.SERVICE||service.canonicalBytes().length>1024||keyVersion==0
-                    ||!activation.tuple().equals(ProtocolTuple.targetEvidenceRetirement())
+                    ||!activation.tuple().equals(action==Action.RESOURCE_RECLAIM?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement())
                     ||activation.canonicalBytes().length>4096)
-                throw new IllegalArgumentException("history grant requires exact SERVICE/key/action/generation8 activation reference");
+                throw new IllegalArgumentException("history grant requires exact SERVICE/key/action and its independent activation tuple");
             publicKey=Bytes.copy(Objects.requireNonNull(publicKey));decodeKey(publicKey);
             targetDescriptorDigest=TargetCompatibilityCodec.assigned(targetDescriptorDigest,32,"exact Target activation descriptor");
             targetActivationDigest=TargetCompatibilityCodec.assigned(targetActivationDigest,32,"actual Target activation projection");
@@ -280,9 +281,12 @@ public final class TargetRetirementAuthorizationHistory {
         public Snapshot snapshot(){return snapshot;}
         public void requireCoverage(TargetExternalEvidenceObjectResource resource,SourcePosition source){interval(resource,source);}
         private Interval interval(TargetExternalEvidenceObjectResource resource,SourcePosition source){
-            if(!snapshot.scope.shard().equals(resource.shard())||!Arrays.equals(snapshot.scope.tenantScope(),resource.tenantScope())
-                    ||!Arrays.equals(snapshot.lineage,resource.recoveryLineage())||!Arrays.equals(snapshot.deploymentRoot,resource.deploymentRootDigest())
-                    ||!Arrays.equals(snapshot.namespace,resource.catalogNamespaceId()))throw new Unavailable("history does not cover exact resource scope");
+            return interval(new TargetQuotaScope(resource.shard(),resource.tenantScope(),null),resource.recoveryLineage(),
+                    resource.deploymentRootDigest(),resource.catalogNamespaceId(),source);
+        }
+        private Interval interval(TargetQuotaScope scope,byte[] lineage,byte[] root,byte[] namespace,SourcePosition source){
+            if(!snapshot.scope.equals(scope)||!Arrays.equals(snapshot.lineage,lineage)||!Arrays.equals(snapshot.deploymentRoot,root)
+                    ||!Arrays.equals(snapshot.namespace,namespace))throw new Unavailable("history does not cover exact resource scope");
             if(!snapshot.afterExclusive().sameSourceIdentity(source)||source.compareTo(snapshot.afterExclusive())<=0
                     ||source.compareTo(snapshot.throughInclusive())>0)throw new Unavailable("original Source point is outside sealed complete history");
             for(var interval:snapshot.intervals)if(source.compareTo(interval.throughInclusive())<=0)return interval;
@@ -291,7 +295,17 @@ public final class TargetRetirementAuthorizationHistory {
         /** Empty means proved deny inside complete coverage. Outside coverage throws and must never become denial. */
         public Optional<Grant> select(TargetExternalEvidenceObjectResource resource,SourcePosition source,
                 AuthorIdentity service,int version,Action action){
-            final var covered=interval(resource,source);final byte[] actor=Objects.requireNonNull(service).canonicalBytes();
+            if(action==Action.RESOURCE_RECLAIM)throw new IllegalArgumentException("native reclaim requires its own closed Source body/scope");
+            return select(interval(resource,source),service,version,action);
+        }
+        public void requireCoverage(TargetResourceReclaimBody body,SourcePosition source){
+            interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source);
+        }
+        public Optional<Grant> select(TargetResourceReclaimBody body,SourcePosition source,AuthorIdentity service,int version){
+            return select(interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source),service,version,Action.RESOURCE_RECLAIM);
+        }
+        private Optional<Grant> select(Interval covered,AuthorIdentity service,int version,Action action){
+            final byte[] actor=Objects.requireNonNull(service).canonicalBytes();
             for(var grant:covered.grants)if(grant.keyVersion==version&&grant.action==action
                     &&Arrays.equals(grant.service.canonicalBytes(),actor))return Optional.of(grant);
             return Optional.empty();
