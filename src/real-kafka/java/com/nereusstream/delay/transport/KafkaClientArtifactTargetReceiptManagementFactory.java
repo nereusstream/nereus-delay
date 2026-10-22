@@ -391,6 +391,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private MarkerReservationRequest markerRequest;
         private volatile OwnedCheckpointIo<PayloadPreparation> payloadRetirement;
         private OxiaSyncTargetKafkaReceiptProtectionCatalog.PayloadRetirementProtection payloadProtection;
+        private volatile OwnedCheckpointIo<com.nereusstream.delay.protocol.SystemMutation> confirmationSignature;
+        private byte[] confirmationSignatureSelection;
+        private ConfirmationSourceInputs confirmationSourceInputs;
         private com.nereusstream.delay.ownership.TargetWorkerOxiaProviders registryInputOwner;
         private RetirementSourceCopy retirementSourceCopy;
         private RetirementHistoryInput retirementHistoryInput;
@@ -741,11 +744,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             private final Opening root;
             private final KafkaClientArtifactTargetWorkerSourceFactory.Opening source;
             private final byte[] selection;
+            private final long reservedWindowBytes;
             private OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation;
             private boolean released,sourceBorrowed;
             private PayloadPreparation(Opening root,KafkaClientArtifactTargetWorkerSourceFactory.Opening source,byte[] selection,
-                    OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation){
-                this.root=root;this.source=source;this.selection=selection;this.observation=observation;observation.requireCatalog(root.catalog);
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,long reservedWindowBytes){
+                this.root=root;this.source=source;this.selection=selection;this.observation=observation;this.reservedWindowBytes=reservedWindowBytes;
+                observation.requireCatalog(root.catalog);
             }
             public void requireRoot(Opening expected){synchronized(root){
                 if(root!=expected)throw new IllegalArgumentException("payload observation belongs to another original Root");root.requireReady();
@@ -787,7 +792,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     synchronized(this){payloadProtection=protection;}
                     final var observation=catalog.retireEvidencePayload(protection,catalogReads,nativeReads,recoveryReads,
                             ()->source.retirementSigningTime(this,protection.applied().record().copy().resource(),current),current);
-                    current.run();return new PayloadPreparation(this,source,selection,observation);
+                    current.run();return new PayloadPreparation(this,source,selection,observation,minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]);
                 }catch(RuntimeException|Error rejected){failed(rejected);throw rejected;}
             },this::requireReady,io);
             payloadRetirement=next;return next.receipt();
@@ -1054,6 +1059,12 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     return original.provider().load(entry,family,current);
                 if(!(entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation))
                     throw new IllegalArgumentException("retirement Source content changed original frame");
+                if(mutation.mutation().type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_DELETE_CONFIRMED){
+                    final var confirmation=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.mutation().canonicalBody());
+                    if(confirmation.markerRetained()&&(!recoveryOnly||confirmation.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
+                        return loadConfirmationSourceInputs(mutation,scope,original.maximumBytes(),current);
+                    return original.provider().load(entry,family,current);
+                }
                 if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
                     return original.provider().load(entry,family,current);
                 final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody()).resource().provenance();
@@ -1142,6 +1153,68 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
         }
 
+        /** Same Source owned-I/O turn; a hot observation is borrowed, never reconstructed from the body DTO. */
+        private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadConfirmationSourceInputs(
+                com.nereusstream.delay.ownership.SourceReplayMutation entry,com.nereusstream.delay.protocol.TargetQuotaScope scope,
+                long maximumBytes,Runnable current){
+            current.run();final var body=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(entry.mutation().canonicalBody());
+            scope.requireRoute(body.shard(),body.resource().tenantScope());
+            final var history=readRetirementHistory(entry,current);
+            try{
+                current.run();final var grant=history.grant();
+                final long frame=Math.addExact(entry.mutation().canonicalBodyLength(),(long)entry.mutation().authorIdentityLength()+4096);
+                long bytes=Math.addExact(frame,history.retainedBytes());
+                if(bytes>maximumBytes)throw new IllegalStateException("complete confirmation frame/history exceeds Source input reservation");
+                synchronized(this){
+                    requireReady();if(confirmationSourceInputs!=null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original confirmation input remains owned");
+                    PayloadPreparation payload=null;
+                    if(grant.isPresent()){
+                        payload=payloadRetirement==null?null:payloadRetirement.completedValue().orElse(null);
+                        if(payload==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("historical confirmation requires actual protected provider authentication");
+                        payload.requireRoot(this);if(payload.sourceBorrowed)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("actual provider observation is already borrowed");
+                        payload.observation.requireConfirmation(body);
+                        bytes=Math.addExact(bytes,Math.addExact(payload.observation.retainedBytes(),44L));
+                    }
+                    if(bytes>maximumBytes)throw new IllegalStateException("complete actual confirmation observation exceeds Source input reservation");
+                    final var held=new ConfirmationSourceInputs(this,entry,scope,history,payload,bytes);
+                    if(payload!=null)payload.sourceBorrowed=true;confirmationSourceInputs=held;
+                    try{held.requireCurrent();return held;}
+                    catch(RuntimeException|Error failure){confirmationSourceInputs=null;if(payload!=null)payload.sourceBorrowed=false;throw failure;}
+                }
+            }catch(RuntimeException|Error failure){try{history.close();}catch(RuntimeException|Error cleanup){failure.addSuppressed(cleanup);}throw failure;}
+        }
+        private static final class ConfirmationSourceInputs implements com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs {
+            private final Opening root;
+            private final com.nereusstream.delay.ownership.SourceReplayMutation entry;
+            private final RetirementHistoryInput history;
+            private final PayloadPreparation payload;
+            private final long bytes;
+            private final com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Confirmation input;
+            private boolean closing,closed;
+            private ConfirmationSourceInputs(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
+                    com.nereusstream.delay.protocol.TargetQuotaScope scope,RetirementHistoryInput history,PayloadPreparation payload,long bytes){
+                this.root=root;this.entry=entry;this.history=history;this.payload=payload;this.bytes=bytes;
+                final var grant=history.grant();final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.ConfirmationApproval approval;
+                if(grant.isEmpty())approval=null;
+                else{final var original=grant.orElseThrow();approval=new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.ConfirmationApproval(
+                        original.writerKey(),Objects.requireNonNull(payload).observation,this::requireCurrent,original.activation().tuple(),original);}
+                input=new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Confirmation(scope,approval,history.sourceHistory());
+            }
+            public com.nereusstream.delay.ownership.SourceReplayEntry entry(){return entry;}
+            public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs inputs(){return input;}
+            public long retainedBytes(){return bytes;}
+            /** Immutable observation/history and actual local loan state only; no Worker/Registry/provider RPC at commit. */
+            public void requireCurrent(){synchronized(root){
+                if(closed||closing||root.confirmationSourceInputs!=this)throw new IllegalStateException("original confirmation Source input closed");
+                root.requireReady();history.requireCurrent();if(payload!=null)payload.requireRoot(root);
+            }}
+            public void close(){
+                synchronized(root){if(closed)return;if(closing)throw new IllegalStateException("original confirmation input close remains owned");closing=true;}
+                try{history.close();synchronized(root){if(payload!=null)payload.sourceBorrowed=false;root.confirmationSourceInputs=null;closed=true;}}
+                finally{synchronized(root){closing=false;}}
+            }
+        }
+
         /** Authenticates complete history on the existing Source I/O turn; activation/provider/capacity checks remain independent. */
         public RetirementHistoryInput readRetirementHistory(com.nereusstream.delay.ownership.SourceReplayMutation entry,Runnable current){
             Objects.requireNonNull(entry);Objects.requireNonNull(current);
@@ -1149,12 +1222,18 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final RetirementHistoryInput loan;final KafkaClientArtifactTargetRetirementHistoryConfiguration.Loaded history;
             synchronized(this){
                 requireReady();history=Objects.requireNonNull(retirementHistory,"explicit independent retirement Source history configuration");
-                if(markerReservation!=null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original marker reservation I/O/window remains owned");
+                if(markerReservation!=null&&(entry.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                        ||!markerReservation.ioExited()||payloadRetirement==null||!payloadRetirement.ioExited()))
+                    throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original marker/physical I/O/window remains owned");
+                if(confirmationSignature!=null&&!confirmationSignature.ioExited())
+                    throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original confirmation signing input remains owned");
                 if(retirementHistoryInput!=null||retirementSourceCopy!=null&&!sameRetirementEntry(retirementSourceCopy.entry,entry))
                     throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original Root Source history/copy remains owned");
                 final long[] minimum=new long[CapacityDimension.COUNT];
                 final var prepared=retirementPreparation==null?null:retirementPreparation.completedValue().orElse(null);
-                final long keptWindow=prepared!=null&&!prepared.released?prepared.reservedWindowBytes:retainedInputBytes;
+                final var physical=payloadRetirement==null?null:payloadRetirement.completedValue().orElse(null);
+                final long keptWindow=physical!=null&&!physical.released?physical.reservedWindowBytes:
+                        prepared!=null&&!prepared.released?prepared.reservedWindowBytes:retainedInputBytes;
                 minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(keptWindow,
                         Math.multiplyExact(4L,Math.addExact(entry.mutation().canonicalBodyLength(),(long)entry.mutation().authorIdentityLength()+4096)));
                 allocation.requireCovers(new CapacityVector(minimum));
@@ -1324,6 +1403,45 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             },this::requireReady,io);
             retirementSignatureSelection=selection;retirementSignature=next;return next.receipt();
         }
+        public synchronized java.util.concurrent.CompletableFuture<com.nereusstream.delay.protocol.SystemMutation> signRetirementConfirmation(
+                PayloadPreparation payload,long retryUntil){
+            payload.requireRoot(this);final var signer=Objects.requireNonNull(retirementSigning,"explicit original confirmation signing configuration");
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(payload.reservedWindowBytes,signer.signingWindowBytes());
+            allocation.requireCovers(new CapacityVector(minimum));
+            final byte[] selection=Bytes.sha256(payload.observation.evidence().canonicalBytes(),Bytes.u64beBits(retryUntil));
+            if(confirmationSignature!=null){
+                if(!Arrays.equals(selection,confirmationSignatureSelection))throw new IllegalStateException("original signed confirmation remains owned");
+                confirmationSignature.retryCleanup();
+                if(!confirmationSignature.ioExited()||confirmationSignature.completedValue().isPresent())return confirmationSignature.receipt();
+                confirmationSignature=null;
+            }
+            if(payload.sourceBorrowed||confirmationSourceInputs!=null||retirementHistoryInput!=null)
+                throw new IllegalStateException("original Source still holds actual confirmation inputs");
+            final var next=OwnedCheckpointIo.submit(guard->{
+                final Runnable current=()->{guard.run();payload.requireRoot(this);};
+                final var actual=Objects.requireNonNull(payloadProtection).applied();
+                final var time=payload.source.retirementSigningTime(this,actual.record().copy().resource(),current);
+                return signer.signConfirmation(actual,payload.observation,retryUntil,time,current);
+            },this::requireReady,io);
+            confirmationSignatureSelection=selection;confirmationSignature=next;return next.receipt();
+        }
+        public com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementConfirmation(
+                PayloadPreparation payload,com.nereusstream.delay.ownership.OwnedSourceSystemWriter writer){
+            final com.nereusstream.delay.protocol.SystemMutation signed;
+            synchronized(this){
+                payload.requireRoot(this);
+                if(retirementSubmitting||confirmationSignature==null||!confirmationSignature.ioExited())
+                    throw new IllegalStateException("original confirmation signing/submission remains owned");
+                signed=confirmationSignature.completedValue().orElseThrow();Objects.requireNonNull(retirementSigning).requireConfirmationSigned(signed);
+                payload.observation.requireConfirmation(com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(signed.canonicalBody()));
+                retirementSubmitting=true;
+            }
+            try{return payload.source.submitRetirementConfirmation(this,signed,writer,()->{
+                payload.requireRoot(this);Objects.requireNonNull(retirementSigning).requireConfirmationSigned(signed);
+            },retained->{synchronized(this){retirementSubmission=retained;if(stopping)retained.requestStop();}});}
+            finally{synchronized(this){retirementSubmitting=false;}}
+        }
 
         /** Uses the same Worker's actual registered Source writer and shared WorkClass queue; no local apply shortcut. */
         public com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirementIntent(
@@ -1454,6 +1572,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var uses = closedUsesRead; if (uses != null) uses.requestStop();
             final var retirement = retirementPreparation; if (retirement != null) retirement.requestStop();
             final var signature=retirementSignature;if(signature!=null)signature.requestStop();
+            final var confirmation=confirmationSignature;if(confirmation!=null)confirmation.requestStop();
             final var release=retirementRelease;if(release!=null)release.requestStop();
             final var marker=markerReservation;if(marker!=null)marker.requestStop();
             final var payload=payloadRetirement;if(payload!=null)payload.requestStop();
@@ -1480,6 +1599,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(retirement!=null){retirement.requestStop();retirement.retryCleanup();if(!retirement.ioExited())return false;}
             final var signature=retirementSignature;
             if(signature!=null){signature.requestStop();signature.retryCleanup();if(!signature.ioExited())return false;}
+            final var confirmation=confirmationSignature;
+            if(confirmation!=null){confirmation.requestStop();confirmation.retryCleanup();if(!confirmation.ioExited())return false;}
             final var release=retirementRelease;
             if(release!=null){release.requestStop();release.retryCleanup();if(!release.ioExited())return false;}
             final var marker=markerReservation;
@@ -1490,6 +1611,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(actualPayload!=null&&actualPayload.sourceBorrowed)return false;
             if(retirementSubmitting)return false;
             if(retirementHistoryInput!=null)return false;
+            if(confirmationSourceInputs!=null)return false;
             if(retirementSourceCopy!=null)return false;
             final var submission=retirementSubmission;
             if(submission!=null){submission.requestStop();if(!submission.ioExited())return false;}
@@ -1523,6 +1645,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             closedUsesRead=null;closedUsesSource=null;closedUsesSelection=null;
             retirementPreparation=null;retirementSource=null;retirementSelection=null;
             retirementSignature=null;retirementSignatureSelection=null;retirementRelease=null;
+            confirmationSignature=null;confirmationSignatureSelection=null;
             retirementSubmission=null;
             final var charge = allocation;
             if (charge != null&&!registryInputRetained) { if (nativeStarted) charge.closed(); else charge.releaseUnstarted(); }

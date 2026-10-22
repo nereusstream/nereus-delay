@@ -1363,3 +1363,22 @@ CAS/IfAbsent及新正向confirmation授权前Unavailable；不得忽略ID/gen，
 契约。此为物理资格限制，不是数据格式错误，不据空声明或编译提升整包完成状态。
 现已接原Source/Catalog实际绑定与全动态composite、真实条件操作/GET/private observation
 producer，整链的Root signing/Source loan/cold与幂等差额未闭合，继续连续推进。
+
+2026-10-22 主会话批准独立HistoricalConfirmation私有历史认证，不另造通用provider
+日志：完整可信Source事件本身是原writer受独立DELETE_CONFIRMATION grant授权、按
+受限实际观察协议签发的耐久见证；一般Source权限、裸DTO或任意旧签名不够。资格历史
+须覆盖原confirmation writer受限签发语义，历史Source区间/accepted tip/父链/exact
+SERVICE/key/先行Target descriptor5必须认证，今天的角色/激活不补历史。只允许当前
+合法Source/recovery装配原实际entry进入，绑定完整canonical envelope、ID/hash、物理
+Source incarnation/position与原intent stamp/resource/context/closure。原READY Root/
+guard/allocation、persistent marker reservation、实际Native NV51/完整uses/first/POSITION、
+qualified history/current hold及实际Floor/copy/Pin/引用保护都重验；现有未解析Ref边界
+不变。actual GET须原key的persistent exact marker，旧body的raw/完整bytes/长度/version
+全匹配，同bytes新version亦拒绝，不能put修复。该私有类型与热ObservedRetiredMarker
+不可互换，不表示本次条件成功/拒绝，不供sign/enqueue/physical退款或GC。原requestKind/
+version/hash/response/time/签名原样保留，今天读事实只作当前一致性检查，不生成新UUID
+假称旧请求。历史重放不要求旧SERVICE重获今天RETIRE/签发权限；commit只核本地held。
+retained-first仍在任何取数前；没有first的历史确认同原Native批次首次结算。只有marker
+而原签名确认未进实际Source时，不可合成历史帧，必须沿原UNKNOWN/pending约束恢复后
+新实际条件尝试/观察及当前签发。历史认证不清旧SDK责任，也不代替幂等物理账。
+此裁定已记录，独立历史类型/实际cold Native读桥接仍待实现，不声称本批已支持cold。

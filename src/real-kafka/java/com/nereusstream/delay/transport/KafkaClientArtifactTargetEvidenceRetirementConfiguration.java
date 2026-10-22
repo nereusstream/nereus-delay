@@ -138,9 +138,30 @@ final class KafkaClientArtifactTargetEvidenceRetirementConfiguration {
             current.run(); requireCurrent(time); return signed;
         }
         void requireSigned(SystemMutation intent) {
-            if (intent.type() != SystemMutationType.RESOURCE_RETIRE_INTENT || intent.signingKeyVersion() != input.version()
+            requireSigned(intent,SystemMutationType.RESOURCE_RETIRE_INTENT);
+        }
+        void requireConfirmationSigned(SystemMutation confirmation){requireSigned(confirmation,SystemMutationType.RESOURCE_DELETE_CONFIRMED);}
+        private void requireSigned(SystemMutation intent,SystemMutationType type){
+            if (intent.type() != type || intent.signingKeyVersion() != input.version()
                     || !Arrays.equals(intent.authorIdentity(), service.canonicalBytes()) || !intent.verifySignature(publicKey))
                 throw new IllegalArgumentException("Source input differs from original Root retirement signature");
+        }
+        SystemMutation signConfirmation(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent applied,
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,long retryUntil,
+                TrustedUtcIntervalEvidence time,Runnable current){
+            current.run();requireCurrent(time);final var actual=Objects.requireNonNull(applied).record();
+            final var resource=actual.copy().resource();
+            if(!Arrays.equals(resource.deploymentRootDigest(),input.deploymentRoot())||retryUntil<time.latestEpochMs())
+                throw new IllegalArgumentException("confirmation changed original deployment or live retry window");
+            final var reference=new ResourceDeleteConfirmedBody.RetireIntentRef(actual.intent().systemMutationId(),actual.intent().mutationHash(),
+                    resource.exactIdentity().identityHash(),0);
+            final var body=TargetEvidenceDeleteConfirmedBody.markerRetained(resource.shard(),retryUntil,reference,
+                    observation.evidence(),time,resource,actual.body().context());
+            observation.requireConfirmation(body);final var key=privateKey;
+            if(key==null)throw new IllegalStateException("original confirmation signing key closed");
+            final var signed=SystemMutation.signed(body.shard(),SystemMutationType.RESOURCE_DELETE_CONFIRMED,retryUntil,
+                    body.logicalOperationIdentity(),body.canonicalBytes(),service.canonicalBytes(),input.version(),key);
+            current.run();requireCurrent(time);return signed;
         }
         void requestStop() { stopped = true; }
         void close() { requestStop(); privateKey = null; }
