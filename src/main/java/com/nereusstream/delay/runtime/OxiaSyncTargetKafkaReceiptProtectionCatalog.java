@@ -1329,6 +1329,15 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     /** Startup must run this before constructing Admin or admitting ordinary operations. It never initializes storage. */
     public void requireReadyRoot(byte[] deploymentRoot){final var actual=readRoot();requireExact(actual.root.binding.policy.scope().deploymentRoot(),deploymentRoot);}
 
+    /** Actual protected allocation identity for independent lifecycle qualification; no caller-supplied namespace. */
+    public TargetCatalogRootAuthority.Scope evidenceLifecycleScope(byte[] deploymentRoot,BoundedReadBudget reads,Runnable current){
+        Objects.requireNonNull(reads);Objects.requireNonNull(current);requireManagedMarkerInputOwner();
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite actual lifecycle scope reads required");
+        current.run();final var actual=readRoot(reads);final var scope=actual.root.binding.policy.scope();
+        requireExact(scope.deploymentRoot(),deploymentRoot);current.run();
+        if(!reads.beforeTimedWork())throw reads.incomplete();return scope;
+    }
+
     /** Explicit owned-I/O metadata initialization/adoption. No generic read/update path can enter it. */
     public void initializeRoot(TargetCatalogRootAuthority.Policy policy,byte[] deploymentRoot,
             com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Authenticator authenticator,

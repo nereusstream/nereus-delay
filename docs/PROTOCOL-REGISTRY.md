@@ -5175,3 +5175,15 @@ Manifest/image/companion/原lifecycle权限，并要求完整exact NV51 copy。�
 它是动态事实，不是远端Pin准入屏障或kind8退役许可；原Source的Catalog绑定、受信完整
 部署历史资格及当前admission epoch保护、全部ProtectionRef解析和Root组合仍待接入。
 不改wire、已APPLIED intent、Pin创建/释放规则或既有ordinal。
+
+2026-10-22 独立外部资格材料 EvidenceObjectLifecycle History1：外层1=完整body、2=64字节
+Ed25519签名；body 1=schema1、2=固定QUALIFY_EVIDENCE_OBJECT_LIFECYCLE purpose、3=原
+Catalog Scope1、4/5=起始epoch/version、6/7=结束epoch/version、8=独立完整baseline
+digest32、9=实际证据来源digest32、10=repeated闭合Rule编号、11=CONTROL AuthorIdentity、
+12=key-version。规则1=条件原值writer、2=原Root/Native/Pin引用reader、3=Native-only
+reservation QUERY、4=Native/认证copy-only export；至少1/2，未知/重复/非canonical拒绝。
+采用独立history/signature域及原Root独立Scope/完整baseline/issuer/Ed25519 key pin，
+材料不携公钥、不自定完整起点、不签发部署历史；起止epoch按uint64 bits，版本非负且不
+回退。原authenticator的actual held-admission另核exact scope/end epoch/version/history
+digest并承担操作期准入约束，默认unavailable；静态材料不是当前退役许可或零引用证明。
+不改SystemMutation、Native或既有Root1..5、Source body/ordinal；实际provider组合继续开放。

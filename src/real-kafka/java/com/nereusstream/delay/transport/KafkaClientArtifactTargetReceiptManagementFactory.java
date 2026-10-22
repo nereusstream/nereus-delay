@@ -3,6 +3,7 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import com.nereusstream.delay.ownership.TargetCatalogRootAuthority;
+import com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority;
 import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
 import com.nereusstream.delay.ownership.TargetReceiptControlHistory;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
@@ -49,8 +50,12 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     private KafkaClientArtifactTargetReceiptManagementFactory() {}
 
     /** Independent trusted inputs; no initializer is inferred from ordinary management or absent storage. */
-    public record CatalogRootInputs(TargetCatalogRootAuthority history, CatalogInitialization initialization) {
+    public record CatalogRootInputs(TargetCatalogRootAuthority history, CatalogInitialization initialization,
+            TargetEvidenceObjectLifecycleAuthority.Inputs evidenceLifecycle) {
         public CatalogRootInputs { Objects.requireNonNull(history); }
+        public CatalogRootInputs(TargetCatalogRootAuthority history,CatalogInitialization initialization){this(history,initialization,null);}
+        public long maximumRetainedBytes(){return Math.addExact(TargetCatalogRootAuthority.maximumInputBytes(),
+                evidenceLifecycle==null?0:evidenceLifecycle.maximumRetainedBytes());}
     }
     public record CatalogInitialization(TargetCatalogRootAuthority.Policy policy,
             TargetReceiptCurrentManagement.Authenticator authenticator, TargetCatalogRootAuthority.FreshAllocation externalAllocation,
@@ -239,7 +244,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 retirementSigning, TargetKafkaReceiptManagementImage.decode(config.management().image()).deploymentRootDigest());
         final var historyInputs=retirementHistory==null?null:KafkaClientArtifactTargetRetirementHistoryConfiguration.prepare(retirementHistory,
                 TargetKafkaReceiptManagementImage.decode(config.management().image()).deploymentRootDigest());
-        final long bytes = Math.addExact(catalogRoot==null?0:TargetCatalogRootAuthority.maximumInputBytes(),Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
+        final long bytes = Math.addExact(catalogRoot==null?0:catalogRoot.maximumRetainedBytes(),Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
                 Math.addExact(retainedConfigurationBytes(config.management(), config.admin(), config.receipts()),
                         Math.addExact(recovery == null ? 0 : recovery.maximumRetainedBytes(),
                                 Math.addExact(retirement == null ? 0 : retirement.maximumRetainedBytes(),historyInputs==null?0:historyInputs.maximumRetainedBytes())))));
@@ -267,7 +272,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         Objects.requireNonNull(inputs.current(), "actual current whole-topic scope authority");
         final var config=load(path);
         return openLoaded(root,config,budget,guard->inputs,null,Math.addExact(retainedConfigurationBytes(config.management(),config.admin(),config.receipts()),
-                inputs.catalogRoot()==null?0:TargetCatalogRootAuthority.maximumInputBytes()));
+                inputs.catalogRoot()==null?0:inputs.catalogRoot().maximumRetainedBytes()));
     }
 
     private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
@@ -363,6 +368,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private volatile KafkaClientArtifactTargetEvidenceRetirementConfiguration.Loaded retirementSigning;
         private KafkaClientArtifactTargetRetirementHistoryConfiguration.Inputs retirementHistoryInputs;
         private volatile KafkaClientArtifactTargetRetirementHistoryConfiguration.Loaded retirementHistory;
+        private TargetEvidenceObjectLifecycleAuthority.Verified evidenceLifecycle;
+        private TargetReceiptCurrentManagement.Authenticator evidenceLifecycleAuthenticator;
+        private TargetEvidenceObjectLifecycleAuthority.AdmissionProtection evidenceAdmission;
+        private boolean evidenceAdmissionAcquiring;
         private final long retainedInputBytes;
         private volatile OwnedCheckpointIo<OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject> referenceClosure;
         private String referenceClosureKey;
@@ -445,6 +454,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     if(initialize!=null)catalog.initializeRoot(initialize.policy(),image.deploymentRootDigest(),initialize.authenticator(),
                             initialize.externalAllocation(),Objects.requireNonNull(initialize.reads().get(),"original finite Catalog initialization read budget"),guard);
                     guard.run();catalog.requireReadyRoot(image.deploymentRootDigest());guard.run();
+                    final var lifecycle=rootInputs.evidenceLifecycle();
+                    if(lifecycle!=null){
+                        final var actualScope=catalog.evidenceLifecycleScope(image.deploymentRootDigest(),
+                                Objects.requireNonNull(lifecycle.reads().get(),"finite actual lifecycle scope reads"),guard);
+                        try{evidenceLifecycle=lifecycle.load(actualScope,guard);}
+                        catch(IOException rejected){throw new IllegalStateException("original complete lifecycle history materialization failed",rejected);}
+                        evidenceLifecycleAuthenticator=lifecycle.authenticator();
+                    }
                     if(retirementHistoryInputs!=null){
                         try{retirementHistory=KafkaClientArtifactTargetRetirementHistoryConfiguration.load(retirementHistoryInputs,catalog.namespaceIdentity(image),guard);}
                         catch(IOException rejected){throw new IllegalStateException("original retirement authorization history materialization failed",rejected);}
@@ -601,6 +618,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         }
         private void requireRetirementIoExited(){
             requireMarkerWindowFree();
+            if(evidenceAdmissionAcquiring||evidenceAdmission!=null)throw new IllegalStateException("original actual deployment/admission protection remains owned");
             if(retirementHistoryInput!=null)throw new IllegalStateException("original Source retirement history remains owned");
             if(retirementSourceCopy!=null)throw new IllegalStateException("original Source retirement input remains owned");
             if(retirementPreparation!=null&&!retirementPreparation.ioExited())
@@ -615,6 +633,27 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private void requireRetirementAuxiliaryIoExited(){
             if(retirementSignature!=null&&!retirementSignature.ioExited()||retirementRelease!=null&&!retirementRelease.ioExited())
                 throw new IllegalStateException("original retirement signing/release I/O remains owned");
+        }
+        /** Called only by the original finite physical task; retain before validation, including failure/stop. */
+        private TargetEvidenceObjectLifecycleAuthority.AdmissionProtection acquireEvidenceAdmission(){
+            requireReady();final TargetEvidenceObjectLifecycleAuthority.Verified history;
+            final TargetReceiptCurrentManagement.Authenticator authenticator;
+            synchronized(this){
+                if(evidenceAdmissionAcquiring||evidenceAdmission!=null)throw new IllegalStateException("original lifecycle admission hold is already owned");
+                history=Objects.requireNonNull(evidenceLifecycle,"independent complete lifecycle history is unavailable");
+                authenticator=Objects.requireNonNull(evidenceLifecycleAuthenticator,"actual original admission authenticator is unavailable");
+                evidenceAdmissionAcquiring=true;
+            }
+            final TargetEvidenceObjectLifecycleAuthority.AdmissionProtection acquired;
+            try{
+                acquired=history.acquire(authenticator);
+                synchronized(this){evidenceAdmission=acquired;evidenceAdmissionAcquiring=false;}
+            }catch(RuntimeException|Error rejected){
+                synchronized(this){evidenceAdmissionAcquiring=false;}
+                failed(rejected);throw rejected;
+            }
+            try{acquired.requireCurrent();requireReady();return acquired;}
+            catch(RuntimeException|Error rejected){failed(rejected);throw rejected;}
         }
         private static final class MarkerReservationRequest {
             private final KafkaClientArtifactTargetWorkerSourceFactory.Opening source;
@@ -1386,6 +1425,11 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(retirementSourceCopy!=null)return false;
             final var submission=retirementSubmission;
             if(submission!=null){submission.requestStop();if(!submission.ioExited())return false;}
+            if(evidenceAdmissionAcquiring)return false;
+            if(evidenceAdmission!=null){
+                try{evidenceAdmission.close();evidenceAdmission=null;}
+                catch(RuntimeException|Error rejected){rememberCleanup(rejected);return false;}
+            }
             final var preparedRetirement=retirement==null?null:retirement.completedValue().orElse(null);
             if(preparedRetirement!=null){if(preparedRetirement.sourceBorrowed)return false;preparedRetirement.releaseLocal();}
             final var actual = manager;
@@ -1402,6 +1446,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             recoveryArchive = null; recoveryInputs = null;
             retirementSigning=null;retirementSigningInputs=null;
             retirementHistory=null;retirementHistoryInputs=null;
+            evidenceLifecycle=null;evidenceLifecycleAuthenticator=null;
             referenceClosure=null;referenceClosureKey=null;referenceClosureOwner=null;
             closedUsesRead=null;closedUsesSource=null;closedUsesSelection=null;
             retirementPreparation=null;retirementSource=null;retirementSelection=null;

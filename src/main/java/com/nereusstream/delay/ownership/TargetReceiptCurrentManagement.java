@@ -12,7 +12,14 @@ public final class TargetReceiptCurrentManagement {
         RETIRE_EVIDENCE_OBJECT_PAYLOAD }
 
     /** Trusted deployment authenticator; must acquire one consistent current identity/policy view. */
-    @FunctionalInterface public interface Authenticator { Snapshot authenticate(); }
+    @FunctionalInterface public interface Authenticator {
+        Snapshot authenticate();
+        /** Actual original deployment/admission responsibility; ordinary identity snapshots do not implement it. */
+        default TargetEvidenceObjectLifecycleAuthority.HeldAdmission protectEvidenceObjectLifecycle(
+                TargetEvidenceObjectLifecycleAuthority.Verified history) {
+            throw new IllegalStateException("actual protected deployment/admission epoch is unavailable");
+        }
+    }
     /** Immutable local view; the root authenticator retains its own transports/resources, none transfer to this snapshot. */
     public interface Snapshot {
         ControlAuthorizationContext context();
