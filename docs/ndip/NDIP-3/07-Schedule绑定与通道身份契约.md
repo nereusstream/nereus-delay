@@ -1141,3 +1141,12 @@ POSITION/history/uses和descriptor5不可由caller DTO拼出；Raw marker中的S
 Root4 marker预留没有provider事实，后续仍须受信历史conditional-only部署与实际Floor/
 checkpoint/Pin/query/共享引用门禁；原本地I/O/晚回调/UNKNOWN责任不变。缺旧Root不得
 当fresh namespace重初始化的启动保护未闭合，不能据此进入运行或保护清退。
+
+2026-10-16 Root-owned metadata slot固定原Source/完整signed frame、管理Root和managed
+SDK身份；Root预留结果只是pending。进入Catalog后的failure不因matching数据/超时/
+future完成变为SDK已结清，原Source故障和原Client费用保留；费用只能经原backend交
+同图同pool的原Oxia owner在真实termination后释放，不能新client接替责任。当前Source
+lease/guard自身SDK请求仍保原Source责任，no-Catalog只释放未进入Catalog的局部输入。
+新的fresh/adopt current-policy用途不继承BEGIN/CLOSE/platform role；fresh须外部原
+allocation从未普通使用和一次性责任，缺材料或两个key都缺失仍Unavailable。guard
+PENDING/READY及旧bootstrap晚写保护已裁定，实际格式/入口/Factory切换尚未实施。

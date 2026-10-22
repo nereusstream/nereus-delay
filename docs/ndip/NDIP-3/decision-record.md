@@ -1276,3 +1276,29 @@ owner/uses/5及原Root closure/capacity/SDK binding，预留future证据与Sourc
 namespace缺Root的bootstrap保护、实际conditional-writer来源与Floor/Pin/共享保护、
 原payload CAS/观察私有receipt、Source确认/物理结算仍未闭合。marker/key最终GC仍无
 server级保证，不进入真实操作。单agent/不Fast，集中验证后置，不提升四包/29切片flags。
+
+2026-10-16 主决策会话裁定缺Root/bootstrap边界：批准独立INITIALIZE_FRESH_CATALOG_ROOT
+与ADOPT_EXISTING_CATALOG_ROOT_GUARD用途，旧BEGIN/CLOSE/当前PLATFORM_OPERATOR/配置/双
+缺失不继承。fresh签名current-policy须绑定实际SDK namespace/prefix/root+guard key/
+deployment/capacity limits/allocation+nonce，并另有真实外部分配权威保留exact allocation
+从未普通使用及一次性初始化责任；事实不得随本root/guard丢失，static allow不等于它。
+只消费外部实际authority/provider，不新造allocator/IAM/Source CONTROL链；缺材料为环境
+前提，不能换nonce/actor重开用过的key。普通read/find/update/begin/publication/Admin
+只读受保护READY Root，缺/坏/不匹配均失败。私有typed bootstrap先耐久PENDING guard，
+再不可普通使用的initial Root，有限CAS完成绑定/READY；中间态不能普通操作。仅FRESH
+PENDING same allocation/nonce且外部仍确认never-used可续，不接未知非空Root；READY不能
+回PENDING，Root显式live/初始化证据/actual version共同拒late初始化IfAbsent变可用空Root。
+LEGACY adoption仅接actual现存完整Root，独立metadata权限下先CAS reserve关联事实/费用再
+装guard，同nonce有限步骤，丢Root/降级/原绑定不符均Unavailable，旧bytes只保解码供受控
+adoption。不扫描猜Root/不自动迁移。guard/Root关联真实bytes/records计原capacity，超额
+不put，unknown不退，不能删guard/压缩曾READY事实回收fresh名额；无server保证不授GC。
+这些新purpose/guard协议和Factory默认fail-closed切换仍未实现。
+本轮实现此前批准的metadata I/O保守边界：Root-owned有限slot与actual Native intent/
+Catalog CAS，进入Catalog后异常原slot/费用保留，Root原故障路径fence Sources；本项CAS
+不把matching reread合成为I/O已退出。Admin与Oxia退出不同，实际method/Admin退出后把原
+Client费用经原backend交实际Oxia owner，同图同pool/既有maxClients界限，actual SDK
+termination+cleanup task exit后才退；释放失败保留。普通Source guard SDK责任另保，
+未进Catalog的真实局部no-start可discard。只完成本地责任交接，未实际marker/Floor/
+Pin/query保护/Source确认/物理退款；全client退出不证明remote不可重放，仍不得删Root/
+guard/marker。无新service/thread/retry/default额度，单agent/不Fast，集中验证后置。
+这次实际SDK费用交接最终覆盖所有managed Catalog backing的关闭，不仅marker异常，因Admin退出均不能证明Registry输入退出；borrowed backing保旧close路径但不能准入新marker操作。原pool/resources/maximumClients与实际未release charge必须保持。

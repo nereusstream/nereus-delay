@@ -2655,3 +2655,14 @@ pending不退payload差额、不释放record、不产生Target费用。实际rea
 预算，Native read受finite Source预算；Root4实际读还核原SDK namespace/root key绑定。
 原Root-owned task与buffer/UNKNOWN退场接线、actual payload操作/Source确认与物理结算
 仍未实现；元数据reread只证明pending存在，不能证明旧SDK put已退出或借此归还额度。
+
+2026-10-16 marker metadata窗口在原Root allocation内预核完整Source frame/Native/Root
+峰值，单slot持有直至原success handle释放或fault cleanup；其它retirement/Source loans
+不借用该窗口。无Catalog-start失败只释放新局部输入，不替Source SDK退出自证。进入
+Catalog后的未知请求即使数据matching也不退额；Admin已关闭仍不能当Oxia终止。原Client
+经原backend转给实际Oxia owner，要求同Worker resources和同预算池，max holds来自既有
+maximumClients，无新默认额度。Oxia actual termination/cleanup task退出才闭原Client；
+关闭失败仍持charge/firstFailure，Process由既有顺序继续清理。此本地费用交接不动Root4
+持久bytes/records/publications，不授payload差额/Target账本退款或root/marker GC。
+最大RSS/并发普通业务窗口和故障恢复尚待集中验证。
+managed Catalog正常及构造失败关闭也保原Client Registry输入费用到实际SDK termination；已released费用不得重新登记为活的hold。该保留不改原额度，borrowed backing不准入marker但保旧close。

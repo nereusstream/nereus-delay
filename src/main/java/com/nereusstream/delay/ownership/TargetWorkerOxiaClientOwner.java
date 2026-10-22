@@ -18,6 +18,9 @@ public final class TargetWorkerOxiaClientOwner {
     private final ThreadPoolExecutor executor;
     private final WorkerNativeResourceLedger.Reservation cost;
     private final Duration cleanupBudget;
+    private final SharedRocksDbResources resources;
+    private TargetDestinationSdkBudget retainedInputBudget;
+    private final java.util.Set<TargetDestinationSdkBudget.Client> retainedInputs=java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private final CompletableFuture<SyncOxiaClient> ready = new CompletableFuture<>();
     private OwnedCheckpointIo<OxiaClientLifecycle.Opening> openingTask;
     private OwnedCheckpointIo<OxiaClientCleanup.Status> closingTask;
@@ -50,7 +53,7 @@ public final class TargetWorkerOxiaClientOwner {
         shared.requireRuntimeBusinessAdmission();
         var reservation = shared.reserveNativeResource("oxia-sdk/" + Objects.requireNonNull(allocationId),
                 NativeResourceUsage.zero(), nativeBytes);
-        var owner = new TargetWorkerOxiaClientOwner(pool, reservation, cleanupBudget);
+        var owner = new TargetWorkerOxiaClientOwner(pool, reservation, cleanupBudget,resources);
         try {
             owner.openingTask = OwnedCheckpointIo.submit(guard -> {
                 synchronized (owner) { owner.openingEntered = true; }
@@ -122,7 +125,28 @@ public final class TargetWorkerOxiaClientOwner {
     }
 
     private TargetWorkerOxiaClientOwner(ThreadPoolExecutor executor, WorkerNativeResourceLedger.Reservation cost,
-            Duration cleanupBudget) { this.executor = executor; this.cost = cost; this.cleanupBudget = cleanupBudget; }
+            Duration cleanupBudget,SharedRocksDbResources resources) { this.executor = executor; this.cost = cost; this.cleanupBudget = cleanupBudget;this.resources=resources; }
+
+    /** Other SDK methods have exited; retain their exact input charge while this original Registry SDK may still hold bytes. */
+    public synchronized void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input){
+        Objects.requireNonNull(input);input.requireResources(resources);
+        if(released){input.closed();return;}
+        if(input.released())throw new IllegalStateException("Registry input charge was released before actual SDK termination");
+        final var budget=input.owningBudget();
+        if(retainedInputBudget!=null&&retainedInputBudget!=budget)
+            throw new IllegalArgumentException("Registry input hold changes the original bounded Worker SDK pool");
+        if(!retainedInputs.contains(input)&&retainedInputs.size()>=budget.maximumClients())
+            throw new IllegalStateException("original Registry input hold bound exhausted");
+        retainedInputBudget=budget;retainedInputs.add(input);
+    }
+    private void closeRetainedInputs(){
+        if(!released)return;
+        for(var iterator=retainedInputs.iterator();iterator.hasNext();){
+            final var input=iterator.next();
+            try{input.closed();iterator.remove();}catch(RuntimeException|Error failure){retain(failure);}
+        }
+        if(retainedInputs.isEmpty())retainedInputBudget=null;
+    }
 
     public synchronized Duration requireConfiguredRequestTimeout() {
         if (configuredRequestTimeout == null || configuredRequestTimeout.toMillis() < 1
@@ -182,14 +206,15 @@ public final class TargetWorkerOxiaClientOwner {
     }
 
     public synchronized void retryCleanup() {
-        if (!stopping || released || openingTask == null || !openingTask.ioExited()
+        if(released){closeRetainedInputs();return;}
+        if (!stopping || openingTask == null || !openingTask.ioExited()
                 || closingTask != null && !closingTask.ioExited()) return;
         if (cleanup == null) {
             if (!openingEntered) { cost.close(); released = true; }
             // An unexpected failure after entering SDK opening is unknown until its actual cleanup handle is retained.
             return;
         }
-        if (cleanup.status().terminated()) { cost.close(); released = true; return; }
+        if (cleanup.status().terminated()) { cost.close(); released = true;closeRetainedInputs(); return; }
         try {
             closingTask = OwnedCheckpointIo.submit(ignored -> {
                 var result = cleanup.close(cleanupBudget);
@@ -204,7 +229,7 @@ public final class TargetWorkerOxiaClientOwner {
                 && (closingTask == null || closingTask.ioExited()) && cleanup != null && cleanup.status().terminated()) {
             cost.close(); released = true;
         }
-        return released;
+        closeRetainedInputs();return released&&retainedInputs.isEmpty();
     }
 
     public java.util.Optional<OxiaClientCleanup.Status> nativeStatus() {

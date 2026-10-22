@@ -28,6 +28,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private final Limits limits;
     private final TargetKafkaReceiptProtectionTrust trust;
     private final java.util.function.Supplier<byte[]> storageNamespaceBinding;
+    private final java.util.function.Consumer<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> retainStorageInput;
+    private final java.util.function.BooleanSupplier managedStorageInputOwner;
 
     /** Control-storage physical budget, separate from Target logical EVIDENCE and system-writer append reservations. */
     public record Limits(long physicalBytes, int physicalRecords, int maximumPublications, int maximumTopics,
@@ -391,6 +393,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             TargetKafkaReceiptProtectionTrust trust,Limits limits){
         client=Objects.requireNonNull(handle,"session-fenced Registry handle").client();session=handle.backend()::assertConnectedSession;
         storageNamespaceBinding=handle.backend()::requireOriginalStorageNamespaceBinding;
+        retainStorageInput=handle.backend()::retainClosedClientInputUntilTermination;
+        managedStorageInputOwner=handle.backend()::hasManagedClientInputOwner;
         this.trust=Objects.requireNonNull(trust,"original CONTROL trust");this.limits=Objects.requireNonNull(limits,"explicit durable capacity configuration");
         prefix=Objects.requireNonNull(keyPrefix,"Registry prefix");
         if(prefix.isBlank()||prefix.endsWith("/")||prefix.indexOf('\0')>=0||prefix.getBytes(StandardCharsets.UTF_8).length>1024||!Normalizer.isNormalized(prefix,Normalizer.Form.NFC))throw new IllegalArgumentException("invalid receipt Registry prefix");
@@ -946,6 +950,14 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             if(catalog!=expected)throw new IllegalArgumentException("marker reservation belongs to another original Catalog");
         }
     }
+    /** Local budget handoff only, after the caller's other SDKs/methods close; no server outcome is inferred. */
+    public void retainClientInputsUntilStorageSdkTermination(com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client input){
+        retainStorageInput.accept(Objects.requireNonNull(input));
+    }
+    public boolean hasManagedStorageInputOwner(){return managedStorageInputOwner.getAsBoolean();}
+    public void requireManagedMarkerInputOwner(){
+        if(!hasManagedStorageInputOwner())throw new IllegalStateException("marker metadata requires its original managed Registry SDK owner");
+    }
     /** Caller retains original owned-I/O/read-window responsibility; this CAS never writes the payload key. */
     public ReservedMarker reserveRetiredMarker(TargetEvidenceRetirementStore.AppliedIntent applied,BoundedReadBudget reads,Runnable current){
         Objects.requireNonNull(applied);Objects.requireNonNull(reads);Objects.requireNonNull(current).run();
@@ -973,7 +985,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                     if(adopted)throw new IllegalStateException("staging marker reservation acquired an adoption");
                 }
                 return root.reserveMarker(desired);
-            },guarded,reads);
+            },guarded,reads,false);
             requireExact(Objects.requireNonNull(result.markers.get(marker.exactKey())).bytes(),desired.bytes());
             final var observed=readRoot(reads).root;
             requireExact(Objects.requireNonNull(observed.markers.get(marker.exactKey()),"durable marker reservation").bytes(),desired.bytes());
@@ -1202,12 +1214,18 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private Root update(UnaryOperator<Root> operation){ return update(operation, session); }
     private Root update(UnaryOperator<Root> operation,Runnable current){return update(operation,current,null);}
     private Root update(UnaryOperator<Root> operation,Runnable current,BoundedReadBudget budget){
+        return update(operation,current,budget,true);
+    }
+    private Root update(UnaryOperator<Root> operation,Runnable current,BoundedReadBudget budget,boolean acceptUncertainReadback){
         for(int attempt=0;attempt<MAX_CAS_ATTEMPTS;attempt++){current.run();final var before=budget==null?readRoot():readRoot(budget);requireLimits(before.root.limits);final var after=operation.apply(before.root);final byte[] desired=after.bytes();
             if(before.stored!=null&&Arrays.equals(before.stored.value(),desired)){current.run();return after;}
             try{session.run();current.run();final var result=client.put(ledgerKey,desired,before.stored==null?Set.of(PutOption.IfRecordDoesNotExist):Set.of(PutOption.IfVersionIdEquals(before.stored.version().versionId())));session.run();current.run();
                 if(result==null||!ledgerKey.equals(result.key())||result.version()==null)throw new IllegalStateException("receipt capacity CAS returned no exact key/version");}
             catch(KeyAlreadyExistsException|UnexpectedVersionIdException race){continue;}
-            catch(RuntimeException uncertain){current.run();final var observed=budget==null?readRoot():readRoot(budget);if(observed.stored==null||!Arrays.equals(observed.stored.value(),desired))throw uncertain;current.run();return observed.root;}
+            catch(RuntimeException uncertain){
+                if(!acceptUncertainReadback)throw uncertain;
+                current.run();final var observed=budget==null?readRoot():readRoot(budget);if(observed.stored==null||!Arrays.equals(observed.stored.value(),desired))throw uncertain;current.run();return observed.root;
+            }
             final var observed=budget==null?readRoot():readRoot(budget);if(observed.stored!=null&&Arrays.equals(observed.stored.value(),desired)){current.run();return observed.root;}
             // A competing legitimate update may have advanced after this CAS; reapply idempotently, never overwrite it.
         }throw new IllegalStateException("receipt capacity CAS did not converge within configured bound");

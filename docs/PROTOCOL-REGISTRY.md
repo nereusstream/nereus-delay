@@ -5044,3 +5044,40 @@ conditional payload CAS/exact observation, Source confirmation and physical
 settlement remain unimplemented. Old-namespace missing-Root/bootstrap protection
 also remains required before operational rollout; no present-code-only history or
 missing Root may be used as fresh capacity. Final marker/key GC is not authorized.
+
+2026-10-16 Root-owned pending-marker workflow now runs on the original bounded
+OwnedCheckpointIo pool. It preflights complete frame/Native/Root windows, requires
+the original managed Registry SDK owner before admission, reads actual Source
+AppliedIntent and creates Root4 pending capacity metadata. One exact signed frame/
+Source selection coalesces; other retirement/Source-input windows cannot reuse
+its held space. MarkerPreparation is Root-owned pending data, not provider or
+no-recreate evidence. Successful local release never refunds persistent capacity.
+This metadata CAS uses strict unknown handling: RuntimeException is propagated,
+even if a later read could find identical data. Its failed entered-Catalog slot
+is retained and faults the original receipt backing/Sources. Only an actually
+exited no-Catalog-start failure can discard its local input window; this does not
+assert that separate Source/Owner SDK responsibilities have exited. Stop/cancel/
+future completion never substitutes for the original method/SDK cleanup.
+Kafka Admin close and shared Oxia termination are distinct. After actual methods/
+Admin close, an uncertain Catalog input charge is handed to the original Oxia
+owner captured by its actual backend. The exact Client belongs to the same Worker
+resource graph and original finite SDK pool; holds are bounded by that pool's
+maximumClients. Receipt cleanup can then advance to Oxia cleanup without a cycle,
+while the original Client/capacity remains charged. Only actual Oxia termination
+and original cleanup-task exit release the transferred charge; release failure
+keeps the hold/cleanup failure. No new client, executor, retry service or default
+limit is introduced. Neither local termination nor this handoff proves a remote
+request cannot replay or authorizes root/guard/marker GC.
+Bootstrap/guard semantics have been independently decided: ordinary missing Root
+must fail closed; INITIALIZE_FRESH_CATALOG_ROOT and ADOPT_EXISTING_CATALOG_ROOT_GUARD
+are distinct current-policy purposes, not inherited from BEGIN/CLOSE/operator role.
+Freshness and one-time use require real external allocation authority retained
+outside this Root/guard; static allow/config/two missing keys are insufficient.
+FRESH PENDING permits same-nonce continuation only with that authority and an
+unusable initialization image; LEGACY PENDING never reconstructs a missing Root.
+READY guard/root must bind actual identity/version/live image and reject late old
+bootstrap values. Guard/root bytes/records remain charged. These purposes, guard
+protocol/admission and startup protection are not implemented by this workflow.
+Actual payload replacement/Floor/Pin/query/shared protection, provider receipt,
+Source confirmation/refund/physical settlement and full recovery remain open.
+The close handoff covers every backing with an actual managed Catalog SDK, including normal/constructor-failure paths; Admin exit alone does not settle any such Registry inputs. Borrowed backings retain their previous close path and cannot enter this new marker workflow. Already-released input charges cannot be attached as if they still funded an active SDK.

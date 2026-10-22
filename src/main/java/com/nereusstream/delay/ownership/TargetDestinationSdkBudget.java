@@ -118,6 +118,10 @@ public final class TargetDestinationSdkBudget {
         /** Invoke only after successful SDK close, or the dependency's failed-constructor cleanup returned. */
         public void closed() { synchronized (TargetDestinationSdkBudget.this) { release(); } }
         public boolean released() { synchronized (TargetDestinationSdkBudget.this) { return released; } }
+        TargetDestinationSdkBudget owningBudget(){return TargetDestinationSdkBudget.this;}
+        void requireResources(SharedRocksDbResources expected){
+            if(resources!=expected)throw new IllegalArgumentException("SDK input charge belongs to another actual Worker resource graph");
+        }
         private void release() {
             if (released) { return; }
             final var next = used.subtract(cost);
