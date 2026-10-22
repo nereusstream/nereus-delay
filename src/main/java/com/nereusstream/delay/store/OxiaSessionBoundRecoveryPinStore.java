@@ -177,6 +177,12 @@ final class OxiaSessionBoundRecoveryPinStore {
         return active == null ? Optional.empty() : Optional.of(active.pin());
     }
 
+    /** Exact original record/version under the caller's finite metadata-read budget; not a pin-creation fence. */
+    PinRecord readForProtection(BoundedReadBudget budget){
+        if(!budget.beforeRead()||!budget.tryCharge(Bytes.utf8(pinRecordKey).length,MAX_PIN_BYTES))throw budget.incomplete();
+        return readPinRecord();
+    }
+
     private PinRecord readPinRecord() {
         final GetResult result = client.get(pinRecordKey);
         if (result == null) {
@@ -297,5 +303,5 @@ final class OxiaSessionBoundRecoveryPinStore {
         }
     }
 
-    private record PinRecord(RecoveryPin pin, Version version) {}
+    record PinRecord(RecoveryPin pin, Version version) {}
 }

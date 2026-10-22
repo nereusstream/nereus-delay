@@ -426,6 +426,32 @@ public final class TargetCheckpointRootVerifier {
             auditManifestImageAuthentication(image, manifest, physical, quota, ledger, semantic, authority, protection);
         }
 
+        /** Bound decoded/canonical audit inputs before starting another complete authentication pass. */
+        public long authenticationInputWindowBytes(){
+            final long encoded=Math.addExact(physical.maxManifestBytes(),Math.addExact(quota.maxKeyValueBytes(),
+                    Math.addExact(ledger.maxKeyValueBytes(),Math.addExact(ledger.maxPointReadBytes(),semantic.maximumBytes()))));
+            return Math.multiplyExact(8L,encoded);
+        }
+
+        /** Authenticates the actual immutable image and requires its complete exact Native51 copy. */
+        public RetiringCopy authenticateRetiringCopy(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent expected){
+            final var actual=Objects.requireNonNull(expected).record();final var resource=actual.copy().resource();
+            if(manifest.storeFormatVersion()!=2||!manifest.shardId().equals(resource.shard())
+                    ||!Arrays.equals(manifest.recoveryLineageId(),resource.recoveryLineage()))
+                throw new IllegalArgumentException("retirement recovery image changed original SHARD/lineage/format");
+            requireCurrent();final var audited=auditManifestImageAuthentication(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            actual.appliedAt().requireAtOrBefore(audited.root().mutationSequence(),audited.root().source());
+            if(!Arrays.equals(audited.root().root().tenantScope(),resource.tenantScope()))
+                throw new IllegalArgumentException("retirement recovery image changed original tenant");
+            final byte[] key=actual.key();com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord retained=null;
+            for(var candidate:audited.dependencies().retirements())if(Arrays.equals(candidate.key(),key)){
+                if(retained!=null)throw new IllegalStateException("duplicate image retirement projection");retained=candidate;
+            }
+            if(retained==null||!Arrays.equals(retained.canonicalBytes(),actual.canonicalBytes()))
+                throw new IllegalStateException("authenticated recovery image lacks the complete exact APPLIED retirement copy");
+            requireCurrent();return new RetiringCopy(this,Bytes.sha256(actual.canonicalBytes()));
+        }
+
         /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */
         public void requireCurrent() { protection.run(); }
 
@@ -435,6 +461,20 @@ public final class TargetCheckpointRootVerifier {
             return new ShardStore.TargetRestoreAuthentication(quota, ledger, semantic, authority, protection,
                     Objects.requireNonNull(installationBudget, "installationBudget"));
         }
+    }
+
+    /** Actual immutable image proof only; Catalog/Floor/Pin/query/physical permission remain separate obligations. */
+    public static final class RetiringCopy {
+        private final AuthenticatedImage image;
+        private final byte[] recordDigest;
+        private RetiringCopy(AuthenticatedImage image,byte[] recordDigest){this.image=image;this.recordDigest=recordDigest;}
+        public CheckpointManifest manifest(){return image.manifest();}
+        public void requireFor(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent expected){
+            requireCurrent();if(!Arrays.equals(recordDigest,Bytes.sha256(expected.record().canonicalBytes())))
+                throw new IllegalArgumentException("recovery copy belongs to another actual Native retirement");
+        }
+        /** Rechecks original held immutable-image permissions/pins; no file or Registry I/O here. */
+        public void requireCurrent(){image.requireCurrent();}
     }
 
     public static AuthenticatedImage authenticateImage(Path image, CheckpointManifest manifest,

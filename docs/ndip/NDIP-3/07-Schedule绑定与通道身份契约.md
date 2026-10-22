@@ -1166,3 +1166,10 @@ lineage与原Root opaque观察，数据hash/签名/pending不替provider事实�
 未来真实provider生产，当前类型不可由caller构造，也未创建任何实例或做物理请求。
 物理当前action RETIRE_EVIDENCE_OBJECT_PAYLOAD独立于CLOSE/BEGIN/角色/Root初始化接管；
 明确拒绝后新exact观察不代表旧UNKNOWN退出或远端最终fencing，marker/key/guard继续保留。
+
+2026-10-22 Recovery事实身份：新Floor/Pin证明只能由原managed SDK publication backend
+和实际published AuthenticatedImage产生，核原SHARD/tenant/lineage、完整exact NV51及
+实际Pin session/candidate/observed Floor，保原backend identity、exact key与namespace。
+完整Root组合仍须关联原Source配置的actual Catalog，不因same SHARD即接受另一个fork。
+独立QUALIFY_EVIDENCE_OBJECT_LIFECYCLE purpose历史材料与当前held admission epoch待接；
+它们不继承Root初始化/接管或RETIRE权限，不从静态签名推导当前零读者/UNKNOWN。

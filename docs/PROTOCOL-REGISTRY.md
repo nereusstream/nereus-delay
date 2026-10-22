@@ -5166,3 +5166,12 @@ READY Root/namespace/deployment/management and exact retiring-object chain, all 
 query/shared protections and qualified conditional-only writer/deployment history. These
 physical gates/provider, Source Root signing/content and recoverable physical-difference
 settlement remain open. No marker/key/guard/record/publication GC or real operation is granted.
+
+2026-10-22 Recovery保护事实组件：原 managed Oxia publication backend新增私有构造的
+EvidenceRecoveryProtection，绑定实际SDK namespace、exact publication key/version/hash、
+实际typed Floor及active ephemeral Pin。完整published parent/hash/sequence/Source覆盖
+intent与prepared closure cut；分别完整认证Floor、Pin candidate和observed Floor的实际
+Manifest/image/companion/原lifecycle权限，并要求完整exact NV51 copy。旧Pin缺copy即阻止。
+它是动态事实，不是远端Pin准入屏障或kind8退役许可；原Source的Catalog绑定、受信完整
+部署历史资格及当前admission epoch保护、全部ProtectionRef解析和Root组合仍待接入。
+不改wire、已APPLIED intent、Pin创建/释放规则或既有ordinal。

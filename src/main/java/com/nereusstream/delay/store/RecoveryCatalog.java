@@ -642,6 +642,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
+    void validateRetainedRecoveryPin(RecoveryPin pin){validatePinProjection(Objects.requireNonNull(pin));}
     private void validatePinProjection(final RecoveryPin pin) {
         if (catalogShard == null
                 || !new ShardSubject(catalogShard).equals(pin.shard())

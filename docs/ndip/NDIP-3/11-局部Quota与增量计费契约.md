@@ -2687,3 +2687,10 @@ observation/history/public-key有限保留字节，仍共用原单pending queue/
 物理Root账独立待接：真实payload差额只能在原可恢复capacity Root幂等结算，重复观察
 不得双退，marker/key/Root关联/guard/records/publication额度保留；新观察不退旧SDK仍
 持有的inputs。显式条件拒绝/SDK退出均不授最终GC，完整资源/并发/恢复验收继续后置。
+
+2026-10-22 Recovery事实采集沿调用方原预算：publication完整输入上限64MiB及exact
+key、Pin上限4KiB及exact key在实际SDK读前计入共享有限read budget；全image认证按原
+physical/quota/ledger/semantic限额计算checked输入窗口，原Root须在I/O前reserve。
+同时保留publication decode与1..3份认证输入窗口，范围是输入/解码估算，不声称RSS。
+原SDK/image实际held责任不转移、不以本地proof构造或close退费；无默认预算/新队列。
+capture及重读检查elapsed，预算耗尽/投影变化不生成可用事实。尚未物理操作或结算差额。

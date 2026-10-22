@@ -1332,3 +1332,23 @@ NV51→NV52/owner/ref/alias/history/tip/first/POSITION/accounting，接原writer
 正常冷恢复分派。Opaque观察类型无public构造；其actual provider/mint、Root确认签名/
 content/loan/冷重建及完整physical gates、实际物理对账仍未实施，不拿pending/DTO补齐。
 仅代码/必要编译，未运行tests/真实provider或环境操作，四包/29切片/三个flags不提升。
+
+2026-10-22 主会话明确完整门禁采用“原受信部署历史资格 + 当前实际保护状态”。独立
+QUALIFY_EVIDENCE_OBJECT_LIFECYCLE purpose的有界签名材料绑定actual SDK namespace、
+exact prefix/Root/guard、allocation/incarnation、deployment、起止epoch/版本和可信完整
+起点/前驱，覆盖全部曾准入writer/reader协议、条件写/禁止重用回退及引用/Pin/关闭转copy/
+永久拒绝迟到引用规则与证据来源。未知路径、断链、reset/rewind、scope错误不可补造fresh
+历史。静态历史之外，必须由原authenticator/held contract提供操作期间实际admission
+约束，阻止未覆盖协议混入；缺失则该部署物理不可用。两次散读/Java对象不代替远端约束。
+kind1沿原Catalog/Floor/Pin及完整实际image；kind3/4/6沿原Root closure/full inventory、
+Native owner/ref/alias/Attempt/Journal/first/POSITION/history/permanent fence与实际SDK/read
+生命周期，不凭空表/换Owner/超时推断退出。kind2/5只有完整qualified旧历史及当前准入
+明确从不依赖原blob（或依赖已保护Native/copy），才判“不依赖本blob”，不写“义务释放”；
+若真实旧audit/export依赖raw，须原系统实际retention/held authority证明终止或等价受保护
+迁移，无接入保持不可退役。本轮不造通用inventory/lease/服务/后台poller。
+ProtectionSet仅签名声明，完整义务由实际协议与exact对象/closure/Native/Catalog推导；
+所有已声明Ref逐项exact id/generation解析，未知、缺失、截断、预算不足、变化均不可用，
+不改已APPLIED intent。批准原Root私有组合实际held句柄，requireCurrent/close仅转发真实
+责任；不收caller boolean自证完整性。历史/无raw依赖不替独立当前RETIRE权限、实际请求/
+GET观察、Source确认或幂等物理账，不缩短Native/Source/history/copy保留，无最终GC。
+本批只实现actual Floor/Pin/完整NV51图像事实及输入预算/重验，组合和实际provider未完成。

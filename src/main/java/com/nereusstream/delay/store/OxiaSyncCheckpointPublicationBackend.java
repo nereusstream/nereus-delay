@@ -62,6 +62,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     private final String recordKey;
     private final OxiaSessionBoundRecoveryPinStore pinStore;
     private final CheckpointManifestLimits manifestLimits;
+    private final java.util.function.Supplier<byte[]> evidenceStorageNamespace;
 
     /** Creates an authority over an already configured Oxia client. */
     public OxiaSyncCheckpointPublicationBackend(
@@ -78,7 +79,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 new SyncRecordClient(Objects.requireNonNull(handle, "handle").client(), handle.sessionIdentity()),
                 keyPrefix,
                 manifestLimits,
-                handle.backend()::assertConnectedSession);
+                handle.backend()::assertConnectedSession,handle.backend()::requireOriginalStorageNamespaceBinding);
     }
 
     /**
@@ -105,12 +106,17 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             final String keyPrefix,
             final CheckpointManifestLimits manifestLimits,
             final Runnable sessionCheck) {
+        this(client,keyPrefix,manifestLimits,sessionCheck,null);
+    }
+    private OxiaSyncCheckpointPublicationBackend(RecordClient client,String keyPrefix,CheckpointManifestLimits manifestLimits,
+            Runnable sessionCheck,java.util.function.Supplier<byte[]> evidenceStorageNamespace){
         this.client = new SessionBoundRecordClient(
                 Objects.requireNonNull(client, "client"), Objects.requireNonNull(sessionCheck, "sessionCheck"));
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         this.recordKey = canonicalPrefix + RECORD_SUFFIX;
         this.pinStore = new OxiaSessionBoundRecoveryPinStore(this.client, canonicalPrefix + PIN_SUFFIX);
         this.manifestLimits = Objects.requireNonNull(manifestLimits, "manifestLimits");
+        this.evidenceStorageNamespace=evidenceStorageNamespace;
     }
 
     @Override
@@ -426,6 +432,112 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     @Override
     public Optional<RecoveryPin> activeRecoveryPin() {
         return pinStore.active();
+    }
+
+    /** Full image audits plus exact publication/pin projections; this is an input bound, not an RSS certification. */
+    public static long recoveryProtectionInputWindowBytes(List<TargetCheckpointRootVerifier.AuthenticatedImage> images){
+        if(images==null||images.isEmpty()||images.size()>3)throw new IllegalArgumentException("only Floor, pin candidate and observed-Floor images are accepted");
+        long bytes=8L*MAX_STATE_BYTES+64L*1024;
+        for(var image:images)bytes=Math.addExact(bytes,Objects.requireNonNull(image).authenticationInputWindowBytes());
+        return bytes;
+    }
+
+    /**
+     * Actual original managed SDK observations and fully authenticated exact Native51 image copies.
+     * This does not acquire/replace a Pin, fence future pin admission or authorize payload retirement.
+     * The caller must hold the original deployment/admission and image/Source protections separately.
+     */
+    public EvidenceRecoveryProtection captureEvidenceRecoveryProtection(
+            com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent intent,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
+        recoveryProtectionInputWindowBytes(images);Objects.requireNonNull(reads);Objects.requireNonNull(current);
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite recovery metadata reads required");
+        final byte[] namespace=originalEvidenceNamespace();current.run();
+        final var before=readEvidenceState(reads);final var catalog=RecoveryCatalog.fromSnapshot(before.state.catalog());
+        final var floor=catalog.currentFloorRef().orElseThrow(()->new IllegalStateException("actual typed Recovery Floor is unavailable"));
+        final var actual=Objects.requireNonNull(intent).record();final var resource=actual.copy().resource();
+        if(!Arrays.equals(floor.recoveryLineageId(),resource.recoveryLineage())||!floor.appliedSourcePosition().shardId().equals(resource.shard()))
+            throw new IllegalStateException("Recovery Floor differs from original retirement SHARD/lineage");
+        // Proves complete published ancestry, not just a Floor scalar or a supplied Manifest.
+        catalog.proveFloorCoverage(floor.checkpointId(),actual.appliedAt().sequence(),actual.appliedAt().source(),actual.body().context().preparedCut().source()).orElseThrow(
+                ()->new IllegalStateException("published Floor does not cover the actual Source intent"));
+        final var pin=pinStore.readForProtection(reads);current.run();
+        final var available=new java.util.HashMap<String,TargetCheckpointRootVerifier.AuthenticatedImage>();
+        for(var image:images)if(available.putIfAbsent(Bytes.hex(image.manifest().checkpointId()),image)!=null)
+            throw new IllegalArgumentException("ambiguous duplicate recovery protection image");
+        final var copies=new java.util.LinkedHashMap<String,TargetCheckpointRootVerifier.RetiringCopy>();
+        authenticateRecoveryImage(catalog,floor.checkpointId(),floor.manifestSha256(),intent,available,copies,reads,current);
+        if(pin!=null){
+            catalog.validateRetainedRecoveryPin(pin.pin());
+            if(!pin.pin().shard().shardId().equals(resource.shard()))throw new IllegalStateException("active RecoveryPin belongs to another Source SHARD");
+            final var candidate=pin.pin().candidate();
+            authenticateRecoveryImage(catalog,candidate.checkpointId(),candidate.manifestSha256(),intent,available,copies,reads,current);
+            final var observed=pin.pin().observedFloor();
+            authenticateRecoveryImage(catalog,observed.checkpointId(),observed.manifestSha256(),intent,available,copies,reads,current);
+        }
+        if(copies.size()!=available.size())throw new IllegalArgumentException("unrelated recovery images cannot replace the actual Floor/Pin selection");
+        final var protection=new EvidenceRecoveryProtection(this,namespace,before.versionId,Bytes.sha256(before.encoded),floor,pin,List.copyOf(copies.values()));
+        protection.requireFor(intent);protection.requireCurrent(reads,current);return protection;
+    }
+    private void authenticateRecoveryImage(RecoveryCatalog catalog,byte[] id,byte[] digest,
+            com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent intent,
+            java.util.Map<String,TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            java.util.Map<String,TargetCheckpointRootVerifier.RetiringCopy> copies,BoundedReadBudget reads,Runnable current){
+        final var published=catalog.manifest(id).orElseThrow(()->new IllegalStateException("protected recovery Manifest is not actually published"));
+        if(!Arrays.equals(published.manifestSha256(),digest))throw new IllegalStateException("protected recovery Manifest hash changed");
+        final String key=Bytes.hex(id);if(copies.containsKey(key))return;
+        final var image=Objects.requireNonNull(images.get(key),"complete actual protected recovery image is unavailable");
+        if(!Arrays.equals(image.manifest().canonicalJsonBytes(),published.canonicalJsonBytes()))throw new IllegalStateException("recovery image changes the actual published Manifest");
+        if(!reads.beforeTimedWork())throw reads.incomplete();
+        current.run();final var copy=image.authenticateRetiringCopy(intent);current.run();
+        if(!reads.beforeTimedWork())throw reads.incomplete();copies.put(key,copy);
+    }
+    private byte[] originalEvidenceNamespace(){
+        if(evidenceStorageNamespace==null)throw new IllegalStateException("recovery protection requires its original managed Registry SDK namespace");
+        final byte[] namespace=evidenceStorageNamespace.get();Bytes.requireLength(namespace,32,"actual recovery SDK storage namespace");return namespace;
+    }
+    private StoredState readEvidenceState(BoundedReadBudget reads){
+        if(!reads.beforeRead()||!reads.tryCharge(Bytes.utf8(recordKey).length,MAX_STATE_BYTES))throw reads.incomplete();
+        final var result=client.get(recordKey);
+        if(result==null||!recordKey.equals(result.key())||result.version()==null||result.version().versionId()<0
+                ||result.version().sessionId().isPresent()||result.version().clientIdentifier().isPresent())
+            throw new IllegalStateException("original persistent checkpoint publication record is missing or changed");
+        final byte[] bytes=result.value();if(bytes==null||bytes.length==0||bytes.length>MAX_STATE_BYTES)throw new IllegalStateException("invalid bounded checkpoint publication image");
+        return new StoredState(decode(bytes),result.version().versionId(),bytes);
+    }
+    private static boolean samePin(OxiaSessionBoundRecoveryPinStore.PinRecord a,OxiaSessionBoundRecoveryPinStore.PinRecord b){
+        return a==null?b==null:b!=null&&a.version().versionId()==b.version().versionId()&&a.pin().equals(b.pin());
+    }
+    public static final class EvidenceRecoveryProtection {
+        private final OxiaSyncCheckpointPublicationBackend owner;
+        private final byte[] storageNamespace,publicationDigest;
+        private final long publicationVersion;
+        private final RecoveryFloorRef floor;
+        private final OxiaSessionBoundRecoveryPinStore.PinRecord pin;
+        private final List<TargetCheckpointRootVerifier.RetiringCopy> copies;
+        private EvidenceRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,byte[] namespace,long version,byte[] digest,
+                RecoveryFloorRef floor,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.RetiringCopy> copies){
+            this.owner=owner;storageNamespace=Bytes.copy(namespace);publicationVersion=version;publicationDigest=digest;this.floor=floor;this.pin=pin;this.copies=copies;
+        }
+        public String exactPublicationKey(){return owner.recordKey;}
+        public byte[] storageNamespaceBinding(){return Bytes.copy(storageNamespace);}
+        public RecoveryFloorRef floor(){return floor;}
+        public Optional<RecoveryPin> recoveryPin(){return pin==null?Optional.empty():Optional.of(pin.pin());}
+        public void requireAuthority(OxiaSyncCheckpointPublicationBackend expected){if(owner!=expected)throw new IllegalArgumentException("recovery facts belong to another original Catalog authority");}
+        public void requireFor(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent intent){for(var copy:copies)copy.requireFor(intent);}
+        /** Actual bounded rereads, not a local boolean and not a substitute for the original admission/Pin protocols. */
+        public void requireCurrent(BoundedReadBudget reads,Runnable current){
+            Objects.requireNonNull(reads);Objects.requireNonNull(current);
+            if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite recovery metadata reads required");
+            if(!reads.beforeTimedWork())throw reads.incomplete();
+            current.run();if(!Arrays.equals(storageNamespace,owner.originalEvidenceNamespace()))throw new IllegalStateException("original recovery SDK namespace changed");
+            final var state=owner.readEvidenceState(reads);
+            if(state.versionId!=publicationVersion||!Arrays.equals(publicationDigest,Bytes.sha256(state.encoded)))
+                throw new IllegalStateException("original protected Catalog/Floor projection changed");
+            if(!samePin(pin,owner.pinStore.readForProtection(reads)))throw new IllegalStateException("original active RecoveryPin projection changed");
+            for(var copy:copies)copy.requireCurrent();current.run();
+            if(!reads.beforeTimedWork())throw reads.incomplete();
+        }
     }
 
     private <T> T mutate(final Function<PublicationState, Change<T>> operation) {
