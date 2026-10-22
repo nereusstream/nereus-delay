@@ -275,25 +275,63 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             QueryCodecSupport.requireCanonical(encoded,result.encode(),"recovery proof intent");return result;
         }
     }
-    /** Pending capacity only. It never records provider success or changes the original publication fingerprint. */
-    private record MarkerReservation(TargetEvidenceRetiredMarker marker){
-        byte[] bytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,marker.canonicalBytes());});}
+    /** Durable identity of the actual Native52 first used for this one physical-capacity transition. */
+    private record MarkerSettlement(byte[] confirmationId,byte[] confirmationHash,byte[] recordDigest,TargetQuotaMutation stamp,byte[] markerVersion){
+        MarkerSettlement{
+            Bytes.requireLength(confirmationId,32,"confirmation id");Bytes.requireLength(confirmationHash,32,"confirmation hash");
+            Bytes.requireLength(recordDigest,32,"confirmed Native record digest");Bytes.requireLength(markerVersion,8,"observed marker version");
+            confirmationId=Bytes.copy(confirmationId);confirmationHash=Bytes.copy(confirmationHash);recordDigest=Bytes.copy(recordDigest);markerVersion=Bytes.copy(markerVersion);
+            Objects.requireNonNull(stamp).requireSourceApplied();
+            if(java.nio.ByteBuffer.wrap(markerVersion).getLong()<0)throw new IllegalArgumentException("invalid persistent marker version");
+        }
+        byte[] bytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,confirmationId);
+            CanonicalProtobuf.bytes(out,3,confirmationHash);CanonicalProtobuf.bytes(out,4,recordDigest);CanonicalProtobuf.bytes(out,5,stamp.canonicalBytes());CanonicalProtobuf.bytes(out,6,markerVersion);});}
+        static MarkerSettlement from(TargetEvidenceRetirementStore.AppliedConfirmation applied){
+            final var record=Objects.requireNonNull(applied).record();
+            return new MarkerSettlement(record.confirmation().systemMutationId(),record.confirmation().mutationHash(),Bytes.sha256(record.canonicalBytes()),
+                    record.appliedAt(),record.body().markerEvidence().observedMarkerVersion());
+        }
+        void requireConfirmation(SystemMutation confirmation,TargetEvidenceDeleteConfirmedBody body){
+            requireExact(confirmationId,confirmation.systemMutationId());requireExact(confirmationHash,confirmation.mutationHash());
+            requireExact(stamp.mutationDigest(),Bytes.sha256(confirmation.canonicalEnvelope()));
+            requireExact(markerVersion,body.markerEvidence().observedMarkerVersion());
+        }
+        static MarkerSettlement decode(byte[] bytes){
+            if(bytes.length>TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+512)throw new IllegalArgumentException("physical settlement reference exceeds bound");
+            final var f=fields(bytes,new int[]{1,2,3,4,5,6},"marker settlement");
+            if(QueryCodecSupport.uint(f.getFirst(),1)!=1)throw new IllegalArgumentException("unknown marker settlement reference");
+            final var value=new MarkerSettlement(QueryCodecSupport.fixed(f.get(1),2,32),QueryCodecSupport.fixed(f.get(2),3,32),
+                    QueryCodecSupport.fixed(f.get(3),4,32),TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(4),5)),QueryCodecSupport.fixed(f.get(5),6,8));
+            QueryCodecSupport.requireCanonical(bytes,value.bytes(),"marker settlement");return value;
+        }
+    }
+    /** Original fingerprints and future metadata remain reserved after physical byte settlement. */
+    private record MarkerReservation(TargetEvidenceRetiredMarker marker,MarkerSettlement settlement){
+        MarkerReservation(TargetEvidenceRetiredMarker marker){this(marker,null);}
+        MarkerReservation{
+            Objects.requireNonNull(marker);
+            if(settlement!=null){settlement.stamp.requireAfter(marker.intentAppliedAt());
+                if(Arrays.equals(settlement.markerVersion,marker.payloadVersion()))throw new IllegalArgumentException("settled marker reuses payload version");}
+        }
+        byte[] pendingBytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,marker.canonicalBytes());});}
+        byte[] bytes(){return settlement==null?pendingBytes():CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,2);
+            CanonicalProtobuf.bytes(out,2,marker.canonicalBytes());CanonicalProtobuf.bytes(out,3,settlement.bytes());});}
         long metadataReserve(){
             final long sourceBound=marker.intentAppliedAt().source() instanceof KafkaSourcePosition
                     ?11L+4+TargetSourcePosition.MAX_KAFKA_CANONICAL_BYTES+34:TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
             // Full observed-marker evidence plus a same-family Source confirmation reference, before any provider I/O.
-            return Math.addExact(bytes().length+32L,Math.addExact(marker.canonicalBytes().length,
+            return Math.addExact(pendingBytes().length+32L,Math.addExact(marker.canonicalBytes().length,
                     Math.addExact(TargetChannelIdentity.MAX_TIME_EVIDENCE_BYTES+512L,sourceBound+512L)));
         }
-        long valueGrowth(){return Math.max(0,marker.canonicalBytes().length-marker.payloadBytes());}
+        long blobDelta(){final long delta=marker.canonicalBytes().length-marker.payloadBytes();return settlement==null?Math.max(0,delta):delta;}
         static MarkerReservation decode(byte[] encoded){
-            if(encoded.length==0||encoded.length>TargetEvidenceRetiredMarker.MAX_BYTES+16)
+            if(encoded.length==0||encoded.length>TargetEvidenceRetiredMarker.MAX_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+544)
                 throw new IllegalArgumentException("marker capacity reservation exceeds finite byte bound");
-            final var reader=new CanonicalProtobuf.Reader(encoded);final var f=List.of(reader.next(),reader.next());
-            if(reader.hasRemaining())throw new IllegalArgumentException("extra marker capacity reservation fields");
-            QueryCodecSupport.requireNumbers(f,new int[]{1,2},"marker capacity reservation");
-            if(QueryCodecSupport.uint(f.getFirst(),1)!=1)throw new IllegalArgumentException("unknown marker reservation schema");
-            final var value=new MarkerReservation(TargetEvidenceRetiredMarker.decode(QueryCodecSupport.nested(f.get(1),2)));
+            final var f=QueryCodecSupport.read(encoded,"marker capacity reservation");final long version=QueryCodecSupport.uint(f.getFirst(),1);
+            QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2}:new int[]{1,2,3},"marker capacity reservation");
+            if(version!=1&&version!=2)throw new IllegalArgumentException("unknown marker reservation schema");
+            final var value=new MarkerReservation(TargetEvidenceRetiredMarker.decode(QueryCodecSupport.nested(f.get(1),2)),
+                    version==1?null:MarkerSettlement.decode(QueryCodecSupport.bytes(f.get(2),3)));
             QueryCodecSupport.requireCanonical(encoded,value.bytes(),"marker capacity reservation");return value;
         }
     }
@@ -343,7 +381,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         Root(Limits limits,Map<String,Management> topics,Map<String,Intent> publications){this(1,limits,topics,publications,Map.of(),Map.of(),0,Map.of(),null);}
         Root {topics=Map.copyOf(topics);publications=Map.copyOf(publications);recoveries=Map.copyOf(recoveries);closures=Map.copyOf(closures);markers=Map.copyOf(markers);
             validate(version,limits,topics,publications,recoveries,closures,closureSequence,markers,binding);}
-        Root guarded(GuardBinding next){return new Root(5,limits,topics,publications,recoveries,closures,closureSequence,markers,next);}
+        Root guarded(GuardBinding next){return new Root(Math.max(version,5),limits,topics,publications,recoveries,closures,closureSequence,markers,next);}
         Root topic(Management m){final var map=new TreeMap<>(topics);map.put(m.id(),m);return new Root(version,limits,map,publications,recoveries,closures,closureSequence,markers,binding);}
         Root publication(Intent i){final var map=new TreeMap<>(publications);map.put(Bytes.hex(i.id),i);return new Root(version,limits,topics,map,recoveries,closures,closureSequence,markers,binding);}
         Root recovery(RecoveryIntent i){final var map=new TreeMap<>(recoveries);map.put(Bytes.hex(i.id),i);return new Root(Math.max(version,2),limits,topics,publications,map,closures,closureSequence,markers,binding);}
@@ -351,8 +389,16 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             return new Root(Math.max(version,3),limits,topics,publications,recoveries,map,closure.revision,markers,binding);}
         Root reserveMarker(MarkerReservation desired){
             final var map=new TreeMap<>(markers);final var old=map.putIfAbsent(desired.marker.exactKey(),desired);
-            if(old!=null){requireExact(old.bytes(),desired.bytes());return this;}
+            if(old!=null){requireExact(old.marker.canonicalBytes(),desired.marker.canonicalBytes());
+                if(old.settlement!=null)throw new ProtectionUnavailable("original marker already has its durable Source settlement; replay that confirmation");return this;}
             return new Root(Math.max(version,4),limits,topics,publications,recoveries,closures,closureSequence,map,binding);
+        }
+        Root settleMarker(TargetEvidenceRetiredMarker marker,MarkerSettlement settlement){
+            final var old=Objects.requireNonNull(markers.get(marker.exactKey()),"original pending marker reservation");
+            requireExact(old.marker.canonicalBytes(),marker.canonicalBytes());
+            if(old.settlement!=null){requireExact(old.settlement.bytes(),settlement.bytes());return this;}
+            final var map=new TreeMap<>(markers);map.put(marker.exactKey(),new MarkerReservation(marker,settlement));
+            return new Root(6,limits,topics,publications,recoveries,closures,closureSequence,map,binding);
         }
         long closureReserve(){long bytes=version>=3?64:0;for(var closure:closures.values())bytes=Math.addExact(bytes,closure.encode().length+16L);return bytes;}
         long markerReserve(){long bytes=0;for(var value:markers.values())bytes=Math.addExact(bytes,value.metadataReserve());return bytes;}
@@ -373,7 +419,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             if(b.length==0||b.length>MAX_ROOT_BYTES)throw new IllegalArgumentException("invalid receipt capacity root length");
             final var f=QueryCodecSupport.read(b,"receipt capacity root");if(f.size()<7)throw new IllegalArgumentException("incomplete receipt capacity root");
             QueryCodecSupport.requireNumbers(f.subList(0,7),new int[]{1,2,3,4,5,6,7},"receipt capacity root");
-            final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>5)throw new IllegalArgumentException("unknown receipt capacity root version");
+            final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>6)throw new IllegalArgumentException("unknown receipt capacity root version");
             final var l=new Limits(QueryCodecSupport.uint(f.get(1),2),QueryCodecSupport.uint32(f.get(2),3),QueryCodecSupport.uint32(f.get(3),4),QueryCodecSupport.uint32(f.get(4),5),QueryCodecSupport.uint32(f.get(5),6),QueryCodecSupport.fixed(f.get(6),7,32));
             final var topics=new TreeMap<String,Management>();final var intents=new TreeMap<String,Intent>();int n=7;
             while(n<f.size()&&f.get(n).number()==8){var m=Management.decode(QueryCodecSupport.nested(f.get(n++),8));if(topics.put(m.id(),m)!=null)throw new IllegalArgumentException("duplicate managed topic");}
@@ -391,8 +437,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         }
         private static void validate(int version,Limits l,Map<String,Management> topics,Map<String,Intent> publications,Map<String,RecoveryIntent> recovery,
                 Map<String,Closure> closures,long sequence,Map<String,MarkerReservation> markers,GuardBinding binding){
-            if(version<1||version>5||(version==5)!=(binding!=null)||version==1&&!recovery.isEmpty()||version<3&&(!closures.isEmpty()||sequence!=0)
-                    ||version>=3&&version<=4&&(closures.isEmpty()||sequence==0)||version==5&&(closures.isEmpty()!=(sequence==0))||version<4&&!markers.isEmpty()||version==4&&markers.isEmpty()
+            if(version<1||version>6||(version>=5)!=(binding!=null)||version==1&&!recovery.isEmpty()||version<3&&(!closures.isEmpty()||sequence!=0)
+                    ||version>=3&&version<=4&&(closures.isEmpty()||sequence==0)||version>=5&&(closures.isEmpty()!=(sequence==0))||version<4&&!markers.isEmpty()||version==4&&markers.isEmpty()
+                    ||version<6&&markers.values().stream().anyMatch(value->value.settlement!=null)
+                    ||version==6&&markers.values().stream().noneMatch(value->value.settlement!=null)
                     ||markers.size()>closures.size()||closures.size()>publications.size()+recovery.size()
                     ||topics.size()>l.maximumTopics||publications.size()+(long)recovery.size()>l.maximumPublications)throw new IllegalArgumentException("receipt catalog cardinality bound exceeded");
             long bytes=l.rootReservedBytes();int records=1;final var keys=new HashSet<String>();
@@ -430,7 +478,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 requireExact(marker.capacityOwner().catalogNamespaceId(),closure.namespaceId);requireExact(marker.capacityOwner().capacitySourceDigest(),l.capacitySourceDigest);
                 final var management=TargetKafkaReceiptManagementImage.decode(topics.get(Bytes.hex(closure.managementTopicId)).artifact.image());
                 requireExact(marker.deploymentRootDigest(),management.deploymentRootDigest());
-                extraRoot=Math.addExact(extraRoot,value.metadataReserve());bytes=Math.addExact(bytes,value.valueGrowth());
+                extraRoot=Math.addExact(extraRoot,value.metadataReserve());bytes=Math.addExact(bytes,value.blobDelta());
             }
             bytes=Math.addExact(bytes,extraRoot);
             if(l.rootReservedBytes()+extraRoot>MAX_ROOT_BYTES)throw new IllegalStateException("evidence intent/closure root window exhausted");
@@ -1086,7 +1134,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             final var closed=catalog.closedSnapshot(root,reserved.marker.exactKey(),reserved.marker.objectDigest());
             closed.requireObjectFingerprint(applied.record().copy().resource());
             requireExact(closed.canonicalBytes(),applied.record().copy().closureImage());
-            requireExact(Objects.requireNonNull(root.markers.get(reserved.marker.exactKey()),"original durable marker reservation").marker.canonicalBytes(),reserved.marker.canonicalBytes());
+            final var pending=Objects.requireNonNull(root.markers.get(reserved.marker.exactKey()),"original durable marker reservation");
+            if(pending.settlement!=null)throw new ProtectionUnavailable("original Source confirmation is already durably settled; replay it instead of creating a new observation");
+            requireExact(pending.marker.canonicalBytes(),reserved.marker.canonicalBytes());
             recovery.requireAuthority(source.originalEvidenceRecoveryCatalog(worker));recovery.requireCurrent(recoveryReads,()->{current.run();requireHeldCurrent();});
             current.run();requireHeldCurrent();
             if(!catalogReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw new ProtectionUnavailable("physical protection reauthentication exceeded its deadline");
@@ -1178,6 +1228,49 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 Bytes.u64beBits(after.version().versionId()),kind,absent?new byte[0]:marker.payloadVersion(),request,response,time);
         return new ObservedRetiredMarker(this,protection.reserved,protection.applied,evidence,category==1?
                 ObservedRetiredMarker.ConditionalResult.CONDITION_SUCCEEDED:ObservedRetiredMarker.ConditionalResult.CONDITION_REJECTED_EXACT_MARKER);
+    }
+    /** Durable Root first: read-only idempotence, with no new refund, provider observation or old SDK settlement. */
+    public boolean markerCapacityAlreadySettled(SystemMutation selected,BoundedReadBudget reads,Runnable current){
+        final var body=TargetEvidenceDeleteConfirmedBody.decode(Objects.requireNonNull(selected).canonicalBody());
+        if(selected.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED||!body.markerRetained()||reads.maxBytes()==Long.MAX_VALUE)
+            throw new IllegalArgumentException("bounded retained-marker confirmation settlement required");
+        current.run();final var root=readRoot(reads).root;final var pending=root.markers.get(body.resource().exactKey());
+        if(pending==null)throw new ProtectionUnavailable("original durable marker reservation is unavailable");
+        requireExact(pending.marker.canonicalBytes(),body.markerEvidence().marker().canonicalBytes());
+        if(pending.settlement==null)return false;pending.settlement.requireConfirmation(selected,body);
+        current.run();if(!reads.beforeTimedWork())throw reads.incomplete();return true;
+    }
+    /** Separate physical accounting: actual Native52 first + exact current marker + original Root CAS. No key/record/slot GC. */
+    public void settleRetiredMarkerCapacity(com.nereusstream.delay.ownership.TargetWorkerSourceStartup source,
+            com.nereusstream.delay.ownership.TargetWorkerShardRuntime worker,
+            com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.ReceiptManagement management,SystemMutation selected,
+            com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+            BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,Runnable current){
+        requireManagedMarkerInputOwner();management.requireOriginalEvidenceCatalog(this);
+        if(catalogReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite physical settlement reads required");
+        current.run();source.requireEvidenceRetirementReadCurrent(worker,management);
+        final var applied=source.readEvidenceRetirementConfirmation(worker,management,selected,nativeReads);
+        requireSupportedProtectionDeclarations(applied.originalIntent());final var record=applied.record();final var body=record.body();
+        final var marker=body.markerEvidence().marker();final var settlement=MarkerSettlement.from(applied);
+        final var root=readRoot(catalogReads).root;admission.requireCurrent();
+        requireExact(root.binding.policy.scope().canonicalBytes(),admission.qualifiedHistory().history().scope().canonicalBytes());
+        final var closed=closedSnapshot(root,marker.exactKey(),marker.objectDigest());closed.requireObjectFingerprint(body.resource());
+        requireExact(closed.digest(),body.context().closureDigest());
+        final var capacity=readCapacityOwner(closed,catalogReads,current);requireExact(capacity.reference().canonicalBytes(),marker.capacityOwner().canonicalBytes());
+        final var original=Objects.requireNonNull(root.topics.get(Bytes.hex(closed.closure.managementTopicId)),"original settlement management");
+        try(var permission=trust.currentManagement(original.artifact,Action.RETIRE_EVIDENCE_OBJECT_PAYLOAD)){
+            final Runnable held=()->{current.run();admission.requireCurrent();permission.requireCurrent();source.requireEvidenceRetirementReadCurrent(worker,management);};
+            held.run();final var observed=persistent(read(marker.exactKey(),catalogReads,Math.toIntExact(Math.max(marker.payloadBytes(),marker.canonicalBytes().length))));
+            if(observed==null)throw new ProtectionUnavailable("actual retained marker is unavailable for physical settlement");
+            requireExact(observed.value(),marker.canonicalBytes());requireExact(Bytes.u64beBits(observed.version().versionId()),settlement.markerVersion);
+            final var updated=update(before->{
+                requireExact(before.binding.policy.scope().canonicalBytes(),root.binding.policy.scope().canonicalBytes());
+                final var actual=closedSnapshot(before,marker.exactKey(),marker.objectDigest());requireExact(actual.canonicalBytes(),closed.canonicalBytes());
+                return before.settleMarker(marker,settlement);
+            },held,catalogReads,false);
+            requireExact(Objects.requireNonNull(updated.markers.get(marker.exactKey())).settlement.bytes(),settlement.bytes());
+            held.run();if(!catalogReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw new ProtectionUnavailable("physical settlement deadline exhausted");
+        }
     }
     /** Local budget handoff only, after the caller's other SDKs/methods close; no server outcome is inferred. */
     public void retainClientInputsUntilStorageSdkTermination(com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client input){

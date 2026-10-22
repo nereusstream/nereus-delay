@@ -277,6 +277,38 @@ public final class TargetEvidenceRetirementStore {
             reader.requireWithinElapsedBudget();return new AppliedIntent(retained,cut);
         },authority);
     }
+    /** Actual Native52 plus complete APPLIED first/POSITION/history/closed-use invariants; not a caller result DTO. */
+    public static final class AppliedConfirmation {
+        private final TargetEvidenceConfirmedRecord record;
+        private final TargetQuotaMutation cut;
+        private final SystemMutation originalIntent;
+        private AppliedConfirmation(TargetEvidenceConfirmedRecord record,TargetQuotaMutation cut,SystemMutation originalIntent){this.record=record;this.cut=cut;this.originalIntent=originalIntent;}
+        public TargetEvidenceConfirmedRecord record(){return record;}
+        public TargetQuotaMutation cut(){return cut;}
+        public SystemMutation originalIntent(){return originalIntent;}
+    }
+    public static AppliedConfirmation readAppliedConfirmation(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
+            TargetQuotaScope scope,byte[] lineage,SystemMutation selected,TargetStoreBackend.ReadAuthority authority){
+        if(scope.target()!=null||budget.maxBytes()==Long.MAX_VALUE||selected.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+            throw new IllegalArgumentException("physical settlement requires bounded actual SHARD confirmation reads");
+        final var body=TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody());
+        if(!body.markerRetained())throw new IllegalArgumentException("physical marker settlement requires retained-marker confirmation");
+        return backend.guardedRead(budget,reader->{
+            final var cut=reader.aggregate().mutation();cut.requireAtOrBefore(reader.sourceSequence(),reader.source());
+            final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            final byte[] key=TargetEvidenceRetiringRecord.confirmedKey(body.resource().exactIdentity().identityHash());
+            final var confirmed=TargetEvidenceConfirmedRecord.decodeForStore(key,payload(reader,ColumnFamily.META,key,TargetEvidenceConfirmedRecord.VALUE_TYPE),
+                    scope.shard(),scope.tenantScope(),lineage);
+            requireSame(selected.canonicalEnvelope(),confirmed.confirmation().canonicalEnvelope());
+            requireConfirmedState(reader,List.of(),scope,lineage,root,confirmed,cut);
+            final byte[] historyKey=TargetRetirementSourceHistoryRecord.key(body.intent().mutationId());
+            final var history=TargetRetirementSourceHistoryRecord.decodeForStore(historyKey,
+                    payload(reader,ColumnFamily.META,historyKey,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
+            requireSame(history.input().mutationHash(),body.intent().mutationHash());
+            if(history.input().type()!=SystemMutationType.RESOURCE_RETIRE_INTENT)throw new IllegalStateException("confirmed record changed original intent history");
+            reader.requireWithinElapsedBudget();return new AppliedConfirmation(confirmed,cut,history.input());
+        },authority);
+    }
 
     /** Same original state1 facts for live reads and immutable-image accounting, without Catalog/provider I/O. */
     public static TargetQuotaIncarnation requireRetiringState(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,

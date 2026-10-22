@@ -622,6 +622,10 @@ public final class TargetWorkerShardRuntime
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();
         return target.readAppliedRetirementIntent(reads,selected,clock);
     }
+    public synchronized com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedConfirmation readAppliedRetirementConfirmation(
+            BoundedReadBudget reads,SystemMutation selected,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.readAppliedRetirementConfirmation(reads,selected,clock);
+    }
     public synchronized void requireRetirementReadCurrent(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
     }

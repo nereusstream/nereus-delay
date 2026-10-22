@@ -2706,3 +2706,18 @@ capture及重读检查elapsed，预算耗尽/投影变化不生成可用事实�
 input；失败保同handle/费用重试。SDK终止可先释放其native资源，未关的admission/input
 仍使cleanup未完成。原Source/image外部责任保持原owner。完整Source确认与可恢复幂等
 physical difference结算继续开放，未发生实际退款或生产容量结论。
+
+2026-10-22 Root6计费转移：旧publication/recovery的raw valueBytes/key/记录/原指纹
+保持。每个pending marker的blob delta为max(0, markerBytes-payloadBytes)，防实际替换
+先超预算；保存actual Native confirmation引用后delta为markerBytes-payloadBytes。
+Root总量始终从每个唯一reservation的状态重新求和，不累减balance，所以重复/并发/
+丢响应/重启不会二退。更大的marker保持正差额，相同大小为零，较小marker仅在首个
+APPLIED Source后释放真实payload差额。原Root/guard、原publication/record额度、closure、
+marker/key及整份metadataReserve都保留，Native账的NV51→NV52仍由原Source批次独立结算。
+metadataReserve始终按原pending wire1及已预留的future Source reference窗口计算，Root6
+消耗该窗口不再次加价/退款，不改allocation/limits/capacity source或默认预算。新Root6
+只有actual原Native52/full first/POSITION/history/uses/actual5、current Root资格/目的及
+exact persistent marker version/bytes才可第一次转换。REJECTED不转换，UNKNOWN不清旧
+SDK/slot/input，新Root已结算引用只读幂等无新退款。费用核验仍需集中真实恢复验证。
+局部操作预留原Root输入+完整Root读写窗口+bounded Native输入和frame编码重叠，Source
+本身first/POSITION与Sdk输入不随物理差额一并回收；无新增池、后台扫描或预算放大。

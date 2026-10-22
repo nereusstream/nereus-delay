@@ -1197,6 +1197,12 @@ public final class TargetWorkerSourceStartup {
         requireEvidenceRetirementReadCurrent(actual,management);final var intent=actual.readAppliedRetirementIntent(reads,selected,owner.clock());
         requireEvidenceRetirementReadCurrent(actual,management);return intent;
     }
+    public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedConfirmation readEvidenceRetirementConfirmation(
+            TargetWorkerShardRuntime actual,TargetWorkerProcessRuntime.ReceiptManagement management,
+            com.nereusstream.delay.protocol.SystemMutation selected,com.nereusstream.delay.store.BoundedReadBudget reads){
+        requireEvidenceRetirementReadCurrent(actual,management);final var confirmed=actual.readAppliedRetirementConfirmation(reads,selected,owner.clock());
+        requireEvidenceRetirementReadCurrent(actual,management);return confirmed;
+    }
 
     public synchronized void retainPublicationDispatch(TargetWorkerShardRuntime actual, TargetWorkerPublicationDispatch dispatch) {
         requireCurrent(); requireAdmittedWorker(actual);

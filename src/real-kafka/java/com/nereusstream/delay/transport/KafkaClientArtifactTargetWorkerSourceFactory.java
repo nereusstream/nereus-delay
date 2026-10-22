@@ -464,6 +464,14 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             final var actual=original.readAppliedRetirementIntent(reads,selected,clock);
             startup.requireReceiptManagementRead(management);current.run();return actual;
         }
+        void settleRetiredMarkerCapacity(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.SystemMutation selected,
+                com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,com.nereusstream.delay.store.BoundedReadBudget nativeReads,Runnable current){
+            requireRetirementReadCurrent(management,current);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            management.catalog().settleRetiredMarkerCapacity(startup,original,management,selected,admission,catalogReads,nativeReads,current);
+        }
         void requireRetirementReadCurrent(KafkaClientArtifactTargetReceiptManagementFactory.Opening management,Runnable current){
             current.run();startup.requireReceiptManagementRead(management);final TargetWorkerShardRuntime original;
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}

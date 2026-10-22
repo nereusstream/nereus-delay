@@ -5201,3 +5201,18 @@ version，成功还核actual PutResult version。Runtime/timeout/cancel不接匹
 ProtectionRef现有定义未确定ID/generation原权威映射：目前所有无法exact解析的非空
 声明（含kind1）均在物理请求前Unavailable，非格式错误，不改已APPLIED intent或回收
 copy。空声明路径仍做全套动态门禁，支持路径不代表全声明兼容或kind8全域验收。
+
+2026-10-22 私有Catalog Root6/MarkerReservation2用于可恢复物理字节结算。Root字段
+1..14不变，Root6至少有一份settled reservation并保原GuardBinding1；Root1..5及pending
+MarkerReservation1的bytes/计费保持。Reservation2字段1=2、2=完整原Marker1、3=settlement
+reference；reference字段1=schema1、2=confirmation ID32、3=confirmation hash32、4=完整
+Native52 canonical digest32、5=actual confirmation TargetQuotaMutation、6=actual marker
+version[8]。stamp须为原intent之后的Source mutation，marker版本非负且不同于payload。
+旧reader拒Root6，不能以旧格式读后覆盖；普通更新/guard装配保version6及全部原指纹。
+该引用仅由原注册Source实际Native52/APPLIED first/POSITION/历史/完整uses/actual5读取、
+原qualified/current admission、独立current RETIRE、persistent exact marker GET/版本后
+Root CAS产生，不由历史观察凭据或caller结果构造。未知CAS不以readback补成功；新Root
+可从原引用只读判已结算，不再退款、不证明旧SDK/append退出。未定义ProtectionRef映射
+仍不可新结算，既有结算的只读幂等不新授权限。Source/Native/wire版本均未改变。
+Source确认已durably settled的marker禁止再签新本次观察，须重放原Source确认；marker/
+key/guard/原publication与Root元数据不GC、不降records/publication占用。
