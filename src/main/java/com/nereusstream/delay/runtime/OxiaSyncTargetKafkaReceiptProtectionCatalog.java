@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import com.nereusstream.delay.ownership.TargetCatalogRootAuthority;
 import com.nereusstream.delay.ownership.TargetRecoveryProofTrust;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Action;
 import com.nereusstream.delay.protocol.*;
@@ -15,7 +16,7 @@ import java.text.Normalizer;
 import java.util.*;
 import java.util.function.UnaryOperator;
 
-/** One bounded Registry capacity/management/publication CAS record and immutable external objects; no distributed-atomic claim. */
+/** One bounded Registry capacity root with a permanent initialization guard and immutable external objects; no distributed-atomic claim. */
 public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public static final int INSTALLING = 1, ACTIVE = 2, BROKEN = 3;
     private static final int RESERVED = 1, PUBLISHED = 2, POSSIBLY_SOURCE = 3, ADOPTED = 4;
@@ -25,8 +26,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private final Runnable session;
     private final String prefix;
     private final String ledgerKey;
+    private final String guardKey;
     private final Limits limits;
     private final TargetKafkaReceiptProtectionTrust trust;
+    private final TargetCatalogRootAuthority rootAuthority;
     private final java.util.function.Supplier<byte[]> storageNamespaceBinding;
     private final java.util.function.Consumer<com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client> retainStorageInput;
     private final java.util.function.BooleanSupplier managedStorageInputOwner;
@@ -294,25 +297,67 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             QueryCodecSupport.requireCanonical(encoded,value.bytes(),"marker capacity reservation");return value;
         }
     }
+    private static final int MAX_GUARD_BYTES=TargetCatalogRootAuthority.MAX_POLICY_BYTES+128;
+    private record GuardBinding(TargetCatalogRootAuthority.Policy policy,int state,long initialVersion,byte[] initialDigest,
+            long legacyVersion,byte[] legacyDigest,long pendingGuardVersion){
+        GuardBinding{
+            Objects.requireNonNull(policy);Bytes.requireLength(initialDigest,32,"initial Root digest");Bytes.requireLength(legacyDigest,32,"original legacy Root digest");
+            initialDigest=Bytes.copy(initialDigest);legacyDigest=Bytes.copy(legacyDigest);
+            if(state<1||state>2||initialVersion<0||legacyVersion<0||pendingGuardVersion< -1||state==2&&pendingGuardVersion<0
+                    ||state==1&&(initialVersion!=0||!Arrays.equals(initialDigest,new byte[32]))||state==2&&Arrays.equals(initialDigest,new byte[32])
+                    ||policy.purpose()==TargetCatalogRootAuthority.Purpose.INITIALIZE_FRESH_CATALOG_ROOT
+                        &&(legacyVersion!=0||!Arrays.equals(legacyDigest,new byte[32])||pendingGuardVersion<0)
+                    ||policy.purpose()==TargetCatalogRootAuthority.Purpose.ADOPT_EXISTING_CATALOG_ROOT_GUARD&&Arrays.equals(legacyDigest,new byte[32]))
+                throw new IllegalArgumentException("invalid Catalog Root initialization association");
+        }
+        GuardBinding bindPending(long version){if(state!=1||pendingGuardVersion!=-1||version<0)throw new IllegalStateException("original guard association is already bound");return new GuardBinding(policy,1,0,new byte[32],legacyVersion,legacyDigest,version);}
+        GuardBinding live(long version,byte[] digest){if(state!=1||pendingGuardVersion<0)throw new IllegalStateException("Root initialization lacks its original PENDING guard");return new GuardBinding(policy,2,version,digest,legacyVersion,legacyDigest,pendingGuardVersion);}
+        byte[] bytes(){return CanonicalProtobuf.message(o->{CanonicalProtobuf.uint32(o,1,1);CanonicalProtobuf.bytes(o,2,policy.canonicalBytes());
+            CanonicalProtobuf.uint32(o,3,state);CanonicalProtobuf.bytes(o,4,Bytes.u64beBits(initialVersion));CanonicalProtobuf.bytes(o,5,initialDigest);
+            CanonicalProtobuf.bytes(o,6,Bytes.u64beBits(legacyVersion));CanonicalProtobuf.bytes(o,7,legacyDigest);CanonicalProtobuf.bytes(o,8,Bytes.u64beBits(pendingGuardVersion));});}
+        long rootReserve(){return bytes().length+16L;}
+        long guardReserve(){return policy.canonicalBytes().length+128L+Bytes.utf8(policy.scope().guardKey()).length;}
+        static GuardBinding decode(byte[] b){final var f=fields(b,new int[]{1,2,3,4,5,6,7,8},"Catalog Root association");
+            if(QueryCodecSupport.uint32(f.get(0),1)!=1)throw new IllegalArgumentException("unknown Root association version");
+            final var value=new GuardBinding(TargetCatalogRootAuthority.Policy.decode(QueryCodecSupport.bytes(f.get(1),2)),QueryCodecSupport.uint32(f.get(2),3),
+                    java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(3),4,8)).getLong(),QueryCodecSupport.fixed(f.get(4),5,32),
+                    java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(5),6,8)).getLong(),QueryCodecSupport.fixed(f.get(6),7,32),
+                    java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(7),8,8)).getLong());
+            QueryCodecSupport.requireCanonical(b,value.bytes(),"Root association");return value;}
+    }
+    private record RootGuard(TargetCatalogRootAuthority.Policy policy,int state,long initialVersion,byte[] initialDigest,long firstLiveVersion,long pendingVersion){
+        RootGuard{Objects.requireNonNull(policy);Bytes.requireLength(initialDigest,32,"guard initial Root digest");initialDigest=Bytes.copy(initialDigest);
+            if(state<1||state>2||initialVersion<0||firstLiveVersion<0||pendingVersion<0||state==1&&(initialVersion!=0||firstLiveVersion!=0||pendingVersion!=0||!Arrays.equals(initialDigest,new byte[32]))
+                    ||state==2&&(firstLiveVersion<=initialVersion||Arrays.equals(initialDigest,new byte[32])))throw new IllegalArgumentException("invalid Catalog Root guard state/version");}
+        byte[] bytes(){final byte[] b=CanonicalProtobuf.message(o->{CanonicalProtobuf.uint32(o,1,1);CanonicalProtobuf.bytes(o,2,policy.canonicalBytes());
+            CanonicalProtobuf.uint32(o,3,state);CanonicalProtobuf.bytes(o,4,Bytes.u64beBits(initialVersion));CanonicalProtobuf.bytes(o,5,initialDigest);
+            CanonicalProtobuf.bytes(o,6,Bytes.u64beBits(firstLiveVersion));CanonicalProtobuf.bytes(o,7,Bytes.u64beBits(pendingVersion));});if(b.length>MAX_GUARD_BYTES)throw new IllegalArgumentException("Root guard exceeds its finite bound");return b;}
+        static RootGuard decode(byte[] b){if(b.length>MAX_GUARD_BYTES)throw new IllegalArgumentException("oversize Root guard");
+            final var f=fields(b,new int[]{1,2,3,4,5,6,7},"Catalog Root guard");if(QueryCodecSupport.uint32(f.get(0),1)!=1)throw new IllegalArgumentException("unknown Root guard version");
+            final var value=new RootGuard(TargetCatalogRootAuthority.Policy.decode(QueryCodecSupport.bytes(f.get(1),2)),QueryCodecSupport.uint32(f.get(2),3),
+                    java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(3),4,8)).getLong(),QueryCodecSupport.fixed(f.get(4),5,32),
+                    java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(5),6,8)).getLong(),java.nio.ByteBuffer.wrap(QueryCodecSupport.fixed(f.get(6),7,8)).getLong());QueryCodecSupport.requireCanonical(b,value.bytes(),"Root guard");return value;}
+    }
     private record Root(int version,Limits limits,Map<String,Management> topics,Map<String,Intent> publications,Map<String,RecoveryIntent> recoveries,
-            Map<String,Closure> closures,long closureSequence,Map<String,MarkerReservation> markers) {
-        Root(Limits limits,Map<String,Management> topics,Map<String,Intent> publications){this(1,limits,topics,publications,Map.of(),Map.of(),0,Map.of());}
+            Map<String,Closure> closures,long closureSequence,Map<String,MarkerReservation> markers,GuardBinding binding) {
+        Root(Limits limits,Map<String,Management> topics,Map<String,Intent> publications){this(1,limits,topics,publications,Map.of(),Map.of(),0,Map.of(),null);}
         Root {topics=Map.copyOf(topics);publications=Map.copyOf(publications);recoveries=Map.copyOf(recoveries);closures=Map.copyOf(closures);markers=Map.copyOf(markers);
-            validate(version,limits,topics,publications,recoveries,closures,closureSequence,markers);}
-        Root topic(Management m){final var map=new TreeMap<>(topics);map.put(m.id(),m);return new Root(version,limits,map,publications,recoveries,closures,closureSequence,markers);}
-        Root publication(Intent i){final var map=new TreeMap<>(publications);map.put(Bytes.hex(i.id),i);return new Root(version,limits,topics,map,recoveries,closures,closureSequence,markers);}
-        Root recovery(RecoveryIntent i){final var map=new TreeMap<>(recoveries);map.put(Bytes.hex(i.id),i);return new Root(Math.max(version,2),limits,topics,publications,map,closures,closureSequence,markers);}
+            validate(version,limits,topics,publications,recoveries,closures,closureSequence,markers,binding);}
+        Root guarded(GuardBinding next){return new Root(5,limits,topics,publications,recoveries,closures,closureSequence,markers,next);}
+        Root topic(Management m){final var map=new TreeMap<>(topics);map.put(m.id(),m);return new Root(version,limits,map,publications,recoveries,closures,closureSequence,markers,binding);}
+        Root publication(Intent i){final var map=new TreeMap<>(publications);map.put(Bytes.hex(i.id),i);return new Root(version,limits,topics,map,recoveries,closures,closureSequence,markers,binding);}
+        Root recovery(RecoveryIntent i){final var map=new TreeMap<>(recoveries);map.put(Bytes.hex(i.id),i);return new Root(Math.max(version,2),limits,topics,publications,map,closures,closureSequence,markers,binding);}
         Root close(Closure closure){final var map=new TreeMap<>(closures);if(map.putIfAbsent(closure.key,closure)!=null)throw new IllegalStateException("object already closed");
-            return new Root(Math.max(version,3),limits,topics,publications,recoveries,map,closure.revision,markers);}
+            return new Root(Math.max(version,3),limits,topics,publications,recoveries,map,closure.revision,markers,binding);}
         Root reserveMarker(MarkerReservation desired){
             final var map=new TreeMap<>(markers);final var old=map.putIfAbsent(desired.marker.exactKey(),desired);
             if(old!=null){requireExact(old.bytes(),desired.bytes());return this;}
-            return new Root(4,limits,topics,publications,recoveries,closures,closureSequence,map);
+            return new Root(Math.max(version,4),limits,topics,publications,recoveries,closures,closureSequence,map,binding);
         }
         long closureReserve(){long bytes=version>=3?64:0;for(var closure:closures.values())bytes=Math.addExact(bytes,closure.encode().length+16L);return bytes;}
         long markerReserve(){long bytes=0;for(var value:markers.values())bytes=Math.addExact(bytes,value.metadataReserve());return bytes;}
         long reservedBytes(){long result=limits.rootReservedBytes();for(var i:recoveries.values())
-            result=Math.addExact(result,Math.max(0,i.rootReserve(limits.maximumPreparedReferences)-(4096L+128L*limits.maximumPreparedReferences)));return Math.addExact(result,Math.addExact(closureReserve(),markerReserve()));}
+            result=Math.addExact(result,Math.max(0,i.rootReserve(limits.maximumPreparedReferences)-(4096L+128L*limits.maximumPreparedReferences)));return Math.addExact(result,Math.addExact(Math.addExact(closureReserve(),markerReserve()),binding==null?0:binding.rootReserve()));}
         byte[] bytes(){final var b=CanonicalProtobuf.message(o->{
             CanonicalProtobuf.uint32(o,1,version);CanonicalProtobuf.uint64(o,2,limits.physicalBytes);CanonicalProtobuf.uint32(o,3,limits.physicalRecords);
             CanonicalProtobuf.uint32(o,4,limits.maximumPublications);CanonicalProtobuf.uint32(o,5,limits.maximumTopics);CanonicalProtobuf.uint32(o,6,limits.maximumPreparedReferences);
@@ -322,12 +367,13 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             for(var i:new TreeMap<>(recoveries).values())CanonicalProtobuf.bytes(o,10,i.encode());
             if(version>=3){for(var closure:new TreeMap<>(closures).values())CanonicalProtobuf.bytes(o,11,closure.encode());CanonicalProtobuf.uint64Bits(o,12,closureSequence);}
             if(version>=4)for(var reservation:new TreeMap<>(markers).values())CanonicalProtobuf.bytes(o,13,reservation.bytes());
+            if(version>=5)CanonicalProtobuf.bytes(o,14,binding.bytes());
         });if(b.length>reservedBytes()||b.length>MAX_ROOT_BYTES)throw new IllegalArgumentException("receipt catalog root exceeds its reserved physical storage");return b;}
         static Root decode(byte[] b){
             if(b.length==0||b.length>MAX_ROOT_BYTES)throw new IllegalArgumentException("invalid receipt capacity root length");
             final var f=QueryCodecSupport.read(b,"receipt capacity root");if(f.size()<7)throw new IllegalArgumentException("incomplete receipt capacity root");
             QueryCodecSupport.requireNumbers(f.subList(0,7),new int[]{1,2,3,4,5,6,7},"receipt capacity root");
-            final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>4)throw new IllegalArgumentException("unknown receipt capacity root version");
+            final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>5)throw new IllegalArgumentException("unknown receipt capacity root version");
             final var l=new Limits(QueryCodecSupport.uint(f.get(1),2),QueryCodecSupport.uint32(f.get(2),3),QueryCodecSupport.uint32(f.get(3),4),QueryCodecSupport.uint32(f.get(4),5),QueryCodecSupport.uint32(f.get(5),6),QueryCodecSupport.fixed(f.get(6),7,32));
             final var topics=new TreeMap<String,Management>();final var intents=new TreeMap<String,Intent>();int n=7;
             while(n<f.size()&&f.get(n).number()==8){var m=Management.decode(QueryCodecSupport.nested(f.get(n++),8));if(topics.put(m.id(),m)!=null)throw new IllegalArgumentException("duplicate managed topic");}
@@ -340,17 +386,19 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             final var markers=new TreeMap<String,MarkerReservation>();
             if(version>=4)while(n<f.size()&&f.get(n).number()==13){final var value=MarkerReservation.decode(QueryCodecSupport.nested(f.get(n++),13));
                 if(markers.put(value.marker.exactKey(),value)!=null||markers.size()>closures.size())throw new IllegalArgumentException("duplicate/excess marker reservation");}
-            if(n!=f.size())throw new IllegalArgumentException("unknown receipt root field");final var root=new Root(version,l,topics,intents,recovery,closures,sequence,markers);QueryCodecSupport.requireCanonical(b,root.bytes(),"receipt capacity root");return root;
+            GuardBinding binding=null;if(version>=5){if(n>=f.size())throw new IllegalArgumentException("missing Root guard association");binding=GuardBinding.decode(QueryCodecSupport.bytes(f.get(n++),14));}
+            if(n!=f.size())throw new IllegalArgumentException("unknown receipt root field");final var root=new Root(version,l,topics,intents,recovery,closures,sequence,markers,binding);QueryCodecSupport.requireCanonical(b,root.bytes(),"receipt capacity root");return root;
         }
         private static void validate(int version,Limits l,Map<String,Management> topics,Map<String,Intent> publications,Map<String,RecoveryIntent> recovery,
-                Map<String,Closure> closures,long sequence,Map<String,MarkerReservation> markers){
-            if(version<1||version>4||version==1&&!recovery.isEmpty()||version<3&&(!closures.isEmpty()||sequence!=0)
-                    ||version>=3&&(closures.isEmpty()||sequence==0)||version<4&&!markers.isEmpty()||version==4&&markers.isEmpty()
+                Map<String,Closure> closures,long sequence,Map<String,MarkerReservation> markers,GuardBinding binding){
+            if(version<1||version>5||(version==5)!=(binding!=null)||version==1&&!recovery.isEmpty()||version<3&&(!closures.isEmpty()||sequence!=0)
+                    ||version>=3&&version<=4&&(closures.isEmpty()||sequence==0)||version==5&&(closures.isEmpty()!=(sequence==0))||version<4&&!markers.isEmpty()||version==4&&markers.isEmpty()
                     ||markers.size()>closures.size()||closures.size()>publications.size()+recovery.size()
                     ||topics.size()>l.maximumTopics||publications.size()+(long)recovery.size()>l.maximumPublications)throw new IllegalArgumentException("receipt catalog cardinality bound exceeded");
             long bytes=l.rootReservedBytes();int records=1;final var keys=new HashSet<String>();
             for(var i:publications.values()){if(i.uses.size()>l.maximumPreparedReferences||!keys.add(i.key))throw new IllegalArgumentException("duplicate physical blob or prepared-use bound exceeded");bytes=Math.addExact(bytes,i.physicalBytes());records++;}
             long extraRoot=0;
+            if(binding!=null){extraRoot=binding.rootReserve();bytes=Math.addExact(bytes,binding.guardReserve());records++;}
             for(var i:recovery.values()){
                 if(i.uses.size()>l.maximumPreparedReferences||!keys.add(i.reference.exactKey()))throw new IllegalArgumentException("duplicate recovery key or prepared-use bound exceeded");
                 extraRoot=Math.addExact(extraRoot,Math.max(0,i.rootReserve(l.maximumPreparedReferences)-(4096L+128L*l.maximumPreparedReferences)));
@@ -391,14 +439,20 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     }
     public OxiaSyncTargetKafkaReceiptProtectionCatalog(OxiaSyncOwnerLeaseBackend.ClientHandle handle,String keyPrefix,
             TargetKafkaReceiptProtectionTrust trust,Limits limits){
+        this(handle,keyPrefix,trust,limits,null);
+    }
+    public OxiaSyncTargetKafkaReceiptProtectionCatalog(OxiaSyncOwnerLeaseBackend.ClientHandle handle,String keyPrefix,
+            TargetKafkaReceiptProtectionTrust trust,Limits limits,TargetCatalogRootAuthority rootAuthority){
         client=Objects.requireNonNull(handle,"session-fenced Registry handle").client();session=handle.backend()::assertConnectedSession;
         storageNamespaceBinding=handle.backend()::requireOriginalStorageNamespaceBinding;
         retainStorageInput=handle.backend()::retainClosedClientInputUntilTermination;
         managedStorageInputOwner=handle.backend()::hasManagedClientInputOwner;
         this.trust=Objects.requireNonNull(trust,"original CONTROL trust");this.limits=Objects.requireNonNull(limits,"explicit durable capacity configuration");
+        this.rootAuthority=rootAuthority;
         prefix=Objects.requireNonNull(keyPrefix,"Registry prefix");
         if(prefix.isBlank()||prefix.endsWith("/")||prefix.indexOf('\0')>=0||prefix.getBytes(StandardCharsets.UTF_8).length>1024||!Normalizer.isNormalized(prefix,Normalizer.Form.NFC))throw new IllegalArgumentException("invalid receipt Registry prefix");
         ledgerKey=prefix+"/target-kafka-receipt-storage";
+        guardKey=prefix+"/target-kafka-receipt-storage-guard";
     }
     /** Only this invocation's fresh persistent token permits Admin effects; an old INSTALLING token is never resumed. */
     public static final class Installation {
@@ -714,7 +768,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     }
     public void releaseProtection(KafkaReceiptSlotResource resource,long generation){throw new IllegalStateException("release/orphan GC requires original Source retirement/Floor/query/shared-topic closure");}
     /** One owned Root input window; shared Root assembly must reserve it before entering the closure I/O path. */
-    public static long closureInputWindowBytes(){return 16L*(MAX_ROOT_BYTES+TargetRecoveryProofRef.MAX_PROOF_BYTES);}
+    public static long closureInputWindowBytes(){return 16L*(MAX_ROOT_BYTES+MAX_GUARD_BYTES+TargetRecoveryProofRef.MAX_PROOF_BYTES);}
 
     /** Actual durable freeze receipt. It does not prove terminal uses, complete shared-reference release, or deletion eligibility. */
     public static final class ClosedObject {
@@ -1193,9 +1247,133 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             requireActiveManagement(r,protection);final var i=Objects.requireNonNull(r.publications.get(Bytes.hex(id)));return i.phase>=PUBLISHED?r:r.publication(i.phase(PUBLISHED));},current); current.run();
     }
     private record Observed(GetResult stored,Root root){}
-    private Observed readRoot(){final var result=read(ledgerKey);final var root=result==null?new Root(limits,Map.of(),Map.of()):Root.decode(result.value());requireLimits(root.limits);requireMarkerOwnerBindings(root);return new Observed(result,root);}
-    private Observed readRoot(BoundedReadBudget budget){final var result=read(ledgerKey,budget,MAX_ROOT_BYTES);
-        final var root=result==null?new Root(limits,Map.of(),Map.of()):Root.decode(result.value());requireLimits(root.limits);requireMarkerOwnerBindings(root);return new Observed(result,root);}
+    /** This receipt is constructed only from the exact original INITIAL image, before any READY transition. */
+    public static final class InitialRootObservation {
+        private final TargetCatalogRootAuthority.Scope scope;
+        private final long version;
+        private final byte[] digest;
+        private InitialRootObservation(TargetCatalogRootAuthority.Scope scope,GetResult stored){this.scope=scope;version=stored.version().versionId();digest=Bytes.sha256(stored.value());}
+        private InitialRootObservation(TargetCatalogRootAuthority.Scope scope,long version,byte[] digest){this.scope=scope;this.version=version;this.digest=Bytes.copy(digest);}
+        public TargetCatalogRootAuthority.Scope scope(){return scope;}
+        public long version(){return version;}
+        public byte[] digest(){return Bytes.copy(digest);}
+    }
+    private TargetCatalogRootAuthority.Scope actualRootScope(TargetCatalogRootAuthority.Policy policy){
+        requireManagedMarkerInputOwner();requireLimits(policy.scope().limits());
+        return new TargetCatalogRootAuthority.Scope(storageNamespaceBinding.get(),prefix,ledgerKey,guardKey,
+                policy.scope().deploymentRoot(),limits,policy.scope().allocation(),policy.scope().nonce());
+    }
+    private TargetCatalogRootAuthority requireRootAuthority(){if(rootAuthority==null)throw new IllegalStateException("independent Catalog root purpose/history authority is unavailable");return rootAuthority;}
+    private void requireRootScope(Root root,TargetCatalogRootAuthority.Policy policy){
+        requireRootAuthority().requireHistory(policy,actualRootScope(policy));
+        for(var management:root.topics.values())requireExact(management.image().deploymentRootDigest(),policy.scope().deploymentRoot());
+    }
+    private void requireLegacyHistory(Root root){for(var management:root.topics.values())trust.requireManagementHistory(management.artifact);}
+    private static GetResult persistent(GetResult result){
+        if(result!=null&&(result.version().versionId()<0||result.version().sessionId().isPresent()||result.version().clientIdentifier().isPresent()))
+            throw new IllegalStateException("Catalog Root/guard requires original persistent versioned records");
+        return result;
+    }
+    private GetResult rootRead(String key,BoundedReadBudget reads,int maximum){return persistent(reads==null?read(key):read(key,reads,maximum));}
+    private Observed rawRoot(BoundedReadBudget reads){final var stored=rootRead(ledgerKey,reads,MAX_ROOT_BYTES);
+        if(stored==null)return new Observed(null,null);
+        final var root=Root.decode(stored.value());requireLimits(root.limits);requireMarkerOwnerBindings(root);return new Observed(stored,root);}
+    private Observed readRoot(){return readRoot(null);}
+    private Observed readRoot(BoundedReadBudget budget){
+        requireRootAuthority();final var first=Objects.requireNonNull(rootRead(guardKey,budget,MAX_GUARD_BYTES),"protected READY Catalog Root guard is missing");
+        final var guard=RootGuard.decode(first.value());if(guard.state!=2)throw new IllegalStateException("Catalog Root guard is not READY");
+        final var observed=rawRoot(budget);if(observed.stored==null)throw new IllegalStateException("original guarded Catalog Root is missing; initialization is forbidden");
+        final var binding=observed.root.binding;
+        if(binding==null||binding.state!=2||observed.stored.version().versionId()<guard.firstLiveVersion
+                ||binding.pendingGuardVersion!=guard.pendingVersion||first.version().versionId()<=guard.pendingVersion)
+            throw new IllegalStateException("Catalog Root is unguarded, initializing or older than its actual READY image");
+        requireExact(binding.policy.canonicalBytes(),guard.policy.canonicalBytes());requireRootScope(observed.root,guard.policy);
+        if(binding.initialVersion!=guard.initialVersion)throw new IllegalStateException("Catalog Root initialization version changed");
+        requireExact(binding.initialDigest,guard.initialDigest);
+        final var last=Objects.requireNonNull(rootRead(guardKey,budget,MAX_GUARD_BYTES),"original Catalog guard disappeared");
+        if(last.version().versionId()!=first.version().versionId())throw new IllegalStateException("original READY guard version changed");
+        requireExact(last.value(),first.value());return observed;
+    }
+    /** Startup must run this before constructing Admin or admitting ordinary operations. It never initializes storage. */
+    public void requireReadyRoot(byte[] deploymentRoot){final var actual=readRoot();requireExact(actual.root.binding.policy.scope().deploymentRoot(),deploymentRoot);}
+
+    /** Explicit owned-I/O metadata initialization/adoption. No generic read/update path can enter it. */
+    public void initializeRoot(TargetCatalogRootAuthority.Policy policy,byte[] deploymentRoot,
+            com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Authenticator authenticator,
+            TargetCatalogRootAuthority.FreshAllocation external,BoundedReadBudget reads,Runnable current){
+        Objects.requireNonNull(current);Objects.requireNonNull(reads);
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite original Catalog bootstrap reads required");
+        final var actual=actualRootScope(Objects.requireNonNull(policy));requireExact(actual.deploymentRoot(),deploymentRoot);
+        final var permit=requireRootAuthority().acquire(policy,actual,Objects.requireNonNull(authenticator));
+        final boolean fresh=policy.purpose()==TargetCatalogRootAuthority.Purpose.INITIALIZE_FRESH_CATALOG_ROOT;
+        if(fresh)Objects.requireNonNull(external,"actual external never-used allocation/one-time initialization authority is unavailable");
+        else if(external!=null)throw new IllegalArgumentException("legacy adoption cannot substitute a fresh allocation fact");
+        final Runnable guarded=()->{current.run();permit.requireCurrent(actual);};
+        for(int attempt=0;attempt<MAX_CAS_ATTEMPTS;attempt++){
+            guarded.run();final var guardStored=rootRead(guardKey,reads,MAX_GUARD_BYTES);final var before=rawRoot(reads);
+            final var guard=guardStored==null?null:RootGuard.decode(guardStored.value());
+            if(guard!=null){requireExact(guard.policy.canonicalBytes(),policy.canonicalBytes());
+                if(guard.state==2){readRoot(reads);guarded.run();return;}}
+            if(fresh){external.requireNeverOrdinarilyUsed(actual);guarded.run();}
+            try{
+                if(guard==null){
+                    if(fresh){
+                        if(before.stored!=null)throw new IllegalStateException("fresh initialization found a Root without its original PENDING guard");
+                        external.requireInitialCreation(actual);guarded.run();
+                        // Validate original root+guard peak bytes and both records before the first persistent put.
+                        final var initial=new Root(limits,Map.of(),Map.of()).guarded(new GuardBinding(policy,1,0,new byte[32],0,new byte[32],0));initial.bytes();
+                    }else{
+                        if(before.stored==null)throw new IllegalStateException("legacy adoption cannot reconstruct a missing Root");
+                        if(before.root.binding==null){
+                            requireRootScope(before.root,policy);requireLegacyHistory(before.root);
+                            final var initial=before.root.guarded(new GuardBinding(policy,1,0,new byte[32],before.stored.version().versionId(),Bytes.sha256(before.stored.value()),-1));
+                            putRootMetadata(ledgerKey,initial.bytes(),before.stored,guarded);continue;
+                        }
+                        requireExact(before.root.binding.policy.canonicalBytes(),policy.canonicalBytes());
+                        if(before.root.binding.state!=1)throw new IllegalStateException("legacy READY binding lost its guard; downgrade is forbidden");
+                        requireRootScope(before.root,policy);requireLegacyHistory(before.root);
+                    }
+                    putRootMetadata(guardKey,new RootGuard(policy,1,0,new byte[32],0,0).bytes(),null,guarded);continue;
+                }
+                if(before.stored==null){
+                    if(!fresh)throw new IllegalStateException("legacy PENDING guard lost its Root");
+                    external.requireInitialCreation(actual);guarded.run();
+                    final var initial=new Root(limits,Map.of(),Map.of()).guarded(new GuardBinding(policy,1,0,new byte[32],0,new byte[32],guardStored.version().versionId()));
+                    putRootMetadata(ledgerKey,initial.bytes(),null,guarded);continue;
+                }
+                final var binding=Objects.requireNonNull(before.root.binding,"PENDING guard found an unassociated legacy Root");
+                requireExact(binding.policy.canonicalBytes(),policy.canonicalBytes());requireRootScope(before.root,policy);
+                if(!fresh)requireLegacyHistory(before.root);
+                if(binding.pendingGuardVersion==-1){
+                    if(fresh)throw new IllegalStateException("fresh Root lost its original PENDING guard version");
+                    putRootMetadata(ledgerKey,before.root.guarded(binding.bindPending(guardStored.version().versionId())).bytes(),before.stored,guarded);continue;
+                }
+                if(binding.pendingGuardVersion!=guardStored.version().versionId())throw new IllegalStateException("PENDING guard was recreated; an old READY/initialization cannot be downgraded");
+                if(fresh&&(!before.root.topics.isEmpty()||!before.root.publications.isEmpty()||!before.root.recoveries.isEmpty()
+                        ||!before.root.closures.isEmpty()||!before.root.markers.isEmpty()))throw new IllegalStateException("fresh PENDING initialization is no longer empty");
+                if(binding.state==1){
+                    if(fresh)external.recordInitialRoot(TargetCatalogRootAuthority.observedInitialRoot(new InitialRootObservation(actual,before.stored)));
+                    guarded.run();final var live=before.root.guarded(binding.live(before.stored.version().versionId(),Bytes.sha256(before.stored.value())));
+                    putRootMetadata(ledgerKey,live.bytes(),before.stored,guarded);continue;
+                }
+                if(before.stored.version().versionId()<=binding.initialVersion)throw new IllegalStateException("LIVE Root lacks its actual conditional initialization advance");
+                if(fresh){
+                    // Reconfirm the exact original birth on resume; the external record must reject any recreated initial image.
+                    external.recordInitialRoot(TargetCatalogRootAuthority.observedInitialRoot(
+                            new InitialRootObservation(actual,binding.initialVersion,binding.initialDigest)));
+                    guarded.run();
+                }
+                putRootMetadata(guardKey,new RootGuard(policy,2,binding.initialVersion,binding.initialDigest,before.stored.version().versionId(),binding.pendingGuardVersion).bytes(),guardStored,guarded);
+                readRoot(reads);guarded.run();return;
+            }catch(KeyAlreadyExistsException|UnexpectedVersionIdException race){/* Known CAS rejection only; unknown responses retain the original owner. */}
+        }
+        throw new IllegalStateException("Catalog initialization did not converge within the original finite CAS bound");
+    }
+    private void putRootMetadata(String key,byte[] bytes,GetResult expected,Runnable current)throws KeyAlreadyExistsException,UnexpectedVersionIdException{
+        current.run();session.run();final var result=client.put(key,bytes,expected==null?Set.of(PutOption.IfRecordDoesNotExist):Set.of(PutOption.IfVersionIdEquals(expected.version().versionId())));
+        session.run();current.run();if(result==null||!key.equals(result.key())||result.version()==null||result.version().versionId()<0)
+            throw new IllegalStateException("Catalog initialization lacks exact key/actual version response");
+    }
     private void requireMarkerOwnerBindings(Root root){
         if(root.markers.isEmpty())return;
         final byte[] binding=storageNamespaceBinding.get();
@@ -1219,7 +1397,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     private Root update(UnaryOperator<Root> operation,Runnable current,BoundedReadBudget budget,boolean acceptUncertainReadback){
         for(int attempt=0;attempt<MAX_CAS_ATTEMPTS;attempt++){current.run();final var before=budget==null?readRoot():readRoot(budget);requireLimits(before.root.limits);final var after=operation.apply(before.root);final byte[] desired=after.bytes();
             if(before.stored!=null&&Arrays.equals(before.stored.value(),desired)){current.run();return after;}
-            try{session.run();current.run();final var result=client.put(ledgerKey,desired,before.stored==null?Set.of(PutOption.IfRecordDoesNotExist):Set.of(PutOption.IfVersionIdEquals(before.stored.version().versionId())));session.run();current.run();
+            try{session.run();current.run();final var result=client.put(ledgerKey,desired,Set.of(PutOption.IfVersionIdEquals(before.stored.version().versionId())));session.run();current.run();
                 if(result==null||!ledgerKey.equals(result.key())||result.version()==null)throw new IllegalStateException("receipt capacity CAS returned no exact key/version");}
             catch(KeyAlreadyExistsException|UnexpectedVersionIdException race){continue;}
             catch(RuntimeException uncertain){

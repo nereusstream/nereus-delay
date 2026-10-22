@@ -5081,3 +5081,47 @@ protocol/admission and startup protection are not implemented by this workflow.
 Actual payload replacement/Floor/Pin/query/shared protection, provider receipt,
 Source confirmation/refund/physical settlement and full recovery remain open.
 The close handoff covers every backing with an actual managed Catalog SDK, including normal/constructor-failure paths; Admin exit alone does not settle any such Registry inputs. Borrowed backings retain their previous close path and cannot enter this new marker workflow. Already-released input charges cannot be attached as if they still funded an active SDK.
+
+2026-10-22 Catalog root guard implementation (development only): private Root5 preserves
+Root1..4 encoding/decoding and fields1..13, adds required field14 GuardBinding1. Version5
+permits the empty initialized closure set, preserves all original members/origin digests,
+and every later mutation retains the original guard association. GuardBinding1 fields are
+1 schema1; 2 complete signed root Policy1; 3 INITIAL1/LIVE2; 4 initial Root version (8 bytes);
+5 initial Root SHA256; 6 original legacy version (8 bytes); 7 original legacy SHA256;
+8 original PENDING guard version (8 bytes). Only legacy INITIAL may temporarily use -1 for
+field8 before its guard is created; this state cannot become LIVE or serve ordinary work.
+The persistent non-ephemeral guard key is exact prefix/target-kafka-receipt-storage-guard.
+Guard1 fields are 1 schema1; 2 Policy1; 3 PENDING1/READY2; 4 initial Root version8;
+5 initial Root SHA256; 6 first actual LIVE Root version8; 7 original PENDING guard version8.
+Ordinary reads require READY + matching LIVE association/initial facts, Root version at
+least firstLiveVersion, and stable exact guard value/version across its two reads. READY
+must be an actual version advance from its original PENDING. A recreated PENDING cannot
+resume an old binding, even when a late old IfAbsent created byte-identical data. Missing,
+unguarded, ephemeral, malformed, foreign or initializing Root/guard fails closed; generic
+update no longer uses IfAbsent or fabricates an empty Root. No guard/association GC exists.
+TargetCatalogRootAuthority Policy1 has a closed body (schema, purpose, Scope1, issuer,
+keyVersion, policyVersion, actorHash, roleDigest, actorScopeHash), Ed25519 signature envelope
+and an 8192-byte bound. INITIALIZE_FRESH_CATALOG_ROOT and ADOPT_EXISTING_CATALOG_ROOT_GUARD
+have independent purpose/issuer/key/deployment pins. The actual current snapshot must
+match this signed policy digest/version and exact subject; ordinary topic-policy digests
+and PLATFORM_OPERATOR alone do not authorize either purpose. Scope1 binds original SDK
+storage namespace, exact prefix/root/guard keys, deployment Root, complete configured
+capacity limits/source, allocation identity and initialization nonce. No key arrives in
+policy data and no Source CONTROL issuance chain is added.
+Fresh initialization additionally consumes an actual external FreshAllocation authority
+whose never-ordinarily-used and one-time creation responsibility outlives both records.
+It durably binds the opaque actual initial Root version/digest before LIVE; identical
+birth recording is idempotent, another birth or creation after recording must be denied.
+Static grants/files/absence cannot implement this authority. Fresh writes PENDING first,
+then unusable INITIAL, then conditional LIVE and READY. Legacy adoption instead requires
+an actual present complete Root and original management history, first CAS-reserves the
+association/guard capacity, creates PENDING, binds its actual version, then advances.
+Only known CAS rejection retries within16 steps; unknown method results propagate and
+retain the original Root/SDK input responsibility. Actual deployment authority/materials
+and full recovery validation remain prerequisites, not fabricated by these interfaces.
+Root association peak bytes plus guard policyBytes+128+exact guard-key bytes and one guard
+record remain charged to original capacity; no publication, original raw fee or Target
+fee is refunded. Startup preflights retained/root windows, requires explicit root-history
+inputs and READY before constructing Admin. Its captured Registry input owner predates
+Catalog/session RPCs, so early construction failure also retains the exact charge until
+original SDK termination. No actual bootstrap/adoption/guard/payload operation was run.

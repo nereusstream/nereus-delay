@@ -2,6 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
+import com.nereusstream.delay.ownership.TargetCatalogRootAuthority;
 import com.nereusstream.delay.ownership.TargetSdkArtifactIdentity;
 import com.nereusstream.delay.ownership.TargetReceiptControlHistory;
 import com.nereusstream.delay.ownership.TargetReceiptCurrentManagement;
@@ -47,12 +48,31 @@ import org.apache.kafka.clients.admin.KafkaAdminClient;
 public final class KafkaClientArtifactTargetReceiptManagementFactory {
     private KafkaClientArtifactTargetReceiptManagementFactory() {}
 
+    /** Independent trusted inputs; no initializer is inferred from ordinary management or absent storage. */
+    public record CatalogRootInputs(TargetCatalogRootAuthority history, CatalogInitialization initialization) {
+        public CatalogRootInputs { Objects.requireNonNull(history); }
+    }
+    public record CatalogInitialization(TargetCatalogRootAuthority.Policy policy,
+            TargetReceiptCurrentManagement.Authenticator authenticator, TargetCatalogRootAuthority.FreshAllocation externalAllocation,
+            Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) {
+        public CatalogInitialization {
+            Objects.requireNonNull(policy).canonicalBytes();Objects.requireNonNull(authenticator);Objects.requireNonNull(reads);
+            if((policy.purpose()==TargetCatalogRootAuthority.Purpose.INITIALIZE_FRESH_CATALOG_ROOT)!=(externalAllocation!=null))
+                throw new IllegalArgumentException("fresh initialization requires its actual external allocation authority; adoption does not substitute one");
+        }
+    }
+
     /** Authentication still comes from original registered CONTROL history and the live operator resolver. */
     public record TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
             TargetKafkaReceiptProtectionTrust.HistoricalActor actors,
             TargetKafkaReceiptProtectionTrust.ReceiptScope scope, TargetReceiptCurrentManagement current,
-            TargetKafkaReceiptProtectionTrust.PublicHistory publicHistory) {
+            TargetKafkaReceiptProtectionTrust.PublicHistory publicHistory, CatalogRootInputs catalogRoot) {
         public TrustInputs { Objects.requireNonNull(keys); Objects.requireNonNull(actors); Objects.requireNonNull(scope); }
+        public TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
+                TargetKafkaReceiptProtectionTrust.HistoricalActor actors,TargetKafkaReceiptProtectionTrust.ReceiptScope scope,
+                TargetReceiptCurrentManagement current,TargetKafkaReceiptProtectionTrust.PublicHistory publicHistory){
+            this(keys,actors,scope,current,publicHistory,null);
+        }
         public TrustInputs(TargetChannelControlVerifier.KeyAuthority keys,
                 TargetKafkaReceiptProtectionTrust.HistoricalActor actors, TargetKafkaReceiptProtectionTrust.ReceiptScope scope,
                 TargetReceiptCurrentManagement current) {
@@ -198,6 +218,13 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             Path currentPolicy, Path recoveryArchive, Path retirementSigning,Path retirementHistory,
             List<TargetRecoveryCredentialAuthorization.Trust> originalRecoveryMaterialHistory,
             TargetDestinationSdkBudget budget, TargetReceiptCurrentManagement.Authenticator authenticator) throws IOException {
+        return openConfigured(root,configuration,controlHistory,currentPolicy,recoveryArchive,retirementSigning,retirementHistory,
+                originalRecoveryMaterialHistory,budget,authenticator,null);
+    }
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Path configuration, Path controlHistory,
+            Path currentPolicy, Path recoveryArchive, Path retirementSigning,Path retirementHistory,
+            List<TargetRecoveryCredentialAuthorization.Trust> originalRecoveryMaterialHistory,
+            TargetDestinationSdkBudget budget, TargetReceiptCurrentManagement.Authenticator authenticator,CatalogRootInputs catalogRoot) throws IOException {
         Objects.requireNonNull(authenticator, "original live CONTROL authenticator");
         final var config = load(configuration);
         final var captured = TargetReceiptControlHistory.prepare(controlHistory);
@@ -212,10 +239,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 retirementSigning, TargetKafkaReceiptManagementImage.decode(config.management().image()).deploymentRootDigest());
         final var historyInputs=retirementHistory==null?null:KafkaClientArtifactTargetRetirementHistoryConfiguration.prepare(retirementHistory,
                 TargetKafkaReceiptManagementImage.decode(config.management().image()).deploymentRootDigest());
-        final long bytes = Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
+        final long bytes = Math.addExact(catalogRoot==null?0:TargetCatalogRootAuthority.maximumInputBytes(),Math.addExact(Math.addExact(captured.maximumRetainedBytes(), policy.maximumRetainedBytes()),
                 Math.addExact(retainedConfigurationBytes(config.management(), config.admin(), config.receipts()),
                         Math.addExact(recovery == null ? 0 : recovery.maximumRetainedBytes(),
-                                Math.addExact(retirement == null ? 0 : retirement.maximumRetainedBytes(),historyInputs==null?0:historyInputs.maximumRetainedBytes()))));
+                                Math.addExact(retirement == null ? 0 : retirement.maximumRetainedBytes(),historyInputs==null?0:historyInputs.maximumRetainedBytes())))));
         if (config.cost().amount(CapacityDimension.BUFFERED_BYTES) < bytes)
             throw new IllegalArgumentException("management reservation omits its history/current-policy input bounds");
         return openLoaded(root, config, budget, guard -> {
@@ -228,7 +255,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     history.requireReceipt(receipt.authority(), required.resource(), required.slotsPerShard(), required.physicalPartition());
                 }
                 final var current = TargetReceiptCurrentManagement.load(policy, authenticator, guard);
-                return new TrustInputs(history, history, history, current, history::historicalPublicInputs);
+                return new TrustInputs(history, history, history, current, history::historicalPublicInputs,catalogRoot);
             } catch (IOException failure) { throw new IllegalStateException("original CONTROL input materialization failed", failure); }
         }, recovery, retirement, historyInputs,bytes);
     }
@@ -238,7 +265,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             TargetDestinationSdkBudget budget, TrustInputs inputs) throws IOException {
         Objects.requireNonNull(inputs, "original trusted CONTROL providers");
         Objects.requireNonNull(inputs.current(), "actual current whole-topic scope authority");
-        return openLoaded(root, load(path), budget, guard -> inputs);
+        final var config=load(path);
+        return openLoaded(root,config,budget,guard->inputs,null,Math.addExact(retainedConfigurationBytes(config.management(),config.admin(),config.receipts()),
+                inputs.catalogRoot()==null?0:TargetCatalogRootAuthority.maximumInputBytes()));
     }
 
     private static Opening openLoaded(TargetWorkerProcessRuntime root, Configuration config,
@@ -351,6 +380,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private boolean retirementSubmitting;
         private volatile OwnedCheckpointIo<MarkerPreparation> markerReservation;
         private MarkerReservationRequest markerRequest;
+        private com.nereusstream.delay.ownership.TargetWorkerOxiaProviders registryInputOwner;
         private RetirementSourceCopy retirementSourceCopy;
         private RetirementHistoryInput retirementHistoryInput;
         private Map<String,TargetKafkaReceiptControlArtifact> protections = Map.of();
@@ -377,10 +407,16 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private void start(TargetWorkerProcessRuntime.Assembly graph) {
             io = graph.io();
             allocation = budget.reserve("receipt-management/" + Bytes.hex(identity), config.cost());
+            final var originalRegistry=graph.oxia().providers();
+            if(originalRegistry.hasManagedRegistryInputOwner())registryInputOwner=originalRegistry;
             opening = OwnedCheckpointIo.submit(guard -> {
                 try {
                     guard.run(); TargetSdkArtifactIdentity.requireExact(KafkaAdminClient.class, config.sdkJar());
                     final var inputs = Objects.requireNonNull(trustLoader.apply(guard), "actual original CONTROL inputs");
+                    final var rootInputs=Objects.requireNonNull(inputs.catalogRoot(),"explicit Catalog root history/purpose inputs are unavailable");
+                    final long[] rootWindow=new long[CapacityDimension.COUNT];rootWindow[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                            OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes());
+                    allocation.requireCovers(new CapacityVector(rootWindow));
                     if (recoveryInputs != null) {
                         try { recoveryArchive = KafkaClientArtifactTargetRecoveryArchiveConfiguration.load(recoveryInputs, guard); }
                         catch (IOException rejected) { throw new IllegalStateException("original recovery signing input materialization failed", rejected); }
@@ -397,19 +433,24 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                                     Objects.requireNonNull(manager, "actual receipt Admin backing").requireCurrent(image, control, at), inputs.current(), inputs.publicHistory());
                     final var original = config.management();
                     final var image = TargetKafkaReceiptManagementImage.decode(original.image());
+                    guard.run();nativeStarted=true;allocation.beginConstruction();
                     for (var receipt : config.receipts()) {
                         guard.run(); final var authority = receipt.authority();
                         try (var permission = trust.currentManagement(authority, Action.OBSERVE)) { permission.requireCurrent(); }
                         trust.requireIssuerSignature(TargetKafkaReceiptControlArtifact.signManagement(image,
                                 authority.control(), authority.authorizedAt(), config.key()));
                     }
-                    catalog = graph.oxia().providers().receiptProtectionCatalog(config.catalogPrefix(), trust, config.storage());
+                    catalog = graph.oxia().providers().receiptProtectionCatalog(config.catalogPrefix(), trust, config.storage(),rootInputs.history());
+                    final var initialize=rootInputs.initialization();
+                    if(initialize!=null)catalog.initializeRoot(initialize.policy(),image.deploymentRootDigest(),initialize.authenticator(),
+                            initialize.externalAllocation(),Objects.requireNonNull(initialize.reads().get(),"original finite Catalog initialization read budget"),guard);
+                    guard.run();catalog.requireReadyRoot(image.deploymentRootDigest());guard.run();
                     if(retirementHistoryInputs!=null){
                         try{retirementHistory=KafkaClientArtifactTargetRetirementHistoryConfiguration.load(retirementHistoryInputs,catalog.namespaceIdentity(image),guard);}
                         catch(IOException rejected){throw new IllegalStateException("original retirement authorization history materialization failed",rejected);}
                         if(stopping)retirementHistory.requestStop();
                     }
-                    guard.run(); nativeStarted = true; allocation.beginConstruction();
+                    guard.run();
                     manager = KafkaClientArtifactTargetReceiptManagement.open(new HashMap<>(config.admin()), image,
                             config.key(), config.timeout(), config.maximumAcls(), config.maximumBrokers());
                     manager.attach(catalog, trust); guard.run();
@@ -1349,9 +1390,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(preparedRetirement!=null){if(preparedRetirement.sourceBorrowed)return false;preparedRetirement.releaseLocal();}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
-            final boolean registryInputRetained=catalog!=null&&catalog.hasManagedStorageInputOwner();
+            final boolean registryInputRetained=registryInputOwner!=null;
             // Admin termination is separate from the shared Registry SDK. Hand its exact charge to that original owner.
-            if(registryInputRetained)catalog.retainClientInputsUntilStorageSdkTermination(allocation);
+            if(registryInputRetained)registryInputOwner.retainClosedRegistryClientInputs(allocation);
             if(marker!=null)marker.completedValue().ifPresent(MarkerPreparation::releaseLocal);
             if(markerRequest!=null)markerRequest.clearInputs();
             markerReservation=null;markerRequest=null;

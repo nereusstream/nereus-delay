@@ -1150,3 +1150,11 @@ lease/guard自身SDK请求仍保原Source责任，no-Catalog只释放未进入Ca
 新的fresh/adopt current-policy用途不继承BEGIN/CLOSE/platform role；fresh须外部原
 allocation从未普通使用和一次性责任，缺材料或两个key都缺失仍Unavailable。guard
 PENDING/READY及旧bootstrap晚写保护已裁定，实际格式/入口/Factory切换尚未实施。
+
+2026-10-22 Catalog命名空间启动保护：独立签名Root purpose绑定actual SDK storage namespace、
+exact prefix/root/guard key、deployment/capacity及原allocation/nonce，current snapshot必须
+认证该policy本身及exact subject；旧topic policy/role不替代。fresh还需外部从未普通使用/
+一次性创建责任，原actual initial Root birth在LIVE前保存在Root/guard之外；legacy独立
+接管只保原实际完整Root与历史。普通启动只接READY+LIVE、原PENDING actual version及原
+initial事实匹配的Root；丢失/降级/重建晚写均不自动bootstrap。实际fresh authority/材料/
+部署资格缺失仍Unavailable，不由配置文件或caller boolean补造，无Source新actor或签发链。

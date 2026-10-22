@@ -2666,3 +2666,14 @@ maximumClients，无新默认额度。Oxia actual termination/cleanup task退出
 持久bytes/records/publications，不授payload差额/Target账本退款或root/marker GC。
 最大RSS/并发普通业务窗口和故障恢复尚待集中验证。
 managed Catalog正常及构造失败关闭也保原Client Registry输入费用到实际SDK termination；已released费用不得重新登记为活的hold。该保留不改原额度，borrowed backing不准入marker但保旧close。
+
+2026-10-22 Root5与guard费用：关联reserve为完整binding编码+16字节，guard永久预留为
+完整policy bytes+128字节及exact guard key bytes，另计一个物理record；Root自身原reserve/
+publication/raw/marker bytes保持。initial与LIVE固定宽度version/hash保证同峰值，guard
+PENDING→READY不再临时借额度；fresh首guard put前验证原root+guard全部峰值，legacy先在
+实际Root CAS reserve再put guard。容量不足无put，unknown不退，曾READY/guard/关联不能GC。
+原allocation/limits/source不能随签名或nonce重定价。Root5空closure原地保64字节窗口。
+Root opening先核retained inputs+原完整closure/root window；真实Registry owner在Catalog
+构造前捕获，metadata/guard或更早session/history失败的Client也保至实际SDK termination。
+外部allocation authority须自己承担有界transport/输入责任，不由此新建服务或借Root预算。
+物理退款、Target账本结算与完整RSS/并发/故障恢复验收仍未闭合。

@@ -120,12 +120,22 @@ public final class TargetWorkerOxiaProviders {
     public OxiaSyncPayloadProofTrustSetCatalog payloadTrusts() { return payloadTrusts; }
     public byte[] sessionIdentity() { return session.sessionIdentity(); }
 
+    /** Original captured SDK association, available before any Catalog/session-validation RPC can fail. */
+    public boolean hasManagedRegistryInputOwner(){return session.backend().hasManagedClientInputOwner();}
+    public void retainClosedRegistryClientInputs(TargetDestinationSdkBudget.Client input){session.backend().retainClosedClientInputUntilTermination(input);}
+
     /** Uses the original owned connected session, which outlives the process receipt management dependency. */
     public com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog receiptProtectionCatalog(
             String prefix, com.nereusstream.delay.runtime.TargetKafkaReceiptProtectionTrust trust,
             com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.Limits limits) {
+        return receiptProtectionCatalog(prefix,trust,limits,null);
+    }
+    public com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog receiptProtectionCatalog(
+            String prefix, com.nereusstream.delay.runtime.TargetKafkaReceiptProtectionTrust trust,
+            com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.Limits limits,
+            TargetCatalogRootAuthority authority) {
         session.backend().requireOriginalConnectedClient(session.client());
-        return new com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog(session, prefix, trust, limits);
+        return new com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog(session, prefix, trust, limits,authority);
     }
 
     /** One per-Shard authority backs both intents and Catalog/Floor; do not construct a second catalog record. */

@@ -1302,3 +1302,15 @@ termination+cleanup task exit后才退；释放失败保留。普通Source guard
 Pin/query保护/Source确认/物理退款；全client退出不证明remote不可重放，仍不得删Root/
 guard/marker。无新service/thread/retry/default额度，单agent/不Fast，集中验证后置。
 这次实际SDK费用交接最终覆盖所有managed Catalog backing的关闭，不仅marker异常，因Admin退出均不能证明Registry输入退出；borrowed backing保旧close路径但不能准入新marker操作。原pool/resources/maximumClients与实际未release charge必须保持。
+
+2026-10-22 按既有裁定实施Root guard，无新增语义裁定：独立签名Scope/Policy与purpose/
+issuer/key/deployment pins、actual current snapshot，显式fresh外部never-used/一次性birth
+责任消费，legacy原Root/管理历史先reserve再装guard，Root5与永久Guard1有限CAS接原owned
+opening；普通Root读取与更新已切为protected READY/LIVE，默认缺材料/未接管旧Root失败。
+补原PENDING actual version绑定，避免READY guard丢失后late旧IfAbsent形成可恢复PENDING；
+旧initial Root也不因晚写而LIVE。旧1..4 bytes保decode，仅明确接管入口可升级，不扫描重建。
+原Root关联/guard bytes+record永久计原capacity，unknown/late/取消不退；实际Registry owner
+首RPC前捕获，早期Catalog构造失败也交原SDK保费用。外部authority是必须真实提供的环境
+接口，不新增allocator/IAM/本地file事实/Source CONTROL链；未装入或运行任何实际材料/
+初始化/接管/guard/Admin/迁移/保护解除。真实server契约、外部provider、完整运行及恢复
+验证仍开放；guard与marker GC/物理退款仍无新权限，四包/29切片/三个flags不提升。
