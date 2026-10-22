@@ -475,9 +475,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     guard.run();catalog.requireReadyRoot(image.deploymentRootDigest());guard.run();
                     final var lifecycle=rootInputs.evidenceLifecycle();
                     if(lifecycle!=null){
-                        final var actualScope=catalog.evidenceLifecycleScope(image.deploymentRootDigest(),
-                                Objects.requireNonNull(lifecycle.reads().get(),"finite actual lifecycle scope reads"),guard);
-                        try{evidenceLifecycle=lifecycle.load(actualScope,guard);}
+                        final var lifecycleReads=Objects.requireNonNull(lifecycle.reads().get(),"finite actual lifecycle scope/history reads");
+                        final var actualScope=catalog.evidenceLifecycleScope(image.deploymentRootDigest(),lifecycleReads,guard);
+                        try{evidenceLifecycle=lifecycle.load(actualScope,lifecycleReads,guard);}
                         catch(IOException rejected){throw new IllegalStateException("original complete lifecycle history materialization failed",rejected);}
                         evidenceLifecycleAuthenticator=lifecycle.authenticator();
                     }

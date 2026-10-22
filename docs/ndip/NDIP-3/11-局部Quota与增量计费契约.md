@@ -2730,3 +2730,11 @@ Root事先核完整closure、显式maxRecoveryInputBytes、actual Native read窗
 实际取得的admission，不误关热payload或无grant分支的外部hold；失败/stop保同Root SDK
 termination handoff责任。NV52成功及Root6 strict settlement仍分别必需，旧Source hash/
 time/marker version不改；历史证明本身不能退款/重签/热转换或消除旧UNKNOWN SDK责任。
+
+
+2026-10-22 启动资格预算修正：原Root scope读取与完整lifecycle文件读取/解码/验签
+共用调用方同一BoundedReadBudget，不在中途重置deadline。文件读取前按canonical路径
+bytes和MAX_HISTORY_BYTES=32768预扣一个record/输入上界，读取后与验签后各复核原
+elapsed/current；不足或已超时不得创建Admin或发布可用资格。独立Inputs.load入口也
+必须取得显式有限预算。普通有界文件/不跟随symlink/前后身份校验、原SDK费用和失败
+owner责任保持，不因deadline拒绝认定尚未退出的I/O已终止。

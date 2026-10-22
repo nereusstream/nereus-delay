@@ -172,8 +172,19 @@ public final class TargetEvidenceObjectLifecycleAuthority {
         }
         public long maximumRetainedBytes() { return 8L * MAX_HISTORY_BYTES + 16 * 1024; }
         public Verified load(TargetCatalogRootAuthority.Scope actual, Runnable current) throws IOException {
-            current.run(); final byte[] bytes = TargetWorkerRuntimeConfigLoader.loadBoundedImage(historyFile, MAX_HISTORY_BYTES);
-            current.run(); final var verified = authority.verify(History.decode(bytes), actual); current.run(); return verified;
+            return load(actual,Objects.requireNonNull(reads.get(),"finite lifecycle history read budget"),current);
+        }
+        /** Shares the original Root scope-read deadline and charges the bounded file before materialization. */
+        public Verified load(TargetCatalogRootAuthority.Scope actual,com.nereusstream.delay.store.BoundedReadBudget budget,
+                Runnable current) throws IOException {
+            Objects.requireNonNull(budget);Objects.requireNonNull(current);
+            if(budget.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite lifecycle history read budget required");
+            current.run();
+            if(!budget.beforeRead()||!budget.tryCharge(Bytes.utf8(historyFile.toString()).length,MAX_HISTORY_BYTES))throw budget.incomplete();
+            final byte[] bytes=TargetWorkerRuntimeConfigLoader.loadBoundedImage(historyFile,MAX_HISTORY_BYTES);
+            current.run();if(!budget.beforeTimedWork())throw budget.incomplete();
+            final var verified=authority.verify(History.decode(bytes),actual);
+            current.run();if(!budget.beforeTimedWork())throw budget.incomplete();return verified;
         }
     }
 
