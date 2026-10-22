@@ -18,7 +18,10 @@ public final class TargetWorkerSourceRuntimeFactory {
     private TargetWorkerSourceRuntimeFactory() {}
 
     public record Content(TargetSourceAuthorityLoader.Provider provider, TargetStoreBackend.CommitAuthority physical,
-            TargetStoreBackend.ReadAuthority reads, Duration lookupTimeout, long maximumBytes) {
+            TargetStoreBackend.ReadAuthority reads, Duration lookupTimeout, long maximumBytes,
+            com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication) {
+        public Content(TargetSourceAuthorityLoader.Provider provider,TargetStoreBackend.CommitAuthority physical,
+                TargetStoreBackend.ReadAuthority reads,Duration lookupTimeout,long maximumBytes){this(provider,physical,reads,lookupTimeout,maximumBytes,null);}
         public Content {
             Objects.requireNonNull(provider); Objects.requireNonNull(physical); Objects.requireNonNull(reads);
             if (lookupTimeout == null || lookupTimeout.isZero() || lookupTimeout.isNegative()
@@ -26,6 +29,19 @@ public final class TargetWorkerSourceRuntimeFactory {
                 throw new IllegalArgumentException("Source content requires finite original provider bounds");
             }
         }
+    }
+    private static com.nereusstream.delay.store.RecoveryCatalogAuthority evidenceCatalog(Content content,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority restored,SharedRocksDbResources resources,TargetWorkerOxiaRuntime oxia){
+        final var publication=content.evidencePublication();if(publication==null)return restored;
+        publication.requireOriginalEvidenceResources(resources);final var configured=publication.managedEvidenceRecoveryCatalog().orElseThrow(
+                ()->new IllegalArgumentException("configured Source evidence publication requires its original managed atomic Catalog"));
+        oxia.providers().requireOriginalEvidenceCatalog(configured);
+        if(restored!=null){
+            if(!(restored instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend original))
+                throw new IllegalArgumentException("configured Source publication differs from its restored Catalog authority");
+            original.requireSameOriginalEvidenceAuthority(configured);return original;
+        }
+        return configured;
     }
 
     /** Only this factory can bind an activated runtime to the accepted original process/resource graph. */
@@ -127,7 +143,7 @@ public final class TargetWorkerSourceRuntimeFactory {
             // Re-read actual Route/assignment after activation I/O, before constructing an exposed Source runtime.
             accept(oxia, tenant, publication, workerId);
             runtime = new TargetSourceApplyRuntime(initialized, store, assignment, active, authorities, config.source(), nanos);
-            runtime.configureAuthorityPreparation(preparation, ownerClock);
+            runtime.configureAuthorityPreparation(preparation, ownerClock,evidenceCatalog(content,null,resources,oxia));
             return new Activated(oxia, config, classes, resources, store, assignment, runtime);
         } catch (RuntimeException | Error failure) {
             if (runtime != null) runtime.fence();
@@ -188,7 +204,7 @@ public final class TargetWorkerSourceRuntimeFactory {
                     : new TargetOwnerRecoveryCoordinator(store, reopened, assignment, lease, authorities, config.source(), source,
                             catalog, pin, recoveryProtection, turn, classes, ownerClock, nanos,
                             () -> config.checkpoint().newReadBudget(nanos), config.checkpoint().ledger());
-            recovery.configureAuthorityPreparation(preparation);
+            recovery.configureAuthorityPreparation(preparation,evidenceCatalog(content,catalog,resources,oxia));
             recovery.configureClaimTakeover(identity, journal, journalProtection);
             return new Recovery(oxia, config, classes, resources, store, assignment, tenant, publication, workerId, recovery);
         } catch (RuntimeException | Error failure) {

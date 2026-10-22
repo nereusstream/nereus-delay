@@ -5216,3 +5216,23 @@ Root CAS产生，不由历史观察凭据或caller结果构造。未知CAS不以
 仍不可新结算，既有结算的只读幂等不新授权限。Source/Native/wire版本均未改变。
 Source确认已durably settled的marker禁止再签新本次观察，须重放原Source确认；marker/
 key/guard/原publication与Root元数据不GC、不降records/publication占用。
+
+
+2026-10-22 历史确认资格扩展：EvidenceObjectLifecycle History body schema2在schema1的
+字段1..12后增加repeated字段13 RecoveryBinding1（最多64，canonical排序，同Source
+identity/tenant/lineage不得重复）。Binding字段1=schema1、2=bounded SourcePosition
+（仅其Source incarnation身份参与匹配）、3=tenant32、4=lineage16、5=实际SDK namespace32、
+6=原exact publication key UTF8（NFC、无NUL、非空、至多4096bytes、/publication后缀）。
+无binding仍按原schema1编码；旧schema1的签名域、digest域与canonical bytes不变。
+新增Rule5 SOURCE_CONFIRMATION_FROM_ACTUAL_MARKER_OBSERVATION_V1：完整覆盖区间内
+所有获准kind8/outcome3 writer只为原Root真实条件操作和exact marker观察签名，且固定原
+Source发布配置；普通Source grant不含此保证。Rule5必须带binding；schema2无binding、
+未知rule/schema、分叉配置或缺独立完整起点资格均拒绝。此扩展不自动签发/补齐外部材料。
+
+HistoricalConfirmation是不同于ObservedRetiredMarker的private credential，仅原实际
+Source/recovery条目可取得；固定原signed envelope、物理Source位置、connection proof、
+Native51、历史CONFIRM grant/实际先行descriptor5、原完整closure与保留同version marker。
+当前Floor/Pin完整认证copy可为exact Native51，或同envelope、同物理Source位置及同intent
+stamp的exact Native52；热物理请求仍只接受Native51。历史分支要求当前OBSERVE与实际
+qualified admission hold，不要求旧SERVICE今天重新获得RETIRE或签名权。无新PUT、hash/
+time/UUID、转换热观察、签名、Source enqueue或退款权限；Source/Native/marker wire不变。

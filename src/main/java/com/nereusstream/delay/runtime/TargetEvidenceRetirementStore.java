@@ -57,9 +57,15 @@ public final class TargetEvidenceRetirementStore {
 
     /** Source permission plus the original Root's opaque actual observation, never pending metadata or serialized evidence. */
     public record ConfirmationApproval(PublicKey writerKey,OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.HistoricalConfirmation historical,
             Runnable current,ProtocolTuple activatedTuple,TargetRetirementAuthorizationHistory.Grant historyGrant){
-        public ConfirmationApproval{Objects.requireNonNull(writerKey);Objects.requireNonNull(observation);Objects.requireNonNull(current);
+        public ConfirmationApproval(PublicKey key,OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,
+                Runnable current,ProtocolTuple tuple,TargetRetirementAuthorizationHistory.Grant grant){this(key,observation,null,current,tuple,grant);}
+        public ConfirmationApproval{Objects.requireNonNull(writerKey);Objects.requireNonNull(current);
+            if((observation==null)==(historical==null))throw new IllegalArgumentException("one actual or historical confirmation branch required");
             Objects.requireNonNull(activatedTuple);Objects.requireNonNull(historyGrant);}
+        public void requireConfirmation(TargetEvidenceDeleteConfirmedBody body){if(observation!=null)observation.requireConfirmation(body);else historical.requireConfirmation(body);}
+        public void requireSource(SystemMutation input,SourcePosition source){if(historical!=null)historical.requireSource(input,source);}
     }
 
     public static final class Prepared {
@@ -100,6 +106,26 @@ public final class TargetEvidenceRetirementStore {
         if(confirmation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
         return prepareRetirementFirst(budget,confirmation,source,authority,true);
     }
+    /** Native-only rejection gate, repeated by first preparation; it never replaces the retained-first lookup. */
+    public boolean requiresConfirmationInputs(com.nereusstream.delay.store.BoundedReadBudget budget,SystemMutation input,SourcePosition source){
+        if(input.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
+        TargetSourcePosition.requireBounded(source);
+        final var body=TargetEvidenceDeleteConfirmedBody.decode(input.canonicalBody());
+        requireSource(input,source,body.resource(),body.retryUntil(),body.logicalOperationIdentity());
+        return !retryExpired(budget,input,source,body)&&backend.prepareRead(budget,
+                reader->retirementProtocolReady(reader,body.requiredTuple(),source,body.resource(),body.markerRetained())).value();
+    }
+    private void requireSource(SystemMutation input,SourcePosition source,TargetExternalEvidenceObjectResource resource,long retryUntil,byte[] logicalIdentity){
+        if(!scope.shard().equals(source.shardId())||!scope.shard().equals(input.shardId())||!resource.shard().equals(scope.shard())
+                ||retryUntil!=input.retryUntilEpochMs()||!Arrays.equals(logicalIdentity,input.logicalOperationIdentity()))
+            throw new IllegalArgumentException("retirement Source/operation mismatch");
+    }
+    private boolean retryExpired(com.nereusstream.delay.store.BoundedReadBudget budget,SystemMutation input,SourcePosition source,
+            TargetEvidenceDeleteConfirmedBody confirmation){
+        return source.brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs()
+                ||confirmation!=null&&confirmation.confirmedAt().latestEpochMs()>input.retryUntilEpochMs()
+                ||backend.prepareRead(budget,reader->reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs()).value();
+    }
     private Prepared prepareRetirementFirst(com.nereusstream.delay.store.BoundedReadBudget budget,SystemMutation intent,
             SourcePosition source,Authority authority,boolean confirming){
         Objects.requireNonNull(authority); TargetSourcePosition.requireBounded(source);
@@ -108,13 +134,9 @@ public final class TargetEvidenceRetirementStore {
         final var resource=confirming?confirmation.resource():body.resource();
         final var tuple=confirming?confirmation.requiredTuple():body.requiredTuple();
         final boolean marker=confirming&&confirmation.markerRetained();
-        if (!scope.shard().equals(source.shardId())||!scope.shard().equals(intent.shardId())||!resource.shard().equals(scope.shard())
-                || (confirming?confirmation.retryUntil():body.retryUntil()) != intent.retryUntilEpochMs()
-                || !Arrays.equals(confirming?confirmation.logicalOperationIdentity():body.logicalOperationIdentity(), intent.logicalOperationIdentity()))
-            throw new IllegalArgumentException("retirement Source/operation mismatch");
-        final boolean expired = source.brokerPersistenceTimeEpochMs() > intent.retryUntilEpochMs()
-                ||confirming&&confirmation.confirmedAt().latestEpochMs()>intent.retryUntilEpochMs()
-                || backend.prepareRead(budget, reader -> reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()).value();
+        requireSource(intent,source,resource,confirming?confirmation.retryUntil():body.retryUntil(),
+                confirming?confirmation.logicalOperationIdentity():body.logicalOperationIdentity());
+        final boolean expired = retryExpired(budget,intent,source,confirmation);
         final boolean protocolReady=expired?false:backend.prepareRead(budget,
                 reader->retirementProtocolReady(reader,tuple,source,resource,marker)).value();
         Approval approval = null;ConfirmationApproval confirmed=null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
@@ -149,7 +171,7 @@ public final class TargetEvidenceRetirementStore {
                 &&Arrays.equals(grant.publicKey(),selectedKey.getEncoded());
         final boolean activated=authorized&&tuple.equals(approvalTuple);
         if (activated) {
-            if(confirming)selectedConfirmation.observation().requireConfirmation(confirmation);
+            if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);}
             else {requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());selected.copy().image().requireContext(body.context());}
             approvedCurrent.run();
         }
@@ -187,7 +209,7 @@ public final class TargetEvidenceRetirementStore {
             }
             if (rejection == null) {
                 approvedCurrent.run();
-                if(confirming){selectedConfirmation.observation().requireConfirmation(confirmation);edits.addAll(confirmationEdits(reader,scope,lineage,intent,stamp));}
+                if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);edits.addAll(confirmationEdits(reader,scope,lineage,intent,stamp));}
                 else edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
             }
             final var outcome = SystemMutationResult.from(intent, rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
@@ -286,6 +308,42 @@ public final class TargetEvidenceRetirementStore {
         public TargetEvidenceConfirmedRecord record(){return record;}
         public TargetQuotaMutation cut(){return cut;}
         public SystemMutation originalIntent(){return originalIntent;}
+    }
+    /** Selected real Source/recovery frame before its first; never requires active maintenance or a new physical operation. */
+    public static AppliedIntent readHistoricalConfirmationIntent(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
+            TargetQuotaScope scope,byte[] lineage,SystemMutation selected,SourcePosition source,SourceHistory history,
+            TargetRetirementAuthorizationHistory.Grant grant,TargetStoreBackend.ReadAuthority authority){
+        if(scope.target()!=null||budget.maxBytes()==Long.MAX_VALUE||selected.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+            throw new IllegalArgumentException("bounded actual Source confirmation read required");
+        final var body=TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody());
+        if(!body.markerRetained())throw new IllegalArgumentException("historical marker confirmation required");
+        return backend.guardedRead(budget,reader->{
+            final var cut=reader.aggregate().mutation();cut.requireAtOrBefore(reader.sourceSequence(),reader.source());
+            if(reader.source()==null||source.compareTo(reader.source())<=0)throw new IllegalStateException("historical confirmation is not the selected next Source first");
+            final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            final byte[] key=TargetEvidenceRetiringRecord.key(body.resource().exactIdentity().identityHash());
+            final var retained=TargetEvidenceRetiringRecord.decodeForStore(key,payload(reader,ColumnFamily.META,key,TargetEvidenceRetiringRecord.VALUE_TYPE),scope.shard(),scope.tenantScope(),lineage);
+            requireSame(retained.intent().systemMutationId(),body.intent().mutationId());requireSame(retained.intent().mutationHash(),body.intent().mutationHash());
+            requireSame(retained.copy().resource().canonicalBytes(),body.resource().canonicalBytes());requireSame(retained.body().context().canonicalBytes(),body.context().canonicalBytes());
+            if(!source.sameSourceIdentity(retained.appliedAt().source())||source.compareTo(retained.appliedAt().source())<=0)
+                throw new IllegalStateException("historical confirmation changed original physical Source/intent ordering");
+            requireRetiringState(reader,List.of(),scope,lineage,root,retained,cut);
+            if(!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource()))
+                throw new IllegalStateException("historical confirmation has no actual prior Target activation");
+            final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
+            if(activation==null||!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+                throw new IllegalStateException("historical confirmation requires actual prior descriptor5");
+            TargetProtocolActivationStore.requireHistoryBinding(reader,scope,lineage,Objects.requireNonNull(grant),source);
+            final var incoming=new TargetRetirementSourceHistoryRecord(selected,new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),source,
+                    Bytes.sha256(selected.canonicalEnvelope())),history.proof());
+            final var previous=TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,history.proof());
+            if(previous!=null)new TargetRetirementHistoryTipRecord(incoming).requireAfter(previous);
+            final var resource=body.resource();
+            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery)requireRecoveryReferences(reader,List.of(),scope,lineage,recovery.owner());
+            else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
+                requireNoRecoveryDependents(reader,List.of(),scope,lineage,controlOwner(resource),cut);
+            reader.requireWithinElapsedBudget();return new AppliedIntent(retained,cut);
+        },authority);
     }
     public static AppliedConfirmation readAppliedConfirmation(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
             TargetQuotaScope scope,byte[] lineage,SystemMutation selected,TargetStoreBackend.ReadAuthority authority){

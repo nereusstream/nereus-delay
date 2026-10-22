@@ -1382,3 +1382,14 @@ retained-first仍在任何取数前；没有first的历史确认同原Native批�
 而原签名确认未进实际Source时，不可合成历史帧，必须沿原UNKNOWN/pending约束恢复后
 新实际条件尝试/观察及当前签发。历史认证不清旧SDK责任，也不代替幂等物理账。
 此裁定已记录，独立历史类型/实际cold Native读桥接仍待实现，不声称本批已支持cold。
+
+
+2026-10-22 历史确认裁定落地：采用独立HistoricalConfirmation，原完整signed kind8/
+outcome3 Source帧在独立历史CONFIRM授权和全部writer受限协议资格下作为原真实条件
+操作+exact观察的耐久见证；一般grant/DTO/今天GET不足。资格History2新增Rule5和原
+Source→namespace/exact publication配置绑定，同DB重启从原Content配置装配，恢复沿
+原实际Catalog，拒绝同SHARD fork。重验actual Native51/actual5/full Root/Floor/Pin/image/
+当前admission和OBSERVE及原marker version；旧SERVICE无需今天重新签名/RETIRE。
+历史分支不转换Observed、不新写/签/入队/退款，commit仅本地held检查；Native gate已能
+在provider前处理确定过期/未激活，保retained-first优先。无未知ID/gen Ref降级与材料
+补造，完整实现和部署/集中验证责任不缩减。

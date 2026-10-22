@@ -635,6 +635,7 @@ public final class TargetWorkerShardRuntime
     private void bindEvidenceRecoveryCatalog(TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication){
         if(publication==null)return;
         publication.coordinator().managedEvidenceRecoveryCatalog().ifPresent(actual->{
+            target.bindOriginalEvidenceCatalog(actual);
             if(evidenceRecoveryCatalog==null)evidenceRecoveryCatalog=actual;
             else if(evidenceRecoveryCatalog!=actual)evidenceRecoveryCatalog.requireSameOriginalEvidenceAuthority(actual);
         });

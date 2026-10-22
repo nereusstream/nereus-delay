@@ -451,6 +451,29 @@ public final class TargetCheckpointRootVerifier {
                 throw new IllegalStateException("authenticated recovery image lacks the complete exact APPLIED retirement copy");
             requireCurrent();return new RetiringCopy(this,Bytes.sha256(actual.canonicalBytes()));
         }
+        /** Historical replay may observe a newer Floor already containing this exact confirmed Source first. */
+        EvidenceCopy authenticateHistoricalCopy(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent expected,
+                com.nereusstream.delay.protocol.SystemMutation confirmation,SourcePosition confirmationSource){
+            final var actual=Objects.requireNonNull(expected).record();final var resource=actual.copy().resource();
+            final var body=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(confirmation.canonicalBody());
+            if(!body.markerRetained()||manifest.storeFormatVersion()!=2||!manifest.shardId().equals(resource.shard())
+                    ||!Arrays.equals(manifest.recoveryLineageId(),resource.recoveryLineage()))throw new IllegalArgumentException("historical image scope changed");
+            requireCurrent();final var audited=auditManifestImageAuthentication(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            actual.appliedAt().requireAtOrBefore(audited.root().mutationSequence(),audited.root().source());
+            if(!Arrays.equals(audited.root().root().tenantScope(),resource.tenantScope()))throw new IllegalArgumentException("historical image tenant changed");
+            boolean retained=false;
+            for(var row:audited.dependencies().retirements())if(Arrays.equals(row.key(),actual.key())){
+                if(!Arrays.equals(row.canonicalBytes(),actual.canonicalBytes()))throw new IllegalStateException("historical image changes exact Native51 copy");retained=true;
+            }
+            for(var row:audited.dependencies().evidenceConfirmations())if(Arrays.equals(row.body().resource().exactIdentity().identityHash(),resource.exactIdentity().identityHash())){
+                if(!Arrays.equals(row.confirmation().canonicalEnvelope(),confirmation.canonicalEnvelope())||!row.intentAppliedAt().equals(actual.appliedAt())
+                        ||!Arrays.equals(row.appliedAt().source().canonicalBytes(),confirmationSource.canonicalBytes()))
+                    throw new IllegalStateException("historical image confirms another Source frame/intent");
+                row.appliedAt().requireAtOrBefore(audited.root().mutationSequence(),audited.root().source());retained=true;
+            }
+            if(!retained)throw new IllegalStateException("historical recovery image lacks exact Native51 or the exact Native52 first");
+            requireCurrent();return new HistoricalCopy(this,Bytes.sha256(actual.canonicalBytes()));
+        }
 
         /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */
         public void requireCurrent() { protection.run(); }
@@ -464,7 +487,10 @@ public final class TargetCheckpointRootVerifier {
     }
 
     /** Actual immutable image proof only; Catalog/Floor/Pin/query/physical permission remain separate obligations. */
-    public static final class RetiringCopy {
+    sealed interface EvidenceCopy permits RetiringCopy,HistoricalCopy {
+        CheckpointManifest manifest();void requireFor(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent expected);void requireCurrent();
+    }
+    public static final class RetiringCopy implements EvidenceCopy {
         private final AuthenticatedImage image;
         private final byte[] recordDigest;
         private RetiringCopy(AuthenticatedImage image,byte[] recordDigest){this.image=image;this.recordDigest=recordDigest;}
@@ -475,6 +501,14 @@ public final class TargetCheckpointRootVerifier {
         }
         /** Rechecks original held immutable-image permissions/pins; no file or Registry I/O here. */
         public void requireCurrent(){image.requireCurrent();}
+    }
+    private static final class HistoricalCopy implements EvidenceCopy {
+        private final AuthenticatedImage image;private final byte[] intentDigest;
+        private HistoricalCopy(AuthenticatedImage image,byte[] digest){this.image=image;intentDigest=digest;}
+        public CheckpointManifest manifest(){return image.manifest();}
+        public void requireCurrent(){image.requireCurrent();}
+        public void requireFor(com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent expected){requireCurrent();
+            if(!Arrays.equals(intentDigest,Bytes.sha256(expected.record().canonicalBytes())))throw new IllegalArgumentException("historical image belongs to another actual intent");}
     }
 
     public static AuthenticatedImage authenticateImage(Path image, CheckpointManifest manifest,

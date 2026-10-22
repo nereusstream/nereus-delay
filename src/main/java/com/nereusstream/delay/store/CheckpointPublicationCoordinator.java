@@ -55,6 +55,9 @@ public final class CheckpointPublicationCoordinator {
         if(!uploadCoordinator.usesIntentAuthority(actual))throw new IllegalStateException("Source checkpoint intent/Catalog authorities differ");
         return java.util.Optional.of(actual);
     }
+    public void requireOriginalEvidenceResources(SharedRocksDbResources expected){
+        if(resources()!=expected)throw new IllegalArgumentException("Source checkpoint publication uses another original resource graph");
+    }
 
     void requirePublicationCurrent(CheckpointPublication publication, Runnable protection) {
         protection.run();

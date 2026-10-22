@@ -58,6 +58,7 @@ public final class TargetOwnerRecoveryCoordinator {
     private int turnNumber;
     private long lastNow = -1;
     private TargetSourceAuthorityPreparation authorityPreparation;
+    private RecoveryCatalogAuthority evidenceCatalog;
     private TargetWorkerRecoverySource boundReader;
     private SourcePosition boundReaderCut;
     private boolean deferForSourceReactivation;
@@ -122,10 +123,14 @@ public final class TargetOwnerRecoveryCoordinator {
 
     /** Same bounded content providers as active Source; this instance is exclusively bound to replay. */
     public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected) {
+        configureAuthorityPreparation(selected,catalog);
+    }
+    public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected,RecoveryCatalogAuthority originalEvidenceCatalog){
         if (turnNumber != 0 || replay != null || authorityPreparation != null) {
             throw new IllegalStateException("recovery content preparation must be configured before replay");
         }
         authorityPreparation = Objects.requireNonNull(selected);
+        evidenceCatalog=originalEvidenceCatalog;
     }
 
     public synchronized void stopAuthorityPreparation() {
@@ -362,7 +367,7 @@ public final class TargetOwnerRecoveryCoordinator {
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
         if (boundReader != null) replay.bindRecoveryReader(boundReader, boundReaderCut);
-        if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock);
+        if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock,evidenceCatalog);
         sourceApply = new SourceApplyWorkClassExecutor(workClasses, replay);
     }
 
@@ -506,7 +511,7 @@ public final class TargetOwnerRecoveryCoordinator {
         final var selected = preparation.authorities(authorities.leases(), activeSuccessor,
                 authorities.duplicateWrites(), authorities.reads());
         final var runtime = new TargetSourceApplyRuntime(root, store, assignment, active, selected, limits, monotonic);
-        runtime.configureAuthorityPreparation(preparation, clock);
+        runtime.configureAuthorityPreparation(preparation, clock,evidenceCatalog);
         return runtime;
     }
 

@@ -24,6 +24,7 @@ public final class TargetSourceAuthorityPreparation {
     public interface Loader {
         Set<Family> families();
         Held load(SourceReplayEntry entry, Family family, Runnable guard);
+        default Held load(SourceReplayEntry entry,Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
     }
 
     /** Immutable original author/key/role/scope/history data, already acquired outside Store locks. */
@@ -47,6 +48,8 @@ public final class TargetSourceAuthorityPreparation {
     private OwnedCheckpointIo<Boolean> closing;
     private Held held;
     private Runnable localOwnerAndSource;
+    private TargetSourceApplyRuntime originalSource;
+    private LongSupplier originalSourceClock;
     private long started;
     private boolean stopping;
     private TargetSourceApplyRuntime.Authorities authorities;
@@ -91,10 +94,18 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     synchronized void bind(TargetSourceApplyRuntime.Authorities actual, Runnable originalLocalOwnerAndSource) {
+        bind(actual,originalLocalOwnerAndSource,null,null);
+    }
+    synchronized void bind(TargetSourceApplyRuntime.Authorities actual,Runnable originalLocalOwnerAndSource,
+            TargetSourceApplyRuntime source,LongSupplier clock){
         if (authorities != actual || localOwnerAndSource != null) {
             throw new IllegalStateException("Source preparation is not this runtime's original authority graph");
         }
         localOwnerAndSource = Objects.requireNonNull(originalLocalOwnerAndSource);
+        originalSource=source;originalSourceClock=clock;
+    }
+    synchronized void requireOriginalEntry(SourceReplayEntry expected){
+        if(stopping||entry==null||!SourceApplyCoordinator.sameEntry(entry,expected))throw new IllegalStateException("original Source input is no longer selected");
     }
 
     synchronized boolean prepare(SourceReplayEntry expected, Family expectedFamily) {
@@ -106,7 +117,8 @@ public final class TargetSourceAuthorityPreparation {
             final long elapsed=nanos.getAsLong()-started;
             if(elapsed<0||elapsed>=timeoutNanos){requestStop();throw new IllegalStateException("Source input admission exceeded its original finite deadline");}
             opening = OwnedCheckpointIo.submitResource(guard -> {
-                final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard), "original content snapshot");
+                final var source=originalSource==null?null:originalSource.confirmationRead(expected,originalSourceClock);
+                final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard,source), "original content snapshot");
                 try {
                     guard.run(); loaded.requireCurrent();
                     if (!SourceApplyCoordinator.sameEntry(expected, loaded.entry()) || loaded.retainedBytes() < 0

@@ -2721,3 +2721,12 @@ exact persistent marker version/bytes才可第一次转换。REJECTED不转换�
 SDK/slot/input，新Root已结算引用只读幂等无新退款。费用核验仍需集中真实恢复验证。
 局部操作预留原Root输入+完整Root读写窗口+bounded Native输入和frame编码重叠，Source
 本身first/POSITION与Sdk输入不随物理差额一并回收；无新增池、后台扫描或预算放大。
+
+
+2026-10-22 冷确认输入：历史credential仅认证原Source帧，不产生新物理条件操作或直接
+credit。完整Source窗口包含原frame/history/Ed25519 key和actual Native51 canonical bytes；
+Root事先核完整closure、显式maxRecoveryInputBytes、actual Native read窗口与frame余量，
+实际1..3份已持有image认证窗口超界即拒绝，资源仍由原image owner保持。Cold仅释放本次
+实际取得的admission，不误关热payload或无grant分支的外部hold；失败/stop保同Root SDK
+termination handoff责任。NV52成功及Root6 strict settlement仍分别必需，旧Source hash/
+time/marker version不改；历史证明本身不能退款/重签/热转换或消除旧UNKNOWN SDK责任。

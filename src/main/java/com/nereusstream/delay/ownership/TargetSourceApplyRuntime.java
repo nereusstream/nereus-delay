@@ -26,6 +26,7 @@ import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.SystemMutationResult;
@@ -509,6 +510,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     /** Installs the root's complete content/history graph before this runtime can submit Source work. */
     public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected, LongSupplier clock) {
+        configureAuthorityPreparation(selected,clock,null);
+    }
+    private volatile com.nereusstream.delay.store.RecoveryCatalogAuthority originalEvidenceCatalog;
+    public synchronized void configureAuthorityPreparation(TargetSourceAuthorityPreparation selected,LongSupplier clock,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority catalog){
         if (authorityPreparation != null || fenced) throw new IllegalStateException("Source preparation is already configured or fenced");
         Objects.requireNonNull(clock, "ownerClock");
         Objects.requireNonNull(selected).bind(authorities, () -> {
@@ -525,8 +531,66 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new IllegalStateException("Source preparation lost its original local Owner/Store");
                 }
             }
-        });
+        },this,clock);
+        originalEvidenceCatalog=catalog;
         authorityPreparation = selected;
+    }
+    synchronized void bindOriginalEvidenceCatalog(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog){
+        if(originalEvidenceCatalog!=null&&originalEvidenceCatalog!=catalog){
+            if(!(originalEvidenceCatalog instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend previous))
+                throw new IllegalStateException("original Source recovery publication authority is not managed");
+            previous.requireSameOriginalEvidenceAuthority(catalog);
+        }else originalEvidenceCatalog=Objects.requireNonNull(catalog);
+    }
+    ConfirmationRead confirmationRead(SourceReplayEntry entry,LongSupplier clock){
+        return entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                ?new ConfirmationRead(this,mutation,Objects.requireNonNull(clock)):null;
+    }
+    /** Actual selected Source/recovery input, minted only by its runtime and owning preparation task. */
+    public static final class ConfirmationRead {
+        private final TargetSourceApplyRuntime runtime;
+        private final SourceReplayMutation entry;
+        private final LongSupplier clock;
+        private ConfirmationRead(TargetSourceApplyRuntime runtime,SourceReplayMutation entry,LongSupplier clock){this.runtime=runtime;this.entry=entry;this.clock=clock;}
+        public SourceReplayMutation entry(){requireCurrent();return entry;}
+        public void requireResources(com.nereusstream.delay.store.SharedRocksDbResources resources){
+            requireCurrent();if(runtime.store.sharedResources()!=resources)throw new IllegalArgumentException("historical confirmation uses another original process Store");
+        }
+        public com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog(){
+            requireCurrent();final var actual=runtime.originalEvidenceCatalog;
+            if(!(actual instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend managed))
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source checkpoint publication configuration is unavailable");
+            return managed;
+        }
+        /** Local held checks only; safe at Native commit. Actual lease I/O is confined to readIntent. */
+        public void requireCurrent(){
+            runtime.authorityPreparation.requireOriginalEntry(entry);
+            synchronized(runtime.ownerStateLock){
+                final long now=clock.getAsLong();final var lease=runtime.lease;
+                if(runtime.fenced||runtime.store.isCloseStarted()||now<runtime.lastOwnerTime||!lease.validAt(now)
+                        ||runtime.store.runtimeMetadata().lastOpenedOwnerEpoch()!=lease.ownerEpoch()
+                        ||lease.state()!=(runtime.recoveryOnly?ShardLifecycleState.CATCHING_UP:ShardLifecycleState.ACTIVE_FOR_COMMANDS))
+                    throw new IllegalStateException("original historical Source Owner/Store is no longer held");
+            }
+        }
+        public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readIntent(BoundedReadBudget reads,
+                com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant){
+            synchronized(runtime){return readOriginalIntent(reads,history,grant);}
+        }
+        private com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readOriginalIntent(BoundedReadBudget reads,
+                com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant){
+            requireCurrent();runtime.requireOwner(clock);
+            final TargetStoreBackend.ReadAuthority authority=(actual,scope)->{
+                requireCurrent();final var original=runtime.authorities.reads().acquire(actual,scope);
+                return new TargetStoreBackend.CommitGuard(){
+                    public void requireCurrent(){ConfirmationRead.this.requireCurrent();original.requireCurrent();}
+                    public void close(){original.close();}
+                };
+            };
+            final var result=com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.readHistoricalConfirmationIntent(
+                    runtime.backend,reads,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),history,grant,authority);
+            runtime.requireOwner(clock);requireCurrent();return result;
+        }
     }
 
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }
@@ -548,7 +612,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         try {
             if (entry instanceof SourceReplayRecord command) {
                 if (commandReplay.prepareReplayOrExpired(budget, command.command(), entry.position()).isPresent()) return true;
-            } else if (replay.prepareIfPresent(budget, ((SourceReplayMutation) entry).mutation(), entry.position()).isPresent()) return true;
+            } else {
+                final var mutation = ((SourceReplayMutation) entry).mutation();
+                if (replay.prepareIfPresent(budget, mutation, entry.position()).isPresent()) return true;
+                if (mutation.type() == SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                        && !new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore(
+                                backend, scope, lineage, limits.counters(), limits.domains())
+                                .requiresConfirmationInputs(budget, mutation, entry.position())) return true;
+            }
         } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
         return selected.prepare(entry, contentFamily(entry));
     }
@@ -1914,11 +1985,25 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 }
                 result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
             } else if (mutation.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) {
-                final var control = Objects.requireNonNull(authorities.retirements().resolve(mutation),
-                        "Target evidence retirement authority");
                 // This operation needs four counters; existing smaller runtime limits retain their old scope.
                 final var retirement = new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore(
                         backend, scope, lineage, limits.counters(), limits.domains());
+                final RetirementControl control;
+                try {
+                    control = mutation.mutation().type() == SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                                    && !retirement.requiresConfirmationInputs(budget, mutation.mutation(), entry.position())
+                            ? new RetirementControl(new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Authority() {
+                                public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Approval resolve(
+                                        TargetQuotaScope actual, AuthorIdentity actor, SystemMutation input, SourcePosition position) {
+                                    throw new TargetSourceAuthorityPreparation.Required();
+                                }
+                                public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history(
+                                        TargetQuotaScope actual, AuthorIdentity actor, SystemMutation input, SourcePosition position) {
+                                    throw new TargetSourceAuthorityPreparation.Required();
+                                }
+                            }, authorities.duplicateWrites())
+                            : Objects.requireNonNull(authorities.retirements().resolve(mutation), "Target evidence retirement authority");
+                } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
                 final com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.Prepared first;
                 try {
                     first = mutation.mutation().type()==SystemMutationType.RESOURCE_RETIRE_INTENT

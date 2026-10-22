@@ -26,20 +26,52 @@ public final class TargetEvidenceObjectLifecycleAuthority {
      * Rule 2 requires original Root/Native refs or actual Catalog Pin before raw reads, complete closure and
      * permanent rejection of new dependencies, and an authenticated full copy before the raw dependency ends.
      * Rules 3/4 never read or retain the raw evidence blob. Unknown/raw audit/export protocols are unsupported.
+     * Rule 5 covers every admitted retained-marker confirmation writer: it signs only the original Root's
+     * actual conditional-operation plus exact persistent observation, under the bound recovery configuration.
      */
     public enum Rule {
         CONDITIONAL_ORIGINAL_VALUE_WRITER_V1,
         ROOT_NATIVE_CHECKPOINT_REFERENCED_READER_V1,
         NATIVE_ONLY_RESERVATION_QUERY_V1,
-        NATIVE_OR_AUTHENTICATED_COPY_EXPORT_V1
+        NATIVE_OR_AUTHENTICATED_COPY_EXPORT_V1,
+        SOURCE_CONFIRMATION_FROM_ACTUAL_MARKER_OBSERVATION_V1
+    }
+    /** Actual original recovery configuration, not a choice made by a historical frame or its caller. */
+    public record RecoveryBinding(SourcePosition source,byte[] tenant,byte[] lineage,byte[] storageNamespace,String publicationKey){
+        public RecoveryBinding{
+            Objects.requireNonNull(source);tenant=fixed(tenant,32);lineage=fixed(lineage,16);storageNamespace=nonzero(storageNamespace);
+            if(Objects.requireNonNull(publicationKey).isBlank()||publicationKey.indexOf('\0')>=0||Bytes.utf8(publicationKey).length>4096
+                    ||!java.text.Normalizer.isNormalized(publicationKey,java.text.Normalizer.Form.NFC)||!publicationKey.endsWith("/publication"))
+                throw new IllegalArgumentException("invalid exact historical publication key");
+        }
+        @Override public byte[] tenant(){return Bytes.copy(tenant);}@Override public byte[] lineage(){return Bytes.copy(lineage);}
+        @Override public byte[] storageNamespace(){return Bytes.copy(storageNamespace);}
+        boolean sameScope(RecoveryBinding other){return source.sameSourceIdentity(other.source)&&Arrays.equals(tenant,other.tenant)&&Arrays.equals(lineage,other.lineage);}
+        public byte[] canonicalBytes(){return CanonicalProtobuf.message(o->{CanonicalProtobuf.uint32(o,1,1);CanonicalProtobuf.bytes(o,2,source.canonicalBytes());
+            CanonicalProtobuf.bytes(o,3,tenant);CanonicalProtobuf.bytes(o,4,lineage);CanonicalProtobuf.bytes(o,5,storageNamespace);CanonicalProtobuf.bytes(o,6,Bytes.utf8(publicationKey));});}
+        static RecoveryBinding decode(byte[] bytes){final var f=fields(bytes);QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6},"historical recovery binding");
+            if(QueryCodecSupport.uint(f.getFirst(),1)!=1)throw new IllegalArgumentException("unknown historical recovery binding");
+            final var value=new RecoveryBinding(TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(1),2)),QueryCodecSupport.fixed(f.get(2),3,32),
+                    QueryCodecSupport.fixed(f.get(3),4,16),QueryCodecSupport.fixed(f.get(4),5,32),new String(QueryCodecSupport.bytes(f.get(5),6),java.nio.charset.StandardCharsets.UTF_8));
+            QueryCodecSupport.requireCanonical(bytes,value.canonicalBytes(),"historical recovery binding");return value;}
     }
 
     /** Public proof data. The baseline and issuer/key are independently pinned by the original deployment root. */
     public record History(TargetCatalogRootAuthority.Scope scope, long firstEpoch, long firstVersion,
             long lastEpoch, long lastVersion, byte[] completeBaseline, byte[] evidenceDigest,
-            Set<Rule> protocols, AuthorIdentity issuer, int keyVersion, byte[] signature) {
+            Set<Rule> protocols, AuthorIdentity issuer, int keyVersion, byte[] signature,List<RecoveryBinding> recoveryBindings) {
+        public History(TargetCatalogRootAuthority.Scope scope,long firstEpoch,long firstVersion,long lastEpoch,long lastVersion,
+                byte[] completeBaseline,byte[] evidenceDigest,Set<Rule> protocols,AuthorIdentity issuer,int keyVersion,byte[] signature){
+            this(scope,firstEpoch,firstVersion,lastEpoch,lastVersion,completeBaseline,evidenceDigest,protocols,issuer,keyVersion,signature,List.of());}
         public History {
             Objects.requireNonNull(scope); Objects.requireNonNull(issuer); protocols = Set.copyOf(protocols);
+            if(recoveryBindings.size()>64)throw new IllegalArgumentException("too many original Source recovery bindings");
+            final var ordered=new java.util.ArrayList<>(recoveryBindings);ordered.sort((a,b)->Arrays.compareUnsigned(a.canonicalBytes(),b.canonicalBytes()));
+            for(int i=0;i<ordered.size();i++)for(int j=0;j<i;j++)if(ordered.get(i).sameScope(ordered.get(j)))
+                throw new IllegalArgumentException("ambiguous historical Source recovery configuration");
+            recoveryBindings=List.copyOf(ordered);
+            if(protocols.contains(Rule.SOURCE_CONFIRMATION_FROM_ACTUAL_MARKER_OBSERVATION_V1)&&recoveryBindings.isEmpty())
+                throw new IllegalArgumentException("historical confirmation protocol requires its original complete recovery configuration");
             completeBaseline = nonzero(completeBaseline); evidenceDigest = nonzero(evidenceDigest);
             signature = fixed(signature, 64);
             if (firstEpoch == 0 || Long.compareUnsigned(lastEpoch, firstEpoch) < 0 || firstVersion < 0
@@ -53,13 +85,14 @@ public final class TargetEvidenceObjectLifecycleAuthority {
         @Override public byte[] signature() { return Bytes.copy(signature); }
         private byte[] body() {
             return CanonicalProtobuf.message(o -> {
-                CanonicalProtobuf.uint32(o, 1, 1); CanonicalProtobuf.bytes(o, 2, PURPOSE);
+                CanonicalProtobuf.uint32(o, 1, recoveryBindings.isEmpty()?1:2); CanonicalProtobuf.bytes(o, 2, PURPOSE);
                 CanonicalProtobuf.bytes(o, 3, scope.canonicalBytes());
                 CanonicalProtobuf.uint64Bits(o, 4, firstEpoch); CanonicalProtobuf.uint64(o, 5, firstVersion);
                 CanonicalProtobuf.uint64Bits(o, 6, lastEpoch); CanonicalProtobuf.uint64(o, 7, lastVersion);
                 CanonicalProtobuf.bytes(o, 8, completeBaseline); CanonicalProtobuf.bytes(o, 9, evidenceDigest);
                 for (var rule : Rule.values()) if (protocols.contains(rule)) CanonicalProtobuf.uint32(o, 10, rule.ordinal() + 1);
                 CanonicalProtobuf.bytes(o, 11, issuer.canonicalBytes()); CanonicalProtobuf.uint32(o, 12, keyVersion);
+                for(var binding:recoveryBindings)CanonicalProtobuf.bytes(o,13,binding.canonicalBytes());
             });
         }
         public byte[] digest() { return Bytes.sha256(DOMAIN, body()); }
@@ -74,11 +107,12 @@ public final class TargetEvidenceObjectLifecycleAuthority {
         public static History decode(byte[] bytes) {
             final var outer = fields(bytes); QueryCodecSupport.requireNumbers(outer, new int[]{1, 2}, "lifecycle history");
             final var f = fields(QueryCodecSupport.bytes(outer.getFirst(), 1));
-            if (f.size() < 12 || f.size() > 11 + Rule.values().length)
+            if (f.size() < 12 || f.size() > 75 + Rule.values().length)
                 throw new IllegalArgumentException("invalid lifecycle protocol history fields");
             for (int i = 0; i < 9; i++) if (f.get(i).number() != i + 1)
                 throw new IllegalArgumentException("missing lifecycle history field");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != 1
+            final int version=QueryCodecSupport.uint32(f.getFirst(),1);
+            if ((version!=1&&version!=2)
                     || !Arrays.equals(QueryCodecSupport.bytes(f.get(1), 2), PURPOSE))
                 throw new IllegalArgumentException("wrong lifecycle history schema or independent purpose");
             final var rules = EnumSet.noneOf(Rule.class); int n = 9;
@@ -87,14 +121,26 @@ public final class TargetEvidenceObjectLifecycleAuthority {
                 if (rule < 1 || rule > Rule.values().length || !rules.add(Rule.values()[rule - 1]))
                     throw new IllegalArgumentException("unknown or duplicate historical evidence protocol");
             }
-            if (n + 2 != f.size()) throw new IllegalArgumentException("incomplete lifecycle history issuer");
+            if(n+2>f.size())throw new IllegalArgumentException("incomplete lifecycle history issuer");
+            final var issuer=AuthorIdentity.decode(QueryCodecSupport.bytes(f.get(n++),11));final int keyVersion=QueryCodecSupport.uint32(f.get(n++),12);
+            final var bindings=new java.util.ArrayList<RecoveryBinding>();
+            while(n<f.size()&&f.get(n).number()==13&&version==2)bindings.add(RecoveryBinding.decode(QueryCodecSupport.bytes(f.get(n++),13)));
+            if(n!=f.size()||version==2&&bindings.isEmpty())throw new IllegalArgumentException("invalid lifecycle history recovery bindings");
             final var history = new History(TargetCatalogRootAuthority.Scope.decode(QueryCodecSupport.bytes(f.get(2), 3)),
                     QueryCodecSupport.uint64Bits(f.get(3), 4), QueryCodecSupport.uint(f.get(4), 5),
                     QueryCodecSupport.uint64Bits(f.get(5), 6), QueryCodecSupport.uint(f.get(6), 7),
                     QueryCodecSupport.fixed(f.get(7), 8, 32), QueryCodecSupport.fixed(f.get(8), 9, 32), rules,
-                    AuthorIdentity.decode(QueryCodecSupport.bytes(f.get(n), 11)), QueryCodecSupport.uint32(f.get(n + 1), 12),
-                    QueryCodecSupport.fixed(outer.get(1), 2, 64));
+                    issuer,keyVersion,QueryCodecSupport.fixed(outer.get(1), 2, 64),bindings);
             QueryCodecSupport.requireCanonical(bytes, history.canonicalBytes(), "lifecycle history"); return history;
+        }
+        public void requireHistoricalRecoveryBinding(TargetExternalEvidenceObjectResource resource,SourcePosition source,String key,byte[] namespace){
+            if(!protocols.contains(Rule.SOURCE_CONFIRMATION_FROM_ACTUAL_MARKER_OBSERVATION_V1))
+                throw new IllegalStateException("complete historical writer protocol does not attest restricted confirmation signing");
+            final var actual=new RecoveryBinding(source,resource.tenantScope(),resource.recoveryLineage(),namespace,key);
+            final var expected=recoveryBindings.stream().filter(b->b.sameScope(actual)).findFirst().orElseThrow(
+                    ()->new IllegalStateException("original historical Source recovery configuration is unavailable"));
+            if(!expected.publicationKey.equals(key)||!Arrays.equals(expected.storageNamespace,namespace))
+                throw new IllegalStateException("historical Source publication configuration differs from qualified complete history");
         }
     }
 

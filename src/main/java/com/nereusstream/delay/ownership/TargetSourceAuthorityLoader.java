@@ -21,6 +21,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
      */
     @FunctionalInterface public interface Provider {
         HeldInputs load(SourceReplayEntry entry, TargetSourceAuthorityPreparation.Family family, Runnable guard);
+        default HeldInputs load(SourceReplayEntry entry,TargetSourceAuthorityPreparation.Family family,Runnable guard,
+                TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
     }
 
     public interface HeldInputs extends AutoCloseable {
@@ -77,8 +79,12 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
 
     @Override public TargetSourceAuthorityPreparation.Held load(SourceReplayEntry entry,
             TargetSourceAuthorityPreparation.Family family, Runnable guard) {
+        return load(entry,family,guard,null);
+    }
+    @Override public TargetSourceAuthorityPreparation.Held load(SourceReplayEntry entry,
+            TargetSourceAuthorityPreparation.Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source){
         guard.run();
-        var original = Objects.requireNonNull(provider.load(entry, family, guard), "protected original inputs");
+        var original = Objects.requireNonNull(provider.load(entry, family, guard,source), "protected original inputs");
         var held = new Held(entry, original);
         try {
             guard.run(); original.requireCurrent();
@@ -266,15 +272,16 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         if(approved==null)frozen=null;
         else{
             approved.current().run();held.requireCurrent();guard.run();
-            final var observed=approved.observation();final byte[] encoded=approved.writerKey().getEncoded();
+            final var observed=approved.observation();final var historical=approved.historical();final byte[] encoded=approved.writerKey().getEncoded();
             if(encoded==null||encoded.length!=44)throw new IllegalStateException("confirmation writer requires original Ed25519 key");
-            final long upper=Math.addExact(observed.retainedBytes(),encoded.length);
+            final long upper=Math.addExact(observed!=null?observed.retainedBytes():historical.retainedBytes(),encoded.length);
             if(upper>maximumBytes-held.bytes)throw new IllegalStateException("complete confirmation receipt exceeds reserved Source inputs");
-            observed.requireConfirmation(body);final PublicKey key;
+            approved.requireSource(mutation,entry.position());approved.requireConfirmation(body);
+            if(historical!=null)historical.requireEntry(original);final PublicKey key;
             try{key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));}
             catch(java.security.GeneralSecurityException invalid){throw new IllegalStateException("invalid original confirmation Source key",invalid);}
             held.bytes=Math.addExact(held.bytes,upper);
-            frozen=new TargetEvidenceRetirementStore.ConfirmationApproval(key,observed,()->{
+            frozen=new TargetEvidenceRetirementStore.ConfirmationApproval(key,observed,historical,()->{
                 held.requireCurrent();approved.current().run();held.requireCurrent();
             },approved.activatedTuple(),approved.historyGrant());
         }

@@ -146,4 +146,5 @@ public final class TargetWorkerOxiaProviders {
         session.backend().requireOriginalConnectedClient(session.client());
         return new OxiaSyncCheckpointPublicationBackend(session, exactShardPrefix, Objects.requireNonNull(limits));
     }
+    public void requireOriginalEvidenceCatalog(OxiaSyncCheckpointPublicationBackend actual){actual.requireOriginalEvidenceOwner(session.backend());}
 }
