@@ -1352,3 +1352,14 @@ ProtectionSet仅签名声明，完整义务由实际协议与exact对象/closure
 责任；不收caller boolean自证完整性。历史/无raw依赖不替独立当前RETIRE权限、实际请求/
 GET观察、Source确认或幂等物理账，不缩短Native/Source/history/copy保留，无最终GC。
 本批只实现actual Floor/Pin/完整NV51图像事实及输入预算/重验，组合和实际provider未完成。
+
+2026-10-22 主会话核Registry、首次定义8915d21e及gcProtection调用后裁定：现有
+ProtectionRef ID/generation没有既定生产语义或原权威映射，kind1也不能猜为Floor digest/
+Catalog ID/hash/generation。任何无法按既定真实权威exact解析的声明，均须在payload
+CAS/IfAbsent及新正向confirmation授权前Unavailable；不得忽略ID/gen，仅匹配其它
+字段，或以签名资格/caller resolver/空库存补造。保原decode/恢复/retained-first语义及
+已APPLIED intent/NV51/copy/费用；空列表的支持路径仍做全动态门禁，不隐去已知引用。
+本轮不造新通用库存/ID算法，后续支持这些声明须显式版本化producer/authority/generation
+契约。此为物理资格限制，不是数据格式错误，不据空声明或编译提升整包完成状态。
+现已接原Source/Catalog实际绑定与全动态composite、真实条件操作/GET/private observation
+producer，整链的Root signing/Source loan/cold与幂等差额未闭合，继续连续推进。

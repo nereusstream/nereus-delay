@@ -389,6 +389,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         private boolean retirementSubmitting;
         private volatile OwnedCheckpointIo<MarkerPreparation> markerReservation;
         private MarkerReservationRequest markerRequest;
+        private volatile OwnedCheckpointIo<PayloadPreparation> payloadRetirement;
+        private OxiaSyncTargetKafkaReceiptProtectionCatalog.PayloadRetirementProtection payloadProtection;
         private com.nereusstream.delay.ownership.TargetWorkerOxiaProviders registryInputOwner;
         private RetirementSourceCopy retirementSourceCopy;
         private RetirementHistoryInput retirementHistoryInput;
@@ -491,6 +493,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             root.failReceiptManagement(this, rejected);
         }
         @Override public byte[] identity() { return Bytes.copy(identity); }
+        @Override public synchronized void requireOriginalEvidenceCatalog(OxiaSyncTargetKafkaReceiptProtectionCatalog expected){
+            requireReady();if(catalog!=expected)throw new IllegalArgumentException("physical Catalog differs from its original registered Root");
+        }
         @Override public void requireGraph(WorkClassExecutionRegistry classes, SharedRocksDbResources resources) {
             budget.requireWorker(classes, resources);
         }
@@ -628,6 +633,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             requireRetirementAuxiliaryIoExited();
         }
         private void requireMarkerWindowFree(){
+            if(payloadRetirement!=null)throw new IllegalStateException("original physical retirement I/O/window remains owned");
             if(markerReservation!=null)throw new IllegalStateException("original marker reservation I/O/window remains owned");
         }
         private void requireRetirementAuxiliaryIoExited(){
@@ -727,7 +733,64 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         }
         /** Successful metadata RPCs have exited; pending server metadata and its physical reservation remain. */
         public synchronized void releaseMarkerPreparation(MarkerPreparation prepared){
+            if(payloadRetirement!=null)throw new IllegalStateException("original physical retirement still owns its marker association");
             Objects.requireNonNull(prepared).requireRoot(this);prepared.releaseLocal();markerReservation=null;markerRequest=null;
+        }
+        /** Actual original SDK operation, owned until Source confirmation/cleanup; never constructed from an evidence DTO. */
+        public static final class PayloadPreparation {
+            private final Opening root;
+            private final KafkaClientArtifactTargetWorkerSourceFactory.Opening source;
+            private final byte[] selection;
+            private OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation;
+            private boolean released,sourceBorrowed;
+            private PayloadPreparation(Opening root,KafkaClientArtifactTargetWorkerSourceFactory.Opening source,byte[] selection,
+                    OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation){
+                this.root=root;this.source=source;this.selection=selection;this.observation=observation;observation.requireCatalog(root.catalog);
+            }
+            public void requireRoot(Opening expected){synchronized(root){
+                if(root!=expected)throw new IllegalArgumentException("payload observation belongs to another original Root");root.requireReady();
+                if(released||root.payloadRetirement==null||!root.payloadRetirement.ioExited()
+                        ||root.payloadRetirement.completedValue().orElse(null)!=this)
+                    throw new IllegalStateException("original actual payload observation is unavailable");
+            }}
+            public OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation(){synchronized(root){requireRoot(root);return observation;}}
+            private void releaseLocal(){released=true;observation=null;}
+        }
+        public synchronized java.util.concurrent.CompletableFuture<PayloadPreparation> retireEvidencePayload(
+                KafkaClientArtifactTargetWorkerSourceFactory.Opening source,MarkerPreparation prepared,
+                com.nereusstream.delay.protocol.SystemMutation selected,
+                List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,com.nereusstream.delay.store.BoundedReadBudget nativeReads,
+                com.nereusstream.delay.store.BoundedReadBudget recoveryReads){
+            requireReady();Objects.requireNonNull(source);Objects.requireNonNull(prepared).requireRoot(this);
+            OxiaSyncTargetKafkaReceiptProtectionCatalog.requireSupportedProtectionDeclarations(selected);
+            final byte[] selection=Bytes.sha256(selected.canonicalEnvelope());
+            if(markerRequest.source!=source||!Arrays.equals(selection,markerRequest.selection))
+                throw new IllegalArgumentException("physical request differs from original Source marker reservation");
+            if(payloadRetirement!=null){payloadRetirement.retryCleanup();return payloadRetirement.receipt();}
+            for(var reads:List.of(catalogReads,nativeReads,recoveryReads))if(reads.maxBytes()==Long.MAX_VALUE)
+                throw new IllegalArgumentException("finite full physical read bounds required");
+            final var retainedImages=List.copyOf(images);
+            final long[] minimum=new long[CapacityDimension.COUNT];
+            minimum[CapacityDimension.BUFFERED_BYTES.wireValue()-1]=Math.addExact(retainedInputBytes,
+                    Math.addExact(OxiaSyncTargetKafkaReceiptProtectionCatalog.closureInputWindowBytes(),
+                    Math.addExact(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(retainedImages),
+                    Math.addExact(Math.multiplyExact(8L,nativeReads.maxBytes()),Math.multiplyExact(8L,
+                            Math.addExact(selected.canonicalBodyLength(),(long)selected.authorIdentityLength()+com.nereusstream.delay.protocol.TargetEvidenceRetiredMarker.MAX_BYTES+4096))))));
+            allocation.requireCovers(new CapacityVector(minimum));
+            final var next=OwnedCheckpointIo.submit(guard->{
+                final Runnable current=()->{guard.run();requireReady();source.requireRetirementReadCurrent(this,guard);};
+                try{
+                    current.run();final var admission=acquireEvidenceAdmission();
+                    final var protection=source.preparePayloadRetirementProtection(this,selected,prepared.reserved,admission,retainedImages,
+                            catalogReads,nativeReads,recoveryReads,current);
+                    synchronized(this){payloadProtection=protection;}
+                    final var observation=catalog.retireEvidencePayload(protection,catalogReads,nativeReads,recoveryReads,
+                            ()->source.retirementSigningTime(this,protection.applied().record().copy().resource(),current),current);
+                    current.run();return new PayloadPreparation(this,source,selection,observation);
+                }catch(RuntimeException|Error rejected){failed(rejected);throw rejected;}
+            },this::requireReady,io);
+            payloadRetirement=next;return next.receipt();
         }
         /** Only an actual no-Catalog-start failure can discard locally; an entered failure stays until SDK termination. */
         public synchronized boolean discardUnstartedMarkerReservation(){
@@ -1393,6 +1456,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             final var signature=retirementSignature;if(signature!=null)signature.requestStop();
             final var release=retirementRelease;if(release!=null)release.requestStop();
             final var marker=markerReservation;if(marker!=null)marker.requestStop();
+            final var payload=payloadRetirement;if(payload!=null)payload.requestStop();
             final var submission=retirementSubmission;if(submission!=null)submission.requestStop();
             final var actual = manager; if (actual != null) actual.requestStop();
         }
@@ -1420,23 +1484,31 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if(release!=null){release.requestStop();release.retryCleanup();if(!release.ioExited())return false;}
             final var marker=markerReservation;
             if(marker!=null){marker.requestStop();marker.retryCleanup();if(!marker.ioExited())return false;}
+            final var payload=payloadRetirement;
+            if(payload!=null){payload.requestStop();payload.retryCleanup();if(!payload.ioExited())return false;}
+            final var actualPayload=payload==null?null:payload.completedValue().orElse(null);
+            if(actualPayload!=null&&actualPayload.sourceBorrowed)return false;
             if(retirementSubmitting)return false;
             if(retirementHistoryInput!=null)return false;
             if(retirementSourceCopy!=null)return false;
             final var submission=retirementSubmission;
             if(submission!=null){submission.requestStop();if(!submission.ioExited())return false;}
             if(evidenceAdmissionAcquiring)return false;
-            if(evidenceAdmission!=null){
-                try{evidenceAdmission.close();evidenceAdmission=null;}
-                catch(RuntimeException|Error rejected){rememberCleanup(rejected);return false;}
-            }
             final var preparedRetirement=retirement==null?null:retirement.completedValue().orElse(null);
             if(preparedRetirement!=null){if(preparedRetirement.sourceBorrowed)return false;preparedRetirement.releaseLocal();}
             final var actual = manager;
             if (actual != null && !closeNative(actual, permit)) return false;
             final boolean registryInputRetained=registryInputOwner!=null;
             // Admin termination is separate from the shared Registry SDK. Hand its exact charge to that original owner.
-            if(registryInputRetained)registryInputOwner.retainClosedRegistryClientInputs(allocation);
+            if(registryInputRetained){
+                if(evidenceAdmission!=null)registryInputOwner.retainClosedRegistryClientInputs(allocation,evidenceAdmission);
+                else registryInputOwner.retainClosedRegistryClientInputs(allocation);
+            }else if(evidenceAdmission!=null){
+                try{evidenceAdmission.close();}catch(RuntimeException|Error rejected){rememberCleanup(rejected);return false;}
+            }
+            evidenceAdmission=null;
+            if(payloadProtection!=null){payloadProtection.close();payloadProtection=null;}
+            if(actualPayload!=null)actualPayload.releaseLocal();payloadRetirement=null;
             if(marker!=null)marker.completedValue().ifPresent(MarkerPreparation::releaseLocal);
             if(markerRequest!=null)markerRequest.clearInputs();
             markerReservation=null;markerRequest=null;

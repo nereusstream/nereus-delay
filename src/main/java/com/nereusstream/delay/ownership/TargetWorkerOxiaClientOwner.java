@@ -20,7 +20,7 @@ public final class TargetWorkerOxiaClientOwner {
     private final Duration cleanupBudget;
     private final SharedRocksDbResources resources;
     private TargetDestinationSdkBudget retainedInputBudget;
-    private final java.util.Set<TargetDestinationSdkBudget.Client> retainedInputs=java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final java.util.Map<TargetDestinationSdkBudget.Client,TargetEvidenceObjectLifecycleAuthority.AdmissionProtection> retainedInputs=new java.util.IdentityHashMap<>();
     private final CompletableFuture<SyncOxiaClient> ready = new CompletableFuture<>();
     private OwnedCheckpointIo<OxiaClientLifecycle.Opening> openingTask;
     private OwnedCheckpointIo<OxiaClientCleanup.Status> closingTask;
@@ -135,15 +135,25 @@ public final class TargetWorkerOxiaClientOwner {
         final var budget=input.owningBudget();
         if(retainedInputBudget!=null&&retainedInputBudget!=budget)
             throw new IllegalArgumentException("Registry input hold changes the original bounded Worker SDK pool");
-        if(!retainedInputs.contains(input)&&retainedInputs.size()>=budget.maximumClients())
+        if(!retainedInputs.containsKey(input)&&retainedInputs.size()>=budget.maximumClients())
             throw new IllegalStateException("original Registry input hold bound exhausted");
-        retainedInputBudget=budget;retainedInputs.add(input);
+        retainedInputBudget=budget;retainedInputs.putIfAbsent(input,null);
+    }
+    /** Original actual admission responsibility follows the same bounded client input owner through SDK termination. */
+    public synchronized void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input,
+            TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission){
+        Objects.requireNonNull(input).requireResources(resources);Objects.requireNonNull(admission);
+        if(released){admission.close();input.closed();return;}
+        retainClosedClientInputUntilTermination(input);final var old=retainedInputs.get(input);
+        if(old!=null&&old!=admission)throw new IllegalStateException("Registry input already owns another actual admission protection");
+        retainedInputs.put(input,admission);
     }
     private void closeRetainedInputs(){
         if(!released)return;
-        for(var iterator=retainedInputs.iterator();iterator.hasNext();){
-            final var input=iterator.next();
-            try{input.closed();iterator.remove();}catch(RuntimeException|Error failure){retain(failure);}
+        for(var iterator=retainedInputs.entrySet().iterator();iterator.hasNext();){
+            final var entry=iterator.next();
+            try{if(entry.getValue()!=null)entry.getValue().close();entry.getKey().closed();iterator.remove();}
+            catch(RuntimeException|Error failure){retain(failure);}
         }
         if(retainedInputs.isEmpty())retainedInputBudget=null;
     }

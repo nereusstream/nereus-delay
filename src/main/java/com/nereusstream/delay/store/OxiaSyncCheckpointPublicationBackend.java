@@ -63,6 +63,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     private final OxiaSessionBoundRecoveryPinStore pinStore;
     private final CheckpointManifestLimits manifestLimits;
     private final java.util.function.Supplier<byte[]> evidenceStorageNamespace;
+    private final OxiaSyncOwnerLeaseBackend originalManagedOwner;
 
     /** Creates an authority over an already configured Oxia client. */
     public OxiaSyncCheckpointPublicationBackend(
@@ -79,7 +80,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 new SyncRecordClient(Objects.requireNonNull(handle, "handle").client(), handle.sessionIdentity()),
                 keyPrefix,
                 manifestLimits,
-                handle.backend()::assertConnectedSession,handle.backend()::requireOriginalStorageNamespaceBinding);
+                handle.backend()::assertConnectedSession,()->handle.backend().requireOriginalStorageNamespaceBinding(handle.client()),handle.backend());
     }
 
     /**
@@ -106,10 +107,10 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             final String keyPrefix,
             final CheckpointManifestLimits manifestLimits,
             final Runnable sessionCheck) {
-        this(client,keyPrefix,manifestLimits,sessionCheck,null);
+        this(client,keyPrefix,manifestLimits,sessionCheck,null,null);
     }
     private OxiaSyncCheckpointPublicationBackend(RecordClient client,String keyPrefix,CheckpointManifestLimits manifestLimits,
-            Runnable sessionCheck,java.util.function.Supplier<byte[]> evidenceStorageNamespace){
+            Runnable sessionCheck,java.util.function.Supplier<byte[]> evidenceStorageNamespace,OxiaSyncOwnerLeaseBackend originalManagedOwner){
         this.client = new SessionBoundRecordClient(
                 Objects.requireNonNull(client, "client"), Objects.requireNonNull(sessionCheck, "sessionCheck"));
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
@@ -117,6 +118,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         this.pinStore = new OxiaSessionBoundRecoveryPinStore(this.client, canonicalPrefix + PIN_SUFFIX);
         this.manifestLimits = Objects.requireNonNull(manifestLimits, "manifestLimits");
         this.evidenceStorageNamespace=evidenceStorageNamespace;
+        this.originalManagedOwner=originalManagedOwner;
     }
 
     @Override
@@ -495,6 +497,13 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     private byte[] originalEvidenceNamespace(){
         if(evidenceStorageNamespace==null)throw new IllegalStateException("recovery protection requires its original managed Registry SDK namespace");
         final byte[] namespace=evidenceStorageNamespace.get();Bytes.requireLength(namespace,32,"actual recovery SDK storage namespace");return namespace;
+    }
+    /** The same actual process SDK and exact publication record, even when two original paths opened wrappers. */
+    public void requireSameOriginalEvidenceAuthority(OxiaSyncCheckpointPublicationBackend other){
+        Objects.requireNonNull(other);final byte[] namespace=originalEvidenceNamespace();
+        if(originalManagedOwner==null||originalManagedOwner!=other.originalManagedOwner||!recordKey.equals(other.recordKey)
+                ||!Arrays.equals(namespace,other.originalEvidenceNamespace()))
+            throw new IllegalArgumentException("checkpoint publication differs from the original Source managed Catalog");
     }
     private StoredState readEvidenceState(BoundedReadBudget reads){
         if(!reads.beforeRead()||!reads.tryCharge(Bytes.utf8(recordKey).length,MAX_STATE_BYTES))throw reads.incomplete();

@@ -77,6 +77,9 @@ public final class TargetWorkerProcessRuntime {
         void requestStop();
         boolean closeForProcess(ReceiptManagementClosePermit permit);
         Throwable cleanupFailure();
+        default void requireOriginalEvidenceCatalog(com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog catalog){
+            throw new IllegalStateException("original receipt Root/Catalog binding is unavailable");
+        }
     }
     private final java.util.Map<String, ReceiptManagement> receiptManagement = new java.util.LinkedHashMap<>();
     private final java.util.Set<ReceiptManagementConstruction> receiptConstructions =

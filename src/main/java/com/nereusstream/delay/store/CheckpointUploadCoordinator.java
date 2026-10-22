@@ -44,6 +44,7 @@ public final class CheckpointUploadCoordinator {
     SharedRocksDbResources resources() {
         return resources;
     }
+    boolean usesIntentAuthority(CheckpointUploadIntentAuthority actual){return intentStore==actual;}
 
     CheckpointUploadIntent upload(
             final Path checkpointDirectory,

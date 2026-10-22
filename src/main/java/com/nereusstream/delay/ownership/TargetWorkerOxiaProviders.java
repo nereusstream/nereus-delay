@@ -123,6 +123,9 @@ public final class TargetWorkerOxiaProviders {
     /** Original captured SDK association, available before any Catalog/session-validation RPC can fail. */
     public boolean hasManagedRegistryInputOwner(){return session.backend().hasManagedClientInputOwner();}
     public void retainClosedRegistryClientInputs(TargetDestinationSdkBudget.Client input){session.backend().retainClosedClientInputUntilTermination(input);}
+    public void retainClosedRegistryClientInputs(TargetDestinationSdkBudget.Client input,TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission){
+        session.backend().retainClosedClientInputUntilTermination(input,admission);
+    }
 
     /** Uses the original owned connected session, which outlives the process receipt management dependency. */
     public com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog receiptProtectionCatalog(

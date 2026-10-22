@@ -49,6 +49,12 @@ public final class CheckpointPublicationCoordinator {
     SharedRocksDbResources resources() {
         return uploadCoordinator.resources();
     }
+    /** Only the actual atomic SDK record used by both original publication halves can supply retirement facts. */
+    public java.util.Optional<OxiaSyncCheckpointPublicationBackend> managedEvidenceRecoveryCatalog(){
+        if(!(catalog instanceof OxiaSyncCheckpointPublicationBackend actual))return java.util.Optional.empty();
+        if(!uploadCoordinator.usesIntentAuthority(actual))throw new IllegalStateException("Source checkpoint intent/Catalog authorities differ");
+        return java.util.Optional.of(actual);
+    }
 
     void requirePublicationCurrent(CheckpointPublication publication, Runnable protection) {
         protection.run();

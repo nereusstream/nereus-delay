@@ -469,6 +469,19 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
             original.requireRetirementReadCurrent(clock);startup.requireReceiptManagementRead(management);current.run();
         }
+        com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.PayloadRetirementProtection preparePayloadRetirementProtection(
+                KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
+                com.nereusstream.delay.protocol.SystemMutation selected,
+                com.nereusstream.delay.runtime.OxiaSyncTargetKafkaReceiptProtectionCatalog.ReservedMarker reserved,
+                com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+                com.nereusstream.delay.store.BoundedReadBudget catalogReads,com.nereusstream.delay.store.BoundedReadBudget nativeReads,
+                com.nereusstream.delay.store.BoundedReadBudget recoveryReads,Runnable current){
+            requireRetirementReadCurrent(management,current);final TargetWorkerShardRuntime original;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
+            return management.catalog().preparePayloadRetirementProtection(startup,original,management,selected,reserved,admission,
+                    images,catalogReads,nativeReads,recoveryReads,current);
+        }
         java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> retirementMutationResult(
                 KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
                 com.nereusstream.delay.protocol.SystemMutation mutation,Runnable current){

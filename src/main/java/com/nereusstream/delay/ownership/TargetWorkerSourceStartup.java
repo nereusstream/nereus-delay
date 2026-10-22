@@ -1176,6 +1176,27 @@ public final class TargetWorkerSourceStartup {
     public void requireReceiptManagementRead(TargetWorkerProcessRuntime.ReceiptManagement original) {
         process.requireReceiptManagementRead(this, original);
     }
+    /** Select only original recovery/publication paths; a caller cannot nominate another Catalog fork. */
+    public synchronized com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend originalEvidenceRecoveryCatalog(
+            TargetWorkerShardRuntime actual){
+        requireAdmittedWorker(actual);final var published=actual.originalEvidenceRecoveryCatalog();
+        if(checkpointCatalog!=null){
+            if(!(checkpointCatalog instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend restored))
+                throw new IllegalStateException("original recovery Catalog lacks its actual managed publication SDK");
+            if(published!=null)restored.requireSameOriginalEvidenceAuthority(published);return restored;
+        }
+        return Objects.requireNonNull(published,"original Source has no managed checkpoint publication authority");
+    }
+    public void requireEvidenceRetirementReadCurrent(TargetWorkerShardRuntime actual,TargetWorkerProcessRuntime.ReceiptManagement management){
+        requireReceiptManagementRead(management);synchronized(this){requireAdmittedWorker(actual);}
+        actual.requireRetirementReadCurrent(owner.clock());requireReceiptManagementRead(management);
+    }
+    public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readEvidenceRetirementIntent(
+            TargetWorkerShardRuntime actual,TargetWorkerProcessRuntime.ReceiptManagement management,
+            com.nereusstream.delay.protocol.SystemMutation selected,com.nereusstream.delay.store.BoundedReadBudget reads){
+        requireEvidenceRetirementReadCurrent(actual,management);final var intent=actual.readAppliedRetirementIntent(reads,selected,owner.clock());
+        requireEvidenceRetirementReadCurrent(actual,management);return intent;
+    }
 
     public synchronized void retainPublicationDispatch(TargetWorkerShardRuntime actual, TargetWorkerPublicationDispatch dispatch) {
         requireCurrent(); requireAdmittedWorker(actual);

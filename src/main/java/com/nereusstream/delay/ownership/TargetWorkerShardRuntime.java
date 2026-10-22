@@ -102,6 +102,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
+    private com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend evidenceRecoveryCatalog;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
     private volatile TargetJournalNegativeSettlementMaintenance journalSettlement;
     private volatile TargetPulsarPublishRuntime publishRuntime;
@@ -623,6 +624,16 @@ public final class TargetWorkerShardRuntime
     }
     public synchronized void requireRetirementReadCurrent(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requirePublishRecoveryOwner(clock);
+    }
+    synchronized com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend originalEvidenceRecoveryCatalog(){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return evidenceRecoveryCatalog;
+    }
+    private void bindEvidenceRecoveryCatalog(TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication){
+        if(publication==null)return;
+        publication.coordinator().managedEvidenceRecoveryCatalog().ifPresent(actual->{
+            if(evidenceRecoveryCatalog==null)evidenceRecoveryCatalog=actual;
+            else if(evidenceRecoveryCatalog!=actual)evidenceRecoveryCatalog.requireSameOriginalEvidenceAuthority(actual);
+        });
     }
     public synchronized void requireRetirementProtocolActive(LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireRetirementProtocolActive(clock);
@@ -1664,6 +1675,7 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("Target semantic checkpoint cut is no longer prepared for this Shard");
         }
         cut.requireCurrent();
+        bindEvidenceRecoveryCatalog(publication);
         final var submitted = target.submitSemanticCheckpointCandidate(workClasses, intents, ownerClock,
                 checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits,
                 cut::requireCurrent, protectionGuard, publication, settlementBudget);
@@ -1696,6 +1708,7 @@ public final class TargetWorkerShardRuntime
         }
         cut.requireCurrent();
         final var candidate = request.candidate();
+        bindEvidenceRecoveryCatalog(request.publication());
         final var submitted = target.submitCollectedSemanticCheckpointCandidate(workClasses, candidate.intents(),
                 candidate.ownerClock(), candidate.checkpointPath(), candidate.pending(), candidate.physicalLimits(),
                 candidate.quotaLimits(), candidate.ledgerLimits(), request.inputs(), request.semanticLimits(),

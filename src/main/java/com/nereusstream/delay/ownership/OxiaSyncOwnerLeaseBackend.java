@@ -224,10 +224,21 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if(clientOwner==null)throw new IllegalStateException("original SDK storage namespace binding is unavailable");
         return clientOwner.requireStorageNamespaceBinding();
     }
+    /** A public ClientHandle record alone cannot associate a foreign client with this original SDK owner. */
+    public byte[] requireOriginalStorageNamespaceBinding(SyncOxiaClient actual){
+        requireOriginalConnectedClient(actual);
+        if(clientOwner==null)throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        return clientOwner.requireStorageNamespaceBinding();
+    }
     /** Cleanup uses the original captured SDK identity even after its session has disconnected. */
     public void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input){
         if(clientOwner==null)throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
         clientOwner.retainClosedClientInputUntilTermination(input);
+    }
+    public void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input,
+            TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission){
+        if(clientOwner==null)throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
+        clientOwner.retainClosedClientInputUntilTermination(input,admission);
     }
     /** Captured ownership association only; unlike assertConnectedSession this performs no SDK request. */
     public boolean hasManagedClientInputOwner(){return clientOwner!=null;}

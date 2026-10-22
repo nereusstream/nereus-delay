@@ -5187,3 +5187,17 @@ reservation QUERY、4=Native/认证copy-only export；至少1/2，未知/重复/
 回退。原authenticator的actual held-admission另核exact scope/end epoch/version/history
 digest并承担操作期准入约束，默认unavailable；静态材料不是当前退役许可或零引用证明。
 不改SystemMutation、Native或既有Root1..5、Source body/ordinal；实际provider组合继续开放。
+
+2026-10-22 支持的kind8物理请求路径已接实际producer：原Root有限任务组合actual
+Source/managed publication authority、完整Native51/uses/owner/ref/first/fence、原完整
+Root closure/reservation/capacity、qualified历史/current admission、真实Floor/Pin和完整
+copy及独立RETIRE_EVIDENCE_OBJECT_PAYLOAD。它生成私有PayloadRetirementProtection，
+继而原SDK本次CAS old payload version或IfAbsent、真实persistent exact GET后，才生产
+ObservedRetiredMarker。request hash绑定本次local dispatch nonce和实际请求，不声称SDK
+server ID；response hash确定domain/成功或对应条件拒绝类别/请求/真实GET key/raw/len/
+version，成功还核actual PutResult version。Runtime/timeout/cancel不接匹配GET转成功。
+新格式/RequestKind未增加；Root1..5与Source bytes不变，marker/key/guard保留，物理差额
+尚未退款。Root确认sign/content/Source loan/cold与幂等物理结算仍待接，非完整功能闭环。
+ProtectionRef现有定义未确定ID/generation原权威映射：目前所有无法exact解析的非空
+声明（含kind1）均在物理请求前Unavailable，非格式错误，不改已APPLIED intent或回收
+copy。空声明路径仍做全套动态门禁，支持路径不代表全声明兼容或kind8全域验收。

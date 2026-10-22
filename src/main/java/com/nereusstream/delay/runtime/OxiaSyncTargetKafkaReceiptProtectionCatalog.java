@@ -444,7 +444,7 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public OxiaSyncTargetKafkaReceiptProtectionCatalog(OxiaSyncOwnerLeaseBackend.ClientHandle handle,String keyPrefix,
             TargetKafkaReceiptProtectionTrust trust,Limits limits,TargetCatalogRootAuthority rootAuthority){
         client=Objects.requireNonNull(handle,"session-fenced Registry handle").client();session=handle.backend()::assertConnectedSession;
-        storageNamespaceBinding=handle.backend()::requireOriginalStorageNamespaceBinding;
+        storageNamespaceBinding=()->handle.backend().requireOriginalStorageNamespaceBinding(handle.client());
         retainStorageInput=handle.backend()::retainClosedClientInputUntilTermination;
         managedStorageInputOwner=handle.backend()::hasManagedClientInputOwner;
         this.trust=Objects.requireNonNull(trust,"original CONTROL trust");this.limits=Objects.requireNonNull(limits,"explicit durable capacity configuration");
@@ -1035,6 +1035,149 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             requireExact(body.intent().canonicalBytes(),intent.canonicalBytes());requireExact(body.markerEvidence().canonicalBytes(),evidence.canonicalBytes());
         }
         public long retainedBytes(){return retainedBytes;}
+    }
+    /** A well-formed historical declaration can still lack an implemented exact authority mapping. */
+    public static final class ProtectionUnavailable extends IllegalStateException {
+        private static final long serialVersionUID=1L;
+        public ProtectionUnavailable(String message){super(message);}
+    }
+    public static void requireSupportedProtectionDeclarations(SystemMutation selected){
+        final var body=TargetEvidenceRetireIntentBody.decode(Objects.requireNonNull(selected).canonicalBody());
+        if(selected.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT||!body.protections().references().isEmpty())
+            throw new ProtectionUnavailable("declared ProtectionRef ID/generation has no defined original authority mapping; physical retirement unavailable");
+    }
+
+    /** Original Root runtime composite, never a caller boolean or a declaration-derived erase permit. */
+    public static final class PayloadRetirementProtection implements AutoCloseable {
+        private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
+        private final com.nereusstream.delay.ownership.TargetWorkerSourceStartup source;
+        private final com.nereusstream.delay.ownership.TargetWorkerShardRuntime worker;
+        private final com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.ReceiptManagement management;
+        private final SystemMutation selected;
+        private final TargetEvidenceRetirementStore.AppliedIntent applied;
+        private final ReservedMarker reserved;
+        private final com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission;
+        private final com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.EvidenceRecoveryProtection recovery;
+        private final com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Permit permission;
+        private boolean closed;
+        private PayloadRetirementProtection(OxiaSyncTargetKafkaReceiptProtectionCatalog catalog,
+                com.nereusstream.delay.ownership.TargetWorkerSourceStartup source,com.nereusstream.delay.ownership.TargetWorkerShardRuntime worker,
+                com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.ReceiptManagement management,SystemMutation selected,
+                TargetEvidenceRetirementStore.AppliedIntent applied,ReservedMarker reserved,
+                com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.EvidenceRecoveryProtection recovery,
+                com.nereusstream.delay.ownership.TargetReceiptCurrentManagement.Permit permission){
+            this.catalog=catalog;this.source=source;this.worker=worker;this.management=management;this.selected=selected;
+            this.applied=applied;this.reserved=reserved;this.admission=admission;this.recovery=recovery;this.permission=permission;
+        }
+        public TargetEvidenceRetirementStore.AppliedIntent applied(){requireHeldCurrent();return applied;}
+        /** Only held/current checks here. Full Native/Registry reauthentication is explicit and budgeted below. */
+        public void requireHeldCurrent(){
+            if(closed)throw new IllegalStateException("original physical protection is closed");
+            management.requireOriginalEvidenceCatalog(catalog);source.requireEvidenceRetirementReadCurrent(worker,management);
+            admission.requireCurrent();permission.requireCurrent();recovery.requireFor(applied);
+        }
+        public void requireCurrent(BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,BoundedReadBudget recoveryReads,Runnable current){
+            current.run();requireHeldCurrent();
+            final var actual=source.readEvidenceRetirementIntent(worker,management,selected,nativeReads);
+            requireExact(actual.record().canonicalBytes(),applied.record().canonicalBytes());
+            final var root=catalog.readRoot(catalogReads).root;
+            requireExact(root.binding.policy.scope().canonicalBytes(),admission.qualifiedHistory().history().scope().canonicalBytes());
+            final var closed=catalog.closedSnapshot(root,reserved.marker.exactKey(),reserved.marker.objectDigest());
+            closed.requireObjectFingerprint(applied.record().copy().resource());
+            requireExact(closed.canonicalBytes(),applied.record().copy().closureImage());
+            requireExact(Objects.requireNonNull(root.markers.get(reserved.marker.exactKey()),"original durable marker reservation").marker.canonicalBytes(),reserved.marker.canonicalBytes());
+            recovery.requireAuthority(source.originalEvidenceRecoveryCatalog(worker));recovery.requireCurrent(recoveryReads,()->{current.run();requireHeldCurrent();});
+            current.run();requireHeldCurrent();
+            if(!catalogReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw new ProtectionUnavailable("physical protection reauthentication exceeded its deadline");
+        }
+        /** Source/image/SDK ownership remains with the original holders; Root separately closes/transfers actual admission. */
+        @Override public void close(){if(!closed){permission.close();closed=true;}}
+    }
+
+    public PayloadRetirementProtection preparePayloadRetirementProtection(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup source,com.nereusstream.delay.ownership.TargetWorkerShardRuntime worker,
+            com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.ReceiptManagement management,SystemMutation selected,ReservedMarker reserved,
+            com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+            List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,BoundedReadBudget recoveryReads,Runnable current){
+        requireSupportedProtectionDeclarations(selected);requireManagedMarkerInputOwner();
+        for(var reads:List.of(catalogReads,nativeReads,recoveryReads))if(reads.maxBytes()==Long.MAX_VALUE)
+            throw new IllegalArgumentException("finite full physical protection reads required");
+        management.requireOriginalEvidenceCatalog(this);source.requireEvidenceRetirementReadCurrent(worker,management);current.run();
+        reserved.requireCatalog(this);admission.requireCurrent();
+        final var applied=source.readEvidenceRetirementIntent(worker,management,selected,nativeReads);
+        final var resource=applied.record().copy().resource();final var marker=reserved.marker;
+        applied.record().copy().requireMarker(marker);
+        if(!applied.record().appliedAt().equals(marker.intentAppliedAt()))throw new ProtectionUnavailable("marker changed actual intent Source stamp");
+        requireExact(marker.intentId(),applied.record().intent().systemMutationId());requireExact(marker.intentHash(),applied.record().intent().mutationHash());
+        final var root=readRoot(catalogReads).root;
+        requireExact(root.binding.policy.scope().canonicalBytes(),admission.qualifiedHistory().history().scope().canonicalBytes());
+        final var closure=closedSnapshot(root,resource.exactKey(),resource.objectDigest());closure.requireObjectFingerprint(resource);
+        requireExact(closure.canonicalBytes(),applied.record().copy().closureImage());
+        final var capacity=readCapacityOwner(closure,catalogReads,current);requireExact(capacity.reference().canonicalBytes(),marker.capacityOwner().canonicalBytes());
+        final var actualCatalog=source.originalEvidenceRecoveryCatalog(worker);
+        final var recovery=actualCatalog.captureEvidenceRecoveryProtection(applied,images,recoveryReads,
+                ()->{current.run();source.requireEvidenceRetirementReadCurrent(worker,management);admission.requireCurrent();});
+        final var original=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.closure.managementTopicId)),"original whole-topic physical permission");
+        final var permission=trust.currentManagement(original.artifact,Action.RETIRE_EVIDENCE_OBJECT_PAYLOAD);
+        final var protection=new PayloadRetirementProtection(this,source,worker,management,selected,applied,reserved,admission,recovery,permission);
+        try{protection.requireCurrent(catalogReads,nativeReads,recoveryReads,current);return protection;}
+        catch(RuntimeException|Error failure){protection.close();throw failure;}
+    }
+
+    /** One actual dispatch followed by an exact persistent read. UNKNOWN never enters a matching-read success catch. */
+    public ObservedRetiredMarker retireEvidencePayload(PayloadRetirementProtection protection,
+            BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,BoundedReadBudget recoveryReads,
+            java.util.function.Supplier<TrustedUtcIntervalEvidence> observedTime,Runnable current){
+        if(Objects.requireNonNull(protection).catalog!=this)throw new IllegalArgumentException("physical protection belongs to another Catalog");
+        protection.requireCurrent(catalogReads,nativeReads,recoveryReads,current);
+        final var marker=protection.reserved.marker;final byte[] value=marker.canonicalBytes();
+        final var before=persistent(read(marker.exactKey(),catalogReads,Math.toIntExact(Math.max(marker.payloadBytes(),value.length))));
+        final boolean absent=before==null;
+        if(before!=null&&!Arrays.equals(before.value(),value)){
+            if(before.version().versionId()!=java.nio.ByteBuffer.wrap(marker.payloadVersion()).getLong()
+                    ||before.value().length!=marker.payloadBytes()||!Arrays.equals(Bytes.sha256(before.value()),marker.payloadDigest()))
+                throw new ProtectionUnavailable("actual payload changed original exact raw/version fingerprint");
+        }
+        final var kind=absent?TargetEvidenceRetiredMarkerEvidence.RequestKind.CLAIM_ABSENT_KEY:TargetEvidenceRetiredMarkerEvidence.RequestKind.CAS_PAYLOAD_VERSION;
+        final var nonce=UUID.randomUUID();
+        final byte[] request=Bytes.sha256(Bytes.utf8("nereus-delay-evidence-marker-local-dispatch-v1\0"),
+                marker.capacityOwner().storageNamespaceBinding(),Bytes.lp32(Bytes.utf8(marker.exactKey())),
+                Bytes.u32be(kind.wireValue()),absent?new byte[0]:marker.payloadVersion(),Bytes.sha256(value),Bytes.u64be(value.length),
+                Bytes.u64beBits(nonce.getMostSignificantBits()),Bytes.u64beBits(nonce.getLeastSignificantBits()));
+        protection.requireCurrent(catalogReads,nativeReads,recoveryReads,current);
+        io.oxia.client.api.PutResult put=null;int category;
+        try{
+            session.run();current.run();protection.requireHeldCurrent();
+            put=client.put(marker.exactKey(),value,absent?Set.of(PutOption.IfRecordDoesNotExist):
+                    Set.of(PutOption.IfVersionIdEquals(java.nio.ByteBuffer.wrap(marker.payloadVersion()).getLong())));
+            if(put==null||!marker.exactKey().equals(put.key())||put.version()==null||put.version().versionId()<0
+                    ||put.version().sessionId().isPresent()||put.version().clientIdentifier().isPresent())
+                throw new IllegalStateException("conditional marker response has invalid persistent identity");
+            category=1;
+        }catch(UnexpectedVersionIdException rejected){
+            if(absent)throw new IllegalStateException("IfAbsent failed without its matching known condition result",rejected);category=2;
+        }catch(KeyAlreadyExistsException rejected){
+            if(!absent)throw new IllegalStateException("payload-version CAS failed without its matching known condition result",rejected);category=3;
+        }
+        // Runtime/timeout/cancellation exits above. Only success or the matching known conditional rejection reaches GET.
+        session.run();current.run();protection.requireHeldCurrent();
+        final var after=persistent(read(marker.exactKey(),catalogReads,Math.toIntExact(Math.max(marker.payloadBytes(),value.length))));
+        if(after==null||Arrays.equals(Bytes.u64beBits(after.version().versionId()),marker.payloadVersion()))
+            throw new IllegalStateException("actual retained marker/version is unavailable");
+        requireExact(after.value(),value);
+        if(category==1&&put.version().versionId()!=after.version().versionId())throw new IllegalStateException("successful marker version changed before exact observation");
+        final byte[] response=Bytes.sha256(Bytes.utf8("nereus-delay-evidence-marker-conditional-response-v1\0"),
+                Bytes.u32be(category),request,Bytes.lp32(Bytes.utf8(after.key())),Bytes.sha256(after.value()),
+                Bytes.u64be(after.value().length),Bytes.u64beBits(after.version().versionId()),
+                category==1?Bytes.u64beBits(put.version().versionId()):new byte[0]);
+        final var time=Objects.requireNonNull(observedTime.get(),"actual original Source observation time");
+        protection.requireCurrent(catalogReads,nativeReads,recoveryReads,current);
+        final var evidence=new TargetEvidenceRetiredMarkerEvidence(marker,Bytes.sha256(after.value()),after.value().length,
+                Bytes.u64beBits(after.version().versionId()),kind,absent?new byte[0]:marker.payloadVersion(),request,response,time);
+        return new ObservedRetiredMarker(this,protection.reserved,protection.applied,evidence,category==1?
+                ObservedRetiredMarker.ConditionalResult.CONDITION_SUCCEEDED:ObservedRetiredMarker.ConditionalResult.CONDITION_REJECTED_EXACT_MARKER);
     }
     /** Local budget handoff only, after the caller's other SDKs/methods close; no server outcome is inferred. */
     public void retainClientInputsUntilStorageSdkTermination(com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client input){

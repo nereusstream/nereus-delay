@@ -2694,3 +2694,15 @@ physical/quota/ledger/semantic限额计算checked输入窗口，原Root须在I/O
 同时保留publication decode与1..3份认证输入窗口，范围是输入/解码估算，不声称RSS。
 原SDK/image实际held责任不转移、不以本地proof构造或close退费；无默认预算/新队列。
 capture及重读检查elapsed，预算耗尽/投影变化不生成可用事实。尚未物理操作或结算差额。
+
+2026-10-22 actual physical producer费用：原Root在首个物理任务前核retained inputs+
+原Root closure window+完整publication/1..3 image认证窗口+有界Native与实际frame/marker
+编码窗口，无默认额度或新pool。GET前按原payload/marker两者较大的上限收费，拒绝读回
+也可能返回原payload，不以期望marker小值漏算。原pending marker metadata预留保持，
+物理替换后尚不结算差额，原bytes/record/publication及marker/key/guard继续保护。
+私有observed receipt不证明任何旧UNKNOWN已退出，也不释放旧SDK inputs。Root停止/
+失败/方法返回后的actual admission随同一个原Client预算项交原Registry SDK owner，
+复用有界identity map（每Client至多一个hold），SDK真实terminated后才转发close并释放
+input；失败保同handle/费用重试。SDK终止可先释放其native资源，未关的admission/input
+仍使cleanup未完成。原Source/image外部责任保持原owner。完整Source确认与可恢复幂等
+physical difference结算继续开放，未发生实际退款或生产容量结论。
