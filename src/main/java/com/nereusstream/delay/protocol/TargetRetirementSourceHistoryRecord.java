@@ -15,16 +15,22 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-retirement-source-history-record\0");
     public TargetRetirementSourceHistoryRecord{
         Objects.requireNonNull(input);Objects.requireNonNull(decidedAt).requireSourceApplied();Objects.requireNonNull(proof);
-        final var resource=resource(input);final var source=decidedAt.source();final var last=proof.chain().getLast();
+        final var source=decidedAt.source();final var last=proof.chain().getLast();
+        final boolean reclaim=input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM;
+        final var body=reclaim?TargetResourceReclaimBody.decode(input.canonicalBody()):null;
+        final var resource=reclaim?null:resource(input);
+        final var scope=reclaim?body.scope():new TargetQuotaScope(resource.shard(),resource.tenantScope(),null);
         if(input.canonicalEnvelope().length>MAX_ENVELOPE_BYTES||!input.shardId().equals(source.shardId())
                 ||!Arrays.equals(Bytes.sha256(input.canonicalEnvelope()),decidedAt.mutationDigest())
-                ||!last.scope().shard().equals(resource.shard())||!Arrays.equals(last.scope().tenantScope(),resource.tenantScope())
-                ||!Arrays.equals(last.lineage(),resource.recoveryLineage())||!Arrays.equals(last.deploymentRoot(),resource.deploymentRootDigest())
-                ||!Arrays.equals(last.namespace(),resource.catalogNamespaceId())||!last.afterExclusive().sameSourceIdentity(source)
+                ||!last.scope().equals(scope)||!Arrays.equals(last.lineage(),reclaim?body.lineage():resource.recoveryLineage())
+                ||!Arrays.equals(last.deploymentRoot(),reclaim?body.deploymentRoot():resource.deploymentRootDigest())
+                ||!Arrays.equals(last.namespace(),reclaim?body.namespace():resource.catalogNamespaceId())||!last.afterExclusive().sameSourceIdentity(source)
                 ||source.compareTo(last.afterExclusive())<=0||source.compareTo(last.throughInclusive())>0)
             throw new IllegalArgumentException("retained Source history changed exact resource/Source/coverage");
     }
     public TargetExternalEvidenceObjectResource resource(){return resource(input);}
+    public ProtocolTuple requiredTuple(){return input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+            ?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
     public byte[] key(){return key(input.systemMutationId());}
     public static byte[] key(byte[] id){Bytes.requireLength(id,32,"retirement Source mutation ID");return Bytes.concat(new byte[]{TargetKeyCodec.RETIREMENT_SOURCE_HISTORY_TAG,TargetKeyCodec.KEY_FORMAT},id);}
     /** Local data consistency only. The original independent purpose pin is still required for authentication. */
@@ -36,7 +42,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
                 &&g.action()==TargetRetirementAuthorizationHistory.Action.of(input.type())&&Arrays.equals(g.service().canonicalBytes(),actor)).findFirst();
     }
     private byte[] fields(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,input.canonicalEnvelope());
+        CanonicalProtobuf.uint32(out,1,input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM?2:1);CanonicalProtobuf.bytes(out,2,input.canonicalEnvelope());
         CanonicalProtobuf.bytes(out,3,decidedAt.canonicalBytes());CanonicalProtobuf.bytes(out,4,proof.canonicalBytes());
     });}
     public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
@@ -47,17 +53,18 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
     public static TargetRetirementSourceHistoryRecord decode(byte[] encoded){
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,5,false,"retirement Source history record");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5},"retirement Source history record");
-        if(QueryCodecSupport.uint32(f.get(0),1)!=1)throw new IllegalArgumentException("unknown retirement Source history schema");
+        final int version=QueryCodecSupport.uint32(f.get(0),1);
+        if(version!=1&&version!=2)throw new IllegalArgumentException("unknown retirement Source history schema");
         final byte[] frame=QueryCodecSupport.bytes(f.get(1),2);if(frame.length>MAX_ENVELOPE_BYTES)throw new IllegalArgumentException("retirement history frame exceeds bound");
         final var value=new TargetRetirementSourceHistoryRecord(SystemMutation.decodeEnvelope(frame),TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(2),3)),
                 TargetRetirementAuthorizationHistory.PublicProof.decode(QueryCodecSupport.bytes(f.get(3),4)));
+        if((version==2)!=(value.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM))throw new IllegalArgumentException("Source history version/type mismatch");
         if(!Arrays.equals(value.digest(),QueryCodecSupport.fixed(f.get(4),5,32)))throw new IllegalArgumentException("Source history checksum mismatch");
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"retirement Source history record");return value;
     }
     public static TargetRetirementSourceHistoryRecord decodeForStore(byte[] key,byte[] payload,TargetQuotaScope scope,byte[] lineage){
-        final var value=decode(payload);final var resource=value.resource();
-        if(!Arrays.equals(key,value.key())||scope.target()!=null||!scope.shard().equals(resource.shard())
-                ||!Arrays.equals(scope.tenantScope(),resource.tenantScope())||!Arrays.equals(lineage,resource.recoveryLineage()))
+        final var value=decode(payload);final var actual=value.proof().chain().getLast();
+        if(!Arrays.equals(key,value.key())||scope.target()!=null||!scope.equals(actual.scope())||!Arrays.equals(lineage,actual.lineage()))
             throw new IllegalArgumentException("retirement Source history key/scope/lineage mismatch");return value;
     }
     private static TargetExternalEvidenceObjectResource resource(SystemMutation input){return switch(input.type()){

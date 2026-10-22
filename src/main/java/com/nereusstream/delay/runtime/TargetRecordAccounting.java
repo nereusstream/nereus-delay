@@ -706,6 +706,7 @@ public final class TargetRecordAccounting {
                 final var owner = descriptor(budget.primaryIdentity());
                 owner.requireAttemptBudget(budget);
                 budget.mutation().requireAtOrBefore(operation);
+                TargetRetirementSourceHistoryStore.requireAttemptReclaim(reader,overlay,scope,lineage,root.owner(),budget,operation);
                 result = new Charge(owner, resources(TargetExternalEvidenceStore.remainingAttemptCharge(reader, overlay,
                         budget, scope, lineage).add(root.attemptRecordCharge(budget))));
             }

@@ -23,7 +23,7 @@ import java.util.TreeMap;
 
 /** Closed Target semantic contents and original Admission frames; external control/pin/authentication is required. */
 public final class TargetCheckpointSemanticSnapshot {
-    public static final int MAX_SCHEMA_VERSION=7;
+    public static final int MAX_SCHEMA_VERSION=8;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-checkpoint-semantic-snapshot\0");
 
     public record Limits(int maximumRecords, int maximumBytes, long maximumAdmissionFrameBytes) {
@@ -91,9 +91,11 @@ public final class TargetCheckpointSemanticSnapshot {
             List<TargetCheckpointDependencies.AdmissionImage> admissions,List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,List<TargetCheckpointDependencies.ExternalEvidenceImage> externalEvidence,
             List<TargetCheckpointDependencies.RecoveryEvidenceImage> recoveryEvidence,TargetCheckpointLifecycleInputs lifecycle,Limits limits){
-        if ((version>=6)!=(lifecycle!=null))throw new IllegalArgumentException("Target lifecycle companion requires explicit schema6/7");
+        if ((version>=6)!=(lifecycle!=null))throw new IllegalArgumentException("Target lifecycle companion requires explicit schema6/7/8");
         if(version==6&&lifecycle.requiresRetainedMarkerCapability())
             throw new IllegalArgumentException("retained marker lifecycle requires explicit schema7 companion");
+        if(version>=6&&version<8&&lifecycle.requiresResourceReclaimCapability())
+            throw new IllegalArgumentException("resource reclaim lifecycle requires explicit schema8 companion");
         this.lifecycle=lifecycle;
         if (version < 1 || version > MAX_SCHEMA_VERSION || version == 1 && !controls.isEmpty()
                 || version < 3 && !outcomes.isEmpty() || version < 4 && !externalEvidence.isEmpty()||version<5&&!recoveryEvidence.isEmpty()) {
@@ -310,7 +312,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var recovery=complete.resolveRecoveryEvidence(originalOutcomes,recoveryAuthority,budget,guard);
         final var lifecycle=TargetCheckpointLifecycleInputs.collect(complete,lifecycleAuthority,budget,limits,guard);
         final var root=complete.root();
-        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
+        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresResourceReclaimCapability()?8:lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
                 root.root().recoveryLineage(),complete.storedControlsDigest(),complete.semanticInputsDigest(),profiles,retries,trusts,
                 admissions,originalControls,originalOutcomes,external,recovery,lifecycle,limits);
         result.validateAgainst(complete,limits);guard.run();if(!budget.beforeTimedWork())throw budget.incomplete();return result;
@@ -553,7 +555,7 @@ public final class TargetCheckpointSemanticSnapshot {
         }
         final TargetCheckpointLifecycleInputs lifecycle;
         if(version>=6){
-            if(index>=fields.size()||fields.get(index).number()!=16)throw new IllegalArgumentException("schema6/7 omits mandatory lifecycle image");
+            if(index>=fields.size()||fields.get(index).number()!=16)throw new IllegalArgumentException("schema6/7/8 omits mandatory lifecycle image");
             lifecycle=TargetCheckpointLifecycleInputs.decode(QueryCodecSupport.bytes(fields.get(index++),16),limits);
         }else lifecycle=null;
         if (index + 1 != fields.size()) {

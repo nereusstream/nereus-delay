@@ -24,7 +24,7 @@ public final class TargetRetirementSourceHistoryStore {
         final byte[] decisionKey=TargetRetirementSourceHistoryRecord.key(tip.mutationId());
         final var decision=TargetRetirementSourceHistoryRecord.decodeForStore(decisionKey,payload(view,overlay,ColumnFamily.META,decisionKey,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
         tip.requireDecision(decision);requireFirst(view,overlay,scope,lineage,owner,decision,frontier);
-        final var activated=activation(view,overlay,scope,lineage,owner,frontier);
+        final var activated=activation(view,overlay,scope,lineage,owner,frontier,decision.requiredTuple());
         if(!activated.body().payload().descriptor().supportsAcceptedHistoryTip())throw new IllegalStateException("Native55 lacks actual descriptor3 activation");
         tip.decidedAt().requireAfter(activated.appliedAt());
         final byte[] original=view.projected(ColumnFamily.META,tip.key(),List.of());
@@ -42,13 +42,17 @@ public final class TargetRetirementSourceHistoryStore {
             byte[] lineage,TargetQuotaIdentity owner,TargetResultRecord first,TargetQuotaMutation frontier){
         if(first.kind()!=TargetResultRecord.Kind.SYSTEM)return;
         final var result=SystemMutationResult.decode(first.typedPayload());
-        if(result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)return;
+        final boolean reclaim=result.mutationType()==SystemMutationType.TARGET_RESOURCE_RECLAIM;
+        if(!reclaim&&result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)return;
         if(result.applyStatus()!=ApplyStatus.APPLIED&&result.stableCode()!=StableCode.UNAUTHORIZED_SYSTEM_MUTATION)return;
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement()),raw=view.projected(ColumnFamily.META,key,overlay);
-        if(raw==null)return;
+        final var tuple=reclaim?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();
+        final byte[] key=TargetProtocolActivationRecord.key(tuple),raw=view.projected(ColumnFamily.META,key,overlay);
+        if(raw==null){if(reclaim)throw new IllegalStateException("reclaim first lacks independent activation");return;}
         final var activation=TargetProtocolActivationRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
+        if(reclaim&&(!activation.body().payload().descriptor().supportsResourceReclaim()||activation.appliedAt().source().compareTo(first.mutation().source())>=0))
+            throw new IllegalStateException("reclaim first lacks actual prior descriptor6");
         if(activation.body().payload().descriptor().supportsSourceHistoryRecords()&&activation.appliedAt().source().compareTo(first.mutation().source())<0)
-            requireRetained(view,overlay,scope,lineage,owner,result.mutationId(),first.mutation(),frontier);
+            requireRetained(view,overlay,scope,lineage,owner,result.mutationId(),first.mutation(),frontier,tuple);
     }
     public static void requireFirst(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,
             byte[] lineage,TargetQuotaIdentity owner,TargetRetirementSourceHistoryRecord record,TargetQuotaMutation frontier){
@@ -70,7 +74,7 @@ public final class TargetRetirementSourceHistoryStore {
         final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
         position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(root);
         if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(record.decidedAt()))throw new IllegalStateException("Source history lost original POSITION");
-        final byte[] activationKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final byte[] activationKey=TargetProtocolActivationRecord.key(record.requiredTuple());
         final byte[] activationRaw=view.projected(ColumnFamily.META,activationKey,overlay);
         if(activationRaw!=null){
             final var activated=TargetProtocolActivationRecord.decodeForStore(activationKey,TargetValueEnvelope.decode(activationRaw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
@@ -82,8 +86,10 @@ public final class TargetRetirementSourceHistoryStore {
         }
         if(result.applyStatus()==ApplyStatus.APPLIED){
             if(result.stableCode()!=StableCode.OK||record.decidedAt().source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())throw new IllegalStateException("APPLIED Source history changed window/code");
-            final var activation=activation(view,overlay,scope,lineage,owner,frontier);
+            final var activation=activation(view,overlay,scope,lineage,owner,frontier,record.requiredTuple());
             if(!activation.body().payload().descriptor().supportsSourceHistoryRecords())throw new IllegalStateException("Native54 lacks explicitly activated descriptor2");
+            if(input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&!activation.body().payload().descriptor().supportsResourceReclaim())
+                throw new IllegalStateException("reclaim history lacks actual descriptor6");
             final var grant=record.declaredGrant().orElseThrow(()->new IllegalStateException("APPLIED Source history has no declared SERVICE grant"));
             if(!input.verifySignature(grant.writerKey()))throw new IllegalStateException("APPLIED Source frame differs from retained grant key");
             grant.requireActivation(activation,record.decidedAt().source());
@@ -92,18 +98,63 @@ public final class TargetRetirementSourceHistoryStore {
     /** Descriptor1 remains a readable historical format; new descriptor2 state must retain its atomic proof. */
     public static void requireRetained(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
             TargetQuotaIdentity owner,byte[] id,TargetQuotaMutation decided,TargetQuotaMutation frontier){
-        final var activation=activation(view,overlay,scope,lineage,owner,frontier);
+        requireRetained(view,overlay,scope,lineage,owner,id,decided,frontier,ProtocolTuple.targetEvidenceRetirement());
+    }
+    private static void requireRetained(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
+            TargetQuotaIdentity owner,byte[] id,TargetQuotaMutation decided,TargetQuotaMutation frontier,ProtocolTuple tuple){
+        final var activation=activation(view,overlay,scope,lineage,owner,frontier,tuple);
         if(!activation.body().payload().descriptor().supportsSourceHistoryRecords())return;
         final byte[] key=TargetRetirementSourceHistoryRecord.key(id);
         final var record=TargetRetirementSourceHistoryRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
-        if(!record.decidedAt().equals(decided))throw new IllegalStateException("retirement lost exact Source history stamp");
+        if(!record.decidedAt().equals(decided)||!record.requiredTuple().equals(tuple))throw new IllegalStateException("retirement lost exact Source history stamp/tuple");
         requireFirst(view,overlay,scope,lineage,owner,record,frontier);
     }
     private static TargetProtocolActivationRecord activation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,
-            byte[] lineage,TargetQuotaIdentity owner,TargetQuotaMutation frontier){
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+            byte[] lineage,TargetQuotaIdentity owner,TargetQuotaMutation frontier,ProtocolTuple tuple){
+        final byte[] key=TargetProtocolActivationRecord.key(tuple);
         final var value=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
         TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,owner,value,frontier);return value;
+    }
+    /** Read-only recovery/accounting join. It neither acquires protection nor approves a new release. */
+    public static void requireAttemptReclaim(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity owner,TargetQuotaAttemptBudget budget,TargetQuotaMutation frontier){
+        if(budget.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED&&budget.phase()!=TargetQuotaAttemptBudget.Phase.RELEASED)return;
+        final byte[] activationKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetResourceReclaim());
+        final byte[] active=view.projected(ColumnFamily.META,activationKey,overlay);if(active==null)return;
+        final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,TargetValueEnvelope.decode(active,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
+        final int activationOrder=activation.appliedAt().source().compareTo(budget.mutation().source());
+        if(activationOrder>0)return; // Earlier states retain their original historical contract.
+        if(activationOrder==0)throw new IllegalStateException("reclaim budget cannot share its activation Source mutation");
+        TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,owner,activation,frontier);
+        if(!activation.body().payload().descriptor().supportsResourceReclaim())throw new IllegalStateException("new reclaim state lacks descriptor6");
+        final byte[] positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},budget.mutation().source().canonicalBytes());
+        final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
+        position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());
+        if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(budget.mutation()))throw new IllegalStateException("reclaimed budget lost its actual Source POSITION");
+        final byte[] historyKey=TargetRetirementSourceHistoryRecord.key(position.logicalId());
+        final var history=TargetRetirementSourceHistoryRecord.decodeForStore(historyKey,payload(view,overlay,ColumnFamily.META,historyKey,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
+        if(history.input().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM||!history.decidedAt().equals(budget.mutation()))
+            throw new IllegalStateException("reclaimed budget lost exact reclaim Source history");
+        requireFirst(view,overlay,scope,lineage,owner,history,frontier);
+        final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},position.logicalId());
+        final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE));position.requireFirst(first);
+        if(SystemMutationResult.decode(first.typedPayload()).applyStatus()!=ApplyStatus.APPLIED)throw new IllegalStateException("reclaimed budget references a rejected Source first");
+        final var body=TargetResourceReclaimBody.decode(history.input().canonicalBody());
+        final var operation=body.operations().stream().filter(o->o instanceof TargetResourceReclaimBody.UnusedAttemptReserve unused
+                &&Arrays.equals(unused.expected().publishAttemptId(),budget.publishAttemptId())).findFirst().orElseThrow(
+                ()->new IllegalStateException("reclaim Source omitted exact attempt operation"));
+        final var expected=((TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
+        if(budget.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED||budget.revision()!=TargetQuotaMutation.increment(expected.revision())
+                ||!budget.locator().equals(expected.locator())||!Arrays.equals(budget.tenantScope(),expected.tenantScope())
+                ||!Arrays.equals(budget.admissionDigest(),expected.admissionDigest())||!budget.accounting().equals(expected.accounting())
+                ||budget.executionBytes()!=expected.executionBytes()||!budget.commitment().equals(expected.commitment())
+                ||!budget.allocated().equals(expected.allocated())||!budget.resolvedAt().equals(expected.resolvedAt())
+                ||!Arrays.equals(budget.recoveryLineage(),expected.recoveryLineage())||!Arrays.equals(budget.floorDigest(),body.floor().floorDigest()))
+            throw new IllegalStateException("reclaimed attempt changed its exact expected phase/owner/allocation");
+        budget.mutation().requireAfter(expected.mutation());expected.mutation().requireCoveredByFloor(body.floor());
+        if(body.floor().appliedSourcePosition().compareTo(budget.mutation().source())>=0
+                ||Long.compareUnsigned(body.floor().includedMutationSequence(),budget.mutation().sequence())>=0)
+            throw new IllegalStateException("reclaim Source is not strictly after the checked Floor");
     }
     private static byte[] payload(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key,int type){
         return TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"retained Source history dependency"),type).payload();

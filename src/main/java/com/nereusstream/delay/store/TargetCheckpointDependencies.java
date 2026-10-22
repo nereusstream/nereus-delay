@@ -836,7 +836,8 @@ public final class TargetCheckpointDependencies {
         void retirementResult(TargetResultRecord first){
             final var result=SystemMutationResult.decode(first.typedPayload());
             if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(root.root().identity())
-                    ||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+                    ||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                        &&result.mutationType()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)
                 throw new IllegalArgumentException("retirement first differs from actual Source root/type");
             retirementResults.put(Bytes.hex(first.key()),first);
         }

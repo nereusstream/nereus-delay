@@ -11,14 +11,15 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Function;
 
-/** Complete public g8 checkpoint inputs; independent original authority and protection are mandatory. */
+/** Complete original lifecycle Source inputs; independent authority and actual Native joins are mandatory. */
 public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecord> activations,
         List<TargetEvidenceRetiringRecord> retirements,List<TargetEvidenceConfirmedRecord> confirmations,List<HistoryImage> histories){
     public record HistoryImage(SourcePosition source,SystemMutation image,TargetRetirementAuthorizationHistory.PublicProof proof){
         public HistoryImage{
             TargetSourcePosition.requireBounded(source);Objects.requireNonNull(image);
             if(!source.shardId().equals(image.shardId()))throw new IllegalArgumentException("retirement history crossed Source Shard");
-            resource(image); // Closed body8 only, including durable rejected inputs.
+            if(image.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM)TargetResourceReclaimBody.decode(image.canonicalBody());
+            else resource(image);
         }
         public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
             CanonicalProtobuf.bytes(out,1,source.canonicalBytes());CanonicalProtobuf.bytes(out,2,image.canonicalEnvelope());
@@ -41,6 +42,8 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
      * Activation includes original CONTROL/registration/keys, complete reader membership/revisions/sessions,
      * base environment/reset and actual binary/SDK locks. Retiring/confirmed checks include original purpose,
      * protection/capacity/copy and authenticated exact provider deletion, respectively; DTOs never suffice.
+     * For body9, requireOriginal authenticates the original Source decision's complete Native reserved-writer
+     * closure and checked recovery protection as well as its distinct purpose. Current policy is no substitute.
      */
     public interface Authority{
         void requireActivation(TargetProtocolActivationRecord record);
@@ -60,9 +63,11 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
                 ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
                     &&TargetEvidenceDeleteConfirmedBody.decode(v.image().canonicalBody()).markerRetained());
     }
+    public boolean requiresResourceReclaimCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsResourceReclaim())
+            ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM);}
     public int recordCount(){return Math.addExact(Math.addExact(activations.size(),retirements.size()),Math.addExact(confirmations.size(),histories.size()));}
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,1);
+        CanonicalProtobuf.uint32(out,1,requiresResourceReclaimCapability()?2:1);
         for(var v:activations)CanonicalProtobuf.bytes(out,2,v.canonicalBytes());
         for(var v:retirements)CanonicalProtobuf.bytes(out,3,v.canonicalBytes());
         for(var v:confirmations)CanonicalProtobuf.bytes(out,4,v.canonicalBytes());
@@ -146,7 +151,8 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             if(!states.add(Bytes.hex(intent.image().systemMutationId())))throw new IllegalArgumentException("intent has both retiring and confirmed state");
             states.add(Bytes.hex(value.confirmation().systemMutationId()));
         }
-        for(var input:histories)if(applied(actualFirsts.get(Bytes.hex(input.image().systemMutationId())))&&!states.contains(Bytes.hex(input.image().systemMutationId())))throw new IllegalStateException("APPLIED retirement lacks its actual state1/2 row");
+        for(var input:histories)if(input.image().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM
+                &&applied(actualFirsts.get(Bytes.hex(input.image().systemMutationId())))&&!states.contains(Bytes.hex(input.image().systemMutationId())))throw new IllegalStateException("APPLIED retirement lacks its actual state1/2 row");
     }
     public void authenticate(TargetCheckpointDependencies d,Authority authority,BoundedReadBudget budget,
             TargetCheckpointSemanticSnapshot.Limits limits,Runnable guard){
@@ -159,8 +165,10 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             final var first=actualFirsts.get(Bytes.hex(input.image().systemMutationId()));final var pin=authority.requireOriginal(input,first);after(budget,guard);
             if(input.proof()==null)continue;
             final var verified=input.proof().authenticate(Objects.requireNonNull(pin,"independent original purpose pin"));
-            final var selected=verified.select(resource(input.image()),input.source(),AuthorIdentity.decode(input.image().authorIdentity()),
-                    input.image().signingKeyVersion(),TargetRetirementAuthorizationHistory.Action.of(input.image().type()));
+            final var selected=input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                    ?verified.select(TargetResourceReclaimBody.decode(input.image().canonicalBody()),input.source(),AuthorIdentity.decode(input.image().authorIdentity()),input.image().signingKeyVersion())
+                    :verified.select(resource(input.image()),input.source(),AuthorIdentity.decode(input.image().authorIdentity()),
+                            input.image().signingKeyVersion(),TargetRetirementAuthorizationHistory.Action.of(input.image().type()));
             if(!applied(first)){
                 after(budget,guard);continue;
             }
@@ -169,6 +177,8 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             final var activation=activations.stream().filter(a->a.body().payload().descriptor().tuple().equals(grant.activation().tuple())).findFirst()
                     .orElseThrow(()->new IllegalStateException("retirement proof lacks actual prior activation"));
             grant.requireActivation(activation,input.source());
+            if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&!activation.body().payload().descriptor().supportsResourceReclaim())
+                throw new IllegalStateException("APPLIED reclaim history lacks actual descriptor6 capability");
             if(input.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
                     &&TargetEvidenceDeleteConfirmedBody.decode(input.image().canonicalBody()).markerRetained()
                     &&!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
@@ -184,7 +194,8 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     }
     public static TargetCheckpointLifecycleInputs decode(byte[] encoded,TargetCheckpointSemanticSnapshot.Limits limits){
         final var f=read(encoded,limits.maximumBytes(),limits.maximumRecords()+1,true);
-        if(f.isEmpty()||QueryCodecSupport.uint32(f.get(0),1)!=1)throw new IllegalArgumentException("unknown lifecycle companion schema");
+        if(f.isEmpty())throw new IllegalArgumentException("missing lifecycle companion schema");
+        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version!=1&&version!=2)throw new IllegalArgumentException("unknown lifecycle companion schema");
         final var a=new ArrayList<TargetProtocolActivationRecord>();final var r=new ArrayList<TargetEvidenceRetiringRecord>();
         final var c=new ArrayList<TargetEvidenceConfirmedRecord>();final var h=new ArrayList<HistoryImage>();int i=1;
         while(i<f.size()&&f.get(i).number()==2)a.add(TargetProtocolActivationRecord.decode(QueryCodecSupport.bytes(f.get(i++),2)));

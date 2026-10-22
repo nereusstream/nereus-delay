@@ -213,7 +213,7 @@ public final class TargetProtocolActivationStore {
     private static byte[] resultKey(byte[] id){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},id);}
     private static void requireLocalCompanion(boolean needed){
         if(needed&&TargetCheckpointSemanticSnapshot.MAX_SCHEMA_VERSION<TargetProtocolActivationDescriptor.TARGET_CHECKPOINT_SCHEMA)
-            throw new IllegalStateException("Target activation requires the independently implemented checkpoint companion7");
+            throw new IllegalStateException("Target activation requires the independently implemented checkpoint companion8");
     }
     private static byte[] positionKey(SourcePosition source){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},source.canonicalBytes());}
     private static void absent(TargetStoreBackend.Reader reader,ColumnFamily family,byte[] key){if(reader.get(family,key)!=null)throw new IllegalStateException("first activation encountered existing Source result");}

@@ -5270,3 +5270,25 @@ resource选择API拒Action3。旧history canonical branches不变，旧reader遇
 明确拒绝，legacy Lane core在dedupe/写入前拒type14，不能默认APPLIED/STALE。
 当前落地仅封闭请求/身份/历史用途；descriptor、companion、实际Source writer/Native
 phase与减费仍待接入，不凭本codec或grant声明激活或退款。
+
+
+2026-10-23 body9恢复格式扩展：TargetProtocolActivationDescriptor新增显式schema6，
+tuple9，默认constructor仍为5/tuple8。原schema1..5 canonical版本表不变（schema5的
+companion仍固定7）；schema6版本表field3=companion8、4=body9、16=Native54 schema2、
+23=封闭reclaim operation schema1，其余原字段保留。Native max仍55，不增加NV/tag。
+
+Native54字段布局/域/key不变；body8仍用原schema1，type14/body9专用schema2，交叉
+version/type拒绝。原Scope/Root/namespace/lineage/物理Source/完整envelope与已认证
+PublicProof覆盖精确相符，实际先行activation按原帧的tuple8/9分别验证；Native55保持
+schema1/key，引用的实际Native54决定所属tuple，不借kind8 activation批准type14。
+
+LifecycleInputs原schema1 bytes不变；descriptor6或type14 frame使用schema2，完整
+frame/proof仍字段5。Target semantic companion schema8沿原field16携此image；旧6/7
+拒新reclaim capability，完整Source历史用途/签名/实际descriptor6及APPLIED phase
+关联沿原有限ledger/image认证，不以嵌入key自授权。新RETAINED/RELEASED状态严格
+晚于tuple9 activation时须实际Source POSITION→APPLIED first→Native54v2、预算原
+owner/完整预期值/精确revision/allocated/resolution/Floor关联；当前仅unused kind1可
+产生RETAINED，不允许借它生成RELEASED。APPLIED组中每个Budget必须实际存在且Source
+stamp相符；过早删除、遗漏组内成员或错phase拒绝。早于新activation的历史状态保持
+原读取契约，同activation位置不能伪造新phase。此为只读恢复/计费校验，不授新回收。
+Source实际写者/保护采集/签发与同批减费仍未接通，未执行实际activation或部署验证。

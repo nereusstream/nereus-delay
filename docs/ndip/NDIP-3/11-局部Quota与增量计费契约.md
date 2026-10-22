@@ -2746,3 +2746,11 @@ reserved writer已结束、最新相关写入受Floor覆盖且本次Source/seque
 与新history/first/POSITION和真实before/after charge同批。ADMITTED/UNKNOWN不动；
 后续retained实占只按真实已删分类/费用减少，独立SDK/zombie/外部provider责任不释放。
 当前无Native写者/减费实现，本批不改变任何存量账本。
+
+
+2026-10-23 新原生回收后态的计费必须保实际Source决定：tuple9 activation之后的
+RETAINED Budget，从其精确mutation定位POSITION、APPLIED first、Native54v2和原
+UnusedAttemptReserve，固定revision+1、owner/accounting/commitment/allocated/原
+resolvedAt及Floor digest；Source严格晚于被核Floor。完整恢复反向检查APPLIED组内
+Budget不可遗漏，不能把已删Budget当零账。原早期状态/收费不改，本只读关联不减少
+commitment或SDK/zombie费；实际Source批次与真正reserved-writer结束证明仍未接通。
