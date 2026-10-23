@@ -1060,6 +1060,13 @@ public final class TargetWorkerShardRuntime
         return handoff.submit(prepared, clock);
     }
 
+    /** Original Control registration/appender slot, including its existing retry, pause and drain ownership. */
+    public TargetChannelControlWorkClassExecutor.Submission submitSloCertification(
+            final TargetSloObservationControlMutationFactory.Prepared prepared, final LongSupplier clock) {
+        final var handoff = Objects.requireNonNull(channelControlHandoff, "configured original Target Control handoff");
+        return handoff.submitObservation(prepared, clock);
+    }
+
     /** Retained Admission proof for conservative recovery only; current Owner/read guards still apply. */
     public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
             final BoundedReadBudget budget, final com.nereusstream.delay.protocol.SystemMutation image,
@@ -1474,23 +1481,23 @@ public final class TargetWorkerShardRuntime
         return target.admissionMutationResult(mutation, ownerClock);
     }
 
-    synchronized void submitChannelControlAction(final WorkClassTask task, final SystemMutation mutation,
+    synchronized void submitTargetControlAction(final WorkClassTask task, final SystemMutation mutation,
             final LongSupplier clock, final Runnable action) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
-        target.requireChannelControlWriter(mutation, clock);
+        target.requireTargetControlWriter(mutation, clock);
         workClasses.submit(task, action);
     }
 
-    synchronized SourceMutationAppend appendChannelControl(final SystemMutation mutation,
+    synchronized SourceMutationAppend appendTargetControl(final SystemMutation mutation,
             final ShardLogMutationAppender appender, final LongSupplier clock) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
-        final var first = target.channelControlMutationResult(mutation, clock).orElse(null);
+        final var first = target.targetControlMutationResult(mutation, clock).orElse(null);
         if (first != null) { return new SourceMutationAppend(first, null); }
-        target.requireChannelControlWriter(mutation, clock);
+        target.requireTargetControlWriter(mutation, clock);
         try {
-            final var appended = Objects.requireNonNull(appender.append(mutation), "channel lifecycle append");
+            final var appended = Objects.requireNonNull(appender.append(mutation), "Target Control append");
             if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
                 target.requireCurrentExpiryLogPosition(appended.sourcePosition(), appended.sourceConnectionGeneration(),
                         appended.guardAttestationDigest(), clock);
@@ -1502,11 +1509,11 @@ public final class TargetWorkerShardRuntime
         }
     }
 
-    synchronized Optional<SystemMutationResult> channelControlMutationResult(
+    synchronized Optional<SystemMutationResult> targetControlMutationResult(
             final SystemMutation mutation, final LongSupplier clock) {
         requireNewTurnsAdmitted();
         resources.requireRuntimeBusinessAdmission();
-        return target.channelControlMutationResult(mutation, clock);
+        return target.targetControlMutationResult(mutation, clock);
     }
 
     synchronized ShardLogMutationAppender.AppendOutcome appendOutcome(
@@ -1928,7 +1935,7 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("Target Worker cannot pause a pending message expiry handoff");
         }
         if (channelControlHandoff != null && channelControlHandoff.pending().isPresent()) {
-            throw new IllegalStateException("Target Worker cannot pause a pending channel lifecycle submission");
+            throw new IllegalStateException("Target Worker cannot pause a pending channel/certification Control submission");
         }
         if(retirementHandoff!=null&&retirementHandoff.pending().isPresent())
             throw new IllegalStateException("Target Worker cannot pause a retained retirement Source submission");

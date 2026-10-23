@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 
-/** Registers and appends one exact channel lifecycle through the actual bounded Source queue. */
+/** Registers and appends one exact channel or certification Control through the same bounded Source slot. */
 public final class TargetChannelControlWorkClassExecutor {
     private final TargetWorkerShardRuntime worker;
     private final ShardLogMutationAppender appender;
@@ -41,12 +41,22 @@ public final class TargetChannelControlWorkClassExecutor {
      * Retains signed bytes before queue admission. A failed or uncertain append retries those same bytes only;
      * neither a Broker receipt nor an in-process result makes the Claim eligible for physical submission.
      */
-    public synchronized Submission submit(final TargetChannelControlMutationFactory.Prepared prepared,
+    public Submission submit(final TargetChannelControlMutationFactory.Prepared prepared,
+            final LongSupplier ownerClock) {
+        final var exact = Objects.requireNonNull(prepared, "prepared");
+        return submit(exact.control(), exact.mutation(), ownerClock);
+    }
+
+    /** Shares the original single retained slot, WorkClass limits, registration and drain settlement. */
+    public Submission submitObservation(final TargetSloObservationControlMutationFactory.Prepared prepared,
+            final LongSupplier ownerClock) {
+        final var exact = Objects.requireNonNull(prepared, "prepared");
+        return submit(exact.control(), exact.mutation(), ownerClock);
+    }
+
+    private synchronized Submission submit(final PreparedControlOperation control, final SystemMutation image,
             final LongSupplier ownerClock) {
         Submission pending = pendingRef.get();
-        final var exact = Objects.requireNonNull(prepared, "prepared");
-        final var image = exact.mutation();
-        final var control = exact.control();
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         protection.run();
         ControlTargetMutationBinding.validate(control, control.targets().getFirst(), image);
@@ -76,7 +86,7 @@ public final class TargetChannelControlWorkClassExecutor {
             }
         }
         final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-channel-control/" + Bytes.hex(Bytes.sha256(frame, control.preparedDigest())),
+                "target-control/" + Bytes.hex(Bytes.sha256(frame, control.preparedDigest())),
                 Math.addExact((long) frame.length, control.canonicalBytes().length));
         final var submission = new Submission(control, image, task);
         pendingRef.set(submission);
@@ -104,7 +114,7 @@ public final class TargetChannelControlWorkClassExecutor {
         submission.append = null;
         submission.failure = null;
         try {
-            worker.submitChannelControlAction(submission.task, submission.mutation, clock, () -> {
+            worker.submitTargetControlAction(submission.task, submission.mutation, clock, () -> {
                 try {
                     protection.run();
                     // Actual Oxia registration classifies response loss only by rereading these exact Prepared bytes.
@@ -112,7 +122,7 @@ public final class TargetChannelControlWorkClassExecutor {
                     registrations.validateMutation(submission.control, submission.control.targets().getFirst(),
                             submission.mutation);
                     protection.run();
-                    final var result = worker.appendChannelControl(submission.mutation, appender, clock);
+                    final var result = worker.appendTargetControl(submission.mutation, appender, clock);
                     submission.first = result.firstResult();
                     submission.append = result.append();
                 } catch (ReadIncompleteException incomplete) {
@@ -166,7 +176,7 @@ public final class TargetChannelControlWorkClassExecutor {
 
     private Optional<SystemMutationResult> readFirstResult(final Submission submission, final LongSupplier clock) {
         protection.run();
-        final var result = worker.channelControlMutationResult(submission.mutation, clock);
+        final var result = worker.targetControlMutationResult(submission.mutation, clock);
         protection.run();
         if (result.isPresent()) {
             submission.first = result.get();

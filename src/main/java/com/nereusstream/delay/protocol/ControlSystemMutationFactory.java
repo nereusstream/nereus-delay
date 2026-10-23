@@ -36,6 +36,9 @@ public final class ControlSystemMutationFactory {
         final byte[] logicalIdentity =
                 switch (type) {
                     case APPLY_SHARD_CONTROL -> {
+                        if (prepared.request().branch() instanceof TargetSloObservationControlRequest) {
+                            yield TargetSloObservationControlBody.decode(canonicalBody).logicalIdentity();
+                        }
                         if(prepared.request().branch() instanceof TargetProtocolActivatePayload){
                             yield TargetProtocolActivationBody.decode(canonicalBody).logicalIdentity();
                         }

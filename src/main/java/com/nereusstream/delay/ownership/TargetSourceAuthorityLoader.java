@@ -85,7 +85,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode {}
+    public record SloMode(PreparedControlOperation prepared, TargetSloObservationVerifier.Authority authority) implements Inputs {}
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
@@ -245,6 +246,21 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         frozen, (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), a.materialization(),
                         a.activatedChannelSlots(), a.currentOwner()), commit);
             }
+            case SloMode value -> {
+                final var a = value.authority();
+                final var frozen = freeze(value.prepared(), entry, a.registrations(),
+                        version -> a.keys().resolve(version, entry.position()), held, guard);
+                final var material = new TargetSloObservationVerifier.MaterializationAuthority() {
+                    public void requireAuthorized(TargetSloObservationControlRequest request, TargetSloObservationState prior,
+                            TargetSloObservationGeneration retained, SourcePosition source) {
+                        requireCurrent(); a.materialization().requireAuthorized(request, prior, retained, source); requireCurrent();
+                    }
+                    public void requireCurrent() { held.requireCurrent(); a.materialization().requireCurrent(); held.requireCurrent(); }
+                };
+                yield new TargetSourceApplyRuntime.SloObservationControl(value.prepared(),
+                        new TargetSloObservationVerifier.Authority(frozen, (version, source) -> frozen.key(version, source),
+                                a.actor(), a.scopeProof(), material), commit);
+            }
         };
     }
 
@@ -260,6 +276,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Admission ignored -> TargetSourceAuthorityPreparation.Family.ADMISSION;
             case Outcome ignored -> TargetSourceAuthorityPreparation.Family.OUTCOME;
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
+            case SloMode ignored -> TargetSourceAuthorityPreparation.Family.SLO_MODE;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;

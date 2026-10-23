@@ -276,6 +276,16 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var observation = branch(request, TargetSloObservationControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst().shard().shardId().equals(observation.scope().shard())) {
+                    throw new IllegalArgumentException("Target SLO Control must select its exact Source Shard at index zero");
+                }
+            }
             case ACTIVATE_TARGET_PROTOCOL -> {
                 requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
                 requireMutationPresence(values,ControlTargetKind.SHARD,true);

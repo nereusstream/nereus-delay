@@ -5844,3 +5844,71 @@ This capability does not retire logical IDs, add a permanent closed-ID receipt, 
 new Command admission, or change late-expired replay. Source/cold must continue finding the real
 original first. Net total storage reduction is not promised: retired EVIDENCE and newly retained
 Source/history bytes are separately charged. Runtime/Broker/recovery acceptance remains deferred.
+
+
+### Target SLO certification ordered Control under implementation
+
+The current development branch reserves ControlOperationKind29 ENABLE_TARGET_SLO_CERTIFICATION
+and30 STOP_TARGET_SLO_CERTIFICATION, with ApplyShardControl ControlKind28/29 respectively.
+These are explicit Target reader branches; legacy ApplyShardControl decoding remains unchanged.
+The original Source writer, first/POS accounting and retained mode-history fold are now connected.
+The independent body18 tuple is reserved; descriptor15 is intentionally not admitted by the current
+reader (maximum14). Actual sample/Final/custody/consumer and full authenticated restore are still
+required before that gate can open. No production certification is established by these objects.
+
+TargetSloObservationPolicy schema1 fields:1 version,2 complete Shard-only TargetQuotaScope,
+3 original recovery lineage[16],4 full existing SourcePosition resource anchor,5 ordered repeated
+Declaration group,6 Limits,7 original SERVICE author identity,8 nonzero uint32 signing key version,
+9 collector contract digest[32],10 policy digest[32] under its independent domain. The anchor is an
+original resource reference; it is not the future Control's effective Source cut. Declaration1 is
+fields1 version,2 full unchanged SloObjective,3 SloPath. This schema supports only the actual
+COMMAND_APPLIED_LATENCY/ALL_ACCEPTED/NOT_APPLICABLE and DUE_ADMISSION_LAG/ALL_ACCEPTED
+ORDINARY_MANAGED or MANAGED_PULSAR_HANDOFF producers, at most one declaration per each of
+these three slots. Other declarations, including unsupported HEALTHY qualification, are rejected.
+Limits1 fields1 version,2 concurrent generations,3 outbox record cap,4 outbox byte cap,5 per-record
+byte cap,6 retention milliseconds. All are explicit positive finite bounds, not proof of reservation
+or collector qualification. Objective/service/declaration/canonical inputs are bounded before decode.
+
+Request1 fields1 version,2 scope,3 lineage[16],4 observation generation, optional5 exact prior
+digest, enable-only6 full policy, stop-only7 original ControlReason. Enable generation1 forbids
+field5; subsequent enables and every STOP require it. The actual stopped predecessor/current row
+must still be checked by the Source writer. Body retains existing common fields1/2/3 and10..15,
+with payload schema1 and its exact28/29 branch; the logical identity is the original ControlRef
+formula and the semantic hash has an independent SLO domain. Prepared target presence requires
+one exact SHARD target at index0, and existing tenant-policy-administrator plus platform-operator
+roles and authenticated scope are mandatory. Existing v1 SLO sample bytes/IDs are not changed.
+
+
+2026-10-24 ordered mode Source baseline (still gated):
+
+- Native57 schema1, META tag50, key `32 01 || scope.keySuffix()`: fields1 version,
+  2 Shard-only scope,3 original lineage[16],4 observation generation,5 mode (1 active,2 stopped),
+  6 current Control logical identity[32],7 generation Control digest[32],8 original Control
+  TargetQuotaMutation,9 state digest[32]. The head digest is stable across later sample mutations.
+- Native58 schema1, META tag51, key `33 01 || scope.keySuffix() || u64be(generation)`:
+  fields1 version,2 original enable Control, optional3 stop Control,4 Counts,5 latest mutation,
+  6 generation digest[32]. Control1 fields1 version,2 full original signed SystemMutation envelope,
+  3 actual applied TargetQuotaMutation; Source/digest/retry/scope links are checked. Counts1 fields
+  1 version,2 issued,3 retained outbox records,4 retained outbox bytes,5 custodied. Custody does not
+  imply outbox removal/refund. Counts are data and require an independent actual sample fold;
+  the current Source accounting explicitly rejects nonempty counts or sample-only mutations.
+- Native57/58 use the original frozen Shard STATE charge and tenant mirror. Source-applied enable/
+  stop, first/POS and all charge changes use one original Target batch; rejected requests retain
+  their ordinary exact first/POS only. Applied mode controls and every retained generation endpoint
+  must correlate, including detection of all mode rows missing from an otherwise APPLIED history.
+- First enable is generation1; subsequent enable requires the exact stopped predecessor digest.
+  STOP references the original enabled head, advances Source and preserves all prior generations.
+  Every retained generation consumes its declared finite window; no generation-retirement authority
+  or indefinite reopen claim is introduced. Materialization must independently retain original real
+  budget/load/collector/reader qualifications through commit; missing material denies application.
+- TargetSloObservationControlMutationFactory freezes both signatures and exact registration target.
+  Worker submitSloCertification shares the existing single Control handoff slot, OUTCOME_AND_CONTROL
+  byte admission, original connected registration/appender, exact retry/query and drain ownership.
+  It requires current Worker protection and the independently admitted/APPLIED body18 activation.
+  An append receipt does not make a generation effective. Existing channel ownership checks remain.
+
+The mode structural fold and original Control-image authentication hooks are not sample coverage
+or complete certification restore. No Start/Final/binding/custody Native formats are registered yet;
+legacy v1 bytes and semantics remain unchanged. Full business atomic sampling, finite Final growth,
+qualified old-generation drain, lifecycle/restore/consumer authentication and positive Source-range
+coverage remain required before descriptor15 or an enabled generation can become serviceable.

@@ -29,6 +29,7 @@ import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
+import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
@@ -135,6 +136,8 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetChannelControlRecord> channelControls = new ArrayList<>();
         final List<TargetChannelIdentity> channelIdentities = new ArrayList<>();
         final List<TargetChannelSlot> channelSlots = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
@@ -219,6 +222,14 @@ final class TargetCheckpointLedgerAudit {
                     } else if (family == ColumnFamily.META && type == TargetChannelControlRecord.VALUE_TYPE) {
                         channelControls.add(TargetChannelControlRecord.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationState.VALUE_TYPE) {
+                        final var state = com.nereusstream.delay.protocol.TargetSloObservationState.decodeForStore(key, payload,
+                                new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
+                        sloStates.add(state); dependencies.sloState(state);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationGeneration.VALUE_TYPE) {
+                        final var generation = com.nereusstream.delay.protocol.TargetSloObservationGeneration.decodeForStore(key, payload,
+                                new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
+                        sloGenerations.add(generation); dependencies.sloGeneration(generation);
                     } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
                         channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE) {
@@ -361,6 +372,9 @@ final class TargetCheckpointLedgerAudit {
         }
         auditControlResults(membershipClosures, nativeControls, channelControls, resultRows, proof.root().identity());
         TargetChannelHistoryAudit.requireComplete(channelControls, channelIdentities, channelSlots);
+        com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireComplete(sloStates, sloGenerations,
+                new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null),
+                proof.root().recoveryLineage(), proof.aggregate().mutation());
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
         auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);

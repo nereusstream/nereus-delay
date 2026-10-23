@@ -135,6 +135,8 @@ public final class TargetCheckpointDependencies {
     private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
+    private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
+    private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -174,6 +176,8 @@ public final class TargetCheckpointDependencies {
         retirements = List.copyOf(builder.retirements.values());
         evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
         protocolActivations=List.copyOf(builder.protocolActivations.values());
+        sloStates=List.copyOf(builder.sloStates.values());
+        sloGenerations=List.copyOf(builder.sloGenerations.values());
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -260,6 +264,8 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements() { return retirements; }
     public List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations() { return evidenceConfirmations; }
     public List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations(){return protocolActivations;}
+    public List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates(){return sloStates;}
+    public List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations(){return sloGenerations;}
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -711,7 +717,9 @@ public final class TargetCheckpointDependencies {
             }
             complete.put(Bytes.hex(image.systemMutationId()), input);
         }
-        return List.copyOf(complete.values());
+        final var correlated = List.copyOf(complete.values());
+        com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireControlInputs(sloGenerations, correlated, controlResults);
+        return correlated;
     }
 
     /** Joins every retained attempt to its original image; incomplete or stale references cannot prove closure. */
@@ -903,6 +911,8 @@ public final class TargetCheckpointDependencies {
         private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -942,6 +952,8 @@ public final class TargetCheckpointDependencies {
             prior.retirements.forEach(this::retirement);
             prior.evidenceConfirmations.forEach(this::evidenceConfirmation);
             prior.protocolActivations.forEach(this::protocolActivation);
+            prior.sloStates.forEach(this::sloState);
+            prior.sloGenerations.forEach(this::sloGeneration);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1007,6 +1019,12 @@ public final class TargetCheckpointDependencies {
         }
         void sourceHistory(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord record){
             if(sourceHistories.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate retirement Source history");
+        }
+        void sloState(com.nereusstream.delay.protocol.TargetSloObservationState record) {
+            if(sloStates.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO current state");
+        }
+        void sloGeneration(com.nereusstream.delay.protocol.TargetSloObservationGeneration record) {
+            if(sloGenerations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO generation");
         }
         void protocolActivation(com.nereusstream.delay.protocol.TargetProtocolActivationRecord record){
             if(protocolActivations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target protocol activation");

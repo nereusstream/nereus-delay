@@ -18,7 +18,7 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
     }
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
@@ -92,7 +92,8 @@ public final class TargetSourceAuthorityPreparation {
                 value -> require(value, TargetSourceApplyRuntime.ChannelControl.class),
                 value -> require(value, TargetSourceApplyRuntime.RetirementControl.class),
                 value -> require(value, TargetSourceApplyRuntime.ProtocolActivationControl.class),
-                value -> require(value, TargetSourceApplyRuntime.ReclaimControl.class));
+                value -> require(value, TargetSourceApplyRuntime.ReclaimControl.class),
+                value -> require(value, TargetSourceApplyRuntime.SloObservationControl.class));
         return authorities;
     }
 
@@ -244,6 +245,7 @@ public final class TargetSourceAuthorityPreparation {
         if (control instanceof TargetSourceApplyRuntime.RetirementControl) return Family.RETIREMENT;
         if(control instanceof TargetSourceApplyRuntime.ReclaimControl)return Family.RECLAIM;
         if (control instanceof TargetSourceApplyRuntime.ProtocolActivationControl) return Family.ACTIVATION;
+        if (control instanceof TargetSourceApplyRuntime.SloObservationControl) return Family.SLO_MODE;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }
 

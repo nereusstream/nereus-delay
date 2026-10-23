@@ -711,6 +711,25 @@ public final class TargetRecordAccounting {
                 final var owner=descriptor(root.owner());
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetSloObservationGeneration.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var generation = com.nereusstream.delay.protocol.TargetSloObservationGeneration.decodeForStore(key, payload, scope, lineage);
+                TargetSloObservationStore.requireOrigin(reader, overlay, scope, lineage, root.owner(), generation, operation);
+                final var owner = descriptor(root.owner());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
+            case com.nereusstream.delay.protocol.TargetSloObservationState.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                final var state = com.nereusstream.delay.protocol.TargetSloObservationState.decodeForStore(key, payload, scope, lineage);
+                final var generationKey = com.nereusstream.delay.protocol.TargetSloObservationGeneration.key(scope, state.generation());
+                final var generationRaw = Objects.requireNonNull(reader.projected(ColumnFamily.META, generationKey, overlay), "original Target SLO generation");
+                final var generation = com.nereusstream.delay.protocol.TargetSloObservationGeneration.decodeForStore(generationKey,
+                        TargetValueEnvelope.decode(generationRaw, com.nereusstream.delay.protocol.TargetSloObservationGeneration.VALUE_TYPE).payload(), scope, lineage);
+                state.requireGeneration(generation);
+                TargetSloObservationStore.requireOrigin(reader, overlay, scope, lineage, root.owner(), generation, operation);
+                final var owner = descriptor(root.owner());
+                result = new Charge(owner, resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+            }
             case TargetQuotaAttemptBudget.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var budget = TargetQuotaAttemptBudget.decodeForStore(key, payload, scope.shard());
