@@ -105,7 +105,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     public record Membership(PreparedControlOperation prepared, CanonicalTargetPartition physical,
             TargetMembershipControlVerifier.Authority authority) implements Inputs {}
     public record NativePolicy(PreparedControlOperation prepared, TargetNativePolicyControlVerifier.Authority authority) implements Inputs {}
-    public record Admission(TargetPublishAdmissionVerifier.Authority authority) implements Inputs {}
+    public record Admission(TargetPublishAdmissionVerifier.Authority authority,TargetSloObservationSamples.Authority samples) implements Inputs {
+        public Admission(TargetPublishAdmissionVerifier.Authority authority){this(authority,TargetSloObservationSamples.UNAVAILABLE);}
+        public Admission{Objects.requireNonNull(samples);}
+    }
     public record Outcome(TargetPublishOutcomeVerifier.Authority authority) implements Inputs {}
     public record Channel(PreparedControlOperation prepared, TargetChannelControlVerifier.Authority authority) implements Inputs {}
     /** Provider-approved original Source purpose/Root/capacity and actual Catalog copy; null approval is a proved denial. */
@@ -190,18 +193,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         var commit = held.commit(originalCommit);
         return switch (inputs) {
             case Command value -> {
-                final var original = value.samples();
-                final var samples = new TargetSloObservationSamples.Authority() {
-                    public void requireSample(TargetSloObservationGeneration generation,TargetSloObservationSample sample,long bytes) {
-                        requireCurrent(); original.requireSample(generation,sample,bytes); requireCurrent();
-                    }
-                    public void requireCurrent() { held.requireCurrent(); original.requireCurrent(); held.requireCurrent(); }
-                };
-                yield new TargetSourceApplyRuntime.CommandControl(value.policy(),value.cancellations(),value.reservations(),value.schedules(),value.payloadProofs(),samples,commit);
+                yield new TargetSourceApplyRuntime.CommandControl(value.policy(),value.cancellations(),value.reservations(),value.schedules(),value.payloadProofs(),sampleHold(value.samples(),held),commit);
             }
             case Fence value -> new TargetSourceApplyRuntime.FenceControl(value.authority(), commit);
             case Expiry value -> new TargetSourceApplyRuntime.ExpiryControl(value.authority(), commit);
-            case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(), commit);
+            case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(),sampleHold(value.samples(),held),commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
             case Retirement value -> retirement(entry, value, held, commit, guard);
             case Confirmation value -> confirmation(entry,value,held,commit,guard);
@@ -275,6 +271,15 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         new TargetSloObservationVerifier.Authority(frozen, (version, source) -> frozen.key(version, source),
                                 a.actor(), a.scopeProof(), material), commit);
             }
+        };
+    }
+
+    private static TargetSloObservationSamples.Authority sampleHold(TargetSloObservationSamples.Authority original,Held held){
+        return new TargetSloObservationSamples.Authority(){
+            public void requireSample(TargetSloObservationGeneration generation,TargetSloObservationSample sample,long bytes){
+                requireCurrent();original.requireSample(generation,sample,bytes);requireCurrent();
+            }
+            public void requireCurrent(){held.requireCurrent();original.requireCurrent();held.requireCurrent();}
         };
     }
 

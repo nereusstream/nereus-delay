@@ -81,6 +81,7 @@ public final class TargetSloObservationHistoryAudit {
         final var counts=new HashMap<Long,long[]>();
         final var latest=new HashMap<Long,TargetQuotaMutation>();
         final var pending=new HashMap<String,TargetSloObservationSample>();
+        final var dueFirsts=new HashMap<String,TargetSloObservationSample>();
         for(var generation:generations){
             controls.put(generation.enable().appliedAt().source(),generation);
             counts.put(generation.generation(),new long[2]); latest.put(generation.generation(),generation.control().appliedAt());
@@ -88,11 +89,23 @@ public final class TargetSloObservationHistoryAudit {
         for(var sample:samples){
             final var usage=Objects.requireNonNull(counts.get(sample.generation()),"Target SLO sample lost original generation");
             if(pending.putIfAbsent(Bytes.hex(sample.key()),sample)!=null)throw new IllegalStateException("duplicate Target SLO sample identity");
+            if(sample.admission()!=null&&dueFirsts.putIfAbsent(Bytes.hex(sample.first().key()),sample)!=null)throw new IllegalStateException("Admission event was bound more than once");
             usage[0]=Math.addExact(usage[0],1);usage[1]=Math.addExact(usage[1],sample.storedBytes());
             final var at=latest.get(sample.generation());
             if(Long.compareUnsigned(sample.mutation().sequence(),at.sequence())>0)latest.put(sample.generation(),sample.mutation());
         }
         for(var first:firsts){
+            if(first.kind()==TargetResultRecord.Kind.SYSTEM){
+                final var sample=dueFirsts.remove(Bytes.hex(first.key()));
+                if(sample!=null){
+                    final var selected=controls.lowerEntry(first.mutation().source());
+                    if(selected==null||selected.getValue().generation()!=sample.generation()||!Arrays.equals(first.canonicalBytes(),sample.first().canonicalBytes())) {
+                        throw new IllegalStateException("due sample changed its original effective Admission first");
+                    }
+                    pending.remove(Bytes.hex(sample.key()));
+                }
+                continue;
+            }
             if(first.kind()!=TargetResultRecord.Kind.COMMAND)continue;
             final var selected=controls.lowerEntry(first.mutation().source());
             if(selected==null)continue;
@@ -107,7 +120,7 @@ public final class TargetSloObservationHistoryAudit {
                 throw new IllegalStateException("Source-applied certification Command lost its required original Start/binding");
             }
         }
-        if(!pending.isEmpty())throw new IllegalStateException("Target SLO sample has no eligible original Command first");
+        if(!pending.isEmpty()||!dueFirsts.isEmpty())throw new IllegalStateException("Target SLO sample has no eligible original business first");
         for(var generation:generations){
             final var usage=counts.get(generation.generation());
             final var expected=new TargetSloObservationGeneration.Counts(usage[0],usage[0],usage[1],0);
@@ -115,5 +128,35 @@ public final class TargetSloObservationHistoryAudit {
                 throw new IllegalStateException("Target SLO generation disagrees with complete actual retained sample fold");
             }
         }
+    }
+
+    /** Original complete Admission images positively enumerate required due Starts, independently of stored counts. */
+    public static void requireAdmissionInputs(List<TargetSloObservationGeneration> generations,
+            List<TargetSloObservationSample> samples,List<TargetCheckpointDependencies.AdmissionImage> inputs){
+        final var controls=new TreeMap<SourcePosition,TargetSloObservationGeneration>();
+        for(var generation:generations)controls.put(generation.enable().appliedAt().source(),generation);
+        final var pending=new HashMap<String,TargetSloObservationSample>();
+        for(var sample:samples)if(sample.admission()!=null)pending.put(Bytes.hex(sample.key()),sample);
+        for(var input:inputs){
+            final var body=TargetPublishAdmissionBody.decode(input.image().canonicalBody());
+            if(body.attemptNo()!=1)continue;
+            final var selected=controls.lowerEntry(input.source());
+            if(selected==null)continue;
+            final var generation=selected.getValue();
+            if(generation.stop()!=null&&input.source().compareTo(generation.stop().appliedAt().source())>=0)continue;
+            if(!body.materialized()&&generation.policy().declarations().stream().anyMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG))
+                throw new IllegalStateException("declared due interval contains an unclassifiable original Admission");
+            final var path=body.nativePublication()==null?SloPath.ORDINARY_MANAGED:SloPath.MANAGED_PULSAR_HANDOFF;
+            final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==path).findFirst().orElse(null);
+            if(declaration==null)continue;
+            final var start=TargetSloObservationSample.dueStart(declaration,body);
+            final var sample=pending.remove(Bytes.hex(TargetSloObservationSample.key(start.sampleId())));
+            if(sample==null||sample.generation()!=generation.generation()||!Arrays.equals(sample.admission().canonicalEnvelope(),input.image().canonicalEnvelope())
+                    ||!Arrays.equals(sample.first().mutation().source().canonicalBytes(),input.source().canonicalBytes())
+                    ||!Arrays.equals(sample.observation().start().canonicalBytes(),start.canonicalBytes())) {
+                throw new IllegalStateException("actual first Admission lost its required original due Start/generation binding");
+            }
+        }
+        if(!pending.isEmpty())throw new IllegalStateException("due sample lost its complete original Admission image");
     }
 }

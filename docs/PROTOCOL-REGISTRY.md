@@ -5954,3 +5954,48 @@ Native59 Finals and sample-only mutations still fail closed until the independen
 observation event is implemented. Managed Admission Starts, Finals/timeouts, custody/export, old-gen
 retention/drain, authenticated lifecycle/restore and the new positive-coverage consumer remain open.
 Descriptor15/body18 activation is still unavailable; ordinary process/exporter epoch/cut/gap is separate.
+
+
+2026-10-24 Native59 schema2 adds the actual first managed Target Admission producer. Schema1
+Command fields, hashes and encoded bytes remain unchanged; no reader activation is opened.
+
+Schema2 retains fields2..13 of the common binding/observation record, writes version2 in field1,
+and appends field14 = full original signed Target Admission canonical envelope. Both binding and
+record digests include canonical field14; the input is independently bounded before decoding.
+Its original first must be SYSTEM/APPLIED/OK for exactly that input and actual Source stamp.
+Only materialized first Admission (attemptNo1 and original Claim work candidate1) is eligible.
+ORDINARY_MANAGED uses the frozen publication deliverAt and digest of that actual publication;
+MANAGED_PULSAR_HANDOFF uses frozen native actionAt and digest of its actual native publication.
+The unchanged v1 factory supplies Message generation/path/semantic epoch identity and sample ID.
+The original Admission verifier still authenticates Owner/signature/tuple/time/materialization and
+live frozen policy before its business result is made; these binding bytes replace none of that.
+
+Schema2 has four charged projections: primary, original SYSTEM first reference, first POSITION
+reference, and original META Attempt Budget reference. The added reference uses the existing
+Native59 META tag53 key formula with that exact Budget key (tag21); the retained Budget must
+match original locator/admission hash/lineage. Counts derive actual complete key/NV bytes from all
+four images. Existing Start reservations use the maximum projection count of their frozen producer
+set; a new sample reserves its actual three/four images and bounded future Final growth. The
+Budget key uses the already-derived exact publish-attempt logical identity, not a repeated decode
+of the full signed Admission. No declaration cap, charge or old projection is reduced or raised.
+
+The actual TargetPublishAdmissionStore accepted batch appends due Start, references and generation
+count changes before the original Source accounting/commit. Original loader/commit sample holds
+are mandatory; absent qualifications or capacity block Source/ACK. Ordinary mode avoids the extra
+SLO Admission decode. Logical duplicate/replay and attemptNo>1 do not create or rebind a due event
+into the current observation generation. An active due declaration with an unmaterialized first
+Admission fails closed because its managed path cannot be classified from authority fields.
+
+The cold ledger joins each stored due sample to its actual retained SYSTEM first and Budget;
+complete original Admission-image correlation positively enumerates eligible first inputs in the
+original effective declared Source intervals. Each requires the exact expected Start, observation
+generation and signed input, including detection of a missing sample with self-consistent forged
+counts. Existing Admission-image issuer/history/materialization authentication remains mandatory.
+This proves retained-input linkage, not complete external Source-range/Final/custody coverage.
+
+Stable capacity-gated eligibility is still required. The current Target ADMISSION grant operation
+uses existing reserved work; its logical quota exception is not the legacy stable capacity-gated
+Admission event. No such event is synthesized from an exception or ordinary metric here. Its actual
+Source producer, Final/timeout Source events, collector custody/export, protected old-gen drain/
+retirement, full lifecycle/restore consumer and ordinary epoch/cut/gap remain open. Descriptor15/
+body18 activation stays closed until the full original E4 chain is implemented and qualified.

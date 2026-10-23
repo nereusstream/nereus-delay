@@ -192,9 +192,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     public record AdmissionControl(
-            TargetPublishAdmissionVerifier.Authority authority, TargetStoreBackend.CommitAuthority commit) {
+            TargetPublishAdmissionVerifier.Authority authority,com.nereusstream.delay.runtime.TargetSloObservationSamples.Authority samples,
+            TargetStoreBackend.CommitAuthority commit) {
+        public AdmissionControl(TargetPublishAdmissionVerifier.Authority authority,TargetStoreBackend.CommitAuthority commit){
+            this(authority,com.nereusstream.delay.runtime.TargetSloObservationSamples.UNAVAILABLE,commit);
+        }
         public AdmissionControl {
             Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(samples,"samples");
             Objects.requireNonNull(commit, "commit");
         }
     }
@@ -2300,7 +2305,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final TargetPublishAdmissionStore.Prepared first;
                 try {
                     first = targetAdmissions.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority());
+                            budget, mutation.mutation(), entry.position(), control.authority(),control.samples());
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }

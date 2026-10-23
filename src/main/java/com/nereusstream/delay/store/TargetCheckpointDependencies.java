@@ -802,6 +802,7 @@ public final class TargetCheckpointDependencies {
             }
             builder.admissionImage(input);
         }
+        com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireAdmissionInputs(sloGenerations,sloSamples,inputs);
         return new TargetCheckpointDependencies(builder, admissions, true);
     }
 

@@ -48,10 +48,43 @@ public final class TargetSloObservationSamples {
         final var sample = new TargetSloObservationSample(scope, lineage, generation.generation(),
                 generation.enable().input().systemMutationId(), generation.enable().appliedAt(), generation.policy().digest(),
                 declaration, first, SloObservationOutbox.open(SloAuthoritativeStartFactory.commandApplied(declaration.objective(), stamp.source())), stamp);
+        return append(reader,generation,sample,stamp,authority);
+    }
+
+    /** Only the actual first managed Admission creates a due event; no current-generation retry backfill. */
+    public static Plan admission(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            SystemMutation input,TargetQuotaMutation stamp,List<TargetStoreBackend.Edit> business,
+            SystemMutationResult outcome,Authority authority){
+        if(outcome.applyStatus()!=ApplyStatus.APPLIED||outcome.stableCode()!=StableCode.OK)return new Plan(List.of(),()->{});
+        final var state=TargetSloObservationVerifier.readState(reader,scope,lineage);
+        if(state==null||!state.active())return new Plan(List.of(),()->{});
+        final var body=TargetPublishAdmissionBody.decode(input.canonicalBody());
+        if(body.attemptNo()!=1)return new Plan(List.of(),()->{});
+        final var generation=Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader,scope,lineage,state.generation()),"original due observation generation");
+        state.requireGeneration(generation);generation.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        generation.policy().requireSource(stamp.source());stamp.requireAfter(generation.mutation());
+        if(!body.materialized()&&generation.policy().declarations().stream().anyMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG)) {
+            throw new IllegalStateException("declared due observation cannot classify an Admission without its original managed materialization");
+        }
+        final var path=body.nativePublication()==null?SloPath.ORDINARY_MANAGED:SloPath.MANAGED_PULSAR_HANDOFF;
+        final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==path).findFirst().orElse(null);
+        if(declaration==null)return new Plan(List.of(),()->{});
+        final var firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},input.systemMutationId());
+        if(reader.get(ColumnFamily.DEDUPE,firstKey)!=null)throw new IllegalStateException("due Start cannot rebind an existing Admission event");
+        final var first=result(reader,business,firstKey);
+        if(!first.mutation().equals(stamp)||!Arrays.equals(stamp.mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("due Start lost its actual original Source input");
+        final var sample=new TargetSloObservationSample(scope,lineage,generation.generation(),generation.enable().input().systemMutationId(),
+                generation.enable().appliedAt(),generation.policy().digest(),declaration,first,
+                SloObservationOutbox.open(TargetSloObservationSample.dueStart(declaration,body)),stamp,input);
+        return append(reader,generation,sample,stamp,authority);
+    }
+
+    private static Plan append(TargetStoreBackend.Reader reader,TargetSloObservationGeneration generation,
+            TargetSloObservationSample sample,TargetQuotaMutation stamp,Authority authority){
         final var limits = generation.policy().limits();
         if (sample.maximumRecordBytes() > limits.maximumRecordBytes()) throw new IllegalStateException("Target certification cannot retain the bounded Final for this original Start");
         final var before = generation.counts();
-        final long reservedBefore = Math.addExact(before.outboxBytes(), Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.MAX_FUTURE_STORED_GROWTH));
+        final long reservedBefore = Math.addExact(before.outboxBytes(),Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.maximumFutureStoredGrowth(generation.policy())));
         final long reservedAfter = Math.addExact(reservedBefore, sample.maximumStoredBytes());
         if (before.outboxRecords() >= limits.maximumOutboxRecords() || reservedAfter > limits.maximumOutboxBytes()) {
             throw new IllegalStateException("Target certification outbox lacks its original finite sample/Final reservation");
@@ -95,6 +128,14 @@ public final class TargetSloObservationSamples {
         final var actual = result(view,overlay,sample.first().key());
         if (!Arrays.equals(actual.canonicalBytes(),sample.first().canonicalBytes())) throw new IllegalStateException("Target SLO sample lost protected original first");
         result(view,overlay,sample.positionKey()).requireFirst(actual);
+        if(sample.admission()!=null){
+            final var body=TargetPublishAdmissionBody.decode(sample.admission().canonicalBody());
+            final var budgetKey=sample.admissionBudgetKey();
+            final var budget=TargetQuotaAttemptBudget.decodeForStore(budgetKey,payload(view,overlay,ColumnFamily.META,budgetKey,TargetQuotaAttemptBudget.VALUE_TYPE),scope.shard());
+            if(!budget.locator().equals(body.locator())||!Arrays.equals(budget.admissionDigest(),sample.admission().mutationHash())
+                    ||!Arrays.equals(budget.recoveryLineage(),lineage))throw new IllegalStateException("Target due sample lost its original Admission Budget");
+            budget.mutation().requireAtOrBefore(frontier);
+        }
         for(var key:sample.keys()) if(!Arrays.equals(payload(view,overlay,ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE),sample.canonicalBytes())) {
             throw new IllegalStateException("Target SLO sample lost exact retained primary/Source reference projection");
         }
