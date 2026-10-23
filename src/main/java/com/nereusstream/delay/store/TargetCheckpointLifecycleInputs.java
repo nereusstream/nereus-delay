@@ -165,6 +165,10 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             final var first=actualFirsts.get(Bytes.hex(input.image().systemMutationId()));final var pin=authority.requireOriginal(input,first);after(budget,guard);
             if(input.proof()==null)continue;
             final var verified=input.proof().authenticate(Objects.requireNonNull(pin,"independent original purpose pin"));
+            if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&!applied(first)){
+                verified.requireCoverage(TargetResourceReclaimBody.decode(input.image().canonicalBody()),input.source());
+                after(budget,guard);continue;
+            }
             final var selected=input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
                     ?verified.select(TargetResourceReclaimBody.decode(input.image().canonicalBody()),input.source(),AuthorIdentity.decode(input.image().authorIdentity()),input.image().signingKeyVersion())
                     :verified.select(resource(input.image()),input.source(),AuthorIdentity.decode(input.image().authorIdentity()),

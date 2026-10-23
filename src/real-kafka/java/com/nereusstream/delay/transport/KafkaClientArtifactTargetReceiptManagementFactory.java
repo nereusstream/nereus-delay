@@ -1091,23 +1091,27 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family family,Runnable current){return load(entry,family,current,null);}
             public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs load(com.nereusstream.delay.ownership.SourceReplayEntry entry,
                     com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family family,Runnable current,
-                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source){
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,current,source,null);}
+            public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs load(com.nereusstream.delay.ownership.SourceReplayEntry entry,
+                    com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family family,Runnable current,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead reclaim){
                 if(family!=com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family.RETIREMENT)
-                    return original.provider().load(entry,family,current,source);
+                    return original.provider().load(entry,family,current,source,reclaim);
                 if(!(entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation))
                     throw new IllegalArgumentException("retirement Source content changed original frame");
                 if(mutation.mutation().type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_DELETE_CONFIRMED){
                     final var confirmation=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.mutation().canonicalBody());
                     if(confirmation.markerRetained()&&(!recoveryOnly||confirmation.resource().provenance() instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
                         return loadConfirmationSourceInputs(mutation,scope,original.maximumBytes(),current,source,cold,catalogReads);
-                    return original.provider().load(entry,family,current,source);
+                    return original.provider().load(entry,family,current,source,reclaim);
                 }
                 if(mutation.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)
-                    return original.provider().load(entry,family,current,source);
+                    return original.provider().load(entry,family,current,source,reclaim);
                 final var provenance=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.mutation().canonicalBody()).resource().provenance();
                 if(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Staging
                         ||recoveryOnly&&!(provenance instanceof com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.Recovery))
-                    return original.provider().load(entry,family,current,source);
+                    return original.provider().load(entry,family,current,source,reclaim);
                 return loadRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
             }};
             return new com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content(provider,original.physical(),original.reads(),

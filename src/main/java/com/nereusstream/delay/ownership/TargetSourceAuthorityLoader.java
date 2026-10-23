@@ -23,19 +23,25 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         HeldInputs load(SourceReplayEntry entry, TargetSourceAuthorityPreparation.Family family, Runnable guard);
         default HeldInputs load(SourceReplayEntry entry,TargetSourceAuthorityPreparation.Family family,Runnable guard,
                 TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
+        default HeldInputs load(SourceReplayEntry entry,TargetSourceAuthorityPreparation.Family family,Runnable guard,
+                TargetSourceApplyRuntime.ConfirmationRead source,TargetSourceApplyRuntime.ReclaimRead reclaim){return load(entry,family,guard,source);}
     }
 
     public interface HeldInputs extends AutoCloseable {
         SourceReplayEntry entry();
         Inputs inputs();
         long retainedBytes();
-        /** Local version, complete-history and pin protection only. */
+        /**
+         * Local held checks only. RECLAIM must retain the original Source/Worker/Store and complete
+         * Catalog/Floor/Pin/image/future-reader admission protections through the Native commit.
+         * Two observations, an empty caller inventory, or signatures alone are not that held protocol.
+         */
         void requireCurrent();
         /** Original hold release; a failed close must retain the original release state for retry. */
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim {}
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
@@ -62,6 +68,13 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         public Confirmation{Objects.requireNonNull(scope);Objects.requireNonNull(history);if(scope.target()!=null)throw new IllegalArgumentException("confirmation requires original Source scope");}
     }
 
+    /** The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through commit. */
+    public record Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> recoveryImages) implements Inputs {
+        public Reclaim{Objects.requireNonNull(scope);Objects.requireNonNull(history);recoveryImages=java.util.List.copyOf(recoveryImages);
+            if(scope.target()!=null)throw new IllegalArgumentException("reclaim requires original Source scope");}
+    }
+
     private final Provider provider;
     private final TargetStoreBackend.CommitAuthority originalCommit;
     private final long maximumBytes;
@@ -83,8 +96,13 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     }
     @Override public TargetSourceAuthorityPreparation.Held load(SourceReplayEntry entry,
             TargetSourceAuthorityPreparation.Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source){
+        return load(entry,family,guard,source,null);
+    }
+    @Override public TargetSourceAuthorityPreparation.Held load(SourceReplayEntry entry,
+            TargetSourceAuthorityPreparation.Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source,
+            TargetSourceApplyRuntime.ReclaimRead reclaim){
         guard.run();
-        var original = Objects.requireNonNull(provider.load(entry, family, guard,source), "protected original inputs");
+        var original = Objects.requireNonNull(provider.load(entry, family, guard,source,reclaim), "protected original inputs");
         var held = new Held(entry, original);
         try {
             guard.run(); original.requireCurrent();
@@ -94,7 +112,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             }
             final Inputs inputs = Objects.requireNonNull(original.inputs(), "typed original content");
             if (family(inputs) != family) throw new IllegalStateException("original Source content family differs");
-            held.control = collect(entry, inputs, held, guard);
+            held.control = collect(entry, inputs, held, guard,reclaim);
             original.requireCurrent(); guard.run();
             if (held.bytes > maximumBytes) throw new IllegalStateException("complete content snapshot exceeds byte bound");
             return held;
@@ -110,7 +128,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
     }
 
-    private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard) {
+    private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard,TargetSourceApplyRuntime.ReclaimRead reclaim) {
         var commit = held.commit(originalCommit);
         return switch (inputs) {
             case Command value -> new TargetSourceApplyRuntime.CommandControl(value.policy(), value.cancellations(),
@@ -121,6 +139,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
             case Retirement value -> retirement(entry, value, held, commit, guard);
             case Confirmation value -> confirmation(entry,value,held,commit,guard);
+            case Reclaim value -> reclaim(entry,value,held,commit,guard,reclaim);
             case Activation value -> {
                 final var original=(SourceReplayMutation)entry;final var body=TargetProtocolActivationBody.decode(original.mutation().canonicalBody());
                 final var a=value.authority();final var frozen=freeze(value.prepared(),entry,a.registrations(),v->a.keys().resolve(v,entry.position()),held,guard);
@@ -192,8 +211,54 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
+            case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;
             case Activation ignored -> TargetSourceAuthorityPreparation.Family.ACTIVATION;
         };
+    }
+
+    private TargetSourceApplyRuntime.ReclaimControl reclaim(SourceReplayEntry entry,Reclaim input,
+            Held held,TargetStoreBackend.CommitAuthority commit,Runnable guard,TargetSourceApplyRuntime.ReclaimRead source){
+        if(!(entry instanceof SourceReplayMutation original)||original.mutation().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)
+            throw new IllegalArgumentException("reclaim snapshot changed original Source operation");
+        final var mutation=original.mutation();final var body=TargetResourceReclaimBody.decode(mutation.canonicalBody());
+        if(!input.scope().equals(body.scope()))throw new IllegalArgumentException("reclaim snapshot changed original Source scope");
+        final var prior=input.history();final var selected=prior.select(body,mutation,entry.position()).orElse(null);
+        held.requireCurrent();guard.run();
+        final var pin=prior.pin();
+        held.bytes=Math.addExact(held.bytes,Math.addExact(prior.proof().canonicalBytes().length,
+                Math.addExact(pin.authority().canonicalBytes().length,pin.key().getEncoded().length+256L)));
+        final var history=new TargetResourceReclaimStore.SourceHistory(prior.proof(),new TargetRetirementAuthorizationHistory.Pin(
+                pin.authority(),pin.keyVersion(),pin.key(),pin.baselineDigest(),pin.root(),pin.namespace()),()->{
+            held.requireCurrent();prior.current().run();held.requireCurrent();
+        });
+        final boolean authorized=selected!=null&&mutation.verifySignature(selected.writerKey());
+        if(authorized&&source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim Source/Store context is unavailable");
+        final var protection=authorized&&source.matchesExpected()?source.protectUnused(input.recoveryImages(),maximumBytes-held.bytes,held::requireCurrent):null;
+        if(protection!=null){
+            protection.requireSource(body.scope(),body.lineage(),mutation,entry.position());protection.requireCurrent();
+            final long bytes=protection.retainedBytes();
+            if(bytes<0||bytes>maximumBytes-held.bytes)throw new IllegalStateException("reclaim protections exceed complete Source input byte bound");
+            held.bytes=Math.addExact(held.bytes,bytes);
+        }
+        if(held.bytes>maximumBytes)throw new IllegalStateException("reclaim history exceeds complete Source input byte bound");
+        return new TargetSourceApplyRuntime.ReclaimControl(new TargetResourceReclaimStore.Authority(){
+            private void requireEntry(TargetQuotaScope scope,SystemMutation actual,SourcePosition source){
+                held.requireCurrent();requireSource(entry,source);
+                if(!input.scope().equals(scope)||!Arrays.equals(held.digest,Bytes.sha256(actual.canonicalEnvelope())))
+                    throw new IllegalStateException("reclaim snapshot changed original Source frame/scope");
+            }
+            public TargetResourceReclaimStore.SourceHistory history(TargetQuotaScope scope,SystemMutation actual,SourcePosition source){
+                requireEntry(scope,actual,source);history.current().run();return history;
+            }
+            public TargetResourceReclaimStore.Protection protect(TargetQuotaScope scope,SystemMutation actual,SourcePosition source,
+                    TargetRetirementAuthorizationHistory.Grant grant){
+                requireEntry(scope,actual,source);
+                if(!authorized||!Arrays.equals(selected.canonicalBytes(),grant.canonicalBytes()))
+                    throw new IllegalStateException("reclaim changed original purpose-signed grant");
+                if(protection==null)throw new TargetSourceAuthorityPreparation.Required();
+                protection.requireCurrent();return protection;
+            }
+        },commit);
     }
 
     private TargetSourceApplyRuntime.RetirementControl retirement(SourceReplayEntry entry, Retirement input,

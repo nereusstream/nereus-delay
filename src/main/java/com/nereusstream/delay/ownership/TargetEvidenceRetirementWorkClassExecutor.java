@@ -33,7 +33,9 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         if(image.type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT)TargetEvidenceRetireIntentBody.decode(image.canonicalBody());
         else if(image.type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_DELETE_CONFIRMED)
             com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(image.canonicalBody());
-        else throw new IllegalArgumentException("retirement handoff requires an exact intent or confirmation Source mutation");
+        else if(image.type()==com.nereusstream.delay.protocol.SystemMutationType.TARGET_RESOURCE_RECLAIM)
+            com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(image.canonicalBody());
+        else throw new IllegalArgumentException("retirement handoff requires an exact intent, confirmation or Native reclaim Source mutation");
         Objects.requireNonNull(protection); Objects.requireNonNull(clock); Objects.requireNonNull(retained);
         final var prior = pending.get();
         if (prior != null) {
@@ -50,7 +52,8 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         }
         final byte[] frame = image.encodeFrame();
         final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                (image.type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT?"target-evidence-retire/":"target-evidence-confirm/") + Bytes.hex(Bytes.sha256(frame)), frame.length);
+                (image.type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_RETIRE_INTENT?"target-evidence-retire/":
+                        image.type()==com.nereusstream.delay.protocol.SystemMutationType.RESOURCE_DELETE_CONFIRMED?"target-evidence-confirm/":"target-resource-reclaim/") + Bytes.hex(Bytes.sha256(frame)), frame.length);
         final var next = new Submission(this, image, task, protection);
         pending.set(next);
         retained.accept(next);

@@ -642,6 +642,15 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
+    /** Read-only full published parent-hash proof for a retained original native-reclaim Floor. */
+    synchronized void requirePublishedFloorAncestor(RecoveryFloorRef ancestor,RecoveryFloorRef descendant){
+        validateTypedFloorProjection(ancestor);validateTypedFloorProjection(descendant);
+        final var ancestry=fullAncestry(descendant.checkpointId());
+        final int index=indexOf(ancestry,ancestor.checkpointId());
+        if(index<0||!Bytes.constantTimeEquals(ancestry.get(index).manifestSha256(),ancestor.manifestSha256()))
+            throw new IllegalStateException("declared reclaim Floor is outside actual published ancestry");
+    }
+
     void validateRetainedRecoveryPin(RecoveryPin pin){validatePinProjection(Objects.requireNonNull(pin));}
     private void validatePinProjection(final RecoveryPin pin) {
         if (catalogShard == null

@@ -5292,3 +5292,16 @@ owner/完整预期值/精确revision/allocated/resolution/Floor关联；当前�
 stamp相符；过早删除、遗漏组内成员或错phase拒绝。早于新activation的历史状态保持
 原读取契约，同activation位置不能伪造新phase。此为只读恢复/计费校验，不授新回收。
 Source实际写者/保护采集/签发与同批减费仍未接通，未执行实际activation或部署验证。
+
+
+2026-10-23 type14首次Native apply已接实际Source分支。field13的Native namespace固定为
+SHA256(`nereus-delay-native-reclaim-publication-namespace\0` + 原managed SDK namespace[32]
++ lp32(UTF8(原checkpoint publication exact key)))；独立Action3 pin/history冻结同一值，
+不能用SDK namespace或kind8 catalog namespace替代。新格式此前未部署；不改body1..8。
+原Source私有ReclaimRead、完整原始帧/实际first/POSITION/已提交ingress fence、真实
+Catalog父哈希祖先链/合法Pin/完整认证镜像及原held admission共同产生不可由回调直接
+构造的Protection。Source同批仅将支持的BASELINE phase3转RETAINED，allocated不变，
+并保Native54/55、first/POSITION与真实before/after费用。较新Floor用于冷重放时必须
+在完整认证镜像中保同一Source回收决定；旧Pin镜像缺精确Budget/同一后态仍Unavailable。
+原histories/activation/companion及retained-first路径保持；拒绝输入的body9 lifecycle
+只认证完整覆盖，不因非法作者再解码而阻断已持久拒绝的恢复。无实际激活/环境操作。

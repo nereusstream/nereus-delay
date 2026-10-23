@@ -2754,3 +2754,19 @@ UnusedAttemptReserve，固定revision+1、owner/accounting/commitment/allocated/
 resolvedAt及Floor digest；Source严格晚于被核Floor。完整恢复反向检查APPLIED组内
 Budget不可遗漏，不能把已删Budget当零账。原早期状态/收费不改，本只读关联不减少
 commitment或SDK/zombie费；实际Source批次与真正reserved-writer结束证明仍未接通。
+
+
+2026-10-23 BASELINE逻辑预留写者闭合采用主会话明确裁定：已认证materialized ordinary
+BASELINE Admission与同历史完整Owner的definitive初始Outcome，实际APPLIED first/
+POSITION，完整expected Budget且mutation==resolvedAt，无open/不明Attempt别名，
+已提交Source ingress fence覆盖两帧原deadline。无K2/native/P1 Journal/后置proof
+义务；不要求当前Owner等于历史Owner。逻辑写者限定Admission首次预算创建、原
+Outcome首次预算转换及同完整帧callback/handoff重试；新增resolved-allocation写者
+必须扩展本规则，不默默继承。后续重复POSITION属SHARD独立费用，不借已退Attempt
+reserve；不据此释放SDK/physical/zombie，也不证明payload被删或remote不可重放。
+TargetResourceReclaimStore已将上述实际Native校验与原Source私有上下文、独立history/
+activation、真实Catalog/Floor/Pin/full-image和原held未来准入保护接至首次batch。
+成功只调用retainAfterCheckpoint保持allocated/原记录、转RETAINED；新history/first/
+POSITION仍收费，与预算before/after的primary/tenant/total/aggregate同批。整组任何
+expected改变只持久STALE、零phase/退款；保护改变则不提交。非此子集仍Unavailable。
+该Native写者代码不等于部署provider/自动签发/全部回收完成，且尚无运行验证。

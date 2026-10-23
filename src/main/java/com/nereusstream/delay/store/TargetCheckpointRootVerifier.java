@@ -394,6 +394,28 @@ public final class TargetCheckpointRootVerifier {
         };
     }
 
+    /** Original signed frames from an actual fully authenticated immutable image; not writer closure by itself. */
+    public record UnusedReserveWriter(com.nereusstream.delay.protocol.TargetQuotaAttemptBudget expected,
+            com.nereusstream.delay.protocol.SystemMutation admission,SourcePosition admissionSource,
+            com.nereusstream.delay.protocol.SystemMutation outcome,SourcePosition outcomeSource){}
+    public static final class UnusedReserveCopy {
+        private final AuthenticatedImage image;
+        private final byte[] envelope;
+        private final List<UnusedReserveWriter> writers;
+        private final boolean retainedDecision;
+        private UnusedReserveCopy(AuthenticatedImage image,byte[] envelope,List<UnusedReserveWriter> writers,boolean retainedDecision){
+            this.image=image;this.envelope=envelope;this.writers=writers;this.retainedDecision=retainedDecision;}
+        public List<UnusedReserveWriter> writers(){return writers;}
+        public boolean containsRetainedDecision(){return retainedDecision;}
+        public void requireFor(com.nereusstream.delay.protocol.SystemMutation input){
+            if(!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))throw new IllegalArgumentException("unused-reserve copy changed exact Source frame");
+            requireCurrent();
+        }
+        public void requireCurrent(){image.requireCurrent();}
+        public long retainedBytes(){long bytes=128;for(var writer:writers)bytes=Math.addExact(bytes,
+                Math.addExact(writer.expected().canonicalBytes().length,Math.addExact(writer.admission().encodeFrame().length,writer.outcome().encodeFrame().length+512L)));return bytes;}
+    }
+
     /** Exact image and mandatory full external authentication, held until upload/Catalog/restore handoff ends. */
     public static final class AuthenticatedImage {
         private final Path image;
@@ -473,6 +495,43 @@ public final class TargetCheckpointRootVerifier {
             }
             if(!retained)throw new IllegalStateException("historical recovery image lacks exact Native51 or the exact Native52 first");
             requireCurrent();return new HistoricalCopy(this,Bytes.sha256(actual.canonicalBytes()));
+        }
+
+        /** Full physical/ledger/original-input audit of the exact Native unused-reserve group. */
+        public UnusedReserveCopy authenticateUnusedReserveCopy(com.nereusstream.delay.protocol.SystemMutation input){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            requireCurrent();
+            final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            final var dependencies=audited.ledger().dependencies();
+            if(!manifest.shardId().equals(body.shard())||!Arrays.equals(manifest.recoveryLineageId(),body.lineage())
+                    ||!Arrays.equals(dependencies.root().root().tenantScope(),body.scope().tenantScope()))
+                throw new IllegalArgumentException("unused-reserve image changed original Source scope/lineage");
+            final var histories=new java.util.ArrayList<UnusedReserveWriter>();
+            for(var operation:body.operations()){
+                final var expected=((com.nereusstream.delay.protocol.TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
+                final var actual=dependencies.admissions().stream().filter(a->Arrays.equals(a.attempt().publishAttemptId(),expected.publishAttemptId()))
+                        .findFirst().orElseThrow(()->new IllegalStateException("authenticated image lacks actual retained Budget"));
+                if(!Arrays.equals(actual.attempt().canonicalBytes(),expected.canonicalBytes())){
+                    // A newer actual Floor can contain the same release first during cold Source replay.
+                    final var decision=dependencies.sourceHistories().stream().filter(h->Arrays.equals(h.input().canonicalEnvelope(),input.canonicalEnvelope()))
+                            .findFirst().orElseThrow(()->new IllegalStateException("image Budget differs from expected without exact reclaim Source history"));
+                    if(actual.attempt().phase()!=com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.Phase.RETAINED
+                            ||!actual.attempt().mutation().equals(decision.decidedAt()))throw new IllegalStateException("image Budget is not the exact reclaim successor");
+                }
+                final var admitted=audited.snapshot().admissions().stream().filter(a->Arrays.equals(a.image().mutationHash(),expected.admissionDigest())
+                        &&Arrays.equals(com.nereusstream.delay.protocol.TargetPublishAdmissionBody.decode(a.image().canonicalBody()).publishAttemptId(),expected.publishAttemptId()))
+                        .findFirst().orElseThrow(()->new IllegalStateException("original authenticated Admission frame is unavailable"));
+                final var resolved=audited.snapshot().outcomes().stream().filter(o->Arrays.equals(o.source().canonicalBytes(),expected.resolvedAt().source().canonicalBytes())
+                        &&Arrays.equals(Bytes.sha256(o.image().canonicalEnvelope()),expected.resolvedAt().mutationDigest()))
+                        .findFirst().orElseThrow(()->new IllegalStateException("original authenticated definitive Outcome frame is unavailable"));
+                histories.add(new UnusedReserveWriter(expected,admitted.image(),admitted.source(),resolved.image(),resolved.source()));
+            }
+            final boolean retained=dependencies.sourceHistories().stream().anyMatch(h->Arrays.equals(h.input().canonicalEnvelope(),input.canonicalEnvelope()))
+                    &&dependencies.retirementResults().stream().anyMatch(first->{
+                        final var result=com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload());
+                        return result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED&&Arrays.equals(result.mutationId(),input.systemMutationId());
+                    });
+            requireCurrent();return new UnusedReserveCopy(this,Bytes.sha256(input.canonicalEnvelope()),List.copyOf(histories),retained);
         }
 
         /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */
@@ -614,6 +673,12 @@ public final class TargetCheckpointRootVerifier {
             final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
             final LedgerAuditLimits ledgerLimits, final TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             final ImageAuthority authority, final Runnable protection) {
+        return authenticateManifestCompanion(image,manifest,physicalLimits,quotaLimits,ledgerLimits,semanticLimits,authority,protection).ledger();
+    }
+
+    private static ManifestCompanion authenticateManifestCompanion(Path image,CheckpointManifest manifest,
+            CheckpointManifestLimits physicalLimits,QuotaAuditLimits quotaLimits,LedgerAuditLimits ledgerLimits,
+            TargetCheckpointSemanticSnapshot.Limits semanticLimits,ImageAuthority authority,Runnable protection){
         Objects.requireNonNull(authority, "authority");
         Objects.requireNonNull(protection, "protection").run();
         final var verified = auditManifestCompanion(image, manifest, physicalLimits, quotaLimits, ledgerLimits,
@@ -623,7 +688,7 @@ public final class TargetCheckpointRootVerifier {
         protection.run();
         authority.requireLifecycleAuthenticated(manifest,verified.ledger(),verified.snapshot());
         protection.run();
-        return verified.ledger();
+        return verified;
     }
 
     private static ManifestCompanion auditManifestCompanion(final Path image, final CheckpointManifest manifest,

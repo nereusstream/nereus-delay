@@ -506,6 +506,93 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         current.run();final TargetCheckpointRootVerifier.EvidenceCopy copy=confirmation==null?image.authenticateRetiringCopy(intent):image.authenticateHistoricalCopy(intent,confirmation,confirmationSource);current.run();
         if(!reads.beforeTimedWork())throw reads.incomplete();copies.put(key,copy);
     }
+    /** Separate native reclaim identity binds the actual SDK namespace AND this exact publication record. */
+    public byte[] nativeReclaimNamespace(){
+        if(originalManagedOwner==null)throw new IllegalStateException("Native reclaim requires original managed publication SDK");
+        return Bytes.sha256(Bytes.utf8("nereus-delay-native-reclaim-publication-namespace\0"),originalEvidenceNamespace(),Bytes.lp32(Bytes.utf8(recordKey)));
+    }
+
+    /** Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held protocol. */
+    public NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
+        final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+        recoveryProtectionInputWindowBytes(images);
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native recovery reads required");
+        current.run();final byte[] namespace=nativeReclaimNamespace();
+        if(!Arrays.equals(body.namespace(),namespace))throw new IllegalArgumentException("Native reclaim changed original exact publication namespace");
+        final var before=readEvidenceState(reads);final var catalog=RecoveryCatalog.fromSnapshot(before.state.catalog());
+        final var floor=catalog.currentFloorRef().orElseThrow(()->new IllegalStateException("Native reclaim requires actual typed Floor"));
+        if(!Arrays.equals(floor.recoveryLineageId(),body.lineage())||!floor.appliedSourcePosition().shardId().equals(body.shard()))
+            throw new IllegalStateException("Native reclaim Floor changed Source lineage");
+        final var declared=body.floor();final var manifest=catalog.manifest(declared.checkpointId()).orElseThrow(()->new IllegalStateException("declared reclaim Floor is not published"));
+        if(!Arrays.equals(manifest.manifestSha256(),declared.manifestSha256())||!Arrays.equals(manifest.recoveryLineageId(),declared.recoveryLineageId())
+                ||!manifest.appliedShardLogPosition().equals(declared.appliedSourcePosition())||manifest.shardMutationSequence()!=declared.includedMutationSequence()
+                ||!manifest.evidenceCursors().equals(declared.evidenceCursors())||Long.compareUnsigned(declared.catalogGeneration(),floor.catalogGeneration())>0)
+            throw new IllegalStateException("declared reclaim Floor differs from actual published projection");
+        catalog.requirePublishedFloorAncestor(declared,floor);
+        catalog.proveFloorCoverage(floor.checkpointId(),declared.includedMutationSequence(),declared.appliedSourcePosition()).orElseThrow(
+                ()->new IllegalStateException("declared reclaim Floor is not on actual protected ancestry"));
+        final var pin=pinStore.readForProtection(reads);current.run();
+        final var available=new java.util.HashMap<String,TargetCheckpointRootVerifier.AuthenticatedImage>();
+        for(var image:images)if(available.putIfAbsent(Bytes.hex(image.manifest().checkpointId()),image)!=null)
+            throw new IllegalArgumentException("duplicate Native recovery image");
+        final var copies=new java.util.LinkedHashMap<String,TargetCheckpointRootVerifier.UnusedReserveCopy>();
+        authenticateNativeRecoveryImage(catalog,floor.checkpointId(),floor.manifestSha256(),input,available,copies,reads,current);
+        if(pin!=null){
+            catalog.validateRetainedRecoveryPin(pin.pin());
+            if(!pin.pin().shard().shardId().equals(body.shard()))throw new IllegalStateException("Native RecoveryPin changed Source Shard");
+            final var candidate=pin.pin().candidate();
+            authenticateNativeRecoveryImage(catalog,candidate.checkpointId(),candidate.manifestSha256(),input,available,copies,reads,current);
+            final var observed=pin.pin().observedFloor();
+            authenticateNativeRecoveryImage(catalog,observed.checkpointId(),observed.manifestSha256(),input,available,copies,reads,current);
+        }
+        if(copies.size()!=available.size())throw new IllegalArgumentException("unrelated Native recovery images");
+        if(!floor.equals(declared)&&copies.values().stream().noneMatch(TargetCheckpointRootVerifier.UnusedReserveCopy::containsRetainedDecision))
+            throw new IllegalStateException("new Native reclaim requires exact current Floor; historical replay needs authenticated retained Source decision");
+        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,List.copyOf(copies.values()));
+        result.requireCurrent(reads,current);return result;
+    }
+    private void authenticateNativeRecoveryImage(RecoveryCatalog catalog,byte[] id,byte[] digest,
+            com.nereusstream.delay.protocol.SystemMutation input,java.util.Map<String,TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            java.util.Map<String,TargetCheckpointRootVerifier.UnusedReserveCopy> copies,BoundedReadBudget reads,Runnable current){
+        final String key=Bytes.hex(id);if(copies.containsKey(key))return;
+        final var manifest=catalog.manifest(id).orElseThrow(()->new IllegalStateException("Native protected candidate is not published"));
+        final var image=Objects.requireNonNull(images.get(key),"actual complete Native Floor/Pin image is unavailable");
+        if(!Arrays.equals(manifest.manifestSha256(),digest)||!Arrays.equals(manifest.canonicalJsonBytes(),image.manifest().canonicalJsonBytes()))
+            throw new IllegalStateException("Native protected image differs from actual published manifest");
+        if(!reads.beforeTimedWork())throw reads.incomplete();current.run();
+        final var copy=image.authenticateUnusedReserveCopy(input);current.run();
+        if(!reads.beforeTimedWork())throw reads.incomplete();copies.put(key,copy);
+    }
+    public static final class NativeRecoveryProtection {
+        private final OxiaSyncCheckpointPublicationBackend owner;
+        private final byte[] envelope,namespace,publicationDigest;
+        private final long publicationVersion;
+        private final OxiaSessionBoundRecoveryPinStore.PinRecord pin;
+        private final List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies;
+        private NativeRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,com.nereusstream.delay.protocol.SystemMutation input,
+                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies){
+            this.owner=owner;envelope=Bytes.sha256(input.canonicalEnvelope());this.namespace=namespace;publicationVersion=version;publicationDigest=digest;this.pin=pin;this.copies=copies;
+        }
+        public List<TargetCheckpointRootVerifier.UnusedReserveWriter> writers(){return copies.getFirst().writers();}
+        public long retainedBytes(){long bytes=Math.addExact(4096L,pin==null?0:pin.pin().canonicalBytes().length);
+            for(var copy:copies)bytes=Math.addExact(bytes,copy.retainedBytes());return bytes;}
+        public void requireHeldFor(OxiaSyncCheckpointPublicationBackend expected,com.nereusstream.delay.protocol.SystemMutation input){
+            if(owner!=expected||!Arrays.equals(namespace,owner.nativeReclaimNamespace())||!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))
+                throw new IllegalArgumentException("Native recovery protection changed original Catalog/Source frame");
+            for(var copy:copies)copy.requireFor(input);
+        }
+        /** Acquisition-time bounded rereads, never called at Native commit; original admission remains held. */
+        public void requireCurrent(BoundedReadBudget reads,Runnable current){
+            if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native recovery rereads required");
+            current.run();final var state=owner.readEvidenceState(reads);
+            if(state.versionId!=publicationVersion||!Arrays.equals(publicationDigest,Bytes.sha256(state.encoded))
+                    ||!samePin(pin,owner.pinStore.readForProtection(reads)))throw new IllegalStateException("Native protected Catalog/Floor/Pin changed");
+            for(var copy:copies)copy.requireCurrent();current.run();
+            if(!reads.beforeTimedWork())throw reads.incomplete();
+        }
+    }
+
     private byte[] originalEvidenceNamespace(){
         if(evidenceStorageNamespace==null)throw new IllegalStateException("recovery protection requires its original managed Registry SDK namespace");
         final byte[] namespace=evidenceStorageNamespace.get();Bytes.requireLength(namespace,32,"actual recovery SDK storage namespace");return namespace;

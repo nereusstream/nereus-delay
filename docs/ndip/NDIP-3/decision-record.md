@@ -1415,3 +1415,15 @@ Source持久retire-intent/禁止新用，再锁外真实有界条件provider，�
 GC幂等依据。实际Catalog/Floor/ancestry/Pin/image、原Native/Journal/SDK持有责任、历史
 SERVICE/key/用途/撤销区间/actual activation必须完整，commit只核held本地事实。
 当前仅协议/历史用途基础，actual Source写者及全闭环继续实施，未授权环境删除或迁退。
+
+
+2026-10-23 主会话明确裁定BASELINE unused-reserve逻辑闭合（来源：主会话
+`01a13046-4fcd-7e90-8a56-dc2c3828fe23` 对本实施会话的裁定）：限定为已认证
+materialized ordinary BASELINE Admission、同历史完整Owner首次APPLIED definitive
+初始Outcome，无P1 Journal/K2/native/后置proof；完整expected Budget和真实first/
+POSITION/无open或不明别名，实际已提交ingress fence覆盖两原帧retry deadline。
+逻辑写者为Admission首次建预算、原Outcome首次转换及同完整帧重试；后续POSITION
+归SHARD独立收费，新同预算写者必须显式扩展规则。允许新Owner按上述可重建Source
+历史冷恢复，不新增随机closure token/旧进程退出witness。原Catalog/Floor/Pin/full
+image/future-reader held保护与Source原子计费仍全部必需，仅退unused commitment；
+allocated/原记录/SDK/physical/zombie责任保留。此子集不是全部原生回收或四包完成。

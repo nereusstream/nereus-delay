@@ -227,6 +227,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     public interface TargetRetirements {
         RetirementControl resolve(SourceReplayMutation entry);
     }
+    public record ReclaimControl(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Authority authority,
+            TargetStoreBackend.CommitAuthority commit){
+        public ReclaimControl{Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
+    }
+    @FunctionalInterface public interface TargetReclaims{ReclaimControl resolve(SourceReplayMutation entry);}
     public record ProtocolActivationControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetProtocolActivationStore.Authority authority,TargetStoreBackend.CommitAuthority commit){
         public ProtocolActivationControl{Objects.requireNonNull(prepared);Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
@@ -286,7 +291,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetAdmissions admissions,
             TargetOutcomes outcomes,
             ChannelControls channelControls,
-            TargetRetirements retirements,ProtocolActivations protocolActivations) {
+            TargetRetirements retirements,ProtocolActivations protocolActivations,TargetReclaims reclaims) {
+        public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,Fences fences,
+                ExpiryControls expiries,Closes closes,MembershipControls memberships,TargetStoreBackend.CommitAuthority writes,
+                TargetStoreBackend.ReadAuthority reads,Commands commands,NativePolicyControls nativePolicies,TargetAdmissions admissions,
+                TargetOutcomes outcomes,ChannelControls channels,TargetRetirements retirements,ProtocolActivations activations){
+            this(leases,successor,grants,fences,expiries,closes,memberships,writes,reads,commands,nativePolicies,admissions,outcomes,
+                    channels,retirements,activations,entry->{throw new TargetSourceAuthorityPreparation.Required();});
+        }
         public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,Fences fences,
                 ExpiryControls expiries,Closes closes,MembershipControls memberships,TargetStoreBackend.CommitAuthority writes,
                 TargetStoreBackend.ReadAuthority reads,Commands commands,NativePolicyControls nativePolicies,TargetAdmissions admissions,
@@ -318,23 +330,23 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations);
+                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims);
         }
 
         public Authorities withRetirements(final TargetRetirements selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    channelControls, Objects.requireNonNull(selected),protocolActivations);
+                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims);
         }
         public Authorities withProtocolActivations(ProtocolActivations selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,commands,
-                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected));
+                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims);
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls, retirements,protocolActivations);
+                    outcomes, channelControls, retirements,protocolActivations,reclaims);
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -449,6 +461,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(outcomes, "outcomes");
             Objects.requireNonNull(channelControls, "channelControls");
             Objects.requireNonNull(retirements, "retirements");
+            Objects.requireNonNull(protocolActivations,"protocolActivations");
+            Objects.requireNonNull(reclaims,"reclaims");
         }
     }
 
@@ -546,6 +560,65 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
                 ?new ConfirmationRead(this,mutation,Objects.requireNonNull(clock)):null;
     }
+    ReclaimRead reclaimRead(SourceReplayEntry entry,LongSupplier clock){
+        return entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                ?new ReclaimRead(this,mutation,Objects.requireNonNull(clock)):null;
+    }
+    /** Privately minted actual Source/Store/Owner context, including cold replay under a successor Owner. */
+    public static final class ReclaimRead {
+        private final TargetSourceApplyRuntime runtime;
+        private final SourceReplayMutation entry;
+        private final LongSupplier clock;
+        private ReclaimRead(TargetSourceApplyRuntime runtime,SourceReplayMutation entry,LongSupplier clock){this.runtime=runtime;this.entry=entry;this.clock=clock;}
+        public SourceReplayMutation entry(){requireCurrent();return entry;}
+        public void requireBackend(TargetStoreBackend backend){requireCurrent();if(runtime.backend!=backend)throw new IllegalArgumentException("reclaim changed original Source Native Store");}
+        public com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog(){
+            requireCurrent();
+            if(!(runtime.originalEvidenceCatalog instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend actual))
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim publication Catalog is unavailable");
+            return actual;
+        }
+        public void requireCurrent(){
+            runtime.authorityPreparation.requireOriginalEntry(entry);
+            synchronized(runtime.ownerStateLock){
+                final long now=clock.getAsLong();final var lease=runtime.lease;
+                if(runtime.fenced||runtime.store.isCloseStarted()||now<runtime.lastOwnerTime||!lease.validAt(now)
+                        ||runtime.store.runtimeMetadata().lastOpenedOwnerEpoch()!=lease.ownerEpoch()
+                        ||lease.state()!=(runtime.recoveryOnly?ShardLifecycleState.CATCHING_UP:ShardLifecycleState.ACTIVE_FOR_COMMANDS))
+                    throw new IllegalStateException("original reclaim Source Owner/Store is no longer held");
+            }
+        }
+        public com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protectUnused(
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,long maximumBytes,Runnable originalHeld){
+            requireCurrent();
+            return com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection.collect(this,images,
+                    new BoundedReadBudget(runtime.limits.records(),runtime.limits.bytes(),runtime.limits.elapsedNanos(),runtime.monotonicClock),maximumBytes,originalHeld);
+        }
+        public boolean matchesExpected(){
+            return readNative(reader->com.nereusstream.delay.runtime.TargetResourceReclaimStore.matchesExpected(reader,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody())));
+        }
+        public void requireClosedUnused(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
+            readNative(reader->{
+                com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnused(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);
+                return Boolean.TRUE;
+            });
+        }
+        private <T> T readNative(java.util.function.Function<TargetStoreBackend.Reader,T> read){
+            synchronized(runtime){
+                requireCurrent();runtime.requireOwner(clock);
+                final TargetStoreBackend.ReadAuthority authority=(metadata,scope)->{
+                    requireCurrent();final var original=runtime.authorities.reads().acquire(metadata,scope);
+                    return new TargetStoreBackend.CommitGuard(){
+                        public void requireCurrent(){ReclaimRead.this.requireCurrent();original.requireCurrent();}
+                        public void close(){original.close();}
+                    };
+                };
+                final var result=runtime.backend.guardedRead(new BoundedReadBudget(runtime.limits.records(),runtime.limits.bytes(),runtime.limits.elapsedNanos(),runtime.monotonicClock),read,authority);
+                runtime.requireOwner(clock);requireCurrent();return result;
+            }
+        }
+    }
     /** Actual selected Source/recovery input, minted only by its runtime and owning preparation task. */
     public static final class ConfirmationRead {
         private final TargetSourceApplyRuntime runtime;
@@ -615,6 +688,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } else {
                 final var mutation = ((SourceReplayMutation) entry).mutation();
                 if (replay.prepareIfPresent(budget, mutation, entry.position()).isPresent()) return true;
+                if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                        &&!new com.nereusstream.delay.runtime.TargetResourceReclaimStore(backend,scope,lineage,limits.counters(),limits.domains())
+                                .requiresInputs(budget,mutation,entry.position()))return true;
                 if (mutation.type() == SystemMutationType.RESOURCE_DELETE_CONFIRMED
                         && !new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore(
                                 backend, scope, lineage, limits.counters(), limits.domains())
@@ -642,6 +718,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) return TargetSourceAuthorityPreparation.Family.ADMISSION;
         if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
         if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
+        if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM)return TargetSourceAuthorityPreparation.Family.RECLAIM;
         if (isProtocolActivation(mutation)) return TargetSourceAuthorityPreparation.Family.ACTIVATION;
         if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
         if (isTargetClose(mutation)) return TargetSourceAuthorityPreparation.Family.CLOSE;
@@ -1527,23 +1604,41 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized Optional<SystemMutationResult> retirementMutationResult(SystemMutation mutation,LongSupplier clock){
         requireGcOwner(clock);
-        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)||!scope.shard().equals(mutation.shardId()))
+        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                &&mutation.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)||!scope.shard().equals(mutation.shardId()))
             throw new IllegalArgumentException("retirement result requires its exact Source operation/Shard");
         if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT)com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
-        else com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());
+        else if(mutation.type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED)com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());
+        else com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(mutation.canonicalBody());
         return replay.appliedResult(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),
                 mutation,workerReads(clock));
     }
     synchronized void requireRetirementWriter(SystemMutation mutation,LongSupplier clock){
         requireGcOwner(clock);
-        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)||!scope.shard().equals(mutation.shardId())
+        if((mutation.type()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&mutation.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED
+                &&mutation.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)||!scope.shard().equals(mutation.shardId())
                 ||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
             throw new IllegalArgumentException("retirement writer changed Source/operation/SERVICE actor");
-        if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT){
+        if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(mutation.canonicalBody());
+            if(!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage))throw new IllegalArgumentException("reclaim writer changed Source scope/lineage");
+            requireResourceReclaimProtocolActive(clock);
+        }else if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT){
             final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());requireRetirementProtocolActive(body.resource(),clock);
         }else{
             final var body=com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());requireRetirementProtocolActive(body.resource(),body.markerRetained(),clock);
         }
+    }
+    synchronized void requireResourceReclaimProtocolActive(LongSupplier clock){
+        requireGcOwner(clock);final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim();
+        final var compatible=store.controlSnapshot();
+        if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("reclaim writer lacks independently admitted tuple9");
+        backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
+            if(activation==null||!activation.body().payload().descriptor().supportsResourceReclaim())
+                throw new IllegalStateException("reclaim writer requires actual APPLIED descriptor6");
+            return Boolean.TRUE;
+        },workerReads(clock));
     }
     synchronized void requireRetirementProtocolActive(LongSupplier clock){
         requireRetirementProtocolActive(null,clock);
@@ -1984,6 +2079,23 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = targetOutcomes.commit(first, writes(control.commit(), entry, clock));
+            } else if(mutation.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+                final var reclaim=new com.nereusstream.delay.runtime.TargetResourceReclaimStore(backend,scope,lineage,limits.counters(),limits.domains());
+                final ReclaimControl control;
+                final com.nereusstream.delay.runtime.TargetResourceReclaimStore.Prepared first;
+                try{
+                    control=!reclaim.requiresInputs(budget,mutation.mutation(),entry.position())
+                            ?new ReclaimControl(new com.nereusstream.delay.runtime.TargetResourceReclaimStore.Authority(){
+                                public com.nereusstream.delay.runtime.TargetResourceReclaimStore.SourceHistory history(TargetQuotaScope actual,SystemMutation input,SourcePosition source){
+                                    throw new TargetSourceAuthorityPreparation.Required();
+                                }
+                                public com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protect(TargetQuotaScope actual,SystemMutation input,SourcePosition source,
+                                        com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory.Grant grant){throw new TargetSourceAuthorityPreparation.Required();}
+                            },authorities.duplicateWrites())
+                            :Objects.requireNonNull(authorities.reclaims().resolve(mutation),"original Native reclaim authority");
+                    first=reclaim.prepareFirst(budget,mutation.mutation(),entry.position(),control.authority());
+                }catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                result=reclaim.commit(first,writes(control.commit(),entry,clock));
             } else if (mutation.mutation().type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) {
                 // This operation needs four counters; existing smaller runtime limits retain their old scope.
                 final var retirement = new com.nereusstream.delay.runtime.TargetEvidenceRetirementStore(
@@ -2341,6 +2453,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if(entry instanceof SourceReplayMutation confirmation&&confirmation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED){
             com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(confirmation.mutation().canonicalBody());return;
+        }
+        if(entry instanceof SourceReplayMutation reclaim&&reclaim.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+            com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(reclaim.mutation().canonicalBody());return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)
                 || mutation.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL) {

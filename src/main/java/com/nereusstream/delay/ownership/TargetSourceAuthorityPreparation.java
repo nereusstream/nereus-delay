@@ -18,13 +18,15 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
     }
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
         Set<Family> families();
         Held load(SourceReplayEntry entry, Family family, Runnable guard);
         default Held load(SourceReplayEntry entry,Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
+        default Held load(SourceReplayEntry entry,Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source,
+                TargetSourceApplyRuntime.ReclaimRead reclaim){return load(entry,family,guard,source);}
     }
 
     /** Immutable original author/key/role/scope/history data, already acquired outside Store locks. */
@@ -89,7 +91,8 @@ public final class TargetSourceAuthorityPreparation {
                 value -> require(value, TargetSourceApplyRuntime.OutcomeControl.class),
                 value -> require(value, TargetSourceApplyRuntime.ChannelControl.class),
                 value -> require(value, TargetSourceApplyRuntime.RetirementControl.class),
-                value -> require(value, TargetSourceApplyRuntime.ProtocolActivationControl.class));
+                value -> require(value, TargetSourceApplyRuntime.ProtocolActivationControl.class),
+                value -> require(value, TargetSourceApplyRuntime.ReclaimControl.class));
         return authorities;
     }
 
@@ -118,7 +121,8 @@ public final class TargetSourceAuthorityPreparation {
             if(elapsed<0||elapsed>=timeoutNanos){requestStop();throw new IllegalStateException("Source input admission exceeded its original finite deadline");}
             opening = OwnedCheckpointIo.submitResource(guard -> {
                 final var source=originalSource==null?null:originalSource.confirmationRead(expected,originalSourceClock);
-                final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard,source), "original content snapshot");
+                final var reclaim=originalSource==null?null:originalSource.reclaimRead(expected,originalSourceClock);
+                final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard,source,reclaim), "original content snapshot");
                 try {
                     guard.run(); loaded.requireCurrent();
                     if (!SourceApplyCoordinator.sameEntry(expected, loaded.entry()) || loaded.retainedBytes() < 0
@@ -238,6 +242,7 @@ public final class TargetSourceAuthorityPreparation {
         if (control instanceof TargetSourceApplyRuntime.OutcomeControl) return Family.OUTCOME;
         if (control instanceof TargetSourceApplyRuntime.ChannelControl) return Family.CHANNEL;
         if (control instanceof TargetSourceApplyRuntime.RetirementControl) return Family.RETIREMENT;
+        if(control instanceof TargetSourceApplyRuntime.ReclaimControl)return Family.RECLAIM;
         if (control instanceof TargetSourceApplyRuntime.ProtocolActivationControl) return Family.ACTIVATION;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }

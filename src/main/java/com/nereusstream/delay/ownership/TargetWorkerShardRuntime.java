@@ -664,6 +664,12 @@ public final class TargetWorkerShardRuntime
         if(image.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
         return submitRetirement(image,writer,protection,clock,retained);
     }
+    public TargetEvidenceRetirementWorkClassExecutor.Submission submitResourceReclaim(SystemMutation image,
+            OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
+            java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+        if(image.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)throw new IllegalArgumentException("Native reclaim type required");
+        return submitRetirement(image,writer,protection,clock,retained);
+    }
     private TargetEvidenceRetirementWorkClassExecutor.Submission submitRetirement(SystemMutation image,
             OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
             java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
@@ -707,6 +713,10 @@ public final class TargetWorkerShardRuntime
     }
     public Optional<SystemMutationResult> settleRetirementConfirmation(SystemMutation image,LongSupplier clock){
         if(image.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
+        return settleRetirement(image,clock);
+    }
+    public Optional<SystemMutationResult> settleResourceReclaim(SystemMutation image,LongSupplier clock){
+        if(image.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)throw new IllegalArgumentException("Native reclaim type required");
         return settleRetirement(image,clock);
     }
     private Optional<SystemMutationResult> settleRetirement(SystemMutation image,LongSupplier clock){
