@@ -137,6 +137,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
+    private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -178,6 +179,7 @@ public final class TargetCheckpointDependencies {
         protocolActivations=List.copyOf(builder.protocolActivations.values());
         sloStates=List.copyOf(builder.sloStates.values());
         sloGenerations=List.copyOf(builder.sloGenerations.values());
+        sloSamples=List.copyOf(builder.sloSamples.values());
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -266,6 +268,7 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations(){return protocolActivations;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates(){return sloStates;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations(){return sloGenerations;}
+    public List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples(){return sloSamples;}
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -913,6 +916,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -954,6 +958,7 @@ public final class TargetCheckpointDependencies {
             prior.protocolActivations.forEach(this::protocolActivation);
             prior.sloStates.forEach(this::sloState);
             prior.sloGenerations.forEach(this::sloGeneration);
+            prior.sloSamples.forEach(this::sloSample);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1025,6 +1030,9 @@ public final class TargetCheckpointDependencies {
         }
         void sloGeneration(com.nereusstream.delay.protocol.TargetSloObservationGeneration record) {
             if(sloGenerations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO generation");
+        }
+        void sloSample(com.nereusstream.delay.protocol.TargetSloObservationSample record) {
+            if(sloSamples.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO sample");
         }
         void protocolActivation(com.nereusstream.delay.protocol.TargetProtocolActivationRecord record){
             if(protocolActivations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target protocol activation");

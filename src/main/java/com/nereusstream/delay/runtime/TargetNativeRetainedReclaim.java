@@ -59,6 +59,7 @@ public final class TargetNativeRetainedReclaim {
         for(var operation:body.operations()){
             current.run();
             if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
+                TargetSloObservationSamples.requireUnreferenced(d,leaf.expected().key());
                 retainedWindow(body,leaf.expected());final var actual=d.resultRecord(leaf.expected().key());
                 if(applied){if(actual!=null)throw new IllegalStateException("APPLIED Native leaf deletion retains its exact row");}
                 else if(actual==null||!Arrays.equals(actual.canonicalBytes(),leaf.expected().canonicalBytes()))throw new IllegalStateException("Native leaf changed after selection");
@@ -144,6 +145,7 @@ public final class TargetNativeRetainedReclaim {
         if(body.incarnationReclaim()){TargetIncarnationReclaim.requireCurrent(reader,input,current);return;}
         for(var operation:body.operations()){
             current.run();if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
+                TargetSloObservationSamples.requireUnreferenced(reader,List.of(),leaf.expected().key());
                 retainedWindow(body,leaf.expected());
                 if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)requireOriginalFirst(leaf.expected(),result(reader,List.of(),firstKey(leaf.expected().logicalId())));
                 if(leaf.expected().kind().position()&&reader.source().compareTo(leaf.expected().mutation().source())<=0)throw new IllegalStateException("cannot delete current frontier POSITION");
@@ -204,6 +206,7 @@ public final class TargetNativeRetainedReclaim {
         result(view,overlay,positionKey(original.position())).requireFirst(first);decision.requireAtOrBefore(frontier);
         if(body.incarnationReclaim()){TargetIncarnationReclaim.requireAppliedDecision(view,overlay,body,decision);return;}
         for(var operation:body.operations())if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
+            TargetSloObservationSamples.requireUnreferenced(view,overlay,leaf.expected().key());
             retainedWindow(body,leaf.expected());
             if(view.projected(ColumnFamily.DEDUPE,leaf.expected().key(),overlay)!=null)throw new IllegalStateException("APPLIED Native record deletion retains its row");
             if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)requireOriginalFirst(leaf.expected(),result(view,overlay,firstKey(leaf.expected().logicalId())));

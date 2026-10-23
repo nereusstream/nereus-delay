@@ -155,10 +155,7 @@ public final class TargetSloObservationStore {
             prior.policy().requireSource(generation.enable().appliedAt().source());
             requireControlOrigin(view, overlay, scope, lineage, root, prior.control(), frontier);
         }
-        if (!generation.counts().equals(TargetSloObservationGeneration.Counts.empty())
-                || !generation.mutation().equals(generation.control().appliedAt())) {
-            throw new IllegalStateException("Target SLO sample accounting and its actual business Source links are not yet wired");
-        }
+        TargetSloObservationSamples.requireGenerationDelta(view, overlay, scope, lineage, generation, frontier);
     }
 
     private static void requireControlOrigin(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,

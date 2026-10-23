@@ -99,11 +99,13 @@ public final class TargetCommandStore {
         private final TargetCommandStore owner;
         private final TargetStoreBackend.Prepared batch;
         private final CommandResult result;
+        private final Runnable sampleQualification;
 
-        private Prepared(TargetCommandStore owner, TargetStoreBackend.Prepared batch, CommandResult result) {
+        private Prepared(TargetCommandStore owner, TargetStoreBackend.Prepared batch, CommandResult result, Runnable sampleQualification) {
             this.owner = owner;
             this.batch = batch;
             this.result = result;
+            this.sampleQualification = sampleQualification;
         }
     }
 
@@ -196,6 +198,15 @@ public final class TargetCommandStore {
             TargetReservationControls.Authority reservationControls,
             Schedules schedules,
             PayloadProofControls payloadProofs) {
+        return prepareFirst(budget, command, source, policy, controls, reservationControls, schedules, payloadProofs,
+                TargetSloObservationSamples.UNAVAILABLE);
+    }
+
+    public Prepared prepareFirst(
+            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
+            CancellationControls controls, TargetReservationControls.Authority reservationControls,
+            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples) {
+        Objects.requireNonNull(samples, "original certification sample authority");
         Objects.requireNonNull(payloadProofs, "payloadProofs");
         Objects.requireNonNull(reservationControls, "reservationControls");
         Objects.requireNonNull(command, "command");
@@ -209,6 +220,7 @@ public final class TargetCommandStore {
         }
         final var result = new CommandResult[1];
         final var ingress = new TargetQuotaAccounting[1];
+        final Runnable[] sampleQualification = {() -> {}};
         final byte[] digest = command.canonicalFrameDigest();
         final var batch = messages.prepareAccountedWithQuotaRejection(
                 budget,
@@ -366,14 +378,12 @@ public final class TargetCommandStore {
                     return withResults(reader, command, stamp, root, decision, result);
                 },
                 (reader, business) -> {
-                    final var assembled = new TargetSourceAccounting(
-                                    scope, lineage, source, digest, maximumCounters, 1, maximumDomains)
-                            .assemble(reader, business);
-                    new TargetQuotaStoreGate(scope, lineage, 1)
-                            .check(
-                                    reader,
-                                    assembled,
-                                    ingress[0] != null
+                    final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
+                    final var sample = TargetSloObservationSamples.command(reader, scope, lineage, command, stamp, business, samples);
+                    sampleQualification[0] = sample.qualification();
+                    final var accounting = new TargetSourceAccounting(scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
+                    final var gate = new TargetQuotaStoreGate(scope, lineage, 1);
+                    final var operation = ingress[0] != null
                                             ? command.type() == CommandType.PREPARE_LARGE_SCHEDULE
                                                     ? TargetQuotaGrantGate.Operation.PREPARE
                                                     : TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
@@ -382,8 +392,18 @@ public final class TargetCommandStore {
                                                     ? TargetQuotaGrantGate.Operation.RESERVATION_COMMIT
                                                     : command.type() == CommandType.RESCHEDULE
                                                             ? TargetQuotaGrantGate.Operation.RESCHEDULE
-                                                            : TargetQuotaGrantGate.Operation.CANCEL,
-                                    ingress[0]);
+                                                            : TargetQuotaGrantGate.Operation.CANCEL;
+                    // Preserve the original business capacity decision before charging mandatory certification.
+                    final var baseline = accounting.assemble(reader, business);
+                    gate.check(reader, baseline, operation, ingress[0]);
+                    if (sample.edits().isEmpty()) return baseline;
+                    final var observed = new ArrayList<>(business);
+                    observed.addAll(sample.edits());
+                    final var assembled = accounting.assemble(reader, observed);
+                    try { gate.check(reader, assembled, operation, ingress[0]); }
+                    catch (TargetQuotaStoreGate.Rejected capacity) {
+                        throw new IllegalStateException("required Target certification evidence cannot downgrade the original business decision", capacity);
+                    }
                     return assembled;
                 },
                 (reader, exceeded) -> {
@@ -411,14 +431,22 @@ public final class TargetCommandStore {
                             unchanged(rejected(StableCode.HARD_QUOTA_EXCEEDED, source), root),
                             result);
                 });
-        return new Prepared(this, batch, result[0]);
+        return new Prepared(this, batch, result[0], sampleQualification[0]);
     }
 
     public CommandResult commit(Prepared prepared, TargetStoreBackend.CommitAuthority authority) {
         if (Objects.requireNonNull(prepared, "prepared").owner != this) {
             throw new IllegalArgumentException("foreign first Command plan");
         }
-        backend.commit(prepared.batch, Objects.requireNonNull(authority, "authority"));
+        Objects.requireNonNull(authority, "authority");
+        prepared.sampleQualification.run();
+        backend.commit(prepared.batch, (metadata, actualScope, mutation) -> {
+            final var actual = authority.acquire(metadata, actualScope, mutation);
+            return new TargetStoreBackend.CommitGuard() {
+                public void requireCurrent() { prepared.sampleQualification.run(); actual.requireCurrent(); prepared.sampleQualification.run(); }
+                public void close() { actual.close(); }
+            };
+        });
         return prepared.result;
     }
 

@@ -266,13 +266,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             com.nereusstream.delay.runtime.TargetReservationControls.Authority reservationControls,
             TargetCommandStore.Schedules schedules,
             TargetCommandStore.PayloadProofControls payloadProofs,
+            com.nereusstream.delay.runtime.TargetSloObservationSamples.Authority samples,
             TargetStoreBackend.CommitAuthority commit) {
+        public CommandControl(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
+                TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
+                TargetCommandStore.PayloadProofControls payloadProofs, TargetStoreBackend.CommitAuthority commit) {
+            this(policy,cancellations,reservations,schedules,payloadProofs,com.nereusstream.delay.runtime.TargetSloObservationSamples.UNAVAILABLE,commit);
+        }
         public CommandControl {
             Objects.requireNonNull(policy, "policy");
             Objects.requireNonNull(cancellations, "cancellations");
             Objects.requireNonNull(reservationControls, "reservationControls");
             Objects.requireNonNull(schedules, "schedules");
             Objects.requireNonNull(payloadProofs, "payloadProofs");
+            Objects.requireNonNull(samples, "samples");
             Objects.requireNonNull(commit, "commit");
         }
     }
@@ -2493,7 +2500,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         },
                         control.reservationControls(),
                         control.schedules(),
-                        control.payloadProofs());
+                        control.payloadProofs(),
+                        control.samples());
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }

@@ -60,6 +60,8 @@ public final class TargetKeyCodec {
     public static final int PAYLOAD_OBJECT_RETIRING_TAG = 49;
     public static final int SLO_STATE_TAG = 50;
     public static final int SLO_GENERATION_TAG = 51;
+    public static final int SLO_SAMPLE_TAG = 52;
+    public static final int SLO_SAMPLE_REFERENCE_TAG = 53;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

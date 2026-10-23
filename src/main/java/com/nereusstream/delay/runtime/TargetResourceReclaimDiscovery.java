@@ -251,6 +251,7 @@ public final class TargetResourceReclaimDiscovery {
                 if(record.mutation().equals(original.mutation()))return null;
                 record.mutation().requireAfter(original.mutation());
             }
+            if(TargetSloObservationSamples.hasReference(reader,List.of(),record.key()))return null;
             return new Candidate(this,new TargetResourceReclaimBody.RetainedRecordDelete(record));
         }
         if(kind==5){

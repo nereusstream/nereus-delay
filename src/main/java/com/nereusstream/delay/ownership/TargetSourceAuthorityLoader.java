@@ -90,7 +90,13 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
             TargetReservationControls.Authority reservations, TargetCommandStore.Schedules schedules,
-            TargetCommandStore.PayloadProofControls payloadProofs) implements Inputs {}
+            TargetCommandStore.PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples) implements Inputs {
+        public Command(TargetCommandStore.Policy policy,TargetCommandStore.CancellationControls cancellations,
+                TargetReservationControls.Authority reservations,TargetCommandStore.Schedules schedules,TargetCommandStore.PayloadProofControls payloadProofs){
+            this(policy,cancellations,reservations,schedules,payloadProofs,TargetSloObservationSamples.UNAVAILABLE);
+        }
+        public Command { Objects.requireNonNull(samples); }
+    }
     public record Grant(PreparedControlOperation prepared, TargetQuotaGrantControlVerifier.Authority authority,
             TargetQuotaCapacitySnapshot.Provider capacity, TargetQuotaCapacitySnapshot.Limits capacityLimits) implements Inputs {}
     public record Fence(TargetTimeFenceVerifier.Authority authority) implements Inputs {}
@@ -183,8 +189,16 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard,TargetSourceApplyRuntime.ReclaimRead reclaim) {
         var commit = held.commit(originalCommit);
         return switch (inputs) {
-            case Command value -> new TargetSourceApplyRuntime.CommandControl(value.policy(), value.cancellations(),
-                    value.reservations(), value.schedules(), value.payloadProofs(), commit);
+            case Command value -> {
+                final var original = value.samples();
+                final var samples = new TargetSloObservationSamples.Authority() {
+                    public void requireSample(TargetSloObservationGeneration generation,TargetSloObservationSample sample,long bytes) {
+                        requireCurrent(); original.requireSample(generation,sample,bytes); requireCurrent();
+                    }
+                    public void requireCurrent() { held.requireCurrent(); original.requireCurrent(); held.requireCurrent(); }
+                };
+                yield new TargetSourceApplyRuntime.CommandControl(value.policy(),value.cancellations(),value.reservations(),value.schedules(),value.payloadProofs(),samples,commit);
+            }
             case Fence value -> new TargetSourceApplyRuntime.FenceControl(value.authority(), commit);
             case Expiry value -> new TargetSourceApplyRuntime.ExpiryControl(value.authority(), commit);
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(), commit);

@@ -5891,7 +5891,8 @@ roles and authenticated scope are mandatory. Existing v1 SLO sample bytes/IDs ar
   3 actual applied TargetQuotaMutation; Source/digest/retry/scope links are checked. Counts1 fields
   1 version,2 issued,3 retained outbox records,4 retained outbox bytes,5 custodied. Custody does not
   imply outbox removal/refund. Counts are data and require an independent actual sample fold;
-  the current Source accounting explicitly rejects nonempty counts or sample-only mutations.
+  actual Command Start edits now derive issued/retained counts and bytes; no Final/custody mutation
+  is accepted before its own Source event chain is connected.
 - Native57/58 use the original frozen Shard STATE charge and tenant mirror. Source-applied enable/
   stop, first/POS and all charge changes use one original Target batch; rejected requests retain
   their ordinary exact first/POS only. Applied mode controls and every retained generation endpoint
@@ -5907,8 +5908,49 @@ roles and authenticated scope are mandatory. Existing v1 SLO sample bytes/IDs ar
   It requires current Worker protection and the independently admitted/APPLIED body18 activation.
   An append receipt does not make a generation effective. Existing channel ownership checks remain.
 
-The mode structural fold and original Control-image authentication hooks are not sample coverage
-or complete certification restore. No Start/Final/binding/custody Native formats are registered yet;
-legacy v1 bytes and semantics remain unchanged. Full business atomic sampling, finite Final growth,
+The mode structural fold and original Control-image authentication hooks are not complete certification
+coverage or restore. Command Start/binding Native59 is now registered below; no Final event or custody
+format/writer is registered yet. Legacy v1 bytes and semantics remain unchanged. Admission sampling,
 qualified old-generation drain, lifecycle/restore/consumer authentication and positive Source-range
 coverage remain required before descriptor15 or an enabled generation can become serviceable.
+
+
+2026-10-24 Native59 schema1: actual first-Command certification Start/binding (activation still closed).
+
+- Primary META tag52 key `34 01 || originalV1SampleId[32]`. The immutable binding covers fields1
+  version1,2 complete Shard-only scope,3 lineage[16],4 observation generation,5 original enable
+  SystemMutationId[32],6 full enable TargetQuotaMutation,7 original policy digest[32],8 complete
+  declaration,9 original TargetResultRecord COMMAND first, plus the unchanged v1 Start bytes.
+  Field10 is the unchanged v1 SloObservationOutbox,11 latest TargetQuotaMutation,12 binding digest,
+  13 complete record digest. Schema1 accepts only COMMAND_APPLIED_LATENCY/ALL_ACCEPTED/
+  NOT_APPLICABLE. Original Start/event/sample IDs, time and merge formats are unchanged.
+- Two exact retained references use META tag53 key `35 01 || SHA256(originalDedupeKey)[32] ||
+  originalV1SampleId[32]`, one for original COMMAND first and one for its first Source POSITION.
+  Both contain the same complete Native59 value; point/range reads verify actual counterparts.
+  Every projection is charged under original frozen Root STATE fees and the tenant mirror.
+  Counts rebuild records from primary values and bytes from all three full Native key/value images.
+- The actual first-Command assembly appends Start/binding, both references and generation counts
+  to the existing complete business/results/Source accounting batch. Both ordinary first decisions
+  and the original deterministic quota-rejection branch use it. Replay/expired-position processing
+  never creates a new binding or backfills an old event into today's observation generation.
+- Missing real held reservation/load/collector inputs or insufficient frozen outbox/record limits
+  block the original Source/ACK. The original business capacity decision is evaluated first; the
+  enlarged certification batch cannot turn an accepted business decision into a quota rejection.
+  Actual sample holds are collected by the original Command loader and rechecked through commit.
+- Final growth is reserved before Start: the unchanged closed v1 Final field shapes give a finite
+  maximum; both Source codecs have fixed canonical width for the frozen physical identity and
+  only the Source mutation sequence can grow by at most9 bytes. All existing retained Starts keep
+  this future space as well. No frozen declaration cap or actual charge is raised to fit a sample.
+- Independent hot deltas use actual primary edits. The cold full ledger positively enumerates
+  every retained COMMAND first in each effective declared interval and matches its exact v1 Start/
+  generation/binding, derives all retained counts/bytes and latest actual Control/sample mutation,
+  and verifies reference counterparts. This is retained-input structural completeness, not a
+  certificate for a complete external Source range, required Finals or durable collector custody.
+- Existing Native record discovery skips actual sample references, and original full closure/current
+  Source/applied-history checks reject deletion while any reference remains. Collector ACK will not
+  remove these duties automatically. No sample-retirement/delete/refund writer is introduced here.
+
+Native59 Finals and sample-only mutations still fail closed until the independent bounded Source
+observation event is implemented. Managed Admission Starts, Finals/timeouts, custody/export, old-gen
+retention/drain, authenticated lifecycle/restore and the new positive-coverage consumer remain open.
+Descriptor15/body18 activation is still unavailable; ordinary process/exporter epoch/cut/gap is separate.
