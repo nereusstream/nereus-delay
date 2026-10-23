@@ -629,6 +629,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public void requireClosedInline(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInline(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
         }
+        public void requireClosedObject(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
+            readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedObject(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
+        }
         public void requireClosedNative(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNative(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
         }
@@ -1687,7 +1690,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             synchronized(runtime){
                 runtime.requireGcOwner(clock);
                 runtime.backend.guardedRead(reads,reader->{
-                    if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim())
+                    if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).objectPayloadReclaim())
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedObjectDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                    else if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim())
                         com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNativeDraft(reader,runtime.scope,runtime.lineage,input,recovery);
                     else if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease())
                         com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInlineDraft(reader,runtime.scope,runtime.lineage,input,recovery);
@@ -1744,6 +1749,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
+                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetObjectPayloadReclaim())
+                        &&!activation.body().payload().descriptor().supportsObjectPayloadReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim())
                         &&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
                 return Boolean.FALSE;

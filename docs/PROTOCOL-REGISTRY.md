@@ -5496,3 +5496,61 @@ checkpoint和full image都识别精确合法后态及已结算链；旧Source截
 
 本批不包含OBJECT动作；它后续使用type14自己的intent/provider/Source confirmation
 能力边界和PAYLOAD_OBJECT身份，不能借本descriptor9或kind8作条件删除成功。
+
+
+### 2026-10-23 Native OBJECT Source core: reserved body13 / kind4 / Native56
+
+This is the typed Source/recovery implementation, not an admitted OBJECT writer capability.
+Descriptor constructors/decoders still accept only1..9, their canonical bytes/native maximum55
+remain unchanged, and no actual tuple13 activation can currently be installed. The complete
+OBJECT discovery/signing/provider-maintenance integration must land before descriptor10 is
+registered. Old Action3/inline/kind8 permissions do not confer OBJECT authority.
+
+Type14 retains its unchanged envelope and common fields1/2/3/9..15. New body13 uses
+ProtocolTuple(1,1,SYSTEM_MUTATION,1,13), exactly one kind4 operation per decision:
+- action1 intent fields1 schema1,2 kind4,3 action1,4 complete frozen RETAINED committed
+  OBJECT TargetQuotaPayloadOwner,5 current TargetMessageLocator,6 nonzero uint64 stateVersion,
+  7 exact primary canonical SHA256,8 exact terminal canonical SHA256,9 complete original
+  CanonicalPayloadCommitProof. All owner/Message/tenant/reservation/Profile/immutable version/
+  etag/length/hash/proof identities correlate. Original signatures/publication/use still need
+  independent authentication. Body field16 is mandatory original retained/fence SourceFacts1,
+  with its original8MiB total bound; the full intent body has its own24MiB bound.
+- action2 confirmation fields1 schema1,2 kind4,3 action2,4 complete original Native56 payload,
+  5 actual provider request-ID hash32,6 actual provider response hash32. Body field16 is absent;
+  full original facts survive inside the exact signed intent. Body scope/lineage/deployment/
+  namespace must equal that intent; the actual selected Floor must cover its applied stamp.
+  Confirmation body maximum32MiB. Response hashes alone grant no success or deletion right.
+
+Logical identity uses the existing reclaim domain/scope/lineage/deployment/namespace/group
+preimage plus lp32(tuple13); kind/action differentiate stages. Floor and retry changes cannot
+replace the original first result. No default configuration/input budget is raised.
+
+Native56 is META key `31 01 || DelayMessageId.bytes` (decimal tag49). Payload fields1 schema1,
+2 complete signed type14/body13/action1 System envelope,3 actual Source-applied TargetQuotaMutation,
+4 SHA256(domain `nereus-delay-target-payload-object-retiring` + NUL + canonical fields1..3).
+The decoder verifies kind/action1 before recursive System identity resolution: a confirmation
+cannot be nested as an intent. Maximum signed frame=24MiB+1MiB author allowance+4096;
+maximum Native56 payload=that bound+TargetQuotaMutation.MAX_CANONICAL_BYTES+256.
+This row charges an independent STATE record fee to the original frozen Target owner/mirror;
+intent keeps original primary/owner/payload bytes charged. The Source confirmation atomically
+removes that row and primary, releases the same owner through the actual Floor and exact
+before/after accounting, while first/POSITION/terminal/reservation/history and their fees remain.
+There is no caller delta, arbitrary CF/key deletion, new mutable settlement ledger or local refund.
+
+Native54 schema6 retains new body13 complete envelopes under the existing32MiB+1MiB+4096
+new-frame ceiling. Old schemas1..5 retain their exact prior byte rules. Lifecycle schema6 and
+companion schema12 encode the existing lifecycle fields with full original intent/confirmation
+Source history; native inventory includes Native56. Old lifecycle/companion bytes remain unchanged.
+Original independently pinned Action3 history, actual activation/reader set, full Floor/live/Pin
+closure, original policy/Source facts, reservation/commit proof and actual provider/reader admission
+remain mandatory. Normal/cold/point accounting recognizes both pending and lawful released
+successors; no Broker pull of truncated original retained/fence input is substituted.
+
+The Source loader accepts a real non-deserializable PayloadObjectDelete.Observation and checks
+its full owner/proof/intent and both response hashes. When it is absent, a separate existing held
+provider-history check must independently authenticate the exact earlier provider operation;
+it defaults to rejection. Actual OBJECT admission is separately held/revalidated across commit.
+Image and original lifecycle authorities also default-deny this distinct purpose. Raw absence,
+credential/Profile flags, an embedded proof key or serialized response digest do not prove success.
+Discovery/producer maintenance, actual provider invocation/retry/UNKNOWN custody, reader capability
+activation, uncommitted reservations and centralized/Broker/recovery validation remain required.

@@ -21,7 +21,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final var body=reclaim?TargetResourceReclaimBody.decode(input.canonicalBody()):null;
         final var resource=reclaim?null:resource(input);
         final var scope=reclaim?body.scope():new TargetQuotaScope(resource.shard(),resource.tenantScope(),null);
-        if(input.canonicalEnvelope().length>(reclaim&&body.nativeRetainedReclaim()?MAX_ENVELOPE_BYTES:LEGACY_MAX_ENVELOPE_BYTES)||!input.shardId().equals(source.shardId())
+        if(input.canonicalEnvelope().length>(reclaim&&(body.nativeRetainedReclaim()||body.objectPayloadReclaim())?MAX_ENVELOPE_BYTES:LEGACY_MAX_ENVELOPE_BYTES)||!input.shardId().equals(source.shardId())
                 ||!Arrays.equals(Bytes.sha256(input.canonicalEnvelope()),decidedAt.mutationDigest())
                 ||!last.scope().equals(scope)||!Arrays.equals(last.lineage(),reclaim?body.lineage():resource.recoveryLineage())
                 ||!Arrays.equals(last.deploymentRoot(),reclaim?body.deploymentRoot():resource.deploymentRootDigest())
@@ -44,6 +44,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
                 &&Arrays.equals(g.service().canonicalBytes(),actor)).findFirst();
     }
     private int schemaVersion(){return input.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM?1
+            :TargetResourceReclaimBody.decode(input.canonicalBody()).objectPayloadReclaim()?6
             :TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim()?5
             :TargetResourceReclaimBody.decode(input.canonicalBody()).selfContainedInlinePayloadRelease()?4
             :TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease()?3:2;}
@@ -60,8 +61,8 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,5,false,"retirement Source history record");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5},"retirement Source history record");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if(version<1||version>5)throw new IllegalArgumentException("unknown retirement Source history schema");
-        final byte[] frame=QueryCodecSupport.bytes(f.get(1),2);if(frame.length>(version==5?MAX_ENVELOPE_BYTES:LEGACY_MAX_ENVELOPE_BYTES))throw new IllegalArgumentException("retirement history frame exceeds bound");
+        if(version<1||version>6)throw new IllegalArgumentException("unknown retirement Source history schema");
+        final byte[] frame=QueryCodecSupport.bytes(f.get(1),2);if(frame.length>(version>=5?MAX_ENVELOPE_BYTES:LEGACY_MAX_ENVELOPE_BYTES))throw new IllegalArgumentException("retirement history frame exceeds bound");
         final var value=new TargetRetirementSourceHistoryRecord(SystemMutation.decodeEnvelope(frame),TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(2),3)),
                 TargetRetirementAuthorizationHistory.PublicProof.decode(QueryCodecSupport.bytes(f.get(3),4)));
         if(version!=value.schemaVersion())throw new IllegalArgumentException("Source history version/type mismatch");

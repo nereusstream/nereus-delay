@@ -1558,3 +1558,16 @@ OBJECT按主会话另定：后续type14专用“持久exact intent→原provider
 复用PAYLOAD_OBJECT身份并绑定Native owner/reservation/commit/各代/冻结费用；现有后端
 没有生产条件删除API，不能借kind8/legacy intent/裸GET absence/SDK close伪称完成。
 当前descriptor9不宣布该能力；此后续与其它未闭合记录/身份流程保留在完整目标中。
+
+
+### 2026-10-23：OBJECT Source核心的实施边界
+
+落实既定type14专用两阶段裁定：kind4/body13保完整Native owner/原commit proof及raw原
+retained/fence；Native56记录pending，保收费；独立Source确认消费actual hot或原provider
+合法历史见证，同批清理primary/pending与owner RELEASED、原精确账务，保恢复/查询依赖。
+沿原GC/Source/image持有点增加OBJECT独立目的，缺任何真实能力默认拒绝。
+
+本次只到Source/读取核心，不把尚未连接的OBJECT discovery/signing/provider-maintenance
+视为实现完成。descriptor1..9字节及最大构造版本仍9，descriptor10尚未登记，tuple13不能
+取得实际activation。实现完整写入编排后再一次性开放对应reader能力；不提早广告或扩大
+默认输入预算。未提交reservation、lost-response provider历史及真实集成验证仍OPEN。

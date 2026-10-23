@@ -81,6 +81,7 @@ public final class ProtocolTuple {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.SELF_CONTAINED_INLINE_BODY_VERSION);
     }
     public static ProtocolTuple targetNativeRetainedReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.NATIVE_RETAINED_BODY_VERSION);}
+    public static ProtocolTuple targetObjectPayloadReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.OBJECT_PAYLOAD_BODY_VERSION);}
 
     public long framingVersion() {
         return framingVersion;

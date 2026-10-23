@@ -48,6 +48,11 @@ public record TerminalPolicySemantic(long minimumPayloadRetentionMs, TerminalTim
 
     /** The first inline release branch has no export contract; dynamic historical obligations still require closure. */
     public void requireInlineReleasePolicy(RetryPolicySemantic retry) {
+        requirePrimaryReleasePolicy(retry);
+    }
+
+    /** The current finite metadata-only/no-replay contract has no DLQ export release branch. */
+    public void requirePrimaryReleasePolicy(RetryPolicySemantic retry) {
         requireBinding(retry);
         if (retry.dlqExportMode() != DlqExportMode.NOT_CONFIGURED) {
             throw new IllegalArgumentException("inline payload release does not support a Retry Policy with DLQ export");

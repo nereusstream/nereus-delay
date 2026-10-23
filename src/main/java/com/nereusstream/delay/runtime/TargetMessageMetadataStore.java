@@ -44,9 +44,8 @@ public final class TargetMessageMetadataStore {
         if(!Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("metadata owner lineage changed");
         owner.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if(owner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
-            if(owner.kind()!=TargetQuotaPayloadOwner.Kind.INLINE)throw new IllegalStateException("OBJECT metadata requires its independent deletion contract");
             final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-            final var operation=TargetRetirementSourceHistoryStore.releasedInlineOperation(reader,List.of(),scope,lineage,root,owner,reader.aggregate().mutation());
+            final var operation=TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,root,owner,reader.aggregate().mutation());
             final var terminal=terminal(reader,operation.locator());
             return Optional.of(snapshot(terminal.locator(),terminal.stateVersion(),terminal.runtime(),terminal.terminalCode(),
                     PayloadAvailability.PAYLOAD_RECLAIMED,reader.source()));

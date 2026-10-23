@@ -2846,3 +2846,12 @@ Native54结算链按Budget+confirmation key去重，不对同一旧receipt反复
 归属/完整性/一次性依据的余额继续收费，不能因表里缺行归零。0余额转RELEASED仍保NV28
 槽位；新Source/capsule/Native历史、first/POS/SDK/物理副本仍各自计费。所有实际delta
 仅由原同批before/after计算；完整协议/窗口/Root/Pin/读者责任见Registry，不由纯DTO授予。
+
+
+2026-10-23 OBJECT Source核心：Native56 pending intent按原冻结owner/accounting独立收取
+STATE记录费；原RETAINED owner、primary引用和payload retained bytes在intent/物理操作
+未获Source确认期间全部保留。type14 kind4/action2必须核exact intent与实际hot或独立历史
+provider见证、真实reader/writer/Pin保护，才同Source原子删除primary/NV56并owner RELEASED。
+TargetRecordAccounting与full ledger/Source history局部投影辨识pending和确认后态，保留
+原reservation、terminal、first/POSITION、Native54/55与相应费用；既不退款Attempt allocated，
+也不把记录费等同payload byte费。writer/activation尚未开放，不构成实际回收/退费授权。

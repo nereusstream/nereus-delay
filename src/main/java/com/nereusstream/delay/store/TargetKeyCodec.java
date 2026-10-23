@@ -57,6 +57,7 @@ public final class TargetKeyCodec {
     public static final int PROTOCOL_ACTIVATION_TAG = 46;
     public static final int RETIREMENT_SOURCE_HISTORY_TAG = 47;
     public static final int RETIREMENT_HISTORY_TIP_TAG = 48;
+    public static final int PAYLOAD_OBJECT_RETIRING_TAG = 49;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

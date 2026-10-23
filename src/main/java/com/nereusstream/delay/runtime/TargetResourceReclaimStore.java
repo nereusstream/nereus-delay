@@ -48,7 +48,7 @@ public final class TargetResourceReclaimStore {
                 throw new IllegalStateException("Native recovery authentication exceeds original Source input reservation");
             final var recovery=catalog.captureSourceNativeRecoveryProtection(source,images,recoveryReads,maximumInputBytes,()->{source.requireCurrent();originalHeld.run();});
             final var result=new Protection(source,recovery,originalHeld);
-            if(body.nativeRetainedReclaim())source.requireClosedNative(result);else if(body.inlinePayloadRelease())source.requireClosedInline(result);else source.requireClosedUnused(result);
+            if(body.objectPayloadReclaim())source.requireClosedObject(result);else if(body.nativeRetainedReclaim())source.requireClosedNative(result);else if(body.inlinePayloadRelease())source.requireClosedInline(result);else source.requireClosedUnused(result);
             recovery.requireCurrent(recoveryReads,()->{source.requireCurrent();originalHeld.run();});
             result.requireCurrent();return result;
         }
@@ -80,6 +80,11 @@ public final class TargetResourceReclaimStore {
                     ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
                     ||body.operations().stream().noneMatch(o->Arrays.equals(o.canonicalBytes(),expected.canonicalBytes())))
                 throw new IllegalStateException("Native retained release changed exact Source/Floor/value");
+        }
+        private void requireObjectStage(RecoveryFloorRef floor,TargetQuotaMutation decision){
+            requireCurrent();recovery.requireReleaseMutation(decision);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!recovery.objectPayload()||!body.floor().equals(floor)||!Arrays.equals(decision.source().canonicalBytes(),source.entry().position().canonicalBytes())
+                    ||!Arrays.equals(decision.mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("OBJECT changed exact held Source/Floor");
         }
         public void requireCurrent(){source.requireCurrent();held.run();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
         public long retainedBytes(){return Math.addExact(recovery.retainedBytes(),input.canonicalEnvelope().length);}
@@ -187,7 +192,25 @@ public final class TargetResourceReclaimStore {
             if(rejection==null&&protection==null)throw new IllegalStateException("expected reclaim value reappeared without original held protections");
             if(rejection==null){
                 protection.requireSource(scope,lineage,input,source);protection.requireCurrent();
-                if(body.nativeRetainedReclaim()){
+                if(body.objectPayloadReclaim()){
+                    requireClosedObject(reader,scope,lineage,input,source,protection);protection.requireObjectStage(body.floor(),stamp);
+                    final var operation=body.objectOperation();final var expected=operation.expected();
+                    if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadRetire){
+                        final var pending=new TargetPayloadObjectRetiringRecord(input,stamp);
+                        requireAbsent(reader,ColumnFamily.META,pending.key());
+                        edits.add(reader.replace(ColumnFamily.META,pending.key(),TargetPayloadObjectRetiringRecord.VALUE_TYPE,pending.canonicalBytes()));
+                    }else{
+                        final var confirmation=(TargetResourceReclaimBody.ObjectPayloadConfirm)body.operations().getFirst();
+                        final var actual=TargetQuotaPayloadOwner.decodeForStore(expected.key(),payload(reader,ColumnFamily.META,expected.key(),TargetQuotaPayloadOwner.VALUE_TYPE),scope.shard(),scope.tenantScope());
+                        final var released=actual.release(body.floor(),stamp,(before,after,floor)->{
+                            if(!Arrays.equals(before.canonicalBytes(),expected.canonicalBytes())||after.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED||!after.mutation().equals(stamp))throw new IllegalStateException("OBJECT changed frozen owner on release");
+                            protection.requireObjectStage(floor,stamp);
+                        });
+                        edits.add(reader.replace(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()),TargetMessageRecord.VALUE_TYPE,null));
+                        edits.add(reader.replace(ColumnFamily.META,confirmation.intent().key(),TargetPayloadObjectRetiringRecord.VALUE_TYPE,null));
+                        edits.add(reader.replace(ColumnFamily.META,released.key(),TargetQuotaPayloadOwner.VALUE_TYPE,released.canonicalBytes()));
+                    }
+                }else if(body.nativeRetainedReclaim()){
                     requireClosedNative(reader,scope,lineage,input,source,protection);
                     for(var operation:body.operations()){
                         if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
@@ -287,7 +310,7 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
+        return activation!=null&&(body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
                 :body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
                 :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
@@ -313,6 +336,12 @@ public final class TargetResourceReclaimStore {
                         ||terminal==null||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(primary,TargetMessageRecord.VALUE_TYPE).payload()),inline.primaryDigest())
                         ||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(terminal,TargetTerminalGenerationRecord.VALUE_TYPE).payload()),inline.terminalDigest()))return false;
                 expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }case TargetResourceReclaimBody.ObjectPayloadRetire object->{
+                if(!matchesObject(reader,object)||reader.get(ColumnFamily.META,TargetPayloadObjectRetiringRecord.key(object.expected().messageId()))!=null)return false;
+            }case TargetResourceReclaimBody.ObjectPayloadConfirm confirmation->{
+                final var pending=confirmation.intent();final byte[] raw=reader.get(ColumnFamily.META,pending.key());
+                if(!matchesObject(reader,pending.operation())||raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),pending.canonicalBytes()))return false;
+                pending.appliedAt().requireAtOrBefore(reader.aggregate().mutation());
             }case TargetResourceReclaimBody.RetainedRecordDelete leaf->{
                 final var expected=leaf.expected();final byte[] raw=reader.get(ColumnFamily.DEDUPE,expected.key());
                 if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetResultRecord.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
@@ -326,6 +355,30 @@ public final class TargetResourceReclaimStore {
         return true;
     }
 
+    private static boolean matchesObject(TargetStoreBackend.Reader reader,TargetResourceReclaimBody.ObjectPayloadRetire object){
+        final var expected=object.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+        final byte[] primary=reader.get(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()));
+        final byte[] terminal=reader.get(ColumnFamily.TERMINAL,TargetTerminalGenerationRecord.key(object.locator()));
+        if(raw==null||primary==null||terminal==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes())
+                ||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(primary,TargetMessageRecord.VALUE_TYPE).payload()),object.primaryDigest())
+                ||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(terminal,TargetTerminalGenerationRecord.VALUE_TYPE).payload()),object.terminalDigest()))return false;
+        expected.mutation().requireAtOrBefore(reader.aggregate().mutation());return true;
+    }
+    public static void requireClosedObject(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,SourcePosition source,Protection protection){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());protection.requireSource(scope,lineage,input,source);
+        if(!body.objectPayloadReclaim()||!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())||reader.source()==null
+                ||source.compareTo(reader.source())<=0||!protection.recovery.objectPayload())throw new IllegalArgumentException("OBJECT closure changed actual Source context");
+        TargetObjectPayloadReclaim.requireCurrent(reader,input,protection.recovery.objectPolicies(),()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
+    }
+    public static void requireClosedObjectDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,
+            com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.objectPayloadReclaim()||!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())||!recovery.objectPayload()||reader.source()==null
+                ||reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs())throw new IllegalArgumentException("OBJECT draft changed actual context/window");
+        if(body.floor().appliedSourcePosition().compareTo(reader.source())>0||Long.compareUnsigned(body.floor().includedMutationSequence(),reader.sourceSequence())>0)
+            throw new IllegalStateException("OBJECT prefix has not replayed its Floor");
+        TargetObjectPayloadReclaim.requireClosed(reader.auditLedger(),input,recovery.objectPolicies(),false,reader::requireWithinElapsedBudget);
+    }
     /** Original Source calls this under its actual guarded read; apply repeats it in the atomic write view. */
     public static void requireClosedUnused(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
             SystemMutation input,SourcePosition source,Protection protection){

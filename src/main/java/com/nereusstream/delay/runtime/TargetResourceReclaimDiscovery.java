@@ -44,10 +44,12 @@ public final class TargetResourceReclaimDiscovery {
         public boolean nativeRetained(){return operation instanceof TargetResourceReclaimBody.RetainedRecordDelete||operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease;}
         public TargetQuotaIdentity primaryIdentity(){return switch(operation){
             case TargetResourceReclaimBody.InlinePayloadRelease p->p.expected().primaryIdentity();
+            case TargetResourceReclaimBody.ObjectPayloadRetire p->p.expected().primaryIdentity();
+            case TargetResourceReclaimBody.ObjectPayloadConfirm p->p.intent().operation().expected().primaryIdentity();
             case TargetResourceReclaimBody.UnusedAttemptReserve p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.RetainedRecordDelete p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.RetainedAllocationRelease p->p.expected().primaryIdentity();};}
-        public ProtocolTuple requiredTuple(){return nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+        public ProtocolTuple requiredTuple(){return operation instanceof TargetResourceReclaimBody.ObjectPayloadRetire||operation instanceof TargetResourceReclaimBody.ObjectPayloadConfirm?ProtocolTuple.targetObjectPayloadReclaim():nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
         public TargetResultRecord admission(){return admission;}
         public TargetResultRecord outcome(){return outcome;}
     }

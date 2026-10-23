@@ -665,6 +665,14 @@ public final class TargetRecordAccounting {
                 ref.requireOwner(artifact);
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var intent=com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.decodeForStore(key,payload,scope,lineage);
+                TargetObjectPayloadReclaim.requirePending(reader,overlay,intent,operation);
+                final var expected=intent.operation().expected();final var owner=descriptor(expected.primaryIdentity());
+                if(!owner.accounting().equals(expected.accounting()))throw new IllegalStateException("OBJECT intent changed frozen accounting");
+                result=new Charge(owner,resources(intent.recordCharge()));
+            }
             case com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE -> {
                 requireFamily(family,ColumnFamily.META);
                 final var retiring=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(

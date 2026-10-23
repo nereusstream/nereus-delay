@@ -565,7 +565,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     public NativeRecoveryProtection captureNewNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
-        final var result=body.inlinePayloadRelease()||body.nativeRetainedReclaim()?captureDeletionRecoveryProtection(input,images,reads,maximumBytes,current,null)
+        final var result=body.objectPayloadReclaim()||body.inlinePayloadRelease()||body.nativeRetainedReclaim()?captureDeletionRecoveryProtection(input,images,reads,maximumBytes,current,null)
                 :captureNativeRecoveryProtection(input,images,reads,current);
         if(!result.exactRequestedFloor)throw new IllegalStateException("GC signing Floor changed before authenticated preparation completed");return result;
     }
@@ -591,7 +591,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current){
         source.requireCurrent();if(source.catalog()!=this)throw new IllegalArgumentException("inline Source changed original managed Catalog");
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(source.entry().mutation().canonicalBody());
-        if(!body.inlinePayloadRelease()&&!body.nativeRetainedReclaim())return captureSourceNativeRecoveryProtection(source,images,reads,current);
+        if(!body.objectPayloadReclaim()&&!body.inlinePayloadRelease()&&!body.nativeRetainedReclaim())return captureSourceNativeRecoveryProtection(source,images,reads,current);
         if(body.floor().appliedSourcePosition().compareTo(source.entry().position())>=0)throw new IllegalStateException("inline Source must follow its declared Floor");
         source.requireReplayedFloor(body.floor());
         return captureDeletionRecoveryProtection(source.entry().mutation(),images,reads,maximumBytes,()->{source.requireCurrent();current.run();},source);
@@ -600,7 +600,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current,
             com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
-        if((!body.inlinePayloadRelease()&&!body.nativeRetainedReclaim())||maximumBytes<=0||maximumBytes==Long.MAX_VALUE||reads.maxBytes()==Long.MAX_VALUE)
+        if((!body.objectPayloadReclaim()&&!body.inlinePayloadRelease()&&!body.nativeRetainedReclaim())||maximumBytes<=0||maximumBytes==Long.MAX_VALUE||reads.maxBytes()==Long.MAX_VALUE)
             throw new IllegalArgumentException("inline recovery requires its explicit original finite input/read window");
         final long sourceWindow=maximumBytes-recoveryProtectionInputWindowBytes(images)
                 -Math.multiplyExact(4L,input.canonicalEnvelope().length+4096L);
@@ -662,7 +662,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current,
             com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
-        if(body.inlinePayloadRelease()||body.nativeRetainedReclaim())throw new IllegalStateException("actual deletion requires its complete recovery dependency qualification");
+        if(body.objectPayloadReclaim()||body.inlinePayloadRelease()||body.nativeRetainedReclaim())throw new IllegalStateException("actual deletion requires its complete recovery dependency qualification");
         recoveryProtectionInputWindowBytes(images);
         if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native recovery reads required");
         current.run();final byte[] namespace=nativeReclaimNamespace();
@@ -757,6 +757,8 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             if(replayDecision!=null&&!replayDecision.equals(mutation))throw new IllegalStateException("Native replay changed original APPLIED mutation stamp");
         }
         public boolean inlinePayload(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.InlinePayloadCopy;}
+        public boolean objectPayload(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.ObjectPayloadCopy;}
+        public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> objectPolicies(){return ((TargetCheckpointRootVerifier.ObjectPayloadCopy)deletionCopies.getFirst()).policies();}
         public boolean nativeRetained(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.NativeRetainedCopy;}
         public List<TargetCheckpointRootVerifier.InlinePayloadCopy> inlineCopies(){return deletionCopies.stream().filter(c->c instanceof TargetCheckpointRootVerifier.InlinePayloadCopy).map(c->(TargetCheckpointRootVerifier.InlinePayloadCopy)c).toList();}
         public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> inlinePolicies(){return inlineCopies().getFirst().policies();}

@@ -58,11 +58,17 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
         default void requireInlinePayloadDecision(HistoryImage input,TargetResultRecord originalFirst){
             throw new IllegalStateException("original lifecycle authority lacks complete inline payload decision authentication");
         }
+        /** Original Native OBJECT intent/admission, commit proof and actual hot or provider-history confirmation. */
+        default void requireObjectPayloadDecision(HistoryImage input,TargetResultRecord originalFirst){
+            throw new IllegalStateException("original lifecycle authority lacks actual Native OBJECT decision authentication");
+        }
         /** Original record/query/Source/Pin admission and immutable retention/allocation provenance, not today's policy. */
         default void requireNativeRetainedDecision(HistoryImage input,TargetResultRecord originalFirst){
             throw new IllegalStateException("original lifecycle authority lacks Native retained-reclaim decision authentication");
         }
     }
+    public boolean requiresObjectPayloadCapability(){return histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+            &&TargetResourceReclaimBody.decode(v.image().canonicalBody()).objectPayloadReclaim());}
     public TargetCheckpointLifecycleInputs{
         activations=ordered(activations,TargetProtocolActivationRecord::key);retirements=ordered(retirements,TargetEvidenceRetiringRecord::key);
         confirmations=ordered(confirmations,TargetEvidenceConfirmedRecord::key);histories=ordered(histories,v->v.image().systemMutationId());
@@ -85,7 +91,7 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&TargetResourceReclaimBody.decode(v.image().canonicalBody()).nativeRetainedReclaim());}
     public int recordCount(){return Math.addExact(Math.addExact(activations.size(),retirements.size()),Math.addExact(confirmations.size(),histories.size()));}
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,requiresNativeRetainedReclaimCapability()?5:requiresSelfContainedInlinePayloadReclaimCapability()?4:requiresInlinePayloadReclaimCapability()?3:requiresResourceReclaimCapability()?2:1);
+        CanonicalProtobuf.uint32(out,1,requiresObjectPayloadCapability()?6:requiresNativeRetainedReclaimCapability()?5:requiresSelfContainedInlinePayloadReclaimCapability()?4:requiresInlinePayloadReclaimCapability()?3:requiresResourceReclaimCapability()?2:1);
         for(var v:activations)CanonicalProtobuf.bytes(out,2,v.canonicalBytes());
         for(var v:retirements)CanonicalProtobuf.bytes(out,3,v.canonicalBytes());
         for(var v:confirmations)CanonicalProtobuf.bytes(out,4,v.canonicalBytes());
@@ -223,6 +229,11 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
                 if(!activation.body().payload().descriptor().supportsNativeRetainedReclaim())throw new IllegalStateException("Native record reclaim lacks exact prior descriptor9");
                 authority.requireNativeRetainedDecision(input,first);after(budget,guard);
             }
+            if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&TargetResourceReclaimBody.decode(input.image().canonicalBody()).objectPayloadReclaim()){
+                if(!activation.body().payload().descriptor().supportsObjectPayloadReclaim())throw new IllegalStateException("OBJECT decision lacks its distinct prior reader capability");
+                com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,TargetResourceReclaimBody.decode(input.image().canonicalBody()));
+                authority.requireObjectPayloadDecision(input,first);after(budget,guard);
+            }
             grants.put(Bytes.hex(input.image().systemMutationId()),grant);after(budget,guard);
         }
         for(var value:retirements){before(budget,guard);charge(budget,value.key().length,value.canonicalBytes().length);authority.requireRetiring(value,grants.get(Bytes.hex(value.intent().systemMutationId())));after(budget,guard);}
@@ -235,7 +246,7 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     public static TargetCheckpointLifecycleInputs decode(byte[] encoded,TargetCheckpointSemanticSnapshot.Limits limits){
         final var f=read(encoded,limits.maximumBytes(),limits.maximumRecords()+1,true);
         if(f.isEmpty())throw new IllegalArgumentException("missing lifecycle companion schema");
-        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>5)throw new IllegalArgumentException("unknown lifecycle companion schema");
+        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>6)throw new IllegalArgumentException("unknown lifecycle companion schema");
         final var a=new ArrayList<TargetProtocolActivationRecord>();final var r=new ArrayList<TargetEvidenceRetiringRecord>();
         final var c=new ArrayList<TargetEvidenceConfirmedRecord>();final var h=new ArrayList<HistoryImage>();int i=1;
         while(i<f.size()&&f.get(i).number()==2)a.add(TargetProtocolActivationRecord.decode(QueryCodecSupport.bytes(f.get(i++),2)));

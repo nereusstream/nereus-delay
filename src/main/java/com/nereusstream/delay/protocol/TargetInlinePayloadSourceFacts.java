@@ -69,14 +69,14 @@ public record TargetInlinePayloadSourceFacts(Frame fence,List<Retained> retained
         retained=List.copyOf(sorted.values());
     }
     public void requireFor(TargetResourceReclaimBody body){
-        requireFor(body.operations(),body.floor());
+        requireFor(body.objectPayloadReclaim()?List.of(body.objectOperation()):body.operations(),body.floor());
     }
     void requireFor(List<TargetResourceReclaimBody.Operation> operations,RecoveryFloorRef floor){
-        if(operations.isEmpty()||!(operations.getFirst() instanceof TargetResourceReclaimBody.InlinePayloadRelease)||retained.size()!=operations.size())
+        if(operations.isEmpty()||!(operations.getFirst() instanceof TargetResourceReclaimBody.RetainedPayload)||retained.size()!=operations.size())
             throw new IllegalArgumentException("SourceFacts changed exact inline group");
         fence.appliedAt().requireCoveredByFloor(floor);
         for(int i=0;i<retained.size();i++){
-            final var input=retained.get(i);final var operation=(TargetResourceReclaimBody.InlinePayloadRelease)operations.get(i);
+            final var input=retained.get(i);final var operation=(TargetResourceReclaimBody.RetainedPayload)operations.get(i);
             if(!input.message().equals(operation.expected().messageId())||!input.input().appliedAt().equals(operation.expected().mutation()))
                 throw new IllegalArgumentException("SourceFacts changed original frozen RETAINED owner stamp");
         }

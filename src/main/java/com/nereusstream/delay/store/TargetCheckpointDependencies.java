@@ -132,6 +132,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence;
     private final List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements;
+    private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
@@ -178,6 +179,7 @@ public final class TargetCheckpointDependencies {
         objectProfileHashes = copies(builder.objectHashes.values().stream().toList());
         artifactDigests = copies(builder.artifacts.values().stream().toList());
         admissionImagesComplete = complete;
+        payloadObjectIntents=Map.copyOf(builder.payloadObjectIntents);
         messageStates=Map.copyOf(builder.messageStates);payloadOwners=Map.copyOf(builder.payloadOwners);
         terminalGenerations=List.copyOf(builder.terminalGenerations.values());
         retentionFirsts=Map.copyOf(builder.retentionFirsts);retentionPositions=Map.copyOf(builder.retentionPositions);
@@ -187,6 +189,8 @@ public final class TargetCheckpointDependencies {
     }
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
+    public com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord payloadObjectIntent(com.nereusstream.delay.protocol.DelayMessageId id){return payloadObjectIntents.get(Bytes.hex(id.bytes()));}
+    public List<com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents(){return List.copyOf(payloadObjectIntents.values());}
     public MessageState messageState(com.nereusstream.delay.protocol.DelayMessageId id){return messageStates.get(Bytes.hex(id.bytes()));}
     public com.nereusstream.delay.protocol.TargetQuotaPayloadOwner payloadOwner(com.nereusstream.delay.protocol.DelayMessageId id){return payloadOwners.get(Bytes.hex(id.bytes()));}
     public List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations(){return terminalGenerations;}
@@ -882,6 +886,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
@@ -929,7 +934,7 @@ public final class TargetCheckpointDependencies {
             prior.trustSets.forEach(this::trust);
             prior.objectProfileHashes.forEach(this::objectHash);
             prior.artifactDigests.forEach(this::artifact);
-            messageStates.putAll(prior.messageStates);payloadOwners.putAll(prior.payloadOwners);
+            payloadObjectIntents.putAll(prior.payloadObjectIntents);messageStates.putAll(prior.messageStates);payloadOwners.putAll(prior.payloadOwners);
             prior.terminalGenerations.forEach(this::terminalGeneration);
             retentionFirsts.putAll(prior.retentionFirsts);retentionPositions.putAll(prior.retentionPositions);ingressFence=prior.ingressFence;
             timeFences.putAll(prior.timeFences);
@@ -947,7 +952,7 @@ public final class TargetCheckpointDependencies {
             for(var owner:payloadOwners.values())if(owner.phase()==com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.Phase.RETAINED)needed.add(retentionToken(owner.mutation()));
             for(var history:sourceHistories.values())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
                 final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
-                if(body.inlinePayloadRelease())for(var operation:body.operations())needed.add(retentionToken(((com.nereusstream.delay.protocol.TargetResourceReclaimBody.InlinePayloadRelease)operation).expected().mutation()));
+                if(body.inlinePayloadRelease()||body.objectPayloadReclaim())for(var operation:body.payloadOperations())needed.add(retentionToken(operation.expected().mutation()));
             }
             for(var row:rows){
                 final var value=TargetResultRecord.decode(row.payload());final String token=retentionToken(value.mutation());
@@ -966,6 +971,7 @@ public final class TargetCheckpointDependencies {
             final var previous=recoveryEvidence.putIfAbsent(Bytes.hex(owner.key()),owner);
             if(previous!=null&&!Arrays.equals(previous.canonicalBytes(),owner.canonicalBytes()))throw new IllegalStateException("duplicate recovery evidence owner");
         }
+        void payloadObjectIntent(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord record){payloadObjectIntents.put(Bytes.hex(record.operation().expected().messageId().bytes()),record);}
         void retirement(com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord record) {
             if(retirements.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target retiring identity");

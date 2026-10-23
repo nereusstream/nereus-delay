@@ -830,12 +830,14 @@ public final class TargetCommandStore {
             if (!reference.equals(reservation.committedPayload())) {
                 return unchanged(rejected(StableCode.PAYLOAD_COMMIT_CONFLICT, source), owner);
             }
-            final var messageKey = TargetKeyCodec.message(command.delayMessageId());
-            final var message = TargetMessageRecord.decodeForStore(
-                    messageKey,
-                    payload(reader, ColumnFamily.ID, messageKey, TargetMessageRecord.VALUE_TYPE),
-                    scope.shard());
-            payloadOwner.requireMessagePayload(message);
+            if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
+                TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
+            }else{
+                final var messageKey = TargetKeyCodec.message(command.delayMessageId());
+                final var message = TargetMessageRecord.decodeForStore(messageKey,
+                        payload(reader,ColumnFamily.ID,messageKey,TargetMessageRecord.VALUE_TYPE),scope.shard());
+                payloadOwner.requireMessagePayload(message);
+            }
         } else if (reservation.status() == PayloadReservationStatus.ABANDONED) {
             return unchanged(rejected(StableCode.PAYLOAD_RESERVATION_CLOSED, source), owner);
         } else if (effectiveStatus == PayloadReservationStatus.EXPIRED) {
@@ -1063,8 +1065,8 @@ public final class TargetCommandStore {
             if (payloadRaw != null) {
                 final var retained=TargetQuotaPayloadOwner.decodeForStore(payloadKey,
                         TargetValueEnvelope.decode(payloadRaw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
-                if(retained.kind()==TargetQuotaPayloadOwner.Kind.INLINE&&retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED)
-                    return modifyReleasedInline(reader,retained,precondition,reschedule,stamp,root,controls);
+                if(retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED)
+                    return modifyReleasedPayload(reader,retained,precondition,reschedule,stamp,root,controls);
                 return modifyReservation(
                         reader, command, precondition, payloadKey, payloadRaw, stamp, reservationControls);
             }
@@ -1201,10 +1203,10 @@ public final class TargetCommandStore {
     }
 
     /** A released identity keeps the same terminal command semantics and never re-enters reservation/Schedule. */
-    private Decision modifyReleasedInline(TargetStoreBackend.Reader reader,TargetQuotaPayloadOwner retained,
+    private Decision modifyReleasedPayload(TargetStoreBackend.Reader reader,TargetQuotaPayloadOwner retained,
             MessagePrecondition precondition,RescheduleCommandBody reschedule,TargetQuotaMutation stamp,
             TargetQuotaIncarnation root,CancellationControls controls){
-        final var operation=TargetRetirementSourceHistoryStore.releasedInlineOperation(reader,List.of(),scope,lineage,
+        final var operation=TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,
                 root.identity(),retained,reader.aggregate().mutation());
         final var terminal=TargetTerminalGenerationRecord.decode(payload(reader,ColumnFamily.TERMINAL,
                 TargetTerminalGenerationRecord.key(operation.locator()),TargetTerminalGenerationRecord.VALUE_TYPE));

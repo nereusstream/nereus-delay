@@ -22,6 +22,8 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     public boolean supportsInlinePayloadReclaim(){return schemaVersion>=7;}
     public boolean supportsSelfContainedInlinePayloadReclaim(){return schemaVersion>=8;}
     public boolean supportsNativeRetainedReclaim(){return schemaVersion>=9;}
+    /** Descriptor10 remains unavailable until the complete OBJECT writer/reader integration is registered. */
+    public boolean supportsObjectPayloadReclaim(){return schemaVersion>=10;}
     public TargetProtocolActivationDescriptor {
         if(schemaVersion<1||schemaVersion>9)throw new IllegalArgumentException("unsupported Target descriptor schema");
         Objects.requireNonNull(base);

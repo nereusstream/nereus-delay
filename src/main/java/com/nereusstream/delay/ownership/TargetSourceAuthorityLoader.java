@@ -56,6 +56,20 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         default void requireNativeRetainedIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Native record/query/recovery admission protection unavailable");
         }
+        /**
+         * This Source load independently owns the exact Native OBJECT read/replay/upload/commit/Pin loan.
+         * Intent must close future use durably; confirmation requires the actual matching hot S3 observation
+         * or independently pinned provider operation history, including exact owner/proof/intent and response hashes.
+         * Acquire/verify remotely outside locks; this recheck is local and remains held through commit/UNKNOWN.
+         * Neither credential/Profile flags nor serialized receipt hashes alone prove deletion or no resurrection.
+         */
+        default void requireObjectPayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Native OBJECT/provider admission unavailable");
+        }
+        /** Independently authenticate an earlier exact provider operation when no original hot observation survives. */
+        default void requireObjectPayloadHistoricalConfirmation(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original OBJECT provider operation history unavailable");
+        }
         /** Original hold release; a failed close must retain the original release state for retry. */
         @Override void close();
     }
@@ -89,7 +103,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
 
     /** The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through commit. */
     public record Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
-            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> recoveryImages) implements Inputs {
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> recoveryImages,
+            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation objectDeletion) implements Inputs {
+        public Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images){this(scope,history,images,null);}
         public Reclaim{Objects.requireNonNull(scope);Objects.requireNonNull(history);recoveryImages=java.util.List.copyOf(recoveryImages);
             if(scope.target()!=null)throw new IllegalArgumentException("reclaim requires original Source scope");}
     }
@@ -252,8 +269,23 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         });
         final boolean authorized=selected!=null&&mutation.verifySignature(selected.writerKey());
         if(authorized&&source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim Source/Store context is unavailable");
-        final Runnable reclaimHeld=()->{held.requireCurrent();if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);
-            else if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);held.requireCurrent();};
+        if(input.objectDeletion()!=null){
+            if(!(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm))throw new IllegalArgumentException("hot OBJECT observation supplied for another Source action");
+            input.objectDeletion().requireConfirmation(body);
+            final var request=input.objectDeletion().request();held.bytes=Math.addExact(held.bytes,request.expectedOwner().canonicalBytes().length+request.proof().canonicalBytes().length+request.intentAt().canonicalBytes().length+256L);
+        }
+        final Runnable reclaimHeld=()->{
+            held.requireCurrent();
+            if(body.objectPayloadReclaim()){
+                held.original.requireObjectPayloadIndependent(source);
+                if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm){
+                    if(input.objectDeletion()!=null)input.objectDeletion().requireConfirmation(body);
+                    else held.original.requireObjectPayloadHistoricalConfirmation(source);
+                }
+            }else if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);
+            else if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);
+            held.requireCurrent();
+        };
         final var protection=authorized&&source.matchesExpected()?source.protectReclaim(input.recoveryImages(),maximumBytes-held.bytes,reclaimHeld):null;
         if(protection!=null){
             protection.requireSource(body.scope(),body.lineage(),mutation,entry.position());protection.requireCurrent();

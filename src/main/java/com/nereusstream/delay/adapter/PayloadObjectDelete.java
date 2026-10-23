@@ -90,6 +90,16 @@ public final class PayloadObjectDelete {
         public byte[] providerRequestIdHash() { return Bytes.copy(providerRequestIdHash); }
         public byte[] providerResponseHash() { return Bytes.copy(providerResponseHash); }
 
+        /** Correlates this actual hot response with the exact Source confirmation; serialized hashes cannot mint it. */
+        public void requireConfirmation(com.nereusstream.delay.protocol.TargetResourceReclaimBody body) {
+            if(!(body.operations().getFirst() instanceof com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadConfirm confirmation))
+                throw new IllegalArgumentException("OBJECT confirmation body required");
+            final var operation=confirmation.intent().operation();
+            requireRequest(new Request(operation.expected(),operation.proof(),confirmation.intent().appliedAt()));
+            if(!Arrays.equals(providerRequestIdHash,confirmation.providerRequestIdHash())||!Arrays.equals(providerResponseHash,confirmation.providerResponseHash()))
+                throw new IllegalArgumentException("OBJECT confirmation changed actual provider response");
+        }
+
         public void requireRequest(Request expected) {
             if (!request.equals(Objects.requireNonNull(expected))) {
                 throw new IllegalArgumentException("payload deletion observation belongs to another object/intent");

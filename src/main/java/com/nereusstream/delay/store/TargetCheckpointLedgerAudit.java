@@ -244,6 +244,9 @@ final class TargetCheckpointLedgerAudit {
                                 proof.metadata().shardId(),proof.root().recoveryLineage());
                         reference.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());
                         if(recoveryReferences.put(Bytes.hex(key),reference)!=null)throw new IllegalStateException("duplicate recovery reference");
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.VALUE_TYPE){
+                        final var record=com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.payloadObjectIntent(record);
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE) {
                         final var record=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(key,payload,
                                 proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
@@ -423,6 +426,13 @@ final class TargetCheckpointLedgerAudit {
                 if(!owner.mutation().equals(history.decidedAt())||primaryMessages.contains(id))
                     throw new IllegalStateException("APPLIED inline release lost actual Source/absent primary");
                 owner.requireReleasedFrom(inline.expected(),body.floor());
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadRetire ignored->{
+                // Full pending/successor verification follows after the dependency fold.
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadConfirm confirmation->{
+                final String id=Bytes.hex(confirmation.intent().operation().expected().messageId().bytes());
+                final var actual=Objects.requireNonNull(payloadOwners.get(id),"OBJECT released owner");
+                if(primaryMessages.contains(id)||!actual.mutation().equals(history.decidedAt()))throw new IllegalStateException("OBJECT confirmation lost exact final state");
+                actual.requireReleasedFrom(confirmation.intent().operation().expected(),body.floor());
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedRecordDelete leaf->{
                 for(var row:results)if(Arrays.equals(row.key(),leaf.expected().key()))throw new IllegalStateException("APPLIED Native record deletion retains its row");
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedAllocationRelease allocation->{
