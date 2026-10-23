@@ -1427,3 +1427,22 @@ POSITION/无open或不明别名，实际已提交ingress fence覆盖两原帧ret
 历史冷恢复，不新增随机closure token/旧进程退出witness。原Catalog/Floor/Pin/full
 image/future-reader held保护与Source原子计费仍全部必需，仅退unused commitment；
 allocated/原记录/SDK/physical/zombie责任保留。此子集不是全部原生回收或四包完成。
+
+
+## 2026-10-23：UNKNOWN 后允许原 GC 准备借用独立退出
+
+来源：主会话 `01a13046-4fcd-7e90-8a56-dc2c3828fe23` 对本实施会话的明确裁定。
+GC Prepared 只服务提交前；actual Source apply 通过私有 ReclaimRead 独立取得完整
+权限和 held Protection。允许原 Host/Worker 私有 quarantine 路径，在实际旧 Worker/
+Store fence、Source authority stop/真实 I/O/cleanup、exact GC opening/签名/action/
+registry 全退出以及原 writer/backend 物理 termination 后，关闭 GC 自己的临时
+loan/admission acquisition，真实 cleanup 成功后清本地副本并退本地 input window。
+不要求新增 durable handoff/transfer token/日志，不是把保护移交给新 Owner。
+UNKNOWN/no-first 仍未知，正常 first 与 pure no-start 路径不放宽。不能据本地
+termination 判服务端不会迟到或原帧不会再出现，不能造 first/ACK/消费水位或换帧。
+独立 pins/retention、signed history、Catalog/镜像、唯一恢复材料及其它用户责任
+必须留原 owner；混合 Held 只能关闭 GC 自己引用，不能移除持久保护或跨池退款。
+新 Owner 沿实际 Source frame 重新验全部 Action3/activation/Native/Catalog/Pin/image/
+held，缺材料保持 pending；旧 Prepared 不授 apply 权限。调整 cleanup 顺序解除
+Source authority 被 GC 等 first 阻住的等待环。只有代码实施与必要编译，未授权真实
+环境操作、删除或保护解除，四包/29 切片及全部恢复验证义务不缩减。

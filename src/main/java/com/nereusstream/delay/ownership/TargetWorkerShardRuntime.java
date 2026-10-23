@@ -756,8 +756,18 @@ public final class TargetWorkerShardRuntime
         return handoff.submit(image,protection,clock,retained);
     }
     boolean retirementActionExited(WorkClassTask task){
-        return workClasses.state(task).filter(state->state==WorkClassExecutionRegistry.ExecutionState.QUEUED
-                ||state==WorkClassExecutionRegistry.ExecutionState.RUNNING).isEmpty();
+        return workClasses.state(task).isEmpty();
+    }
+    boolean withdrawRetirementAction(WorkClassTask task) { return workClasses.withdrawQueued(task); }
+    void discardFailedRetirementAction(WorkClassTask task) { workClasses.discardFailed(task); }
+    synchronized boolean resourceReclaimPreparationCanExitForReplay(TargetResourceReclaimMaintenance original,
+            TargetEvidenceRetirementWorkClassExecutor.Submission submission, OwnedSourceSystemWriter writer) {
+        if (resourceReclaim != original) throw new IllegalArgumentException("GC preparation is not this Worker's original owner");
+        original.requireReplayPreparation(this, writer, submission);
+        return backendQuarantined && sourceAndMaintenancePaused && target.fenced() && store.isCloseStarted()
+                && target.authorityIoExited() && sourceBackendGroup != null && sourceBackendGroup.resourcesTerminated()
+                && sourceBackendGroup.nativeResourcesTerminated() && writer.sourceWriterWorker() == this && writer.resourcesTerminated()
+                && writer.ownedBackendGroup().resourcesTerminated() && writer.ownedBackendGroup().nativeResourcesTerminated();
     }
     synchronized void submitRetirementAction(WorkClassTask task,SystemMutation image,LongSupplier clock,Runnable action){
         requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
@@ -2156,12 +2166,13 @@ public final class TargetWorkerShardRuntime
     synchronized Optional<TargetOwnerDrainCoordinator.ReplayExit> exitQuarantinedForReplay(
             TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         if (!backendQuarantined) { throw new IllegalStateException("Worker is not quarantined"); }
-        final var reclaim = resourceReclaim;
-        if (reclaim != null) { reclaim.runQuarantinedTurn(); if (!reclaim.ioExited()) return Optional.empty(); }
-        if (stopPublicationMaintenanceForExit().isPresent()) return Optional.empty();
+        final var publications = stopPublicationMaintenanceForExit();
         if (sourceBackendGroup == null || !sourceBackendGroup.resourcesTerminated()) { return Optional.empty(); }
         target.stopAuthorityPreparation(); target.retryAuthorityCleanup();
-        if (!target.authorityIoExited()) return Optional.empty();
+        final var reclaim = resourceReclaim;
+        if (reclaim != null) reclaim.runQuarantinedTurn();
+        if (!target.authorityIoExited() || reclaim != null && !reclaim.ioExited()) return Optional.empty();
+        if (publications.isPresent()) return Optional.empty();
         if (pendingCheckpoint != null) {
             pendingCheckpoint.retryPendingIoCleanup();
             if (!pendingCheckpoint.ownedIoExited()) { return Optional.empty(); }

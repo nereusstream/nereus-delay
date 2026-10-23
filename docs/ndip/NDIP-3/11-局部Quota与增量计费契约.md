@@ -2789,5 +2789,15 @@ GC opaque Prepared不能用作Source Protection。新请求只接受仍为当前
 数值配置本身不提供 external admission。normal drain 由原 writer-entry 互斥门证明
 no-start 或由实际 Source first + action/registry exit 证明结算后才能 close；provider
 partial cleanup、失败 close、queued/running/UNKNOWN 均不得被 future.done 代替。
-已进 writer 的未知请求在 quarantine 后继续保留，尚无 durable cold protection handoff
-许可；不能将 backend termination 单独视作可退款/可移除持久保护的依据。
+已进 writer 的未知请求仍未知。按主会话后续裁定，原 GC 准备借用可在实际隔离与
+所有原 I/O/Source authority/action/backend 退出后关闭并仅退本地 input reservation；
+不需要 durable handoff 日志，不把 backend termination 单独视作退款/删持久保护
+的依据。Source 未来出现原帧时仍须独立重新取得完整实际权限/保护。
+
+
+2026-10-23 GC-local 不跨池退款：STOPPED_FOR_REPLAY 仅表示原 GC 准备借用和本地
+输入窗口已真实退出，UNKNOWN/no-first 保持原义；原 Source frame 若稍后才出现，
+业务/账务决定只由新 Owner 的实际 Source apply 执行。独立 apply hold 与全部持久
+保护不由旧 Prepared 转交或删除。queued withdrawal 仅从原有界队列精确减本地
+record/bytes，不减 Target commitment/allocated、SDK/native/physical/zombie；active
+Turn 的原资源 lease 仍由其真实退出机制结算。失败 close/cleanup 时本地额度仍保留。

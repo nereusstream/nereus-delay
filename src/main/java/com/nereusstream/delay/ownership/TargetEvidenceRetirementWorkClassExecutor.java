@@ -72,6 +72,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
                     || submission.append != null && submission.append.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED)
                 return;
             submission.queued = true;
+            submission.scheduling = true;
         }
         try {
             worker.submitRetirementAction(submission.task, submission.image, clock, () -> {
@@ -96,7 +97,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
             synchronized (submission) { submission.queued = false; }
             // Preserve every earlier append disposition, including UNKNOWN; failed admission changes no physical fact.
             throw rejected;
-        }
+        } finally { synchronized (submission) { submission.scheduling = false; } }
     }
 
     public void retryPending(LongSupplier clock) {
@@ -135,7 +136,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         private volatile ShardLogMutationAppender.AppendOutcome append;
         private volatile SystemMutationResult first;
         private volatile Throwable failure;
-        private boolean queued, running, stopped, closed, appendStarted;
+        private boolean queued, running, stopped, closed, appendStarted, scheduling;
         private Submission(TargetEvidenceRetirementWorkClassExecutor owner, SystemMutation image,
                 WorkClassTask task, Runnable protection) {
             this.owner = owner; this.image = image; this.task = task; this.protection = protection;
@@ -156,9 +157,30 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         }
         /** No timeout/disposition inference: only this exact writer-entry gate and actual registry exit. */
         public boolean releaseIfNeverAppended() {
+            withdrawStoppedAction(false);
             if (!owner.worker.retirementActionExited(task)) return false;
             synchronized (this) {
-                if (!stopped || appendStarted || queued || running) return false;
+                if (!stopped || appendStarted || queued || running || scheduling) return false;
+                closed = true;
+            }
+            owner.pending.compareAndSet(this, null); return true;
+        }
+        private synchronized void withdrawStoppedAction(boolean allowEarlierAppend) {
+            if (!stopped || running || scheduling || !allowEarlierAppend && appendStarted) return;
+            if (queued) {
+                if (owner.worker.withdrawRetirementAction(task)) queued = false;
+            } else owner.worker.discardFailedRetirementAction(task);
+        }
+        /**
+         * Only retires this old GC preparation after its real local writers/readers have exited.
+         * UNKNOWN remains UNKNOWN; the signed Source is independently authenticated during replay.
+         */
+        boolean releasePreparationForReplay(TargetResourceReclaimMaintenance original) {
+            if (!owner.worker.resourceReclaimPreparationCanExitForReplay(original, this, owner.appender)) return false;
+            requestStop(); withdrawStoppedAction(true);
+            if (!owner.worker.retirementActionExited(task)) return false;
+            synchronized (this) {
+                if (queued || running || scheduling) return false;
                 closed = true;
             }
             owner.pending.compareAndSet(this, null); return true;
@@ -172,6 +194,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
             return Optional.empty();
         }
         public void retry(LongSupplier clock) {
+            synchronized (this) { if (closed) return; }
             if (owner.pending.get() != this) {
                 if (first == null) throw new IllegalStateException("original retirement handle lost its pending slot");
                 return;
@@ -179,14 +202,14 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
             if (owner.observe(this, clock).isEmpty()) owner.enqueue(this, clock);
         }
         public boolean ioExited() {
-            synchronized (this) { if (running || !stopped && queued) return false; if (stopped) return true; }
+            synchronized (this) { if (running || queued || scheduling) return false; }
             return owner.worker.retirementActionExited(task);
         }
         /** Requires an actual Native first recorded only by this executor, plus action/registry exit. */
         public boolean closeForRelease() {
             if (!owner.worker.retirementActionExited(task)) return false;
             synchronized (this) {
-                if (first == null || queued || running) return false;
+                if (first == null || queued || running || scheduling) return false;
                 closed = true; return true;
             }
         }

@@ -117,6 +117,31 @@ public final class WorkClassExecutionRegistry {
         return actions.size();
     }
 
+    /**
+     * Removes the exact registration only if its task is still in the original bounded queue.
+     * An active Turn (even before handler entry), RUNNING or FAILED action is not a no-start proof.
+     * This proves only local queue withdrawal, never an external operation's durable outcome.
+     */
+    public synchronized boolean withdrawQueued(final WorkClassTask task) {
+        final var requested = Objects.requireNonNull(task);
+        final var registration = actions.get(TaskKey.from(requested));
+        if (registration == null) return false;
+        requireSameTask(requested, registration);
+        if (registration.state != ExecutionState.QUEUED || !dispatcher.withdrawQueued(requested)) return false;
+        if (!actions.remove(TaskKey.from(requested), registration)) throw new IllegalStateException("queued action registration changed during withdrawal");
+        return true;
+    }
+
+    /** Explicit stopped-owner cleanup, never no-start or durable-outcome evidence. */
+    public synchronized boolean discardFailed(final WorkClassTask task) {
+        final var requested = Objects.requireNonNull(task);
+        final var registration = actions.get(TaskKey.from(requested));
+        if (registration == null) return false;
+        requireSameTask(requested, registration);
+        if (registration.state != ExecutionState.FAILED || dispatcher.hasActiveTask(requested)) return false;
+        return actions.remove(TaskKey.from(requested), registration);
+    }
+
     /** Binds all Claim and Publish Admission actions on this Worker registry to one exact permit pool. */
     public synchronized void bindClaimExecutionAdmission(final ClaimExecutionAdmission admission) {
         final ClaimExecutionAdmission requested = Objects.requireNonNull(admission, "admission");

@@ -91,7 +91,9 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
     /**
      * Runs on the original bounded I/O owner, outside Worker/Store monitors. The caller's original hold
      * protects future-reader/Pin/image/Source admission and all inputs until the exact Source first and
-     * handoff action have settled. Signing an in-memory image does not publish it: no request escapes
+     * handoff action have settled, or the original quarantined preparation alone has actually exited.
+     * That local exit never drops durable recovery protections or decides an UNKNOWN append.
+     * Signing an in-memory image does not publish it: no request escapes
      * this method until the real Catalog/images and actual Native writer closure have been verified.
      */
     Prepared prepare(TargetSourceApplyRuntime.ReclaimPreparationRead source,List<TargetCheckpointRootVerifier.AuthenticatedImage> images,

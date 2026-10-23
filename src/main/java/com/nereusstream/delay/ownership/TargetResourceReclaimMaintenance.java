@@ -65,10 +65,14 @@ public final class TargetResourceReclaimMaintenance {
         long retainedBytes();
         /** Held future-reader/Pin/image/Source admission checks only; no remote I/O at Source commit. */
         void requireCurrent();
-        /** Idempotent release of this exact original hold; a failure retains it for same-handle retry. */
+        /**
+         * Idempotent release of this preparation's loans/admission acquisition only. Does not remove
+         * authoritative RecoveryPins, retained images, Source/history or other durable recovery protection.
+         * A failure retains this exact original release state for retry.
+         */
         @Override void close();
     }
-    public enum Status { IDLE, PREPARING, SOURCE_PENDING, CLOSING, SETTLED, STOPPED, FAILED }
+    public enum Status { IDLE, PREPARING, SOURCE_PENDING, CLOSING, SETTLED, STOPPED, STOPPED_FOR_REPLAY, FAILED }
     public record Turn(Status status, Optional<SystemMutationResult> result, Throwable failure) {}
     private record Opened(TargetResourceReclaimDiscovery.Page page, Held held, TargetResourceReclaimSigner.Prepared prepared, Throwable failure) {}
 
@@ -90,6 +94,7 @@ public final class TargetResourceReclaimMaintenance {
     private SystemMutationResult result;
     private long started;
     private volatile boolean stopping, exited;
+    private boolean replayStopping;
 
     TargetResourceReclaimMaintenance(TargetWorkerShardRuntime worker, OwnedSourceSystemWriter writer,
             Configuration configuration, InputProvider provider, TargetWorkerProcessRuntime.ReclaimInputs reservation,
@@ -112,11 +117,19 @@ public final class TargetResourceReclaimMaintenance {
     void runQuarantinedTurn() {
         requestStop();
         if (!turnActive.compareAndSet(false, true)) return;
-        try { advance(false); }
+        try { if (!exited) replayStopping = true; advance(false); }
         finally { turnActive.set(false); }
     }
+    /** Exact original objects only; never a caller-supplied outcome or release approval. */
+    void requireReplayPreparation(TargetWorkerShardRuntime actual, OwnedSourceSystemWriter originalWriter,
+            TargetEvidenceRetirementWorkClassExecutor.Submission originalSubmission) {
+        if (worker != actual || writer != originalWriter || submission != originalSubmission || selected == null
+                || !java.util.Arrays.equals(selected.prepared().mutation().canonicalEnvelope(), originalSubmission.mutation().canonicalEnvelope())) {
+            throw new IllegalArgumentException("GC replay exit changed its original preparation, writer or Source frame");
+        }
+    }
     private Turn advance(boolean sourceReads) {
-        if (exited) return turn(Status.STOPPED, null);
+        if (exited) return turn(stoppedStatus(), null);
         if (opening != null) {
             final long elapsed = nanos.getAsLong() - started;
             if (stopping || elapsed < 0 || elapsed >= configuration.preparationTimeoutNanos()) opening.requestStop();
@@ -150,10 +163,12 @@ public final class TargetResourceReclaimMaintenance {
             }
             if (submission != null) {
                 if (stopping || submission.failure().isPresent()) submission.stopBeforeAppend();
+                final var knownFirst = submission.firstResult();
+                if (knownFirst.isPresent() && submission.closeForRelease()) { result = knownFirst.orElseThrow(); return closeSelected(); }
                 if (!submission.releaseIfNeverAppended()) {
                     if (!sourceReads) {
-                        if (submission.firstResult().isEmpty() || !submission.closeForRelease()) return turn(Status.SOURCE_PENDING, submission.failure().orElse(null));
-                        result = submission.firstResult().orElseThrow(); return closeSelected();
+                        if (submission.releasePreparationForReplay(this)) return closeSelected();
+                        return turn(Status.SOURCE_PENDING, submission.failure().orElse(null));
                     }
                     final var settled = submission.settle(clock);
                     if (settled.isEmpty()) {
@@ -228,8 +243,9 @@ public final class TargetResourceReclaimMaintenance {
         return turn(Status.CLOSING, cause);
     }
     private Turn finishStop() {
-        cursor = null; reservation.release(); exited = true; return turn(Status.STOPPED, null);
+        cursor = null; reservation.release(); exited = true; return turn(stoppedStatus(), null);
     }
+    private Status stoppedStatus() { return replayStopping ? Status.STOPPED_FOR_REPLAY : Status.STOPPED; }
     /** Stops acquisition; a submitted UNKNOWN keeps its exact frame, input reservation and original protections. */
     public void requestStop() {
         stopping = true;

@@ -154,6 +154,14 @@ public final class WorkClassScheduler {
         return state(workClass).queuedBytes;
     }
 
+    /** Withdraws one exact still-queued identity without changing fairness debt or invoking its handler. */
+    synchronized boolean withdrawQueued(final WorkClassTask task) {
+        final var selected = state(Objects.requireNonNull(task).workClass());
+        if (!selected.queue.removeFirstOccurrence(task)) return false;
+        selected.queuedBytes = Math.subtractExact(selected.queuedBytes, task.bytes());
+        return true;
+    }
+
     /**
      * Restores tasks that left a bounded poll but whose handlers were never
      * invoked. The caller supplies the original selection order; reversing

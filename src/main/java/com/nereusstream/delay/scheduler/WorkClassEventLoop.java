@@ -148,6 +148,16 @@ public final class WorkClassEventLoop {
         return scheduler.pendingBytes(workClass);
     }
 
+    /** Selected tasks keep their real lease/handler exit obligation, including never-started trailing tasks. */
+    synchronized boolean withdrawQueued(final WorkClassTask task) {
+        Objects.requireNonNull(task);
+        if (hasActiveTask(task)) return false;
+        return scheduler.withdrawQueued(task);
+    }
+    synchronized boolean hasActiveTask(final WorkClassTask task) {
+        return activeTurn != null && !activeTurn.isClosed() && activeTurn.tasks().contains(Objects.requireNonNull(task));
+    }
+
     private void reserveActiveTurnCapacity(final WorkClassTask offered) {
         final Turn turn = activeTurn;
         if (turn == null || turn.isClosed()) {
