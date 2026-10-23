@@ -253,6 +253,21 @@ public final class S3CompatiblePayloadObjectStore {
     }
 
     /**
+     * Executes only the provider stage of a previously persisted Native intent. The caller must hold
+     * its original Native/Catalog/reader/upload closure throughout this call and Source confirmation.
+     * A credential lease is mandatory here; old ungated upload/read construction does not enable deletion.
+     * Missing versions, conflicts and transport ambiguity throw without creating a success witness.
+     */
+    public PayloadObjectDelete.Observation deleteExact(final PayloadObjectDelete.Request request) {
+        Objects.requireNonNull(request);
+        if (credentialGate == null || !profile.ref().equals(request.profile())
+                || client.followRedirects() != HttpClient.Redirect.NEVER) {
+            throw new IllegalStateException("exact payload deletion requires its original Profile credential lease");
+        }
+        return backend.deleteExact(identityFor(request.reference()), request);
+    }
+
+    /**
      * Worker payload provider for a retained PUBLISHING ledger. Inline payloads
      * are returned from the immutable Admission; object payloads are fetched
      * through the exact committed descriptor and re-verified before handoff.
@@ -435,6 +450,77 @@ public final class S3CompatiblePayloadObjectStore {
             return head(objectIdentity).etag();
         }
 
+        @Override
+        public PayloadObjectDelete.Observation deleteExact(
+                final String objectIdentity, final PayloadObjectDelete.Request request) {
+            if (!profile.ref().equals(request.profile()) || !objectIdentity.equals(identityFor(request.reference()))
+                    || credentialGate == null) {
+                throw new IllegalArgumentException("exact payload deletion changed adapter identity or credential custody");
+            }
+            final PayloadReference reference = request.reference();
+            final String version = exactDeleteVersion(reference.immutableObjectVersion());
+            final String etag = exactDeleteEtag(reference.etag());
+            final String key = remoteObjectKey(objectIdentity);
+            // If-Match on DELETE checks the current version in S3. Independently read and hash the
+            // selected immutable version; the versionId query is what prevents deleting another version.
+            verifyDeleteCandidate(key, objectIdentity, reference, version, etag);
+            final HttpResponse<Void> response = send(
+                    "DELETE", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(),
+                    Map.of("if-match", etag), version, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() != 204) {
+                throw unexpectedStatus("DELETE", objectIdentity, response.statusCode());
+            }
+            requireVersion(response, reference.immutableObjectVersion(), objectIdentity);
+            if (response.headers().firstValue("x-amz-delete-marker").map(Boolean::parseBoolean).orElse(false)) {
+                throw new IllegalStateException("S3 deleted a marker instead of the selected payload version");
+            }
+            final String requestId = response.headers().firstValue("x-amz-request-id")
+                    .filter(value -> !value.isBlank())
+                    .orElseThrow(() -> new IllegalStateException("S3 payload DELETE omitted provider request ID"));
+            return PayloadObjectDelete.s3Applied(request, requestId,
+                    response.headers().firstValue("x-amz-id-2").orElse(""));
+        }
+
+        private void verifyDeleteCandidate(final String key, final String identity,
+                final PayloadReference reference, final String version, final String etag) {
+            if (reference.length() > objectStore.maxObjectBytes()) {
+                throw new IllegalArgumentException("selected payload exceeds its original Profile maximum");
+            }
+            final HttpResponse<InputStream> response = send(
+                    "GET", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(),
+                    Map.of("if-match", etag), version, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream input = response.body()) {
+                if (response.statusCode() != 200) {
+                    throw unexpectedStatus("GET exact deletion candidate", identity, response.statusCode());
+                }
+                requireVersion(response, reference.immutableObjectVersion(), identity);
+                if (!response.headers().firstValue("etag").map(String::trim).filter(etag::equals).isPresent()) {
+                    throw new IllegalStateException("S3 deletion candidate differs from its pinned ETag");
+                }
+                final java.security.MessageDigest digest;
+                try { digest = java.security.MessageDigest.getInstance("SHA-256"); }
+                catch (java.security.NoSuchAlgorithmException impossible) {
+                    throw new IllegalStateException("SHA-256 is unavailable", impossible);
+                }
+                final byte[] buffer = new byte[64 * 1024];
+                long length = 0;
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    length = Math.addExact(length, count);
+                    if (length > reference.length()) {
+                        throw new IllegalStateException("S3 deletion candidate exceeds its exact committed length");
+                    }
+                    digest.update(buffer, 0, count);
+                }
+                if (length != reference.length()
+                        || !Bytes.constantTimeEquals(digest.digest(), reference.payloadSha256())) {
+                    throw new IllegalStateException("S3 deletion candidate differs from its committed length/SHA-256");
+                }
+            } catch (IOException failure) {
+                throw new IllegalStateException("cannot verify the exact S3 payload deletion candidate", failure);
+            }
+        }
+
         private RemoteIdentity head(final String objectIdentity) {
             requireIdentity(objectIdentity);
             final HttpResponse<Void> response = send(
@@ -461,7 +547,15 @@ public final class S3CompatiblePayloadObjectStore {
             final HttpRequest.BodyPublisher body,
             final Map<String, String> extraHeaders,
             final HttpResponse.BodyHandler<T> handler) {
-        final URI uri = objectUri(key);
+        return send(method, key, payloadHash, body, extraHeaders, null, handler);
+    }
+
+    private <T> HttpResponse<T> send(
+            final String method, final String key, final String payloadHash,
+            final HttpRequest.BodyPublisher body, final Map<String, String> extraHeaders,
+            final String exactVersion, final HttpResponse.BodyHandler<T> handler) {
+        final URI base = objectUri(key);
+        final URI uri = exactVersion == null ? base : URI.create(base + "?versionId=" + encodeSegment(exactVersion));
         final Instant now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         final String amzDate = AMZ_DATE.format(now);
         final String shortDate = SHORT_DATE.format(now);
@@ -474,7 +568,7 @@ public final class S3CompatiblePayloadObjectStore {
         }
         extraHeaders.forEach((name, value) -> {
             final String lower = name.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("x-amz-")) {
+            if (lower.startsWith("x-amz-") || lower.equals("if-match")) {
                 signedHeaders.put(lower, canonicalHeaderValue(value));
             }
         });
@@ -541,6 +635,28 @@ public final class S3CompatiblePayloadObjectStore {
             throw new IllegalStateException("S3 payload version differs from the exact reference: " + identity);
         }
         return version;
+    }
+
+    private static String exactDeleteVersion(final byte[] encoded) {
+        final String value = new String(encoded, java.nio.charset.StandardCharsets.UTF_8);
+        if (value.isBlank() || value.equals("null") || !Arrays.equals(encoded, Bytes.utf8(value))
+                || value.chars().anyMatch(character -> character <= 0x20 || character > 0x7e)) {
+            throw new IllegalArgumentException("payload deletion requires a non-null immutable provider version");
+        }
+        return value;
+    }
+
+    private static String exactDeleteEtag(final byte[] encoded) {
+        if (encoded == null || encoded.length < 3 || encoded[0] != '"' || encoded[encoded.length - 1] != '"') {
+            throw new IllegalArgumentException("payload deletion requires one pinned strong ETag");
+        }
+        for (int index = 1; index < encoded.length - 1; index++) {
+            final int character = Byte.toUnsignedInt(encoded[index]);
+            if (character < 0x21 || character > 0x7e || character == '"') {
+                throw new IllegalArgumentException("payload deletion requires one pinned strong ETag");
+            }
+        }
+        return new String(encoded, java.nio.charset.StandardCharsets.US_ASCII);
     }
 
     private static byte[] readBounded(final InputStream input, final long maxBytes) throws IOException {

@@ -44,4 +44,10 @@ interface PayloadObjectBackend {
         Objects.requireNonNull(objectIdentity, "objectIdentity");
         return Bytes.copy(Objects.requireNonNull(payloadSha256, "payloadSha256"));
     }
+
+    /** Exact provider deletion; absence or a content hash must never serve as a success fallback. */
+    default PayloadObjectDelete.Observation deleteExact(
+            final String objectIdentity, final PayloadObjectDelete.Request request) {
+        throw new UnsupportedOperationException("payload backend has no exact provider deletion capability");
+    }
 }
