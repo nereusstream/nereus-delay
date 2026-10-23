@@ -46,6 +46,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private WorkerRuntimeResourceMonitor runtimeResourceMonitor;
     private WorkerRocksDbUsageMonitor rocksDbUsageMonitor;
+    private boolean resourceMonitorsStopping;
     /** Set after the in-flight check passes; all callers are then fenced. */
     private boolean closeStarted;
 
@@ -278,11 +279,16 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Starts the owner-managed fixed-delay runtime probe after startup validation. */
     public synchronized WorkerRuntimeResourceMonitor startRuntimeResourceMonitor(final Duration interval) {
         ensureOpen();
+        if (resourceMonitorsStopping) throw new IllegalStateException("original resource monitors are stopping");
         if (runtimeSafetyGate == null) {
             throw new IllegalStateException("runtime safety monitor requires a Worker resource envelope");
         }
         if (runtimeResourceMonitor == null || runtimeResourceMonitor.isClosed()) {
-            runtimeResourceMonitor = WorkerRuntimeResourceMonitor.start(config.rootPath(), interval, this);
+            if (runtimeResourceMonitor != null && !runtimeResourceMonitor.terminationComplete()) {
+                throw new IllegalStateException("original runtime resource monitor has not exited");
+            }
+            runtimeResourceMonitor = WorkerRuntimeResourceMonitor.create(config.rootPath(), interval, this);
+            runtimeResourceMonitor.start();
         }
         return runtimeResourceMonitor;
     }
@@ -295,15 +301,41 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public synchronized WorkerRocksDbUsageMonitor startRocksDbUsageMonitor(
             final RocksDbUsageLimits limits, final Duration interval) {
         ensureOpen();
+        if (resourceMonitorsStopping) throw new IllegalStateException("original resource monitors are stopping");
         Objects.requireNonNull(limits, "limits");
         if (runtimeSafetyGate == null) {
             throw new IllegalStateException("RocksDB usage monitor requires a Worker resource envelope");
         }
         if (rocksDbUsageMonitor == null || rocksDbUsageMonitor.isClosed()) {
-            rocksDbUsageMonitor = WorkerRocksDbUsageMonitor.start(
+            if (rocksDbUsageMonitor != null && !rocksDbUsageMonitor.terminationComplete()) {
+                throw new IllegalStateException("original RocksDB usage monitor has not exited");
+            }
+            rocksDbUsageMonitor = WorkerRocksDbUsageMonitor.create(
                     interval, () -> collectPhysicalUsage(limits), this::recordRuntimeProbeFailure);
+            rocksDbUsageMonitor.start();
         }
         return rocksDbUsageMonitor;
+    }
+
+    /** Original observations and threads must exit before their process reservation or JNI can be released. */
+    public synchronized boolean stopResourceMonitors() {
+        resourceMonitorsStopping = true;
+        Throwable failure = null;
+        if (runtimeResourceMonitor != null) {
+            try { runtimeResourceMonitor.close(); }
+            catch (RuntimeException | Error closeFailure) { failure = appendCloseFailure(failure, closeFailure); }
+        }
+        if (rocksDbUsageMonitor != null) {
+            try { rocksDbUsageMonitor.close(); }
+            catch (RuntimeException | Error closeFailure) { failure = appendCloseFailure(failure, closeFailure); }
+        }
+        if (failure != null) throwUnchecked(failure);
+        return resourceMonitorsTerminated();
+    }
+
+    private boolean resourceMonitorsTerminated() {
+        return (runtimeResourceMonitor == null || runtimeResourceMonitor.terminationComplete())
+                && (rocksDbUsageMonitor == null || rocksDbUsageMonitor.terminationComplete());
     }
 
     /**
@@ -667,30 +699,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
         closeStarted = true;
         Throwable closeFailure = null;
-        if (runtimeResourceMonitor != null) {
-            try {
-                runtimeResourceMonitor.close();
-            } catch (RuntimeException | Error failure) {
-                // Monitor teardown is part of the Worker close boundary, but
-                // it must not prevent the native resource attempts below.
-                // A failed executor shutdown is retryable just like a failed
-                // RocksDB JNI close.
-                closeFailure = appendCloseFailure(closeFailure, failure);
-            }
-        }
-        if (rocksDbUsageMonitor != null) {
-            try {
-                rocksDbUsageMonitor.close();
-            } catch (RuntimeException | Error failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
-            }
-        }
         // A running observation can still hold original DB/native references. Retain this close attempt,
         // fence new admission, and let the owner retry after the actual original monitor threads return.
-        if (runtimeResourceMonitor != null && !runtimeResourceMonitor.terminationComplete()
-                || rocksDbUsageMonitor != null && !rocksDbUsageMonitor.terminationComplete()) {
-            if (closeFailure != null) throwUnchecked(closeFailure);
-            return;
+        try {
+            if (!stopResourceMonitors()) return;
+        } catch (RuntimeException | Error failure) {
+            closeFailure = appendCloseFailure(closeFailure, failure);
+            if (!resourceMonitorsTerminated()) throwUnchecked(closeFailure);
         }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure. Otherwise a failed

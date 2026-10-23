@@ -41,11 +41,20 @@ public final class WorkerRocksDbUsageMonitor implements AutoCloseable {
             final Duration interval,
             final Supplier<List<RocksDbUsageSnapshot>> probe,
             final Consumer<Throwable> failureConsumer) {
+        final var monitor = create(interval, probe, failureConsumer);
+        monitor.start();
+        return monitor;
+    }
+
+    /** The shared owner retains this handle before scheduling can start a thread or fail. */
+    static WorkerRocksDbUsageMonitor create(
+            final Duration interval,
+            final Supplier<List<RocksDbUsageSnapshot>> probe,
+            final Consumer<Throwable> failureConsumer) {
         final var threads = new java.util.ArrayList<Thread>();
         final WorkerRocksDbUsageMonitor monitor =
                 new WorkerRocksDbUsageMonitor(interval, probe, failureConsumer, daemonThreadExecutor(threads));
         monitor.ownedThreads = threads;
-        monitor.start();
         return monitor;
     }
 

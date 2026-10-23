@@ -6,11 +6,13 @@ import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.store.NativeResourceUsage;
+import com.nereusstream.delay.store.RocksDbUsageLimits;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.WorkerNativeResourceLedger;
 import io.oxia.client.api.Authentication;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -41,13 +43,40 @@ public final class TargetWorkerProcessRuntime {
         }
     }
 
+    public record ResourceMonitoring(Duration runtimeInterval, Duration rocksDbInterval,
+            RocksDbUsageLimits physicalUsage, long nativeBytes) {
+        public ResourceMonitoring {
+            Objects.requireNonNull(runtimeInterval); Objects.requireNonNull(rocksDbInterval);
+            Objects.requireNonNull(physicalUsage);
+            if (runtimeInterval.isNegative() || runtimeInterval.isZero()
+                    || rocksDbInterval.isNegative() || rocksDbInterval.isZero()
+                    || runtimeInterval.toNanos() == Long.MAX_VALUE || rocksDbInterval.toNanos() == Long.MAX_VALUE
+                    || nativeBytes <= 0 || nativeBytes == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("resource monitoring requires finite periods and an explicit native reservation");
+            }
+            for (long limit : new long[]{physicalUsage.maxWalBytesPerDb(), physicalUsage.maxTotalWalBytes(),
+                    physicalUsage.maxManifestBytesPerDb(), physicalUsage.maxTotalManifestBytes(),
+                    physicalUsage.maxLiveSstBytesPerDb(), physicalUsage.maxTotalLiveSstBytes(),
+                    physicalUsage.maxLocalLiveDataBytes(), physicalUsage.minimumFilesystemFreeBytes(),
+                    physicalUsage.maxCompactionPendingBytesPerDb(), physicalUsage.maxTotalCompactionPendingBytes()}) {
+                if (limit == Long.MAX_VALUE) throw new IllegalArgumentException("physical usage byte limits must be finite");
+            }
+            for (int limit : new int[]{physicalUsage.maxWalFilesPerDb(), physicalUsage.maxTotalWalFiles(),
+                    physicalUsage.maxManifestFilesPerDb(), physicalUsage.maxTotalManifestFiles(),
+                    physicalUsage.maxSstFilesPerDb(), physicalUsage.maxTotalSstFiles(), physicalUsage.maxL0FilesPerDb()}) {
+                if (limit == Integer.MAX_VALUE) throw new IllegalArgumentException("physical usage file limits must be finite");
+            }
+        }
+    }
+
     public record Configuration(TargetWorkerRuntimeConfig worker, Limits process,
-            TargetWorkerOxiaRuntime.Connection oxia) {
+            TargetWorkerOxiaRuntime.Connection oxia, ResourceMonitoring monitoring) {
         public Configuration {
             Objects.requireNonNull(worker); Objects.requireNonNull(process); Objects.requireNonNull(oxia);
+            Objects.requireNonNull(monitoring);
             long[] fixed = new long[CapacityDimension.COUNT];
             fixed[CapacityDimension.OTHER_NATIVE_BYTES.wireValue() - 1] = Math.addExact(
-                    Math.addExact(process.ioNativeBytes(), process.metricNativeBytes()),
+                    Math.addExact(Math.addExact(process.ioNativeBytes(), process.metricNativeBytes()), monitoring.nativeBytes()),
                     Math.multiplyExact(3L, oxia.nativeBytesPerClient()));
             worker.requireCapacity(List.of(), new CapacityVector(fixed), CapacityVector.empty());
         }
@@ -92,6 +121,7 @@ public final class TargetWorkerProcessRuntime {
     private WorkClassExecutionRegistry classes;
     private WorkerNativeResourceLedger.Reservation ioCost;
     private WorkerNativeResourceLedger.Reservation metricCost;
+    private WorkerNativeResourceLedger.Reservation monitorCost;
     private ThreadPoolExecutor io;
     private BoundedAsyncMetricExporter metrics;
     private SystemWriterAppendBudget systemWriters;
@@ -134,6 +164,11 @@ public final class TargetWorkerProcessRuntime {
         try {
             originalStartupGuard.run();
             root.resources = configuration.worker().openResources();
+            root.monitorCost = root.resources.reserveNativeResource("target-process-resource-monitors",
+                    NativeResourceUsage.zero(), configuration.monitoring().nativeBytes());
+            root.resources.startRuntimeResourceMonitor(configuration.monitoring().runtimeInterval());
+            root.resources.startRocksDbUsageMonitor(configuration.monitoring().physicalUsage(),
+                    configuration.monitoring().rocksDbInterval());
             root.classes = configuration.worker().newWorkClasses(nanos);
             root.ioCost = root.resources.reserveNativeResource("target-process-io", NativeResourceUsage.zero(),
                     configuration.process().ioNativeBytes());
@@ -683,6 +718,8 @@ public final class TargetWorkerProcessRuntime {
             }
             if (ioCost != null) ioCost.close();
             if (resources != null) {
+                if (!resources.stopResourceMonitors()) return;
+                if (monitorCost != null) monitorCost.close();
                 resources.close();
                 if (!resources.cleanupComplete()) return;
             }

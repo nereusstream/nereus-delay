@@ -38,6 +38,14 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
     /** Starts a daemon monitor for the supplied Worker resource envelope. */
     public static WorkerRuntimeResourceMonitor start(
             final Path rootPath, final Duration interval, final SharedRocksDbResources resources) {
+        final var monitor = create(rootPath, interval, resources);
+        monitor.start();
+        return monitor;
+    }
+
+    /** The shared owner retains this handle before scheduling can start a thread or fail. */
+    static WorkerRuntimeResourceMonitor create(
+            final Path rootPath, final Duration interval, final SharedRocksDbResources resources) {
         Objects.requireNonNull(rootPath, "rootPath");
         Objects.requireNonNull(resources, "resources");
         final var threads = new java.util.ArrayList<Thread>();
@@ -48,7 +56,6 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
                 resources::recordRuntimeProbeFailure,
                 daemonThreadExecutor(threads));
         monitor.ownedThreads = threads;
-        monitor.start();
         return monitor;
     }
 

@@ -98,7 +98,22 @@ public final class TargetWorkerRuntimeConfigLoader {
                 f.text("oxia.routeSessionPrefix"), Duration.ofMillis(f.number("oxia.sessionTimeoutMs")),
                 Duration.ofMillis(f.number("oxia.requestTimeoutMs")), Duration.ofMillis(f.number("oxia.startupTimeoutMs")),
                 Duration.ofMillis(f.number("oxia.cleanupBudgetMs")), f.number("oxia.nativeBytesPerClient"));
-        return new TargetWorkerProcessRuntime.Configuration(load(f.remaining), process, oxia);
+        final String prefix = "process.monitor.";
+        final var monitoring = new TargetWorkerProcessRuntime.ResourceMonitoring(
+                Duration.ofNanos(f.number(prefix + "runtimeIntervalNanos")),
+                Duration.ofNanos(f.number(prefix + "rocksDbIntervalNanos")),
+                new com.nereusstream.delay.store.RocksDbUsageLimits(
+                        f.number(prefix + "maxWalBytesPerDb"), f.number(prefix + "maxTotalWalBytes"),
+                        f.integer(prefix + "maxWalFilesPerDb"), f.integer(prefix + "maxTotalWalFiles"),
+                        f.number(prefix + "maxManifestBytesPerDb"), f.number(prefix + "maxTotalManifestBytes"),
+                        f.integer(prefix + "maxManifestFilesPerDb"), f.integer(prefix + "maxTotalManifestFiles"),
+                        f.number(prefix + "maxLiveSstBytesPerDb"), f.number(prefix + "maxTotalLiveSstBytes"),
+                        f.integer(prefix + "maxSstFilesPerDb"), f.integer(prefix + "maxTotalSstFiles"),
+                        f.number(prefix + "maxLocalLiveDataBytes"), f.number(prefix + "minimumFilesystemFreeBytes"),
+                        f.number(prefix + "maxCompactionPendingBytesPerDb"), f.number(prefix + "maxTotalCompactionPendingBytes"),
+                        f.integer(prefix + "maxL0FilesPerDb")),
+                f.number(prefix + "nativeBytes"));
+        return new TargetWorkerProcessRuntime.Configuration(load(f.remaining), process, oxia, monitoring);
     }
 
     /** Properties normally discards duplicate keys; deployment settings must have one unambiguous value. */
