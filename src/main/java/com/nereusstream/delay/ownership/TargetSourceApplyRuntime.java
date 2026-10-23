@@ -1650,6 +1650,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     synchronized com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(BoundedReadBudget reads,
             com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Cursor cursor,int maximumRows,LongSupplier clock){
         requireGcOwner(clock);
+        if(maximumRows<1||maximumRows>com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_OPERATIONS||limits.counters()<4)
+            throw new IllegalArgumentException("reclaim discovery requires a bounded page and Source root/owner counter window");
+        // A page may contain one distinct frozen owner per row, in addition to the Source root and all mirrors.
+        final int serviceableRows=Math.min(maximumRows,(limits.counters()-2)/2);
         final boolean unused=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
         final boolean inline=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim(),clock);
         final boolean nativeRetained=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim(),clock);
@@ -1658,7 +1662,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final boolean anchorAllocation=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetAnchorAllocationReclaim(),clock);
         final boolean incarnation=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetIncarnationReclaim(),clock);
         final boolean duplicatePosition=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim(),clock);
-        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnation,duplicatePosition);
+        return reclaimDiscovery.scan(reads,cursor,serviceableRows,workerReads(clock),unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnation,duplicatePosition);
     }
     synchronized ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){

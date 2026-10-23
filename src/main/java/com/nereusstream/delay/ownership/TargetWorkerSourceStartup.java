@@ -1119,6 +1119,9 @@ public final class TargetWorkerSourceStartup {
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, LongSupplier clock) {
         try (var construction = beginWorkerResourceConstruction(actual)) {
             construction.requireCurrent();
+            if (graph.config().source().counters() < 4) {
+                throw new IllegalArgumentException("Native GC requires the original Source root/owner counter window");
+            }
             final var reservation = process.reserveReclaimInputs(this, configuration.maximumInputBytes());
             try {
                 final var original = new TargetResourceReclaimMaintenance(actual, writer, configuration, provider, reservation,

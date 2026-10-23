@@ -1680,3 +1680,37 @@ reader与外部引用保护继续。没有实现不采纳的closed-ID分支或�
 多页仅推进独立叶子，不截断成完整组。不以每种record都具备删除case作为包2终点。
 对其它metadata组先证明现有终态确已结束其义务；若只能发明新的永久ID/审计责任替代
 原记录，则归存续历史，不能自动扩成新回收项目。
+
+
+## 2026-10-23：E4认证启停、样本归属与完整覆盖边界
+
+主会话批准E4既定的同Shard Source有序certification启用/停止，复用原Control Operation→
+APPLY_SHARD_CONTROL→first/POS/Native原子链，独立tuple/descriptor和实际原Control认证。
+配置只表达请求/能力，ACTIVE必须来自实际APPLIED；scope固定tenant/物理Source/Shard/
+lineage和明确objective/population/path，完整immutable objective及预算/保留语义同代冻结。
+重新开启或改变声明必须新持久observation generation，非Message generation或进程编号。
+
+原v1 Start/Final/Outbox bytes、sampleId/EventIdentity和时间/timeout/merge语义全部保留。
+实际Target业务batch同时冻结独立新归属：完整scope、generation、原activation/Control与
+生效cut、objective、原权威业务Source/事件身份和v1 sampleId/startDigest/受保护内容。
+COMMAND_APPLIED按exact Source；DUE_ADMISSION按原authoritative Admission/稳定capacity
+决定和managed path。旧普通/legacy事件不得追认，重试/replay/晚Final不换原代；未支持的
+objective/population/path拒绝声明，不静默少采或改v1范围。
+
+启用前独立认证有限outbox/bytes/retention/collector custody、旧代并存和最大业务mutation
+样本数/字节/Final增长空间；新增Control/绑定/历史/样本均真实计费。认证缺证据不能提交
+业务Source或ACK、不能普通降级或越过Source序列提前应用STOP。STOP只停后续新观测，
+旧Start/Final/timeout/outbox/collector职责继续并受有限并存资源约束，重启恢复同持久状态。
+
+Start/绑定与原Command/Admission/quota同批；Target不能借legacy store seam直接后台改CF。
+Final/ack优先复用既有权威业务Source，没有时沿原同Shard System writer/apply提交独立
+有界观测事件；无第二日志/无序本地写者。原I/O/WorkClass在业务线程外导出，collector
+先durable merge完整样本及归属/coverage材料，后exact Source ack；退款/删除仍需原保留
+和Target原子保护。checkpoint/restore/独立ledger包含新投影及旧代义务。
+
+普通metrics另用实际process/Worker incarnation与exporter epoch、实际启动Source的有界
+cut/采集区间，进程前未知覆盖=UNKNOWN，gap=0非完整SLO证据，无逐消息outbox/高基数标签。
+新consumer独立认证Control/归属后才用v1计算；每Source区间正向枚举应有样本/Final并完整
+保管、无未知职责才COMPLETE，watermark/count/gap=0/空outbox/STOP/普通Delivery各自不足。
+复用实际Source/业务/collector材料，不另造通用coverage oracle。真实部署权限/预算缺失
+拒绝并列OPEN；仓内写者、启动/失效/退出/恢复和consumer接线仍须完整实施，测试后置。

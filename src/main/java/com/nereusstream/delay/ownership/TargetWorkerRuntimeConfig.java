@@ -103,6 +103,22 @@ public record TargetWorkerRuntimeConfig(
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Target service/recheck bounds overflow", overflow);
         }
+        requireFiniteCounts(source.records(), source.counters(), inventory.maximumShards(), inventory.maximumTargets(),
+                inventory.pageTargets(), inventory.maximumPagesPerShard(), inventory.readRecords(),
+                ordinary.maximumVisitsPerTurn(), ordinary.readRecords(), ordinaryTurn.maxMessages(),
+                maintenanceTurn.maxMessages(), checkpoint.settlementTurn().maxMessages());
+        requireFiniteAmounts(source.bytes(), source.elapsedNanos(), inventory.readBytes(), inventory.readElapsedNanos(),
+                ordinary.quantumBytes(), ordinary.maximumCostBytes(), ordinary.sendEnvelopeBytes(),
+                ordinary.readBytes(), ordinary.readElapsedNanos(), ordinaryTurn.maxBytes(), ordinaryTurn.maxElapsedNanos(),
+                maintenanceTurn.maxBytes(), maintenanceTurn.maxElapsedNanos(), ordinaryRecheckInterval.toNanos(),
+                maintenanceInterval.toNanos(), checkpoint.settlementTurn().maxBytes(),
+                checkpoint.settlementTurn().maxElapsedNanos(), workClasses.maxEventLoopClassDelayNanos(),
+                workClasses.maxBorrowedResourceHoldNanos(), workClasses.totalResourceRecords(), workClasses.totalResourceBytes());
+        for (var policy : workClasses.policies().values()) {
+            requireFiniteCounts(policy.weight(), policy.maxQueueRecords(), policy.maxRecordsPerTurn());
+            requireFiniteAmounts(policy.maxQueueBytes(), policy.maxBytesPerTurn(), policy.maxTimePerTurnNanos(),
+                    policy.nonBorrowableMinimumRecords(), policy.nonBorrowableMinimumBytes());
+        }
         final var sourcePolicy = workClasses.policies().get(WorkClass.SOURCE_APPLY);
         if (maximumSourceFrameBytes <= 0 || maximumSourceFrameBytes >= Integer.MAX_VALUE
                 || sourcePolicy.maxBytesPerTurn() < maximumSourceApplyTaskBytes(maximumSourceFrameBytes)
@@ -179,6 +195,18 @@ public record TargetWorkerRuntimeConfig(
 
     private static long maximumSourceApplyTaskBytes(long maximumFrameBytes) {
         return Math.addExact(maximumFrameBytes, TargetSourcePosition.MAX_CANONICAL_BYTES);
+    }
+
+    private static void requireFiniteCounts(int... values) {
+        for (int value : values) {
+            if (value == Integer.MAX_VALUE) throw new IllegalArgumentException("Target scheduling/read count is unbounded");
+        }
+    }
+
+    private static void requireFiniteAmounts(long... values) {
+        for (long value : values) {
+            if (value == Long.MAX_VALUE) throw new IllegalArgumentException("Target scheduling/read byte or time bound is unbounded");
+        }
     }
 
     /** Rejects mixed configurations before Host schedulers or queue wakeups are admitted. */
