@@ -5763,3 +5763,53 @@ all actual original public history and exact Native joins. Descriptors1..11, the
 construction, existing operations and old companion bytes are preserved; no activation is performed.
 GC bounded discovery/signing and Source/recovery/accounting use the original maintenance/provider
 seams. Actual external history/admission integration remains required; compilation is not acceptance.
+
+
+### Target non-root incarnation lifecycle (body16 / descriptor13)
+
+Type14/kind3 adds two explicit operations under outer body16/tuple16. Both have fields1 schema1,
+2 kind3,3 action,4 complete original TargetQuotaIncarnation; action4 field5 is the complete actual
+TargetCloseRecord, action5 field5 the complete current zero TargetQuotaGrantActivation. Exactly one
+lifecycle transition is permitted in a Source decision. NativeFacts1/field16 and the original32MiB
+body bound remain; no new Native key/value kind or local ordinal is introduced.
+
+Drain accepts only an OPEN TARGET descriptor and the already APPLIED explicit Close for that exact
+owner/lineage, with actual first/POSITION and original full Control authentication. Temporary grant
+zero, idle queues or absence never express irreversible intent. The original independent lifecycle
+StateAuthority/held protection remains mandatory through commit. Source writes that exact descriptor's
+one-way DRAINING mutation, retaining its frozen accounting/ownership and previously promised work.
+New Schedule/Prepare binding admission returns TARGET_CLOSED from the actual drain; later grant
+increases do not reopen the descriptor. New activated drains also retain the original exact Source
+history/first/POSITION join when the descriptor is read or accounted.
+
+Retirement needs actual DRAINING provenance, descriptor-only real primary/mirror usage and the
+complete independent business fold counted from actual rows, including zero-valued contributions.
+Every actual business row is counted; only the descriptor may remain owned by this identity. The
+only admitted current zero-fee Native grant pointer is the exact zero grant removed in the same
+batch. Original trusted admission must additionally close all live zero-fee references, Registry/
+writer/late-I/O/replay/query/retention/Pin/image/ancestry obligations. Numeric counter/Floor/DTO
+agreement does not replace that protocol. Current bookkeeping root is never eligible.
+
+Source calls the original requireRetirable with real counters/bookkeeping/aggregate/Floor and the
+actual Source mutation, deletes descriptor and that exact grant pointer, derives frozen STATE and
+incarnation-cardinality deltas, and preserves both original zero-counter tombstones and Target total.
+New first/POSITION/Native54/55 stay charged to the live original Source/bookkeeping owner. Historical
+Control firsts retain their original immutable allocation snapshots and Source fees; they are not
+rewritten into current owners or discarded to manufacture eligibility. Ordinary grant updates cannot
+revive a retired origin. Late binding admission recognizes retirement only through the actual retained
+zero counter plus its exact APPLIED Native54/first/POSITION/capability; absence alone is not closure.
+
+During original Source accounting, typed business deletes precede generated quota edits. The new
+history verifier checks exact before/after business projection and real descriptor-only prior counters
+at that stage; persisted/cold verification requires both actual zero successors at the retirement Source.
+Later retirement does not invalidate the original irreversible drain's complete before/after history.
+No fake record reconstruction, alternate ledger or compact certificate is used.
+
+Descriptor13 requires tuple(1,1,SYSTEM_MUTATION,1,16); vector3=companion15,4=body16,
+16=Native54v9 and new39=incarnation-operation-schema1. Other descriptor12 vectors and Native max56
+remain. Lifecycle9/companion15 explicitly authenticate original lifecycle decisions and actual joins;
+all prior descriptors/default construction and old schema bytes keep their contracts. Discovery kind11
+uses the original bounded META descriptor scan; GC/signing/Source/current Floor/all Pins/live/cold
+and the original service maintenance owner share the existing pipeline. New GC/Source/image/lifecycle
+methods default deny without real original deployment capability. This is repository wiring only;
+eligible closed metadata-group reclamation and real deployment/runtime verification remain required.

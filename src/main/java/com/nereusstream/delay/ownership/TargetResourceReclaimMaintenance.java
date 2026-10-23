@@ -80,6 +80,8 @@ public final class TargetResourceReclaimMaintenance {
          * close() below releases only this preparation's acquisition, retaining a failed close for cleanup.
          */
         default void requireInlinePayloadIndependent(){throw new IllegalStateException("GC input hold has no real inline reader/admission protection");}
+        /** Actual explicit Close/Registry lifecycle authorization and all old/current writer/zero-reference protection. */
+        default void requireIncarnationIndependent(){throw new IllegalStateException("GC hold lacks actual incarnation lifecycle protection");}
         /** This preparation's actual record/query/Source/Pin admission, bound to exact original values and safe cut. */
         default void requireNativeRetainedIndependent(){throw new IllegalStateException("GC hold lacks actual Native record/query/recovery admission");}
         /** Exact Native OBJECT read/replay/export/upload/commit/Pin purpose, never inline/Catalog/Action3 rights. */
@@ -289,6 +291,7 @@ public final class TargetResourceReclaimMaintenance {
                 reservation.requireCurrent();original.requireCurrent();
                 if(page.candidates().getFirst().uncommittedObject())original.requireUncommittedObjectIndependent();
                 else if(page.candidates().getFirst().objectPayload())original.requireObjectPayloadIndependent();
+                else if(page.candidates().getFirst().incarnationLifecycle())original.requireIncarnationIndependent();
                 else if(page.candidates().getFirst().nativeRetained())original.requireNativeRetainedIndependent();
                 else if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();
                 original.requireCurrent();

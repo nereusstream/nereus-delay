@@ -292,8 +292,11 @@ final class TargetCheckpointLedgerAudit {
                         attemptProjections.add(new AttemptProjection(terminal.locator(), terminal.runtime()));
                         dependencies.terminalGeneration(terminal);
                     }
+                    if(type==com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE)
+                        dependencies.incarnation(com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(key,payload,proof.metadata().shardId(),proof.bookkeeping().tenantScope()));
                     final var charge = accounting.charge(family, key, raw);
                     if (charge != null) {
+                        dependencies.ownerRecord(charge.owner().identity());
                         merge(rebuilt, charge.owner().identity(), charge.primary());
                         merge(rebuilt, charge.owner().tenantIdentity(), charge.mirror());
                         if (family == ColumnFamily.DEDUPE) {
@@ -310,6 +313,7 @@ final class TargetCheckpointLedgerAudit {
                 }
             });
         }
+        counters.forEach(dependencies::quotaCounter);
         if (auditQuotaRecords) {
             TargetCheckpointRootVerifier.auditQuotaRecords(proof, counters, totals, grantActivations);
         }
@@ -447,6 +451,10 @@ final class TargetCheckpointLedgerAudit {
                 actual.requireReleasedFrom(confirmation.intent().operation().expected(),body.floor());
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedRecordDelete leaf->{
                 for(var row:results)if(Arrays.equals(row.key(),leaf.expected().key()))throw new IllegalStateException("APPLIED Native record deletion retains its row");
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.IncarnationDrain ignored->{
+                // Native54 accounting checks exact drain or its later actual retirement successor.
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.IncarnationRetire ignored->{
+                // Descriptor/grant absence and retained zero counters are checked by the actual Source history.
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedAllocationRelease allocation->{
                 if(!projected.containsKey(Bytes.hex(allocation.expected().publishAttemptId())))throw new IllegalStateException("APPLIED retained settlement lost its Budget");
             }}

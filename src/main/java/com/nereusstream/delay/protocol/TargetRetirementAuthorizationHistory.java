@@ -46,7 +46,7 @@ public final class TargetRetirementAuthorizationHistory {
             Objects.requireNonNull(service); Objects.requireNonNull(action); Objects.requireNonNull(activation);
             if(service.kind()!=AuthorIdentity.Kind.SERVICE||service.canonicalBytes().length>1024||keyVersion==0
                     ||!(action==Action.RESOURCE_RECLAIM
-                        ?activation.tuple().equals(ProtocolTuple.targetResourceReclaim())||activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||activation.tuple().equals(ProtocolTuple.targetObjectPayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())||activation.tuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())
+                        ?activation.tuple().equals(ProtocolTuple.targetResourceReclaim())||activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||activation.tuple().equals(ProtocolTuple.targetObjectPayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())||activation.tuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())||activation.tuple().equals(ProtocolTuple.targetIncarnationReclaim())
                         :activation.tuple().equals(ProtocolTuple.targetEvidenceRetirement()))
                     ||activation.canonicalBytes().length>4096)
                 throw new IllegalArgumentException("history grant requires exact SERVICE/key/action and its independent activation tuple");
@@ -73,7 +73,7 @@ public final class TargetRetirementAuthorizationHistory {
         }
         private byte[] identity() {
             final byte[] old=Bytes.concat(Bytes.lp32(service.canonicalBytes()),Bytes.u32beBits(keyVersion),Bytes.u32be(action.wire));
-            return activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||activation.tuple().equals(ProtocolTuple.targetObjectPayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())||activation.tuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())
+            return activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||activation.tuple().equals(ProtocolTuple.targetObjectPayloadReclaim())||activation.tuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())||activation.tuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())||activation.tuple().equals(ProtocolTuple.targetIncarnationReclaim())
                     ?Bytes.concat(old,Bytes.lp32(activation.tuple().canonicalBytes())):old;
         }
         public byte[] canonicalBytes() {

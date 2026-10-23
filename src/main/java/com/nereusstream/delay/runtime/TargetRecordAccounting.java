@@ -266,6 +266,7 @@ public final class TargetRecordAccounting {
                 requireFamily(family, ColumnFamily.META);
                 final var owner =
                         TargetQuotaIncarnation.decodeForStore(key, payload, scope.shard(), scope.tenantScope());
+                if(owner.draining())TargetIncarnationReclaim.requireDrainingOrigin(reader,overlay,scope,lineage,owner,operation);
                 result = new Charge(owner, owner.ownContribution());
             }
             case com.nereusstream.delay.protocol.TargetCloseRecord.VALUE_TYPE -> {

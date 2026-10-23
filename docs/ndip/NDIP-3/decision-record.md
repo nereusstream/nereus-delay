@@ -1643,3 +1643,17 @@ Source退款是两次不同变化，不重复物理退款，不扣独立Native�
 下合法留存、缺真实provider/history资格的不可执行路径、包4整Store清退事项。包3如实
 暴露留存占用/有限额度/拒绝，不承诺历史费用可无限自动循环回收；真实drain/identity与
 其它必需writer/provider缺口不可改名留存后宣称包2完成。集中测试/环境执行仍后置。
+
+
+## 2026-10-23：drain必须消费明确原生命周期决定
+
+主会话补裁：当前grant零limit仅是准入/容量前置条件，不是授权永久停止incarnation的
+生命周期意图，不能自动转DRAINING。必须使用原已认证、Source有序的明确Control/Registry
+生命周期决定（既有Close/轮换等实际原因）及持续到原子提交的真实StateAuthority；以后
+grant增大不能复活DRAINING/退休identity，旧承诺工作与责任仍保留。
+
+仓内本批选择已有Target Close确切原因：冻结完整实际Close/OPEN descriptor及原first/POS，
+沿type14 kind3 action4/5自主落定body16/tuple16/descriptor13、Native54v9/lifecycle9/
+companion15。退休另需真实descriptor-only独立fold、所有零引用与原held权威，exact零grant
+同批移除，保零counter/Target total及仍活动Source归属的新增历史。真实闭合metadata组
+退休与部署qualification仍须继续；没有授权环境删除、保护解除或绕开当前root禁退。

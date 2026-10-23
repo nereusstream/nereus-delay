@@ -25,7 +25,7 @@ import java.util.TreeMap;
 
 /** Closed Target semantic contents and original Admission frames; external control/pin/authentication is required. */
 public final class TargetCheckpointSemanticSnapshot {
-    public static final int MAX_SCHEMA_VERSION=14;
+    public static final int MAX_SCHEMA_VERSION=15;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-checkpoint-semantic-snapshot\0");
 
     public record Limits(int maximumRecords, int maximumBytes, long maximumAdmissionFrameBytes) {
@@ -135,6 +135,8 @@ public final class TargetCheckpointSemanticSnapshot {
             throw new IllegalArgumentException("self-contained inline lifecycle requires explicit schema10 companion");
         if(version==10&&!lifecycle.requiresSelfContainedInlinePayloadReclaimCapability())
             throw new IllegalArgumentException("schema10 requires explicit self-contained inline capability inputs");
+        if(version<15&&lifecycle!=null&&lifecycle.requiresIncarnationCapability())throw new IllegalArgumentException("incarnation lifecycle requires companion15");
+        if(version==15&&!lifecycle.requiresIncarnationCapability())throw new IllegalArgumentException("companion15 requires incarnation capability");
         if(version<14&&lifecycle!=null&&lifecycle.requiresAnchorAllocationCapability())throw new IllegalArgumentException("anchor allocation lifecycle requires explicit companion14");
         if(version==14&&!lifecycle.requiresAnchorAllocationCapability())throw new IllegalArgumentException("companion14 requires anchor allocation capability");
         if(version<13&&lifecycle!=null&&lifecycle.requiresUncommittedObjectCapability())throw new IllegalArgumentException("uncommitted lifecycle requires explicit companion13");
@@ -371,7 +373,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var recovery=complete.resolveRecoveryEvidence(originalOutcomes,recoveryAuthority,budget,guard);
         final var lifecycle=TargetCheckpointLifecycleInputs.collect(complete,lifecycleAuthority,budget,limits,guard);
         final var root=complete.root();
-        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresAnchorAllocationCapability()?14:lifecycle.requiresUncommittedObjectCapability()?13:lifecycle.requiresObjectPayloadCapability()?12:lifecycle.requiresNativeRetainedReclaimCapability()?11:lifecycle.requiresSelfContainedInlinePayloadReclaimCapability()?10:lifecycle.requiresInlinePayloadReclaimCapability()?9:lifecycle.requiresResourceReclaimCapability()?8:lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
+        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresIncarnationCapability()?15:lifecycle.requiresAnchorAllocationCapability()?14:lifecycle.requiresUncommittedObjectCapability()?13:lifecycle.requiresObjectPayloadCapability()?12:lifecycle.requiresNativeRetainedReclaimCapability()?11:lifecycle.requiresSelfContainedInlinePayloadReclaimCapability()?10:lifecycle.requiresInlinePayloadReclaimCapability()?9:lifecycle.requiresResourceReclaimCapability()?8:lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
                 root.root().recoveryLineage(),complete.storedControlsDigest(),complete.semanticInputsDigest(),profiles,retries,trusts,
                 admissions,originalControls,originalOutcomes,external,recovery,lifecycle,lifecycle.requiresInlinePayloadReclaimCapability()?terminalPolicies:List.of(),limits);
         result.validateAgainst(complete,limits);guard.run();if(!budget.beforeTimedWork())throw budget.incomplete();return result;
@@ -701,7 +703,7 @@ public final class TargetCheckpointSemanticSnapshot {
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target semantic snapshot");
         return result;
     }
-    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7,8->17;case 9,10,11,12,13,14->18;
+    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7,8->17;case 9,10,11,12,13,14,15->18;
         default->throw new IllegalArgumentException("unknown Target semantic snapshot version");};}
 
     private static void before(BoundedReadBudget budget, Runnable guard) {

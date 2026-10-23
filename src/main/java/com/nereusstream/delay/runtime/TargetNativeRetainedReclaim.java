@@ -36,6 +36,7 @@ public final class TargetNativeRetainedReclaim {
     }
     public static void requireDraftClosed(TargetCheckpointDependencies d,TargetResourceReclaimBody body,Runnable current){requireClosed(d,body,null,false,current);}
     private static TargetQuotaMutation requireClosed(TargetCheckpointDependencies d,TargetResourceReclaimBody body,SystemMutation input,boolean allowApplied,Runnable current){
+        if(body.incarnationReclaim())return TargetIncarnationReclaim.requireClosed(d,body,input,allowApplied,current);
         final var facts=Objects.requireNonNull(body.nativeFacts());facts.requireFor(body);
         if(!body.nativeRetainedReclaim()||!d.root().metadata().shardId().equals(body.shard())
                 ||!Arrays.equals(d.root().root().tenantScope(),body.scope().tenantScope())||!Arrays.equals(d.root().root().recoveryLineage(),body.lineage()))
@@ -135,6 +136,7 @@ public final class TargetNativeRetainedReclaim {
         result(reader,List.of(),positionKey(fence.position())).requireFirst(first);
         if(reader.closedIngressDeadlineThrough()<closeThrough(body))throw new IllegalStateException("Native prefix lacks original closure fence");
         if(!TargetResourceReclaimStore.matchesExpected(reader,body))throw new IllegalStateException("Native reclaim exact values changed after full closure");
+        if(body.incarnationReclaim()){TargetIncarnationReclaim.requireCurrent(reader,input,current);return;}
         for(var operation:body.operations()){
             current.run();if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
                 retainedWindow(body,leaf.expected());
@@ -195,6 +197,7 @@ public final class TargetNativeRetainedReclaim {
         if(!first.mutation().equals(facts.fence().appliedAt())||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(original.mutation(),ApplyStatus.APPLIED,
                 StableCode.OK,original.position().canonicalBytes()).encode()))throw new IllegalStateException("Native history lost its original APPLIED closure fence");
         result(view,overlay,positionKey(original.position())).requireFirst(first);decision.requireAtOrBefore(frontier);
+        if(body.incarnationReclaim()){TargetIncarnationReclaim.requireAppliedDecision(view,overlay,body,decision);return;}
         for(var operation:body.operations())if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
             retainedWindow(body,leaf.expected());
             if(view.projected(ColumnFamily.DEDUPE,leaf.expected().key(),overlay)!=null)throw new IllegalStateException("APPLIED Native record deletion retains its row");

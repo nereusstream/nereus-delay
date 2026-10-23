@@ -2883,3 +2883,18 @@ body15 kind3/action3/schema2以实际NV52完整Anchor provenance、creator Admis
 保持，Protection/共享引用者/staging不借此退款；其它无不可变归属/终态basis余额保留。
 每个原owner share只能在实际APPLIED Native54 before/after链结算一次，保后继部分/最终
 释放与RELEASED Budget槽位费用。默认资源窗口不提高，真实准入/历史和全部运行验收后置。
+
+
+2026-10-23 §15实际Source接线：body16 action4只消费原APPLIED Target Close及actual first/
+POSITION作为不可逆drain原因；zero grant不是生命周期意图。DRAINING保持原费用/身份，
+不影响已承诺Claim/Admission/Outcome/旧Attempt排空。晚到新binding据真实drain/退休历史
+有序TARGET_CLOSED拒绝；后来grant扩大不复活旧owner。
+
+独立完整fold除重算费用还统计每个owner的实际业务行数，含零贡献；action5在原§15.4
+全部保护成立时只删除真实descriptor与exact零grant有效引用。固定descriptor STATE/
+incarnation-cardinality及grant inventory slot按实际before/after减额，counter tombstone/
+Target total与其root槽位费保留，Source新增history/first/POS费用不归已删身份。旧Control
+first的不可变allocation快照仍是历史事实并归原Source收费，不伪造新current owner。
+账务装配时只验证原真实descriptor-only counters及exact typed删除投影，真正持久/冷读
+继续要求原retire Source的真实双零counter；不以投影或数值单独授权删除。其它实际记录/
+零费用引用存在、原writer/读者/Pin能力未提供或closed-group尚未实施时都继续保费用。

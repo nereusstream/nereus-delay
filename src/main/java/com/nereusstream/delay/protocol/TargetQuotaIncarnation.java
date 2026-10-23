@@ -188,6 +188,12 @@ public final class TargetQuotaIncarnation {
         return next;
     }
 
+    /** Read-only exact successor for Source history verification; grants no lifecycle or write authority. */
+    public TargetQuotaIncarnation drainingProjection(final TargetQuotaMutation mutation) {
+        if (draining()) throw new IllegalStateException("incarnation is already draining");
+        return new TargetQuotaIncarnation(identity, tenant, accounting, allocation, lineage, mutation);
+    }
+
     /** Fixed record envelope reserves the future drain source and never recursively embeds its own usage. */
     public TargetQuotaUsage ownContribution() {
         return contribution;

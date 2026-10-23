@@ -154,6 +154,10 @@ public final class TargetCheckpointDependencies {
     private final Map<String,TargetResultRecord> retentionFirsts,retentionPositions;
     private final Map<String,TargetResultRecord> timeFences;
     private final Map<String,TargetResultRecord> resultRecords;
+    private final Map<String,com.nereusstream.delay.protocol.TargetQuotaIncarnation> incarnations;
+    private final Map<String,com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters;
+    private final Map<com.nereusstream.delay.protocol.TargetQuotaIdentity,Long> ownerRecordCounts;
+
     private final IngressFenceState ingressFence;
 
     private TargetCheckpointDependencies(Builder builder, List<Admission> admissions, boolean complete) {
@@ -188,6 +192,8 @@ public final class TargetCheckpointDependencies {
         ingressFence=builder.ingressFence;
         timeFences=Map.copyOf(builder.timeFences);
         resultRecords=Map.copyOf(builder.resultRecords);
+        incarnations=Map.copyOf(builder.incarnations);quotaCounters=Map.copyOf(builder.quotaCounters);
+        ownerRecordCounts=Map.copyOf(builder.ownerRecordCounts);
     }
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
@@ -197,6 +203,10 @@ public final class TargetCheckpointDependencies {
     public com.nereusstream.delay.protocol.TargetQuotaPayloadOwner payloadOwner(com.nereusstream.delay.protocol.DelayMessageId id){return payloadOwners.get(Bytes.hex(id.bytes()));}
     public List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations(){return terminalGenerations;}
     public IngressFenceState ingressFence(){return ingressFence;}
+    public com.nereusstream.delay.protocol.TargetQuotaIncarnation incarnation(byte[] key){return incarnations.get(Bytes.hex(key));}
+    public com.nereusstream.delay.protocol.TargetQuotaCounter quotaCounter(com.nereusstream.delay.protocol.TargetQuotaIdentity id){return quotaCounters.get(Bytes.hex(id.key()));}
+    /** Counted from every actual business row in the complete independent fold, including zero-valued charges. */
+    public long ownerRecordCount(com.nereusstream.delay.protocol.TargetQuotaIdentity id){return ownerRecordCounts.getOrDefault(id,0L);}
     public TargetResultRecord resultRecord(byte[] key){return resultRecords.get(Bytes.hex(key));}
     /** Exact original Source first/POSITION for RETAINED, not a later physical duplicate or a caller timestamp. */
     public TargetResultRecord requireRetentionDecision(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner retained){
@@ -911,6 +921,9 @@ public final class TargetCheckpointDependencies {
         private final Map<String,TargetResultRecord> retentionFirsts=new TreeMap<>(),retentionPositions=new TreeMap<>();
         private final Map<String,TargetResultRecord> timeFences=new TreeMap<>();
         private final Map<String,TargetResultRecord> resultRecords=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetQuotaIncarnation> incarnations=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters=new TreeMap<>();
+        private final Map<com.nereusstream.delay.protocol.TargetQuotaIdentity,Long> ownerRecordCounts=new java.util.HashMap<>();
         private IngressFenceState ingressFence=new IngressFenceState(IngressFenceState.OPEN,null);
 
         Builder(TargetCheckpointRootVerifier.RootProof root) { this.root = root; }
@@ -943,8 +956,12 @@ public final class TargetCheckpointDependencies {
             prior.terminalGenerations.forEach(this::terminalGeneration);
             retentionFirsts.putAll(prior.retentionFirsts);retentionPositions.putAll(prior.retentionPositions);ingressFence=prior.ingressFence;
             timeFences.putAll(prior.timeFences);
-            resultRecords.putAll(prior.resultRecords);
+            resultRecords.putAll(prior.resultRecords);incarnations.putAll(prior.incarnations);quotaCounters.putAll(prior.quotaCounters);
+            ownerRecordCounts.putAll(prior.ownerRecordCounts);
         }
+        void incarnation(com.nereusstream.delay.protocol.TargetQuotaIncarnation value){if(incarnations.putIfAbsent(Bytes.hex(value.key()),value)!=null)throw new IllegalStateException("duplicate actual incarnation");}
+        void quotaCounter(com.nereusstream.delay.protocol.TargetQuotaCounter value){if(quotaCounters.putIfAbsent(Bytes.hex(value.identity().key()),value)!=null)throw new IllegalStateException("duplicate actual quota counter");}
+        void ownerRecord(com.nereusstream.delay.protocol.TargetQuotaIdentity id){ownerRecordCounts.merge(id,1L,Math::addExact);}
         void messageState(com.nereusstream.delay.runtime.TargetMessageRecord message,byte[] canonical){
             messageStates.put(Bytes.hex(message.locator().messageId().bytes()),new MessageState(message.locator(),message.stateVersion(),message.runtime(),Bytes.sha256(canonical)));
         }

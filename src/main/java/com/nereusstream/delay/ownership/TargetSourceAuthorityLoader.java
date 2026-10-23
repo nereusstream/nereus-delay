@@ -52,6 +52,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         default void requireInlinePayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source hold has no inline payload reader/admission protection");
         }
+        /** This Source load independently retains the actual Control/Registry lifecycle decision and exact owner/epoch,
+         * complete ledgers including live zero-fee references, old writers/late I/O and all reader/Pin protections. */
+        default void requireIncarnationIndependent(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Source incarnation lifecycle protection unavailable");
+        }
         /** This RECLAIM load owns a separate actual record/query/Source/Pin admission loan through the exact Native commit. */
         default void requireNativeRetainedIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Native record/query/recovery admission protection unavailable");
@@ -303,7 +308,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                     if(objectDeletion!=null)objectDeletion.requireConfirmation(body);
                     else held.original.requireObjectPayloadHistoricalConfirmation(source);
                 }
-            }else if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);
+            }else if(body.incarnationReclaim())held.original.requireIncarnationIndependent(source);
+            else if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);
             else if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);
             held.requireCurrent();
         };

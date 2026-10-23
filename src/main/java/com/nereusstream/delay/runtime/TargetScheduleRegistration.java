@@ -15,6 +15,7 @@ import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.scheduler.TargetNativePolicyChecks;
@@ -109,6 +110,18 @@ public final class TargetScheduleRegistration {
         if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
             throw new IllegalStateException("first binding requires an advancing source");
         }
+        final var selectedOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.TARGET,shardScope.shard(),binding.accountingIncarnation(),binding.target(),null);
+        final byte[] selectedKey=selectedOwner.key();selectedKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final byte[] selectedRaw=reader.get(ColumnFamily.META,selectedKey);
+        if(selectedRaw!=null){
+            final var currentOwner=TargetQuotaIncarnation.decodeForStore(selectedKey,TargetValueEnvelope.decode(selectedRaw,TargetQuotaIncarnation.VALUE_TYPE).payload(),shardScope.shard(),shardScope.tenantScope());
+            if(!Arrays.equals(currentOwner.recoveryLineage(),lineage))throw new IllegalStateException("first binding crosses incarnation lineage");
+            if(currentOwner.draining()){
+                TargetIncarnationReclaim.requireDrainingOrigin(reader,List.of(),shardScope,lineage,currentOwner,reader.aggregate().mutation());
+                return new Plan(StableCode.TARGET_CLOSED,null,null,null,List.of());
+            }
+        }else if(TargetIncarnationReclaim.isRetired(reader,shardScope,lineage,selectedOwner))
+            return new Plan(StableCode.TARGET_CLOSED,null,null,null,List.of());
         // A provider cannot issue a grant merely by returning its digest or a proposed binding.
         final var applied = Objects.requireNonNull(
                 TargetMembershipStoreAuthority.resolve(reader, shardScope, lineage, binding.membershipGrantRef()),

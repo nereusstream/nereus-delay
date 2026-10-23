@@ -227,6 +227,19 @@ public final class TargetResourceReclaimStore {
                                 protection.requireNativeRelease(allocation,floor,decision);
                             });
                             edits.add(reader.replace(ColumnFamily.META,after.key(),TargetQuotaAttemptBudget.VALUE_TYPE,after.canonicalBytes()));
+                        }else if(operation instanceof TargetResourceReclaimBody.IncarnationDrain drain){
+                            final var next=drain.expected().drain(stamp,(prior,after)->protection.requireNativeRelease(drain,body.floor(),stamp));
+                            edits.add(reader.replace(ColumnFamily.META,next.key(),TargetQuotaIncarnation.VALUE_TYPE,next.canonicalBytes()));
+                        }else if(operation instanceof TargetResourceReclaimBody.IncarnationRetire retire){
+                            final var expected=retire.expected();
+                            final var primary=TargetQuotaCounter.decodeForStore(expected.identity().key(),payload(reader,ColumnFamily.META,expected.identity().key(),TargetQuotaCounter.VALUE_TYPE),scope.shard());
+                            final var mirror=TargetQuotaCounter.decodeForStore(expected.tenantIdentity().key(),payload(reader,ColumnFamily.META,expected.tenantIdentity().key(),TargetQuotaCounter.VALUE_TYPE),scope.shard());
+                            final byte[] bookKey=TargetQuotaBookkeeping.keyFor(scope.shard());
+                            final var book=TargetQuotaBookkeeping.decodeForStore(bookKey,payload(reader,ColumnFamily.META,bookKey,TargetQuotaBookkeeping.VALUE_TYPE),root.identity(),scope.tenantScope());
+                            expected.requireRetirable(primary,mirror,book,reader.aggregate(),body.floor(),stamp,
+                                    (owner,p,m,b,a,f,at)->protection.requireNativeRelease(retire,f,at));
+                            edits.add(reader.replace(ColumnFamily.META,expected.key(),TargetQuotaIncarnation.VALUE_TYPE,null));
+                            edits.add(reader.replace(ColumnFamily.META,retire.zeroGrant().key(),TargetQuotaGrantActivation.VALUE_TYPE,null));
                         }else throw new IllegalArgumentException("Native retained group changed family");
                     }
                 }else if(body.inlinePayloadRelease()){
@@ -310,7 +323,7 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.anchorAllocationReclaim()?activation.body().payload().descriptor().supportsAnchorAllocationReclaim():body.uncommittedObjectReclaim()?activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim():body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
+        return activation!=null&&(body.incarnationReclaim()?activation.body().payload().descriptor().supportsIncarnationReclaim():body.anchorAllocationReclaim()?activation.body().payload().descriptor().supportsAnchorAllocationReclaim():body.uncommittedObjectReclaim()?activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim():body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
                 :body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
                 :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
@@ -352,6 +365,12 @@ public final class TargetResourceReclaimStore {
                 final var expected=leaf.expected();final byte[] raw=reader.get(ColumnFamily.DEDUPE,expected.key());
                 if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetResultRecord.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
                 expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }case TargetResourceReclaimBody.IncarnationDrain drain->{
+                if(!sameNative(reader,drain.expected().key(),TargetQuotaIncarnation.VALUE_TYPE,drain.expected().canonicalBytes())
+                        ||!sameNative(reader,drain.close().key(),TargetCloseRecord.VALUE_TYPE,drain.close().canonicalBytes()))return false;
+            }case TargetResourceReclaimBody.IncarnationRetire retire->{
+                if(!sameNative(reader,retire.expected().key(),TargetQuotaIncarnation.VALUE_TYPE,retire.expected().canonicalBytes())
+                        ||!sameNative(reader,retire.zeroGrant().key(),TargetQuotaGrantActivation.VALUE_TYPE,retire.zeroGrant().canonicalBytes()))return false;
             }case TargetResourceReclaimBody.RetainedAllocationRelease allocation->{
                 final var expected=allocation.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
                 if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaAttemptBudget.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
@@ -361,6 +380,9 @@ public final class TargetResourceReclaimStore {
         return true;
     }
 
+    private static boolean sameNative(TargetStoreBackend.Reader reader,byte[] key,int type,byte[] expected){
+        final byte[] raw=reader.get(ColumnFamily.META,key);return raw!=null&&Arrays.equals(TargetValueEnvelope.decode(raw,type).payload(),expected);
+    }
     private static boolean matchesUncommitted(TargetStoreBackend.Reader reader,TargetResourceReclaimBody.UncommittedObjectRetire selected){
         final var expected=selected.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
         if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes())
@@ -417,6 +439,7 @@ public final class TargetResourceReclaimStore {
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());protection.requireSource(scope,lineage,input,source);
         if(!body.nativeRetainedReclaim()||!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||reader.source()==null
                 ||source.compareTo(reader.source())<=0||!protection.recovery.nativeRetained())throw new IllegalArgumentException("Native retained closure changed actual Source context");
+        if(body.incarnationReclaim())TargetNativeRetainedReclaim.requireClosed(reader.auditLedger(),input,false,()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
         TargetNativeRetainedReclaim.requireCurrent(reader,input,()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
     }
     public static void requireClosedNativeDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,
