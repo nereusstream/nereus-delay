@@ -50,7 +50,12 @@ public final class TargetResourceReclaimDiscovery {
         private Candidate(TargetResourceReclaimDiscovery owner,ObjectSelection selection,TargetPayloadObjectRetiringRecord pending){
             this.owner=owner;objectSelection=selection;objectIntent=pending;operation=null;expected=null;admission=null;outcome=null;
         }
-        public boolean objectPayload(){return objectSelection!=null||objectIntent!=null||operation instanceof TargetResourceReclaimBody.ObjectPayloadRetire||operation instanceof TargetResourceReclaimBody.ObjectPayloadConfirm;}
+        public boolean objectPayload(){return objectSelection!=null||objectIntent!=null||operation instanceof TargetResourceReclaimBody.ObjectPayloadRetire||operation instanceof TargetResourceReclaimBody.ObjectPayloadConfirm||uncommittedObject();}
+        public boolean uncommittedObject(){return operation instanceof TargetResourceReclaimBody.UncommittedObjectRetire||operation instanceof TargetResourceReclaimBody.UncommittedObjectConfirm||objectIntent!=null&&objectIntent.body().uncommittedObjectReclaim();}
+        public Candidate withUncommittedConfirmation(TargetResourceReclaimBody.UncommittedObjectConfirm confirmation){
+            if(!Arrays.equals(objectIntent().canonicalBytes(),confirmation.intent().canonicalBytes()))throw new IllegalArgumentException("uncommitted confirmation changed actual pending intent");
+            return new Candidate(owner,confirmation);
+        }
         public boolean needsObjectProof(){return objectSelection!=null;}
         public boolean pendingObject(){return objectIntent!=null;}
         public ObjectSelection objectSelection(){return Objects.requireNonNull(objectSelection,"OBJECT intent selection required");}
@@ -70,14 +75,16 @@ public final class TargetResourceReclaimDiscovery {
         public TargetResourceReclaimBody.Operation operation(){return Objects.requireNonNull(operation,"original OBJECT inputs must be authenticated/materialized first");}
         public boolean inlinePayload(){return operation instanceof TargetResourceReclaimBody.InlinePayloadRelease;}
         public boolean nativeRetained(){return operation instanceof TargetResourceReclaimBody.RetainedRecordDelete||operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease;}
-        public TargetQuotaIdentity primaryIdentity(){if(objectSelection!=null)return objectSelection.expected().primaryIdentity();if(objectIntent!=null)return objectIntent.operation().expected().primaryIdentity();return switch(operation){
+        public TargetQuotaIdentity primaryIdentity(){if(objectSelection!=null)return objectSelection.expected().primaryIdentity();if(objectIntent!=null)return objectIntent.expectedOwner().primaryIdentity();return switch(operation){
             case TargetResourceReclaimBody.InlinePayloadRelease p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.ObjectPayloadRetire p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.ObjectPayloadConfirm p->p.intent().operation().expected().primaryIdentity();
+            case TargetResourceReclaimBody.UncommittedObjectRetire p->p.expected().primaryIdentity();
+            case TargetResourceReclaimBody.UncommittedObjectConfirm p->p.intent().expectedOwner().primaryIdentity();
             case TargetResourceReclaimBody.UnusedAttemptReserve p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.RetainedRecordDelete p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.RetainedAllocationRelease p->p.expected().primaryIdentity();};}
-        public ProtocolTuple requiredTuple(){return objectPayload()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+        public ProtocolTuple requiredTuple(){return uncommittedObject()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayload()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
         public TargetResultRecord admission(){return admission;}
         public TargetResultRecord outcome(){return outcome;}
     }
@@ -111,20 +118,22 @@ public final class TargetResourceReclaimDiscovery {
     public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
             boolean unused,boolean inline,boolean nativeRetained){return scan(reads,previous,maximumRows,authority,unused,inline,nativeRetained,false);}
     public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
-            boolean unused,boolean inline,boolean nativeRetained,boolean object){
-        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this||!unused&&!inline&&!nativeRetained&&!object)
+            boolean unused,boolean inline,boolean nativeRetained,boolean object){return scan(reads,previous,maximumRows,authority,unused,inline,nativeRetained,object,false);}
+    public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
+            boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted){
+        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this||!unused&&!inline&&!nativeRetained&&!object&&!uncommitted)
             throw new IllegalArgumentException("invalid bounded reclaim scan or foreign continuation");
         return backend.guardedRead(reads,reader->{
             final var incarnation=reader.metadata().storeIncarnation();
             if(previous!=null&&!Arrays.equals(previous.storeIncarnation,incarnation))throw new StaleCursor();
             final var candidates=new ArrayList<Candidate>();
-            int kind=previous==null?nextKind(0,unused,inline,nativeRetained,object):previous.kind;
+            int kind=previous==null?nextKind(0,unused,inline,nativeRetained,object,uncommitted):previous.kind;
             byte[] after=previous==null?null:previous.after;
-            if(!allowedKind(kind,unused,inline,nativeRetained,object)){kind=nextKind(0,unused,inline,nativeRetained,object);after=null;}
+            if(!allowedKind(kind,unused,inline,nativeRetained,object,uncommitted)){kind=nextKind(0,unused,inline,nativeRetained,object,uncommitted);after=null;}
             int count=0;
             while(count<maximumRows){
-                final int tag=switch(kind){case 1,5->TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG;case 2,7->TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG;
-                    case 3->TargetKeyCodec.RESULT_QUERY_TAG;case 4->TargetKeyCodec.RESULT_POSITION_TAG;case 6->TargetKeyCodec.EVIDENCE_CONFIRMED_TAG;case 8->TargetKeyCodec.PAYLOAD_OBJECT_RETIRING_TAG;default->throw new IllegalStateException("unknown reclaim cursor family");};
+                final int tag=switch(kind){case 1,5->TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG;case 2,7,9->TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG;
+                    case 3->TargetKeyCodec.RESULT_QUERY_TAG;case 4->TargetKeyCodec.RESULT_POSITION_TAG;case 6->TargetKeyCodec.EVIDENCE_CONFIRMED_TAG;case 8,10->TargetKeyCodec.PAYLOAD_OBJECT_RETIRING_TAG;default->throw new IllegalStateException("unknown reclaim cursor family");};
                 final var family=kind==3||kind==4?ColumnFamily.DEDUPE:ColumnFamily.META;
                 final byte[] upper={(byte)tag,TargetKeyCodec.KEY_FORMAT+1};
                 final byte[] lower=after==null?new byte[]{(byte)tag,TargetKeyCodec.KEY_FORMAT}:Bytes.concat(after,new byte[]{0});
@@ -132,7 +141,7 @@ public final class TargetResourceReclaimDiscovery {
                     final var row=reader.first(family,lower,upper,List.of());
                     if(row==null){
                         reader.requireWithinElapsedBudget();
-                        final int next=nextKind(kind,unused,inline,nativeRetained,object);
+                        final int next=nextKind(kind,unused,inline,nativeRetained,object,uncommitted);
                         if(next!=0){
                             kind=next;after=null;
                             if(!candidates.isEmpty())return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
@@ -152,21 +161,32 @@ public final class TargetResourceReclaimDiscovery {
             return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
         },authority);
     }
-    private static boolean allowedKind(int kind,boolean unused,boolean inline,boolean nativeRetained,boolean object){
-        return kind==1?unused:kind==2?inline:kind>=3&&kind<=6?nativeRetained:kind==7||kind==8?object:false;
+    private static boolean allowedKind(int kind,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted){
+        return kind==1?unused:kind==2?inline:kind>=3&&kind<=6?nativeRetained:kind==7||kind==8?object:kind==9||kind==10?uncommitted:false;
     }
-    private static int nextKind(int prior,boolean unused,boolean inline,boolean nativeRetained,boolean object){
-        for(int next=prior+1;next<=8;next++)if(allowedKind(next,unused,inline,nativeRetained,object))return next;return 0;
+    private static int nextKind(int prior,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted){
+        for(int next=prior+1;next<=10;next++)if(allowedKind(next,unused,inline,nativeRetained,object,uncommitted))return next;return 0;
     }
     private Candidate object(TargetStoreBackend.Reader reader,ShardStore.KeyValue row,int kind){
-        if(kind==8){
+        if(kind==8||kind==10){
             final var intent=TargetPayloadObjectRetiringRecord.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),scope,lineage);
+            if((kind==10)!=intent.body().uncommittedObjectReclaim())return null;
             TargetObjectPayloadReclaim.requirePending(reader,List.of(),intent,reader.aggregate().mutation());
             return new Candidate(this,null,intent);
         }
         final var owner=TargetQuotaPayloadOwner.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
         if(!Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("OBJECT discovery changed original lineage");
         owner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if(kind==9){
+            if(owner.kind()!=TargetQuotaPayloadOwner.Kind.OBJECT||owner.phase()!=TargetQuotaPayloadOwner.Phase.RETAINED||owner.committedPayload()!=null
+                    ||reader.get(ColumnFamily.META,TargetPayloadObjectRetiringRecord.key(owner.messageId()))!=null)return null;
+            final byte[] key=Bytes.concat(new byte[]{TargetKeyCodec.RESERVATION_TAG,TargetKeyCodec.KEY_FORMAT},owner.messageId().bytes());
+            final var reservation=TargetReservationRecord.decode(payload(reader,ColumnFamily.ID,key,TargetReservationRecord.VALUE_TYPE));reservation.requireOwner(owner);
+            if(reservation.status()!=PayloadReservationStatus.EXPIRED&&reservation.status()!=PayloadReservationStatus.ABANDONED)return null;
+            if(!Arrays.equals(reservation.canonicalBytes(),payload(reader,ColumnFamily.ID,reservation.lookupKey(),TargetReservationRecord.VALUE_TYPE))
+                    ||reader.get(ColumnFamily.ID,TargetKeyCodec.message(owner.messageId()))!=null)throw new IllegalStateException("uncommitted discovery lost terminal reservation projections/absent Message");
+            return new Candidate(this,new TargetResourceReclaimBody.UncommittedObjectRetire(owner,null));
+        }
         if(owner.kind()!=TargetQuotaPayloadOwner.Kind.OBJECT||owner.phase()!=TargetQuotaPayloadOwner.Phase.RETAINED||owner.committedPayload()==null
                 ||reader.get(ColumnFamily.META,TargetPayloadObjectRetiringRecord.key(owner.messageId()))!=null)return null;
         final byte[] key=TargetKeyCodec.message(owner.messageId());final byte[] primary=payload(reader,ColumnFamily.ID,key,TargetMessageRecord.VALUE_TYPE);

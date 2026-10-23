@@ -194,20 +194,20 @@ public final class TargetResourceReclaimStore {
                 protection.requireSource(scope,lineage,input,source);protection.requireCurrent();
                 if(body.objectPayloadReclaim()){
                     requireClosedObject(reader,scope,lineage,input,source,protection);protection.requireObjectStage(body.floor(),stamp);
-                    final var operation=body.objectOperation();final var expected=operation.expected();
-                    if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadRetire){
+                    final var expected=body.objectOwner();
+                    if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadRetire||body.operations().getFirst() instanceof TargetResourceReclaimBody.UncommittedObjectRetire){
                         final var pending=new TargetPayloadObjectRetiringRecord(input,stamp);
                         requireAbsent(reader,ColumnFamily.META,pending.key());
                         edits.add(reader.replace(ColumnFamily.META,pending.key(),TargetPayloadObjectRetiringRecord.VALUE_TYPE,pending.canonicalBytes()));
                     }else{
-                        final var confirmation=(TargetResourceReclaimBody.ObjectPayloadConfirm)body.operations().getFirst();
+                        final var intent=body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm confirmation?confirmation.intent():((TargetResourceReclaimBody.UncommittedObjectConfirm)body.operations().getFirst()).intent();
                         final var actual=TargetQuotaPayloadOwner.decodeForStore(expected.key(),payload(reader,ColumnFamily.META,expected.key(),TargetQuotaPayloadOwner.VALUE_TYPE),scope.shard(),scope.tenantScope());
                         final var released=actual.release(body.floor(),stamp,(before,after,floor)->{
                             if(!Arrays.equals(before.canonicalBytes(),expected.canonicalBytes())||after.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED||!after.mutation().equals(stamp))throw new IllegalStateException("OBJECT changed frozen owner on release");
                             protection.requireObjectStage(floor,stamp);
                         });
-                        edits.add(reader.replace(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()),TargetMessageRecord.VALUE_TYPE,null));
-                        edits.add(reader.replace(ColumnFamily.META,confirmation.intent().key(),TargetPayloadObjectRetiringRecord.VALUE_TYPE,null));
+                        if(!body.uncommittedObjectReclaim())edits.add(reader.replace(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()),TargetMessageRecord.VALUE_TYPE,null));
+                        edits.add(reader.replace(ColumnFamily.META,intent.key(),TargetPayloadObjectRetiringRecord.VALUE_TYPE,null));
                         edits.add(reader.replace(ColumnFamily.META,released.key(),TargetQuotaPayloadOwner.VALUE_TYPE,released.canonicalBytes()));
                     }
                 }else if(body.nativeRetainedReclaim()){
@@ -310,7 +310,7 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
+        return activation!=null&&(body.uncommittedObjectReclaim()?activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim():body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
                 :body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
                 :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
@@ -338,6 +338,12 @@ public final class TargetResourceReclaimStore {
                 expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
             }case TargetResourceReclaimBody.ObjectPayloadRetire object->{
                 if(!matchesObject(reader,object)||reader.get(ColumnFamily.META,TargetPayloadObjectRetiringRecord.key(object.expected().messageId()))!=null)return false;
+            }case TargetResourceReclaimBody.UncommittedObjectRetire uncommitted->{
+                if(!matchesUncommitted(reader,uncommitted)||reader.get(ColumnFamily.META,TargetPayloadObjectRetiringRecord.key(uncommitted.expected().messageId()))!=null)return false;
+            }case TargetResourceReclaimBody.UncommittedObjectConfirm confirmation->{
+                final var pending=confirmation.intent();final byte[] raw=reader.get(ColumnFamily.META,pending.key());
+                if(!matchesUncommitted(reader,pending.uncommittedOperation())||raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),pending.canonicalBytes()))return false;
+                pending.appliedAt().requireAtOrBefore(reader.aggregate().mutation());
             }case TargetResourceReclaimBody.ObjectPayloadConfirm confirmation->{
                 final var pending=confirmation.intent();final byte[] raw=reader.get(ColumnFamily.META,pending.key());
                 if(!matchesObject(reader,pending.operation())||raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),pending.canonicalBytes()))return false;
@@ -355,6 +361,15 @@ public final class TargetResourceReclaimStore {
         return true;
     }
 
+    private static boolean matchesUncommitted(TargetStoreBackend.Reader reader,TargetResourceReclaimBody.UncommittedObjectRetire selected){
+        final var expected=selected.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+        if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes())
+                ||reader.get(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()))!=null)return false;
+        if(selected.facts()==null)return false;final var reservation=selected.facts().reservation();
+        for(var key:List.of(reservation.key(),reservation.lookupKey())){final byte[] value=reader.get(ColumnFamily.ID,key);
+            if(value==null||!Arrays.equals(TargetValueEnvelope.decode(value,TargetReservationRecord.VALUE_TYPE).payload(),reservation.canonicalBytes()))return false;}
+        expected.mutation().requireAtOrBefore(reader.aggregate().mutation());return true;
+    }
     private static boolean matchesObject(TargetStoreBackend.Reader reader,TargetResourceReclaimBody.ObjectPayloadRetire object){
         final var expected=object.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
         final byte[] primary=reader.get(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()));

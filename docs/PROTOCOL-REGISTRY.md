@@ -5620,3 +5620,113 @@ before DELETE; absence/404/SDK exit never substitutes success. A local stop ends
 loans; pending Native56/charges and global Source/Pin/reader/history duties continue. Original held,
 hot, full signing and image windows remain finite and shared without larger configuration defaults.
 This is implementation/compile scope only, not actual provider-history deployment or recovery proof.
+
+
+### 2026-10-23 Uncommitted reservation OBJECT closure: body14 / descriptor11
+
+Type14/kind4 adds an independently activated ProtocolTuple(1,1,SYSTEM_MUTATION,1,14).
+This is UNCOMMITTED_RESERVATION, not a committed D acceptance projection. Original body13
+operation schemas1/2 and field9/full-proof, SourceFacts1, all descriptors1..10 and default5
+retain their canonical bytes/meaning. No Native57, NV38 PUT ledger or new Source Upload event.
+
+Body14 retains the ten common reclaim fields1/2/3/9..15; fields16/17 are absent. Exactly one
+closed operation is allowed and cannot mix with committed stages:
+- intent:1 schema1,2 kind4,3 action3,4 full frozen RETAINED OBJECT owner with no committed
+  PayloadReference,11 complete TargetUncommittedPayloadFacts1. Facts are mandatory before any
+  signed request escapes; an internal draft may omit them solely during original image collection.
+- confirmation:1 schema1,2 kind4,3 action4,4 full original Native56 schema2 intent record,
+  12 complete TargetUncommittedObjectClosure1. Every version requires an actual terminal deletion;
+  a closed empty inventory is CLOSED_NO_OBJECT, never implicitly NEVER_CREATED.
+Intent ceiling24MiB and confirmation ceiling32MiB reuse the existing explicit OBJECT bounds.
+Complete material exceeding its bound rejects without truncation; configuration defaults do not grow.
+
+Facts1 fields:1 schema1,2 full original Prepare TargetScheduleBinding,3 full actual terminal NV38,
+4 original successful Prepare COMMAND first,5 its original POSITION_COMMAND,6 true causal Source
+Frame1,7 accepted closure TimeFence Frame1,8 full frozen RetryPolicySemantic,9 full associated
+TerminalPolicySemantic. The existing Frame1 Source-applied meaning and8MiB decode bound remain;
+local materialization is carried only by NV38/owner, never invented as a retained Source frame.
+
+Only actual EXPIRED/ABANDONED plus RETAINED/uncommitted is eligible; RESERVED first follows
+existing expiry/closure. Same-view joins require identical primary/lookup NV38, Prepare anchor/
+command tuple/hash/first/POS, original binding, exact frozen Target owner/accounting/tenant/lineage,
+and no Message/Attempt. POSITION separately retains the actual Source SHARD descriptor/accounting.
+EXPIRED uses its true accepted TimeFence; local Close uses the original accepted ApplyShardControl
+and stored Closure; direct abandonment uses its actual successful Cancel. Native first/POS and
+complete original trust/semantic/causal authentication are mandatory. The closure fence must pass
+causal Source persistence time + frozen minimum retention, not today's wall clock or local apply time.
+The original requireCoveredByFloor sequence/local-ordinal rules apply unchanged. Raw creation facts,
+Retry/Profile content or a current flag do not authenticate acceptance or physical deletion rights.
+
+Native56 schema2 keeps fields1 version2,2 full signed original body14 intent envelope,3 actual
+Source-applied decision stamp,4 existing domain checksum of canonical fields1..3, at unchanged
+META tag49/key. Schema1 remains body13 only; schema2 is body14 action3 only. Nested confirmations
+are rejected before recursive identity decoding. Pending intent charges its actual frozen Target
+STATE fee; retained payload/reservation ownership continues charging. Confirmation has no Message
+to delete: the same Source prepared batch removes exact pending Native56, converts the exact owner
+to RELEASED and settles actual before/after counter/mirror/total/aggregate. NV38/binding/first/POS/
+causal/history dependencies and their fees stay retained; no caller refund/allocation delta.
+
+Native54 schema7 and Lifecycle7 retain complete original body14 signed frames/public history under
+the existing fields and domain. Companion13 retains those lifecycle inputs, original semantic contents
+and actual Native inventory. Old schemas do not reinterpret new data. Descriptor11 advertises
+checkpoint13/body14, Native54v7 (vector16), Native56v2 (vector30), facts1 (vector34), closure1 (35),
+maximum32 versions (36),4MiB complete inventory (37); Native maximum stays56. Exact tuple14 grant
+identity includes lp32(tuple14) and requires actual prior descriptor11 plus the complete reader set.
+Registration alone grants neither activation nor deployment/production authority.
+
+Closed inventory1 fields:1 schema1,2 SHA256(full original Native56 canonical bytes),3 full Object
+ProfileRef,4 exact container,5 reservation-owned object key,6 complete original durable closed-history
+public material,7 repeated Version sorted by unsigned immutable-version bytes with no duplicates.
+Version fields1 full PayloadObjectResource, optional2 Deletion. Deletion fields1 actual request-ID
+hash32,2 actual response hash32,3 complete original exact-deletion public history. Empty history is
+invalid. Only the already durably closed provider inventory may omit an unsettled deletion; Source
+confirmation requires every Deletion. Closed public material and each deletion public history are
+bounded1MiB, entire inventory4MiB, entries32. The provider's finite maximumDeleteHistoryBytes must
+fit all remaining full deletion histories inside4MiB before the first DELETE; oversize never truncates.
+
+The original S3 upload component takes an explicit PayloadUploadOperationHistory view of the SAME
+original deployment provider history qualified by GC/Source, not a local file or another ledger.
+Before exposing any issued handle it durably admits that exact capability; before real HTTP PUT
+ownership it durably admits the exact original receipt/Profile/container/key/length/hash/holder/epoch/
+operation and excludes CLOSED. Actual response/version/ETag or UNKNOWN is retained there; local
+method exit is distinct from remote terminal. Re-registering an empty process map cannot reopen
+CLOSED. Actual credentials and finite capability lifetime are required by this production constructor.
+A credential-gated old constructor without that history rejects positive issuance/upload. Existing
+negative handle outcomes and ungated component construction keep their limited scope. Multipart
+handle obligations must be covered or rejected by the original history; no multipart implementation
+or new bypass capability is introduced. In-memory maps and Gateway tenant scope alone are insufficient.
+
+After intent is truly APPLIED, the original owned GC I/O rechecks actual current Floor containing
+exact pending Native56, all Pins/live Native and independent admission. Only then does the actual
+provider closeAndFreeze durably forbid new/old upload/commit/capabilities, settle every admitted
+remote PUT or authenticate real server fencing, and persist the complete immutable terminal inventory
+BEFORE DELETE. Coverage must reach the original first admission and actual historic protocols;
+today's new history does not ratify old UNKNOWN. Missing integration defaults to unavailable.
+
+S3 checks its actual service-owned namespace (`payloads/<hex profileId>/<hex reservationId>.payload`
+remotely; original canonical container/key remain those of the receipt). HEAD only selects the current
+member of the ALREADY complete closed inventory, never proves emptiness. Each selected immutable
+version receives bounded exact versionId/strong-ETag GET/hash verification, then versionId/If-Match
+DELETE. Only204/exact returned version/non-marker/request-ID forms the actual response. No fake
+PayloadCommitProof/proofId/committed PayloadReference, prefix/key delete, GET404, same-byte GET,
+If-None-Match, timeout, SDK shutdown or local exit substitutes closure/deletion evidence.
+
+Internal actual public response encodes1 status,2 x-amz-request-id,3 x-amz-id-2, optional4 returned
+version, optional5 ETag. For uncommitted versions the request hash is SHA256(domain
+`nereus-delay-uncommitted-version-delete-request` + NUL || intentDigest || exactResourceCanonicalBytes
+|| UTF8(actual request ID)); response hash uses domain `nereus-delay-uncommitted-version-delete-response`
++ NUL || intentDigest || exactResourceCanonicalBytes || actual public response. The same original
+provider history persists each exact deletion/public material and final custody. A lost response or
+persistence failure retains UNKNOWN; it is not retried from bare absence. CLOSED_NO_OBJECT needs
+complete authoritative closure/no-residual history; previously created/deleted versions settle through
+the actual historical deletions. No stronger NEVER_CREATED assertion is derived.
+
+A private non-deserializable hot terminal witness enters the original maintenance owner before later
+signing/guard failure can discard it. Source receives the exact witness via its own ReclaimRead;
+re-signing after rejection reuses it without another DELETE. Source independently reacquires current
+rights and original public-history authentication; cold uses the same retained Native/companion joins
+and explicit original uncommitted lifecycle authority. Future upload generations remain closed after
+RELEASED. Stop ends only exited local loans; Native intent/fees/global protection and remote UNKNOWN
+remain under the original durable provider responsibility. Shared held/hot/image/signing windows and
+original physical SDK ownership stay separate. The implementation requires actual deployment history/
+fencing/admission qualification, still OPEN; compilation is not runtime/recovery/production evidence.

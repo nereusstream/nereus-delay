@@ -2,6 +2,9 @@ package com.nereusstream.delay.adapter;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommittedPayloadDescriptor;
+import com.nereusstream.delay.protocol.PayloadObjectResource;
+import com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord;
+import com.nereusstream.delay.protocol.TargetUncommittedObjectClosure;
 import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
 import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
 import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
@@ -84,6 +87,7 @@ public final class S3CompatiblePayloadObjectStore {
     private final ObjectStoreCredentialUseLeaseGate credentialGate;
     private final S3PayloadBackend backend;
     private final InMemoryPayloadObjectStore delegate;
+    private final PayloadUploadOperationHistory uploadHistory;
 
     /** Creates an ungated adapter for an explicitly authorized test/service account. */
     public S3CompatiblePayloadObjectStore(
@@ -138,6 +142,29 @@ public final class S3CompatiblePayloadObjectStore {
             final HttpClient client,
             final Clock clock,
             final Duration requestTimeout) {
+        this(profile,endpoint,region,bucket,accessKeyId,secretAccessKey,sessionToken,tenantRoutingScope,trustSet,
+                proofKeyVersion,maxUploadHandleLifetimeMs,proofSigningKey,credentialGate,client,clock,requestTimeout,null);
+    }
+
+    /** Creates an adapter whose every remote call is guarded by one exact credential-use lease. */
+    public S3CompatiblePayloadObjectStore(
+            final ProfileSemanticEnvelope profile,
+            final URI endpoint,
+            final String region,
+            final String bucket,
+            final String accessKeyId,
+            final String secretAccessKey,
+            final String sessionToken,
+            final byte[] tenantRoutingScope,
+            final PayloadProofTrustSetSemantic trustSet,
+            final int proofKeyVersion,
+            final long maxUploadHandleLifetimeMs,
+            final java.security.PrivateKey proofSigningKey,
+            final ObjectStoreCredentialUseLeaseGate credentialGate,
+            final HttpClient client,
+            final Clock clock,
+            final Duration requestTimeout,
+            final PayloadUploadOperationHistory uploadHistory) {
         this.profile = Objects.requireNonNull(profile, "profile");
         if (profile.profileKind() != ProfileKind.OBJECT_STORE
                 || !(profile.body() instanceof ObjectStoreProfileSemantic semantic)) {
@@ -155,6 +182,8 @@ public final class S3CompatiblePayloadObjectStore {
         this.secretAccessKey = nonEmpty(secretAccessKey, "secretAccessKey");
         this.sessionToken = sessionToken == null ? null : nonEmpty(sessionToken, "sessionToken");
         this.credentialGate = credentialGate;
+        this.uploadHistory=uploadHistory;
+        if(uploadHistory!=null&&(credentialGate==null||maxUploadHandleLifetimeMs==Long.MAX_VALUE))throw new IllegalArgumentException("durable upload history requires actual credential custody and finite capability lifetime");
         this.client = Objects.requireNonNull(client, "client");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
@@ -218,16 +247,16 @@ public final class S3CompatiblePayloadObjectStore {
 
     public PayloadUploadHandleResponse issueUploadHandle(
             final byte[] reservationId, final UploadHandleKind kind, final long nowEpochMs) {
-        return delegate.issueUploadHandle(reservationId, kind, nowEpochMs);
+        return recordCapability(delegate.issueUploadHandle(reservationId,kind,nowEpochMs),nowEpochMs);
     }
 
     public PayloadUploadHandleResponse issueUploadHandle(
             final PayloadReservationReceipt receipt, final UploadHandleKind kind, final long nowEpochMs) {
-        return delegate.issueUploadHandle(receipt, kind, nowEpochMs);
+        return recordCapability(delegate.issueUploadHandle(receipt,kind,nowEpochMs),nowEpochMs);
     }
 
     public void upload(final OpaquePayloadUploadHandle handle, final byte[] payload, final long nowEpochMs) {
-        delegate.upload(handle, payload, nowEpochMs);
+        uploadWithHistory(delegate.receiptForHandle(handle,nowEpochMs),handle,payload,nowEpochMs);
     }
 
     public void upload(
@@ -235,7 +264,34 @@ public final class S3CompatiblePayloadObjectStore {
             final OpaquePayloadUploadHandle handle,
             final byte[] payload,
             final long nowEpochMs) {
-        delegate.upload(receipt, handle, payload, nowEpochMs);
+        uploadWithHistory(receipt,handle,payload,nowEpochMs);
+    }
+
+    private void requireUploadHistory(){
+        if(credentialGate!=null){credentialGate.requireBeforeProviderCall();if(uploadHistory==null)throw new IllegalStateException("production upload/capability issuance lacks durable original provider history");}
+    }
+    private PayloadUploadHandleResponse recordCapability(PayloadUploadHandleResponse response,long now){
+        if(response.issued()!=null)requireUploadHistory();
+        if(uploadHistory!=null&&response.issued()!=null){final var handle=response.issued();
+            uploadHistory.admitCapability(delegate.receiptForHandle(handle,now),handle,credentialGate.lease());}
+        return response;
+    }
+    private void uploadWithHistory(PayloadReservationReceipt receipt,OpaquePayloadUploadHandle handle,byte[] payload,long now){
+        requireUploadHistory();
+        if(uploadHistory==null){delegate.upload(receipt,handle,payload,now);return;}
+        final var actual=delegate.receiptForHandle(handle,now);
+        if(!Arrays.equals(actual.payload(),Objects.requireNonNull(receipt).payload()))throw new IllegalArgumentException("upload changed actual registered original receipt");
+        Objects.requireNonNull(payload);
+        if(payload.length!=actual.expectedLength()||payload.length>objectStore.maxObjectBytes()||!Bytes.constantTimeEquals(Bytes.sha256(payload),actual.payloadSha256()))
+            throw new IllegalArgumentException("upload bytes do not match the original reservation before durable admission");
+        final var operation=Objects.requireNonNull(uploadHistory.admitUpload(actual,handle,credentialGate.lease()),"durable original upload admission");
+        Throwable failure=null;
+        try{
+            Bytes.requireLength(operation.operationId(),32,"original upload operation ID");
+            if(Objects.requireNonNull(operation.holder()).canonicalBytes().length>4096)throw new IllegalArgumentException("upload holder exceeds original finite identity window");
+            operation.requireCurrent();delegate.upload(receipt,handle,payload,now,operation);
+        }catch(RuntimeException|Error error){failure=error;throw error;}
+        finally{try{operation.localExited();}catch(RuntimeException|Error cleanup){if(failure==null)throw cleanup;failure.addSuppressed(cleanup);}}
     }
 
     public PayloadAttestationResponse attest(final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
@@ -267,6 +323,45 @@ public final class S3CompatiblePayloadObjectStore {
         Objects.requireNonNull(originalProtection).run();
         return backend.deleteExact(requireDeleteRequest(request),request,originalProtection);
     }
+    /** All original remote writers must be terminal and the complete inventory durable before DELETE. */
+    public PayloadUncommittedDelete.Observation retireUncommitted(TargetPayloadObjectRetiringRecord intent,
+            com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable originalHeld){
+        if(uploadHistory==null||credentialGate==null||!intent.body().uncommittedObjectReclaim()||client.followRedirects()!=HttpClient.Redirect.NEVER)
+            throw new IllegalStateException("uncommitted retirement lacks actual original upload/history/credential integration");
+        final Runnable current=()->{originalHeld.run();recovery.requirePendingObject(intent);credentialGate.requireBeforeProviderCall();};current.run();
+        final var closure=Objects.requireNonNull(uploadHistory.closeAndFreeze(intent,TargetUncommittedObjectClosure.MAX_BYTES,current),"durable complete closed inventory");
+        closure.requireFor(intent);final String identity=Bytes.hex(intent.expectedOwner().reservationId());
+        if(!profile.ref().equals(closure.profile())||!Arrays.equals(expectedContainer(),closure.container())||!Arrays.equals(expectedObjectKey(intent.expectedOwner().reservationId()),closure.objectKey()))
+            throw new IllegalArgumentException("closed inventory changed actual reservation-owned namespace");
+        uploadHistory.requireClosed(intent,closure);current.run();
+        final var versions=new java.util.ArrayList<>(closure.versions());
+        final int deletionBound=uploadHistory.maximumDeleteHistoryBytes();
+        if(deletionBound<1||deletionBound>TargetUncommittedObjectClosure.MAX_PUBLIC_BYTES)throw new IllegalArgumentException("original complete deletion-history bound is unavailable/unbounded");
+        final long pending=versions.stream().filter(value->value.deletion()==null).count();
+        if(Math.addExact(closure.canonicalBytes().length,Math.multiplyExact(pending,deletionBound+128L))>TargetUncommittedObjectClosure.MAX_BYTES)
+            throw new IllegalStateException("complete future terminal inventory cannot fit before provider deletion");
+        while(versions.stream().anyMatch(value->value.deletion()==null)){
+            current.run();uploadHistory.requireClosed(intent,closure);
+            // HEAD selects a member of the complete closed inventory; absence never substitutes a terminal.
+            final var head=backend.head(identity);int selected=-1;
+            for(int i=0;i<versions.size();i++)if(versions.get(i).deletion()==null&&Arrays.equals(versions.get(i).resource().immutableVersion(),head.version())
+                    &&Arrays.equals(versions.get(i).resource().etag(),head.etag())){selected=i;break;}
+            if(selected<0)throw new IllegalStateException("actual current version is absent from closed unsettled inventory");
+            final var resource=versions.get(selected).resource();
+            final var response=backend.deleteExactResource(identity,resource,()->{current.run();uploadHistory.requireClosed(intent,closure);});
+            final byte[] actual=publicResponse(response,resource.immutableVersion());
+            final byte[] requestHash=Bytes.sha256(Bytes.utf8("nereus-delay-uncommitted-version-delete-request\0"),closure.intentDigest(),resource.exactResourceCanonicalBytes(),Bytes.utf8(actualRequestId(response)));
+            final byte[] responseHash=Bytes.sha256(Bytes.utf8("nereus-delay-uncommitted-version-delete-response\0"),closure.intentDigest(),resource.exactResourceCanonicalBytes(),actual);
+            final var deletion=Objects.requireNonNull(uploadHistory.recordDeleted(intent,closure,resource,requestHash,responseHash,actual),"durable exact version deletion history");
+            if(deletion.publicHistory().length>deletionBound)throw new IllegalStateException("original provider exceeded its reserved complete terminal-history bound");
+            if(!Arrays.equals(deletion.requestIdHash(),requestHash)||!Arrays.equals(deletion.responseHash(),responseHash))throw new IllegalStateException("provider history changed actual deletion response");
+            versions.set(selected,new TargetUncommittedObjectClosure.Version(resource,deletion));
+        }
+        final var terminal=closure.withVersions(versions);uploadHistory.requireClosed(intent,terminal);uploadHistory.retainTerminal(intent,terminal);
+        // Ending a later local guard cannot erase the actual terminal already retained in original durable history.
+        return PayloadUncommittedDelete.retained(intent,terminal);
+    }
+
     private String requireDeleteRequest(final PayloadObjectDelete.Request request){
         Objects.requireNonNull(request);
         if(credentialGate==null||!profile.ref().equals(request.profile())||client.followRedirects()!=HttpClient.Redirect.NEVER)
@@ -390,6 +485,10 @@ public final class S3CompatiblePayloadObjectStore {
 
         @Override
         public void putIfAbsent(final String objectIdentity, final byte[] payload, final long maxBytes) {
+            putIfAbsent(objectIdentity,payload,maxBytes,null);
+        }
+        @Override public void putIfAbsent(final String objectIdentity,final byte[] payload,final long maxBytes,PayloadUploadOperationHistory.Upload operation){
+            if(credentialGate!=null&&operation==null)throw new IllegalStateException("actual PUT has no original durable operation admission");
             requireIdentity(objectIdentity);
             Objects.requireNonNull(payload, "payload");
             if (payload.length > maxBytes || maxBytes != objectStore.maxObjectBytes()) {
@@ -398,6 +497,7 @@ public final class S3CompatiblePayloadObjectStore {
             final String payloadHash = Bytes.hex(Bytes.sha256(payload));
             final HttpResponse<Void> response;
             try {
+                if(operation!=null){operation.requireCurrent();operation.beforePut();}
                 response = send(
                         "PUT",
                         remoteObjectKey(objectIdentity),
@@ -406,20 +506,26 @@ public final class S3CompatiblePayloadObjectStore {
                         Map.of("if-none-match", "*", "x-amz-meta-nereus-sha256", payloadHash),
                         HttpResponse.BodyHandlers.discarding());
             } catch (IllegalStateException failure) {
+                if(operation!=null){operation.putUncertain(failure);throw failure;}
                 resolveAfterAmbiguousPut(objectIdentity, payload, failure);
                 return;
             }
             if (isSuccess(response.statusCode())) {
-                requireVersion(response, null, objectIdentity);
+                final byte[] version=requireVersion(response,null,objectIdentity);
+                if(operation!=null){final String requestId=actualRequestId(response);
+                    final byte[] etag=Bytes.utf8(response.headers().firstValue("etag").orElseThrow(()->new IllegalStateException("PUT omitted provider ETag")));
+                    operation.putApplied(version,etag,requestId,publicResponse(response,version));}
                 return;
             }
             if (response.statusCode() == 409 || response.statusCode() == 412) {
+                if(operation!=null)operation.putNotCreated(response.statusCode(),actualRequestId(response),publicResponse(response,null));
                 final byte[] existing = read(objectIdentity);
                 if (existing != null && Arrays.equals(existing, payload)) {
                     return;
                 }
                 throw new IllegalStateException("immutable payload object identity conflict: " + objectIdentity);
             }
+            if(operation!=null){final var failure=unexpectedStatus("PUT",objectIdentity,response.statusCode());operation.putUncertain(failure);throw failure;}
             if (isAmbiguousProviderStatus(response.statusCode())) {
                 resolveAfterAmbiguousPut(
                         objectIdentity, payload, unexpectedStatus("PUT", objectIdentity, response.statusCode()));
@@ -468,33 +574,24 @@ public final class S3CompatiblePayloadObjectStore {
                     || credentialGate == null) {
                 throw new IllegalArgumentException("exact payload deletion changed adapter identity or credential custody");
             }
-            final PayloadReference reference = request.reference();
-            final String version = exactDeleteVersion(reference.immutableObjectVersion());
-            final String etag = exactDeleteEtag(reference.etag());
-            final String key = remoteObjectKey(objectIdentity);
-            // If-Match on DELETE checks the current version in S3. Independently read and hash the
-            // selected immutable version; the versionId query is what prevents deleting another version.
-            verifyDeleteCandidate(key, objectIdentity, reference, version, etag,originalProtection);
-            originalProtection.run();
-            final HttpResponse<Void> response = send(
-                    "DELETE", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(),
-                    Map.of("if-match", etag), version, HttpResponse.BodyHandlers.discarding());
-            if (response.statusCode() != 204) {
-                throw unexpectedStatus("DELETE", objectIdentity, response.statusCode());
-            }
-            requireVersion(response, reference.immutableObjectVersion(), objectIdentity);
-            if (response.headers().firstValue("x-amz-delete-marker").map(Boolean::parseBoolean).orElse(false)) {
-                throw new IllegalStateException("S3 deleted a marker instead of the selected payload version");
-            }
-            final String requestId = response.headers().firstValue("x-amz-request-id")
-                    .filter(value -> !value.isBlank())
-                    .orElseThrow(() -> new IllegalStateException("S3 payload DELETE omitted provider request ID"));
-            return PayloadObjectDelete.s3Applied(request, requestId,
-                    response.headers().firstValue("x-amz-id-2").orElse(""));
+            final HttpResponse<Void> response=deleteExactResource(objectIdentity,request.resource(),originalProtection);
+            return PayloadObjectDelete.s3Applied(request,actualRequestId(response),response.headers().firstValue("x-amz-id-2").orElse(""));
+        }
+        private HttpResponse<Void> deleteExactResource(String objectIdentity,PayloadObjectResource resource,Runnable originalProtection){
+            if(!profile.ref().equals(resource.objectStoreProfile())||credentialGate==null||client.followRedirects()!=HttpClient.Redirect.NEVER)
+                throw new IllegalArgumentException("exact deletion changed actual Profile/credential custody");
+            final String version=exactDeleteVersion(resource.immutableVersion());final String etag=exactDeleteEtag(resource.etag());
+            final String key=remoteObjectKey(objectIdentity);
+            verifyDeleteCandidate(key,objectIdentity,resource,version,etag,originalProtection);originalProtection.run();
+            final HttpResponse<Void> response=send("DELETE",key,EMPTY_SHA256,HttpRequest.BodyPublishers.noBody(),Map.of("if-match",etag),version,HttpResponse.BodyHandlers.discarding());
+            if(response.statusCode()!=204)throw unexpectedStatus("DELETE",objectIdentity,response.statusCode());
+            requireVersion(response,resource.immutableVersion(),objectIdentity);
+            if(response.headers().firstValue("x-amz-delete-marker").map(Boolean::parseBoolean).orElse(false))throw new IllegalStateException("S3 deleted a marker instead of the selected payload version");
+            actualRequestId(response);return response;
         }
 
         private void verifyDeleteCandidate(final String key, final String identity,
-                final PayloadReference reference, final String version, final String etag,final Runnable originalProtection) {
+                final PayloadObjectResource reference, final String version, final String etag,final Runnable originalProtection) {
             if (reference.length() > objectStore.maxObjectBytes()) {
                 throw new IllegalArgumentException("selected payload exceeds its original Profile maximum");
             }
@@ -506,7 +603,7 @@ public final class S3CompatiblePayloadObjectStore {
                 if (response.statusCode() != 200) {
                     throw unexpectedStatus("GET exact deletion candidate", identity, response.statusCode());
                 }
-                requireVersion(response, reference.immutableObjectVersion(), identity);
+                requireVersion(response, reference.immutableVersion(), identity);
                 if (!response.headers().firstValue("etag").map(String::trim).filter(etag::equals).isPresent()) {
                     throw new IllegalStateException("S3 deletion candidate differs from its pinned ETag");
                 }
@@ -634,6 +731,17 @@ public final class S3CompatiblePayloadObjectStore {
             path.append('/').append(encodeSegment(segment));
         }
         return URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority() + path);
+    }
+
+    private static String actualRequestId(HttpResponse<?> response){return response.headers().firstValue("x-amz-request-id").filter(value->!value.isBlank()).orElseThrow(()->new IllegalStateException("provider response omitted actual request ID"));}
+    private static byte[] publicResponse(HttpResponse<?> response,byte[] version){
+        return com.nereusstream.delay.protocol.CanonicalProtobuf.message(out->{
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out,1,response.statusCode());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,2,Bytes.utf8(actualRequestId(response)));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,3,Bytes.utf8(response.headers().firstValue("x-amz-id-2").orElse("")));
+            if(version!=null)com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,4,version);
+            response.headers().firstValue("etag").ifPresent(value->com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out,5,Bytes.utf8(value)));
+        });
     }
 
     private static byte[] requireVersion(final HttpResponse<?> response, final byte[] expected, final String identity) {

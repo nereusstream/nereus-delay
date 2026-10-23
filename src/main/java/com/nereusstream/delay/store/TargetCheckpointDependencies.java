@@ -957,7 +957,7 @@ public final class TargetCheckpointDependencies {
             for(var owner:payloadOwners.values())if(owner.phase()==com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.Phase.RETAINED)needed.add(retentionToken(owner.mutation()));
             for(var history:sourceHistories.values())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
                 final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
-                if(body.inlinePayloadRelease()||body.objectPayloadReclaim())for(var operation:body.payloadOperations())needed.add(retentionToken(operation.expected().mutation()));
+                if(body.inlinePayloadRelease()||body.objectPayloadReclaim()&&!body.uncommittedObjectReclaim())for(var operation:body.payloadOperations())needed.add(retentionToken(operation.expected().mutation()));
             }
             for(var row:rows){
                 final var value=TargetResultRecord.decode(row.payload());final String token=retentionToken(value.mutation());
@@ -976,7 +976,7 @@ public final class TargetCheckpointDependencies {
             final var previous=recoveryEvidence.putIfAbsent(Bytes.hex(owner.key()),owner);
             if(previous!=null&&!Arrays.equals(previous.canonicalBytes(),owner.canonicalBytes()))throw new IllegalStateException("duplicate recovery evidence owner");
         }
-        void payloadObjectIntent(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord record){payloadObjectIntents.put(Bytes.hex(record.operation().expected().messageId().bytes()),record);}
+        void payloadObjectIntent(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord record){payloadObjectIntents.put(Bytes.hex(record.expectedOwner().messageId().bytes()),record);}
         void retirement(com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord record) {
             if(retirements.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target retiring identity");

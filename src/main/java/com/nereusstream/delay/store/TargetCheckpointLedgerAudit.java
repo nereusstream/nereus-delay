@@ -394,6 +394,9 @@ final class TargetCheckpointLedgerAudit {
             if(body.selfContainedInlinePayloadRelease()){
                 final var first=complete.retirementResults().stream().filter(r->Arrays.equals(r.logicalId(),history.input().systemMutationId())).findFirst().orElseThrow();
                 if(first.appliedFirst())com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(complete,body);
+            }else if(body.uncommittedObjectReclaim()){
+                final var first=complete.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()));
+                if(first.appliedFirst())com.nereusstream.delay.runtime.TargetUncommittedPayloadReclaim.requireClosed(complete,history.input(),true,()->{});
             }else if(body.nativeRetainedReclaim()){
                 final var first=complete.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()));
                 if(first.appliedFirst())com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.requireClosed(complete,history.input(),true,()->{});
@@ -428,6 +431,13 @@ final class TargetCheckpointLedgerAudit {
                 if(!owner.mutation().equals(history.decidedAt())||primaryMessages.contains(id))
                     throw new IllegalStateException("APPLIED inline release lost actual Source/absent primary");
                 owner.requireReleasedFrom(inline.expected(),body.floor());
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.UncommittedObjectRetire ignored->{
+                // The complete original reservation/causal join is checked by its Native history contribution.
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.UncommittedObjectConfirm confirmation->{
+                final String id=Bytes.hex(confirmation.intent().expectedOwner().messageId().bytes());
+                final var actual=Objects.requireNonNull(payloadOwners.get(id),"uncommitted released owner");
+                if(primaryMessages.contains(id)||!actual.mutation().equals(history.decidedAt()))throw new IllegalStateException("uncommitted confirmation lost exact final state");
+                actual.requireReleasedFrom(confirmation.intent().expectedOwner(),body.floor());
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadRetire ignored->{
                 // Full pending/successor verification follows after the dependency fold.
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadConfirm confirmation->{

@@ -14,6 +14,7 @@ public final class TargetObjectPayloadReclaim {
             List<TargetInlinePayloadReclaim.Policy> policies,boolean allowApplied,Runnable current) {
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT lifecycle body required");
+        if(body.uncommittedObjectReclaim())return TargetUncommittedPayloadReclaim.requireClosed(d,input,allowApplied,current);
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,body);
         if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(d,body.objectOperation().expected(),body.objectOperation().nativeOrigin());
         final var first=d.resultRecord(systemKey(input));
@@ -52,6 +53,7 @@ public final class TargetObjectPayloadReclaim {
             List<TargetInlinePayloadReclaim.Policy> policies,Runnable current){
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT stage required");
+        if(body.uncommittedObjectReclaim()){TargetUncommittedPayloadReclaim.requireCurrent(reader,input,current);return;}
         TargetInlinePayloadReclaim.requireCurrent(reader,body,policies,current);
         if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(reader,List.of(),body.objectOperation().expected(),body.objectOperation().nativeOrigin(),reader.aggregate().mutation());
         final var operation=body.objectOperation();
@@ -69,7 +71,9 @@ public final class TargetObjectPayloadReclaim {
     /** Checks a charged pending row without recursing through Native54/55 accounting. */
     public static void requirePending(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetPayloadObjectRetiringRecord record,TargetQuotaMutation frontier){
-        final var body=record.body();record.appliedAt().requireAtOrBefore(frontier);
+        final var body=record.body();
+        if(body.uncommittedObjectReclaim()){TargetUncommittedPayloadReclaim.requirePending(view,overlay,record,frontier);return;}
+        record.appliedAt().requireAtOrBefore(frontier);
         requireFirst(view,overlay,record.intent(),record.appliedAt(),frontier);
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,body,frontier);
         if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(view,overlay,body.objectOperation().expected(),body.objectOperation().nativeOrigin(),frontier);
@@ -81,6 +85,7 @@ public final class TargetObjectPayloadReclaim {
             SystemMutation input,TargetQuotaMutation decided,TargetQuotaMutation frontier){
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT Source decision required");
+        if(body.uncommittedObjectReclaim()){TargetUncommittedPayloadReclaim.requireAppliedDecision(view,overlay,input,decided,frontier);return;}
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,body,frontier);
         if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(view,overlay,body.objectOperation().expected(),body.objectOperation().nativeOrigin(),frontier);
         final var selected=body.objectOperation();
@@ -117,6 +122,7 @@ public final class TargetObjectPayloadReclaim {
             TargetQuotaScope scope,byte[] lineage,TargetQuotaPayloadOwner owner,TargetQuotaMutation frontier){
         if(owner.kind()!=TargetQuotaPayloadOwner.Kind.OBJECT||owner.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED)
             throw new IllegalArgumentException("released OBJECT owner required");
+        if(owner.committedPayload()==null)return TargetUncommittedPayloadReclaim.releaseHistory(view,overlay,scope,lineage,owner,frontier);
         final byte[] positionKey=positionKey(owner.mutation());
         final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
         position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());

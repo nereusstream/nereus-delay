@@ -45,6 +45,10 @@ public final class TargetMessageMetadataStore {
         owner.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if(owner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
             final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            if(owner.kind()==TargetQuotaPayloadOwner.Kind.OBJECT&&owner.committedPayload()==null){
+                TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root,owner,reader.aggregate().mutation());
+                throw new IllegalStateException("query requires the original reservation metadata path");
+            }
             final var operation=TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,root,owner,reader.aggregate().mutation());
             final var terminal=terminal(reader,operation.locator());
             return Optional.of(snapshot(terminal.locator(),terminal.stateVersion(),terminal.runtime(),terminal.terminalCode(),

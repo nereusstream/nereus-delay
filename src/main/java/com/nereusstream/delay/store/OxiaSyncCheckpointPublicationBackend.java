@@ -550,7 +550,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         if(!draft.floor().equals(catalog.currentFloorRef().orElseThrow())||!Arrays.equals(draft.namespace(),nativeReclaimNamespace()))
             throw new IllegalStateException("SourceFacts selection changed actual Floor/namespace");
         final var image=images.stream().filter(i->Arrays.equals(i.manifest().checkpointId(),draft.floor().checkpointId())).findFirst().orElseThrow();
-        final var frozen=draft.nativeRetainedReclaim()?image.freezeNativeRetainedFacts(draft,window):image.freezeInlinePayloadSourceFacts(draft,window);
+        final var frozen=draft.uncommittedObjectReclaim()?image.freezeUncommittedObjectFacts(draft,window):draft.nativeRetainedReclaim()?image.freezeNativeRetainedFacts(draft,window):image.freezeInlinePayloadSourceFacts(draft,window);
         current.run();final var after=readEvidenceState(reads);
         if(before.versionId!=after.versionId||!Arrays.equals(before.encoded,after.encoded))throw new IllegalStateException("Catalog changed during original SourceFacts collection");
         if(!reads.beforeTimedWork())throw reads.incomplete();return frozen;

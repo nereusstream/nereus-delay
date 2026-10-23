@@ -63,6 +63,12 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
          * Acquire/verify remotely outside locks; this recheck is local and remains held through commit/UNKNOWN.
          * Neither credential/Profile flags nor serialized receipt hashes alone prove deletion or no resurrection.
          */
+        default void requireUncommittedObjectIndependent(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new IllegalStateException("Source lacks original uncommitted reader/writer/provider admission");
+        }
+        default void requireUncommittedObjectHistoricalConfirmation(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new IllegalStateException("Source lacks original complete closed upload/provider terminal history");
+        }
         default void requireObjectPayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Native OBJECT/provider admission unavailable");
         }
@@ -104,7 +110,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     /** The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through commit. */
     public record Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
             java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> recoveryImages,
-            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation objectDeletion) implements Inputs {
+            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation objectDeletion,
+            com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation uncommittedDeletion) implements Inputs {
+        public Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+                com.nereusstream.delay.adapter.PayloadObjectDelete.Observation observation){this(scope,history,images,observation,null);}
         public Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
                 java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images){this(scope,history,images,null);}
         public Reclaim{Objects.requireNonNull(scope);Objects.requireNonNull(history);recoveryImages=java.util.List.copyOf(recoveryImages);
@@ -276,9 +286,18 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             objectDeletion.requireConfirmation(body);
             final var request=objectDeletion.request();held.bytes=Math.addExact(held.bytes,request.expectedOwner().canonicalBytes().length+request.originBytes()+request.intentAt().canonicalBytes().length+256L);
         }
+        final var uncommittedDeletion=input.uncommittedDeletion()!=null?input.uncommittedDeletion():
+                source!=null&&body.operations().getFirst() instanceof TargetResourceReclaimBody.UncommittedObjectConfirm?source.uncommittedDeletion().orElse(null):null;
+        if(uncommittedDeletion!=null){uncommittedDeletion.requireConfirmation(body);held.bytes=Math.addExact(held.bytes,uncommittedDeletion.retainedBytes());}
         final Runnable reclaimHeld=()->{
             held.requireCurrent();
-            if(body.objectPayloadReclaim()){
+            if(body.uncommittedObjectReclaim()){
+                held.original.requireUncommittedObjectIndependent(source);
+                if(body.operations().getFirst() instanceof TargetResourceReclaimBody.UncommittedObjectConfirm){
+                    if(uncommittedDeletion!=null)uncommittedDeletion.requireConfirmation(body);
+                    else held.original.requireUncommittedObjectHistoricalConfirmation(source);
+                }
+            }else if(body.objectPayloadReclaim()){
                 held.original.requireObjectPayloadIndependent(source);
                 if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm){
                     if(objectDeletion!=null)objectDeletion.requireConfirmation(body);

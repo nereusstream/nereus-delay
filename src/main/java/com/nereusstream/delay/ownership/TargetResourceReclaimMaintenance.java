@@ -84,6 +84,13 @@ public final class TargetResourceReclaimMaintenance {
         default void requireNativeRetainedIndependent(){throw new IllegalStateException("GC hold lacks actual Native record/query/recovery admission");}
         /** Exact Native OBJECT read/replay/export/upload/commit/Pin purpose, never inline/Catalog/Action3 rights. */
         default void requireObjectPayloadIndependent(){throw new IllegalStateException("actual Native OBJECT admission unavailable");}
+        default void requireUncommittedObjectIndependent(){throw new IllegalStateException("actual uncommitted reservation admission unavailable");}
+        default Optional<TargetResourceReclaimBody.UncommittedObjectConfirm> uncommittedObjectHistoricalConfirmation(
+                com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent){return Optional.empty();}
+        /** Original durable capability/PUT closure and exact terminal history, acquired before physical closure/delete. */
+        default void requireRecoverableUncommittedProviderOperation(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent){
+            throw new IllegalStateException("durable original uncommitted upload/provider closure is unqualified");
+        }
         /** The original Profile/namespace adapter; a local content-hash backend is not a production delete provider. */
         default com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore objectPayloadStore(){throw new IllegalStateException("actual OBJECT provider unavailable");}
         /** A bounded already loaded, independently authenticated original provider operation; absence is not evidence. */
@@ -109,15 +116,24 @@ public final class TargetResourceReclaimMaintenance {
     public record Turn(Status status, Optional<SystemMutationResult> result, Throwable failure) {}
     /** Only an actual provider response minted after the real durable-history qualification enters this owner. */
     private record ObjectDebt(TargetResourceReclaimDiscovery.Candidate candidate,
-            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation observation,TargetResourceReclaimDiscovery.Page page){
-        long retainedBytes(){final var request=observation.request();return Math.addExact(candidate.operation().canonicalBytes().length,
+            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation observation,
+            com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation uncommitted,TargetResourceReclaimDiscovery.Page page){
+        long retainedBytes(){if(uncommitted!=null)return Math.addExact(candidate.operation().canonicalBytes().length,uncommitted.retainedBytes());
+            final var request=observation.request();return Math.addExact(candidate.operation().canonicalBytes().length,
                 request.expectedOwner().canonicalBytes().length+request.originBytes()+request.intentAt().canonicalBytes().length+512L);}
     }
     private volatile ObjectDebt objectDebt;
+    Optional<com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation> uncommittedDeletionFor(com.nereusstream.delay.protocol.SystemMutation input){
+        final var debt=objectDebt;if(debt==null||debt.uncommitted()==null)return Optional.empty();
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!(body.operations().getFirst() instanceof TargetResourceReclaimBody.UncommittedObjectConfirm confirmation)
+                ||!java.util.Arrays.equals(confirmation.intent().canonicalBytes(),debt.uncommitted().intent().canonicalBytes()))return Optional.empty();
+        debt.uncommitted().requireConfirmation(body);return Optional.of(debt.uncommitted());
+    }
     /** Inspectable only for the selected actual Source input; this receipt grants no Source/admission permission. */
     Optional<com.nereusstream.delay.adapter.PayloadObjectDelete.Observation> objectDeletionFor(com.nereusstream.delay.protocol.SystemMutation input){
         final var debt=objectDebt;
-        if(debt==null)return Optional.empty();
+        if(debt==null||debt.observation()==null)return Optional.empty();
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm confirmation)
                 ||!java.util.Arrays.equals(confirmation.intent().canonicalBytes(),((TargetResourceReclaimBody.ObjectPayloadConfirm)debt.candidate().operation()).intent().canonicalBytes()))return Optional.empty();
@@ -208,8 +224,10 @@ public final class TargetResourceReclaimMaintenance {
                         && !(failure instanceof CleanupFailure cleanup && cleanup.cleanupComplete())) return turn(Status.CLOSING, failure);
                 if(objectDebt!=null&&result!=null&&result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED
                         &&result.stableCode()==com.nereusstream.delay.protocol.StableCode.OK
-                        &&TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()).operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm){
-                    objectDebt.observation().requireConfirmation(TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()));objectDebt=null;
+                        &&(TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()).operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm
+                            ||TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()).operations().getFirst() instanceof TargetResourceReclaimBody.UncommittedObjectConfirm)){
+                    final var body=TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody());
+                    if(objectDebt.uncommitted()!=null)objectDebt.uncommitted().requireConfirmation(body);else objectDebt.observation().requireConfirmation(body);objectDebt=null;
                 }
                 closing = null; selected = null; submission = null;
                 if (stopping) return finishStop();
@@ -269,7 +287,8 @@ public final class TargetResourceReclaimMaintenance {
             // No transient OwnedCheckpointIo stop guard escapes into a submitted Source frame.
             final Runnable current=()->{
                 reservation.requireCurrent();original.requireCurrent();
-                if(page.candidates().getFirst().objectPayload())original.requireObjectPayloadIndependent();
+                if(page.candidates().getFirst().uncommittedObject())original.requireUncommittedObjectIndependent();
+                else if(page.candidates().getFirst().objectPayload())original.requireObjectPayloadIndependent();
                 else if(page.candidates().getFirst().nativeRetained())original.requireNativeRetainedIndependent();
                 else if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();
                 original.requireCurrent();
@@ -280,6 +299,20 @@ public final class TargetResourceReclaimMaintenance {
                 final var selected=candidates.getFirst();
                 if(selected.pendingObject()){
                     final var intent=selected.objectIntent();
+                    if(intent.body().uncommittedObjectReclaim()){
+                        final var historical=Objects.requireNonNull(original.uncommittedObjectHistoricalConfirmation(intent),"original complete closed upload/provider history");
+                        if(historical.isPresent())candidates=List.of(selected.withUncommittedConfirmation(historical.orElseThrow()));
+                        else{
+                            original.requireRecoverableUncommittedProviderOperation(intent);current.run();guard.run();
+                            final long debtWindow=Math.addExact(2L*intent.canonicalBytes().length,2L*com.nereusstream.delay.protocol.TargetUncommittedObjectClosure.MAX_BYTES+2048L);
+                            final long available=Math.subtractExact(configuration.signingWindow(),Math.addExact(original.retainedBytes(),debtWindow));
+                            final var observation=worker.retirePendingUncommittedPayload(selected,original.objectPayloadStore(),original.images(),
+                                    configuration.recovery().budget(nanos),configuration.nativeReads().budget(nanos),available,
+                                    ()->{current.run();guard.run();original.requireRecoverableUncommittedProviderOperation(intent);},clock);
+                            final var ready=selected.withUncommittedConfirmation(new TargetResourceReclaimBody.UncommittedObjectConfirm(intent,observation.closure()));
+                            objectDebt=new ObjectDebt(ready,null,observation,new TargetResourceReclaimDiscovery.Page(List.of(ready),page.continuation(),page.stop()));candidates=List.of(ready);
+                        }
+                    }else{
                     final var historical=Objects.requireNonNull(original.objectPayloadHistoricalConfirmation(intent),"bounded original provider history selection");
                     if(historical.isPresent())candidates=List.of(selected.withObjectConfirmation(historical.orElseThrow()));
                     else{
@@ -292,8 +325,9 @@ public final class TargetResourceReclaimMaintenance {
                                 ()->{current.run();guard.run();original.requireRecoverableObjectProviderOperation(intent);},clock);
                         final var ready=selected.withObjectConfirmation(new TargetResourceReclaimBody.ObjectPayloadConfirm(intent,observation.providerRequestIdHash(),observation.providerResponseHash()));
                         // Publish custody before a stop, signer failure or final OwnedCheckpointIo guard can discard it.
-                        objectDebt=new ObjectDebt(ready,observation,new TargetResourceReclaimDiscovery.Page(List.of(ready),page.continuation(),page.stop()));
+                        objectDebt=new ObjectDebt(ready,observation,null,new TargetResourceReclaimDiscovery.Page(List.of(ready),page.continuation(),page.stop()));
                         candidates=List.of(ready);
+                    }
                     }
                 }
             }

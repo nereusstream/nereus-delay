@@ -2862,3 +2862,14 @@ binding等完整事实，不新增接受ledger或退款通道；COMMAND first冻
 按原Source SHARD归属核验。原依赖仍保留并各计自身费用，D opaque收据不等于新当前删除权。
 Native56/primary/owner与独立Source确认的精确before-after结算规则不变；真实provider历史
 或动态保护未提供时仍保费用。descriptor10登记能力不意味着已激活或实际完成退费。
+
+
+2026-10-23 未提交OBJECT回收：原EXPIRED/ABANDONED RETAINED owner持续按预约预留量保留
+payload charge；local expiry/closure不是新Source成功帧。body14 action3只新增实际Native56v2
+STATE及原Source first/POS/54v7/55的精确费用，不退原payload/reservation费用。完整上传关闭/
+inventory与所有实际删除终态经独立Source认证后，action4原批次删pending、owner RELEASED，
+按原冻结accounting重建counter/tenant mirror/total/aggregate。没有Message primary可删，
+不动Attempt.allocated、不以空表猜零；NV38/binding/原first/POS/因果/history仍各自收费。
+最大32版本/4MiB清单及未来删除凭据需先容纳；shared held/hot/镜像/签名额度不足在DELETE前
+拒绝，不提高默认预算。持久provider关闭/未知远端操作责任不因local loan退出或Source减额
+消失，RELEASED后不可重开原上传generation。真实部署资格与全部集中验收继续OPEN。

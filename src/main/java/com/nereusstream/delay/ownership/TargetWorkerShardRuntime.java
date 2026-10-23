@@ -732,6 +732,24 @@ public final class TargetWorkerShardRuntime
         // Return the actual response directly: a post-DELETE guard failure must not erase the hot witness.
         return Objects.requireNonNull(provider).deleteExact(request,current);
     }
+    /** Same original owned maintenance I/O and actual pending-Floor qualification; no extra executor or provider authority. */
+    public com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation retirePendingUncommittedPayload(
+            com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
+            com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))throw new IllegalStateException("uncommitted provider stage must run outside Worker/Source/Store monitors");
+        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();source=target.reclaimPreparationRead(java.util.List.of(candidate),clock);}
+        final var pending=candidate.objectIntent();if(!pending.body().uncommittedObjectReclaim())throw new IllegalArgumentException("uncommitted pending intent required");
+        final long window=Math.addExact(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),
+                4L*(com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES+4096L)+TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES);
+        if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||window>maximumInputBytes)throw new IllegalStateException("complete uncommitted provider/signing window exceeds original reservation");
+        final Runnable current=()->{source.requireCurrent();originalHeld.run();};current.run();
+        final var recovery=source.catalog().capturePendingObjectProviderProtection(pending,images,recoveryReads,maximumInputBytes,current);
+        source.requirePendingObjectProvider(pending,recovery,nativeReads,current);recovery.requireCurrent(recoveryReads,current);current.run();
+        return Objects.requireNonNull(provider).retireUncommitted(pending,recovery,current);
+    }
     /** The original caller reserves CONFIGURATION_WINDOW_BYTES plus the complete signing/authentication window. */
     public TargetResourceReclaimSigner.Prepared prepareConfiguredResourceReclaim(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,

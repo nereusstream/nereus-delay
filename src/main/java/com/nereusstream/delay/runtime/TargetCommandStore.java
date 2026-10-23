@@ -461,6 +461,8 @@ public final class TargetCommandStore {
             final var owner = descriptor(reader, payloadOwner.primaryIdentity());
             owner.requirePayloadOwner(payloadOwner);
             payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
+                TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
             if (existing != null) {
                 final var message = TargetMessageRecord.decodeForStore(
                         TargetKeyCodec.message(command.delayMessageId()),
@@ -771,6 +773,8 @@ public final class TargetCommandStore {
                 scope.tenantScope());
         reservation.requireOwner(payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
+            TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
         owner.requirePayloadOwner(payloadOwner);
         final byte[] bindingKey =
@@ -1065,8 +1069,11 @@ public final class TargetCommandStore {
             if (payloadRaw != null) {
                 final var retained=TargetQuotaPayloadOwner.decodeForStore(payloadKey,
                         TargetValueEnvelope.decode(payloadRaw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
-                if(retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED)
-                    return modifyReleasedPayload(reader,retained,precondition,reschedule,stamp,root,controls);
+                if(retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
+                    if(retained.kind()==TargetQuotaPayloadOwner.Kind.OBJECT&&retained.committedPayload()==null)
+                        TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),retained,reader.aggregate().mutation());
+                    else return modifyReleasedPayload(reader,retained,precondition,reschedule,stamp,root,controls);
+                }
                 return modifyReservation(
                         reader, command, precondition, payloadKey, payloadRaw, stamp, reservationControls);
             }

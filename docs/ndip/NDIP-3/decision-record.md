@@ -1589,3 +1589,22 @@ Source确认生产者已接原maintenance/I/O/Source链，descriptor10登记精�
 完整envelope不再升版。provider前真实durable operation-history资格仍默认拒绝；UNKNOWN/
 late I/O/local stop不释放全局义务。此项取代原raw-proof持久载体等待，不替代真实外部集成，
 未提交reservation、其它退休种类及全部集中/Broker/恢复/迁退验收继续OPEN，无完成提升。
+
+
+### 2026-10-23：未提交 reservation 沿原上传组件持久关闭与完整终态事实
+
+主会话裁定采用type14/kind4独立UNCOMMITTED_RESERVATION分支及原upload/Object Store的
+持久admission/关闭/完整terminal inventory，不新增Native57、Source Upload事件或通用可变
+ledger。业务身份复用实际Prepare/NV38/first/POS/binding；PUT/handle责任从真实接管前即纳入
+同一原provider history，与CLOSED持久互斥。APPLIED intent在前，全部旧远端写者真实终结/
+server fencing及完整清单先耐久，exact版本条件删除在后；确认保存完整关闭/清单/实际删除
+材料。CLOSED_NO_OBJECT不等于NEVER_CREATED，旧UNKNOWN/已删历史不能由缺行补成功。
+
+local expiry/closure stamp与原真实Source因果分开保存/认证，旧Frame1/body13/D不重释。
+新body14/tuple14/descriptor11、Native56v2/54v7/lifecycle7/comp13一次登记；实际Source原批次
+first/POS/history/owner/账务、正常及冷读取和原GC/I/O/Source独立准入全链承接，RELEASED
+之后仍保闭合identity与必要原依赖。真实deployment provider/历史/fencing资格缺失默认拒绝，
+单列OPEN；不能用方法形状/no-op签名/当前flag或长期收费替代完整仓内分支。
+
+本次按该裁定接线，仍仅必要编译。没有实际上传关闭/DELETE/退款/激活/恢复/迁退操作或
+验收完成声明；包2余项及完整四包/29切片/集中与真实验证终点保持。

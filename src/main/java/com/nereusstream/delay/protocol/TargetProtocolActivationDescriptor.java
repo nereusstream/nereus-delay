@@ -8,7 +8,7 @@ import java.util.Objects;
 public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte[] baseResetManifest,
         byte[] targetSchemaHash,String workerSourceCommit,String kafkaSourceCommit,byte[] kafkaSdkJar,byte[] pulsarSdkJar,int schemaVersion) {
     public static final int MAX_BYTES=8192;
-    public static final int TARGET_CHECKPOINT_SCHEMA=12;
+    public static final int TARGET_CHECKPOINT_SCHEMA=13;
     public static final int TARGET_NATIVE_MAX=56;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-protocol-activation-descriptor\0");
     public TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte[] reset,byte[] schema,String worker,String kafka,byte[] kafkaJar,byte[] pulsarJar){
@@ -22,10 +22,12 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     public boolean supportsInlinePayloadReclaim(){return schemaVersion>=7;}
     public boolean supportsSelfContainedInlinePayloadReclaim(){return schemaVersion>=8;}
     public boolean supportsNativeRetainedReclaim(){return schemaVersion>=9;}
-    /** Descriptor10 admits only the exact committed OBJECT intent/confirmation contract. */
+    /** Descriptor11 separately admits original uncommitted reservation upload closure/terminal history. */
+    public boolean supportsUncommittedObjectPayloadReclaim(){return schemaVersion>=11;}
+    /** Descriptor10 admits the exact committed OBJECT intent/confirmation contract. */
     public boolean supportsObjectPayloadReclaim(){return schemaVersion>=10;}
     public TargetProtocolActivationDescriptor {
-        if(schemaVersion<1||schemaVersion>10)throw new IllegalArgumentException("unsupported Target descriptor schema");
+        if(schemaVersion<1||schemaVersion>11)throw new IllegalArgumentException("unsupported Target descriptor schema");
         Objects.requireNonNull(base);
         baseResetManifest=TargetCompatibilityCodec.assigned(baseResetManifest,32,"original base reset manifest");
         targetSchemaHash=TargetCompatibilityCodec.assigned(targetSchemaHash,32,"independent Target schema hash");
@@ -38,15 +40,15 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     @Override public byte[] targetSchemaHash(){return Bytes.copy(targetSchemaHash);}
     @Override public byte[] kafkaSdkJar(){return Bytes.copy(kafkaSdkJar);}
     @Override public byte[] pulsarSdkJar(){return Bytes.copy(pulsarSdkJar);}
-    public ProtocolTuple tuple(){return supportsObjectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():supportsNativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():supportsSelfContainedInlinePayloadReclaim()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():supportsInlinePayloadReclaim()?ProtocolTuple.targetInlinePayloadReclaim():supportsResourceReclaim()?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
+    public ProtocolTuple tuple(){return supportsUncommittedObjectPayloadReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():supportsObjectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():supportsNativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():supportsSelfContainedInlinePayloadReclaim()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():supportsInlinePayloadReclaim()?ProtocolTuple.targetInlinePayloadReclaim():supportsResourceReclaim()?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
     private static byte[] versions(int version){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version>=10?TARGET_NATIVE_MAX:version==1?53:version==2?54:55);
-        CanonicalProtobuf.uint32(out,3,version>=10?12:version>=9?11:version>=8?10:version>=7?9:version>=6?8:version>=5?7:6);CanonicalProtobuf.uint32(out,4,version>=10?13:version>=9?12:version>=8?11:version>=7?10:version>=6?9:8);
+        CanonicalProtobuf.uint32(out,3,version>=11?13:version>=10?12:version>=9?11:version>=8?10:version>=7?9:version>=6?8:version>=5?7:6);CanonicalProtobuf.uint32(out,4,version>=11?14:version>=10?13:version>=9?12:version>=8?11:version>=7?10:version>=6?9:8);
         CanonicalProtobuf.uint32(out,5,1);CanonicalProtobuf.uint32(out,6,1);
         CanonicalProtobuf.uint32(out,7,1);CanonicalProtobuf.uint32(out,8,1);
         CanonicalProtobuf.uint32(out,9,3);CanonicalProtobuf.uint32(out,10,1);CanonicalProtobuf.uint32(out,11,28);
         CanonicalProtobuf.uint32(out,12,1);CanonicalProtobuf.uint32(out,13,version>=5?2:1);CanonicalProtobuf.uint32(out,14,1);CanonicalProtobuf.uint32(out,15,1);
-        if(version>=2)CanonicalProtobuf.uint32(out,16,version>=10?6:version>=9?5:version>=8?4:version>=7?3:version>=6?2:1);
+        if(version>=2)CanonicalProtobuf.uint32(out,16,version>=11?7:version>=10?6:version>=9?5:version>=8?4:version>=7?3:version>=6?2:1);
         if(version>=3)CanonicalProtobuf.uint32(out,17,1);
         if(version>=4){CanonicalProtobuf.uint32(out,18,1);CanonicalProtobuf.uint32(out,19,2);}
         if(version>=5){CanonicalProtobuf.uint32(out,20,1);CanonicalProtobuf.uint32(out,21,1);CanonicalProtobuf.uint32(out,22,3);}
@@ -55,8 +57,10 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
             CanonicalProtobuf.uint32(out,25,2);CanonicalProtobuf.uint32(out,26,1);}
         if(version>=8)CanonicalProtobuf.uint32(out,27,TargetInlinePayloadSourceFacts.SCHEMA_VERSION);
         if(version>=9){CanonicalProtobuf.uint32(out,28,TargetNativeReclaimFacts.SCHEMA_VERSION);CanonicalProtobuf.uint32(out,29,TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES);}
-        if(version>=10){CanonicalProtobuf.uint32(out,30,1);CanonicalProtobuf.uint32(out,31,TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES);
+        if(version>=10){CanonicalProtobuf.uint32(out,30,version>=11?2:1);CanonicalProtobuf.uint32(out,31,TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES);
             CanonicalProtobuf.uint32(out,32,2);CanonicalProtobuf.uint32(out,33,TargetObjectPayloadOrigin.SCHEMA_VERSION);}
+        if(version>=11){CanonicalProtobuf.uint32(out,34,TargetUncommittedPayloadFacts.SCHEMA_VERSION);CanonicalProtobuf.uint32(out,35,TargetUncommittedObjectClosure.SCHEMA_VERSION);
+            CanonicalProtobuf.uint32(out,36,TargetUncommittedObjectClosure.MAX_VERSIONS);CanonicalProtobuf.uint32(out,37,TargetUncommittedObjectClosure.MAX_BYTES);}
     });}
     private byte[] fields(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,schemaVersion);CanonicalProtobuf.bytes(out,2,base.canonicalBytes());CanonicalProtobuf.bytes(out,3,base.setDigest());
@@ -76,7 +80,7 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,12,false,"Target activation descriptor");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7,8,9,10,11,12},"Target activation descriptor");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if((version<1||version>10)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
+        if((version<1||version>11)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
             throw new IllegalArgumentException("unsupported Target activation descriptor/version combination");
         final var descriptor=new TargetProtocolActivationDescriptor(ArtifactGenerationSet.decode(QueryCodecSupport.bytes(f.get(1),2)),
                 QueryCodecSupport.fixed(f.get(3),4,32),QueryCodecSupport.fixed(f.get(5),6,32),

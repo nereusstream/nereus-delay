@@ -669,7 +669,7 @@ public final class TargetRecordAccounting {
                 requireFamily(family,ColumnFamily.META);
                 final var intent=com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.decodeForStore(key,payload,scope,lineage);
                 TargetObjectPayloadReclaim.requirePending(reader,overlay,intent,operation);
-                final var expected=intent.operation().expected();final var owner=descriptor(expected.primaryIdentity());
+                final var expected=intent.expectedOwner();final var owner=descriptor(expected.primaryIdentity());
                 if(!owner.accounting().equals(expected.accounting()))throw new IllegalStateException("OBJECT intent changed frozen accounting");
                 result=new Charge(owner,resources(intent.recordCharge()));
             }

@@ -272,6 +272,14 @@ public final class InMemoryPayloadObjectStore {
      */
     public synchronized void upload(
             final OpaquePayloadUploadHandle handle, final byte[] payload, final long nowEpochMs) {
+        upload(handle,payload,nowEpochMs,null);
+    }
+
+    synchronized PayloadReservationReceipt receiptForHandle(OpaquePayloadUploadHandle handle,long nowEpochMs){
+        return reservationReceipt(requireHandle(handle,nowEpochMs).reservation);
+    }
+
+    synchronized void upload(OpaquePayloadUploadHandle handle,byte[] payload,long nowEpochMs,PayloadUploadOperationHistory.Upload operation){
         Objects.requireNonNull(handle, "handle");
         Objects.requireNonNull(payload, "payload");
         requireNow(nowEpochMs);
@@ -292,7 +300,7 @@ public final class InMemoryPayloadObjectStore {
                         Bytes.sha256(payload), state.reservation.intent().payloadSha256())) {
             throw new IllegalArgumentException("payload length or SHA-256 does not match reservation");
         }
-        payloadBackend.putIfAbsent(objectIdentity, payload, objectStore.maxObjectBytes());
+        payloadBackend.putIfAbsent(objectIdentity, payload, objectStore.maxObjectBytes(),operation);
     }
 
     /** Uploads through a receipt-bound API; receipt drift is rejected before bytes are accepted. */
@@ -310,6 +318,14 @@ public final class InMemoryPayloadObjectStore {
             throw new IllegalArgumentException("payload receipt is not authorized for this upload handle");
         }
         upload(handle, payload, nowEpochMs);
+    }
+
+    synchronized void upload(PayloadReservationReceipt receipt,OpaquePayloadUploadHandle handle,byte[] payload,long nowEpochMs,
+            PayloadUploadOperationHistory.Upload operation){
+        final ReservationState state=reservations.get(key(receipt.reservationId()));
+        if(state==null||!matchesReceipt(state,receipt)||!Arrays.equals(receipt.reservationId(),handle.reservationId()))
+            throw new IllegalArgumentException("payload receipt is not authorized for this upload handle");
+        upload(handle,payload,nowEpochMs,operation);
     }
 
     /**

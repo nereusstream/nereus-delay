@@ -58,6 +58,8 @@ public final class TargetRetirementSourceHistoryStore {
             throw new IllegalStateException("inline reclaim first lacks actual prior descriptor7");
         if(tuple.equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())&&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
             throw new IllegalStateException("self-contained inline reclaim first lacks actual prior descriptor8");
+        if(tuple.equals(ProtocolTuple.targetUncommittedObjectReclaim())&&!activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim())
+            throw new IllegalStateException("uncommitted first lacks descriptor11 activation");
         if(tuple.equals(ProtocolTuple.targetObjectPayloadReclaim())&&!activation.body().payload().descriptor().supportsObjectPayloadReclaim())
             throw new IllegalStateException("OBJECT first lacks its distinct prior activation");
         if(tuple.equals(ProtocolTuple.targetNativeRetainedReclaim())&&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
@@ -107,6 +109,10 @@ public final class TargetRetirementSourceHistoryStore {
                 if(!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
                     throw new IllegalStateException("self-contained inline reclaim history lacks actual descriptor8");
                 TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),frontier);
+            }
+            if(record.requiredTuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())){
+                if(!activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim())throw new IllegalStateException("uncommitted history lacks descriptor11 activation");
+                TargetUncommittedPayloadReclaim.requireAppliedDecision(view,overlay,input,record.decidedAt(),frontier);
             }
             if(record.requiredTuple().equals(ProtocolTuple.targetObjectPayloadReclaim())){
                 if(!activation.body().payload().descriptor().supportsObjectPayloadReclaim())throw new IllegalStateException("OBJECT history lacks its exact activation");
@@ -214,6 +220,7 @@ public final class TargetRetirementSourceHistoryStore {
     public static TargetResourceReclaimBody.RetainedPayload releasedPayloadOperation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity root,TargetQuotaPayloadOwner released,TargetQuotaMutation frontier){
         if(released.kind()==TargetQuotaPayloadOwner.Kind.INLINE)return releasedInlineOperation(view,overlay,scope,lineage,root,released,frontier);
+        if(released.committedPayload()==null)throw new IllegalArgumentException("uncommitted reservation has no terminal Message locator; use original reservation metadata");
         final var history=TargetObjectPayloadReclaim.releaseHistory(view,overlay,scope,lineage,released,frontier);
         requireFirst(view,overlay,scope,lineage,root,history,frontier);
         return TargetResourceReclaimBody.decode(history.input().canonicalBody()).objectOperation();

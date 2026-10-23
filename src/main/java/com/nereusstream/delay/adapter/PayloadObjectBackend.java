@@ -28,6 +28,12 @@ interface PayloadObjectBackend {
         throw new UnsupportedOperationException("payload backend is read-only");
     }
 
+    /** Real upload operation custody is supported only by the actual remote backend. */
+    default void putIfAbsent(String identity,byte[] payload,long maximumBytes,PayloadUploadOperationHistory.Upload operation){
+        if(operation!=null)throw new UnsupportedOperationException("local payload backend has no durable provider operation history");
+        putIfAbsent(identity,payload,maximumBytes);
+    }
+
     /**
      * Returns the immutable provider version retained in the payload proof.
      * Local backends use the content-addressed fallback; remote backends must
