@@ -18,6 +18,7 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
     public static final int UNCOMMITTED_OBJECT_BODY_VERSION=14;
     public static final int ANCHOR_ALLOCATION_BODY_VERSION=15;
     public static final int INCARNATION_BODY_VERSION=16;
+    public static final int DUPLICATE_POSITION_BODY_VERSION=17;
     public static final int MAX_OBJECT_INTENT_BYTES=24*1024*1024;
     public static final int MAX_NATIVE_CANONICAL_BYTES=32*1024*1024;
     public static final int MAX_OPERATIONS=32;
@@ -140,10 +141,10 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
     public record RetainedRecordDelete(TargetResultRecord expected) implements Operation {
         public RetainedRecordDelete {
             Objects.requireNonNull(expected);
-            if(expected.kind()!=TargetResultRecord.Kind.RESULT&&expected.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED)
-                throw new IllegalArgumentException("only query-result and standalone expired POSITION leaves are supported");
+            if(expected.kind()!=TargetResultRecord.Kind.RESULT&&expected.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED&&expected.kind()!=TargetResultRecord.Kind.POSITION_COMMAND)
+                throw new IllegalArgumentException("only query-result, standalone expired POSITION and strictly later COMMAND POSITION leaves are supported");
         }
-        public int action(){return expected.kind()==TargetResultRecord.Kind.RESULT?1:2;}
+        public int action(){return expected.kind()==TargetResultRecord.Kind.RESULT?1:expected.kind()==TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED?2:6;}
         public byte[] identity(){return Bytes.concat(new byte[]{3,(byte)action()},expected.key());}
         public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.uint32(out,2,3);
             CanonicalProtobuf.uint32(out,3,action());CanonicalProtobuf.bytes(out,4,expected.canonicalBytes());});}
@@ -255,6 +256,9 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         final boolean inline=ordered.getFirst() instanceof InlinePayloadRelease;
         final boolean nativeRetained=nativeOperation(ordered.getFirst());
         final boolean incarnation=ordered.stream().anyMatch(o->o instanceof IncarnationDrain||o instanceof IncarnationRetire);
+        if(ordered.stream().anyMatch(o->o instanceof RetainedRecordDelete d&&d.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)
+                &&ordered.stream().anyMatch(o->!(o instanceof RetainedRecordDelete d)||d.expected().kind()!=TargetResultRecord.Kind.POSITION_COMMAND))
+            throw new IllegalArgumentException("duplicate POSITION lifecycle cannot mix other operation generations");
         if(incarnation&&ordered.size()!=1)throw new IllegalArgumentException("one incarnation lifecycle transition per Source decision");
         final boolean uncommitted=ordered.getFirst() instanceof UncommittedObjectRetire||ordered.getFirst() instanceof UncommittedObjectConfirm;
         final boolean object=uncommitted||ordered.getFirst() instanceof ObjectPayloadRetire||ordered.getFirst() instanceof ObjectPayloadConfirm;
@@ -344,12 +348,13 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         if(!Arrays.equals(lineage,expected.recoveryLineage()))throw new IllegalArgumentException("incarnation lifecycle changed original lineage");
         expected.latestMutation().requireCoveredByFloor(floor);
     }
+    public boolean duplicatePositionReclaim(){return operations.stream().anyMatch(o->o instanceof RetainedRecordDelete d&&d.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND);}
     public boolean incarnationReclaim(){return operations.getFirst() instanceof IncarnationDrain||operations.getFirst() instanceof IncarnationRetire;}
     public boolean nativeRetainedReclaim(){return nativeOperation(operations.getFirst());}
     public boolean anchorAllocationReclaim(){return operations.stream().anyMatch(o->o instanceof RetainedAllocationRelease a&&a.includesAnchor());}
     public int maximumCanonicalBytes(){return objectPayloadReclaim()?operations.getFirst() instanceof ObjectPayloadRetire||operations.getFirst() instanceof UncommittedObjectRetire?MAX_OBJECT_INTENT_BYTES:MAX_NATIVE_CANONICAL_BYTES:nativeRetainedReclaim()?MAX_NATIVE_CANONICAL_BYTES:MAX_CANONICAL_BYTES;}
-    public int bodyVersion(){return incarnationReclaim()?INCARNATION_BODY_VERSION:anchorAllocationReclaim()?ANCHOR_ALLOCATION_BODY_VERSION:uncommittedObjectReclaim()?UNCOMMITTED_OBJECT_BODY_VERSION:objectPayloadReclaim()?OBJECT_PAYLOAD_BODY_VERSION:nativeRetainedReclaim()?NATIVE_RETAINED_BODY_VERSION:selfContainedInlinePayloadRelease()?SELF_CONTAINED_INLINE_BODY_VERSION:inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
-    public ProtocolTuple requiredTuple(){return incarnationReclaim()?ProtocolTuple.targetIncarnationReclaim():anchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():uncommittedObjectReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():selfContainedInlinePayloadRelease()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+    public int bodyVersion(){return duplicatePositionReclaim()?DUPLICATE_POSITION_BODY_VERSION:incarnationReclaim()?INCARNATION_BODY_VERSION:anchorAllocationReclaim()?ANCHOR_ALLOCATION_BODY_VERSION:uncommittedObjectReclaim()?UNCOMMITTED_OBJECT_BODY_VERSION:objectPayloadReclaim()?OBJECT_PAYLOAD_BODY_VERSION:nativeRetainedReclaim()?NATIVE_RETAINED_BODY_VERSION:selfContainedInlinePayloadRelease()?SELF_CONTAINED_INLINE_BODY_VERSION:inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
+    public ProtocolTuple requiredTuple(){return duplicatePositionReclaim()?ProtocolTuple.targetDuplicatePositionReclaim():incarnationReclaim()?ProtocolTuple.targetIncarnationReclaim():anchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():uncommittedObjectReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():selfContainedInlinePayloadRelease()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
     public TargetResourceReclaimBody withNativeFacts(TargetNativeReclaimFacts facts){
         if(nativeFacts!=null||!nativeRetainedReclaim())throw new IllegalArgumentException("Native reclaim facts already frozen or wrong family");
         final var body=new TargetResourceReclaimBody(scope,lineage,deploymentRoot,namespace,retryUntil,floor,operations,null,Objects.requireNonNull(facts));
@@ -387,8 +392,8 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         QueryCodecSupport.requireNumbers(f,f.size()==11?new int[]{1,2,3,9,10,11,12,13,14,15,16}:new int[]{1,2,3,9,10,11,12,13,14,15},"Target reclaim body");
         final int version=QueryCodecSupport.uint32(f.get(3),9);
         if(QueryCodecSupport.uint32(f.get(1),2)!=SystemMutationType.TARGET_RESOURCE_RECLAIM.wireValue()
-                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION&&version!=SELF_CONTAINED_INLINE_BODY_VERSION&&version!=NATIVE_RETAINED_BODY_VERSION&&version!=OBJECT_PAYLOAD_BODY_VERSION&&version!=UNCOMMITTED_OBJECT_BODY_VERSION&&version!=ANCHOR_ALLOCATION_BODY_VERSION&&version!=INCARNATION_BODY_VERSION
-                ||version!=OBJECT_PAYLOAD_BODY_VERSION&&(version==SELF_CONTAINED_INLINE_BODY_VERSION||version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION||version==INCARNATION_BODY_VERSION)!=(f.size()==11)
+                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION&&version!=SELF_CONTAINED_INLINE_BODY_VERSION&&version!=NATIVE_RETAINED_BODY_VERSION&&version!=OBJECT_PAYLOAD_BODY_VERSION&&version!=UNCOMMITTED_OBJECT_BODY_VERSION&&version!=ANCHOR_ALLOCATION_BODY_VERSION&&version!=INCARNATION_BODY_VERSION&&version!=DUPLICATE_POSITION_BODY_VERSION
+                ||version!=OBJECT_PAYLOAD_BODY_VERSION&&(version==SELF_CONTAINED_INLINE_BODY_VERSION||version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION||version==INCARNATION_BODY_VERSION||version==DUPLICATE_POSITION_BODY_VERSION)!=(f.size()==11)
                 ||version<NATIVE_RETAINED_BODY_VERSION&&encoded.length>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("unknown Target reclaim type/body version");
         final var operations=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(f.get(9),15),version>=NATIVE_RETAINED_BODY_VERSION?MAX_NATIVE_CANONICAL_BYTES:MAX_CANONICAL_BYTES,MAX_OPERATIONS,true,"reclaim operation group");
         final var decoded=new ArrayList<Operation>();
@@ -439,19 +444,19 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
                 else throw new IllegalArgumentException("unknown incarnation lifecycle action");
                 continue;
             }
-            if(version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION){
+            if(version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION||version==DUPLICATE_POSITION_BODY_VERSION){
                 final var entry=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(field,1),MAX_NATIVE_CANONICAL_BYTES,MAX_OPERATIONS+4,true,"Native retained reclaim operation");
                 if(entry.size()<4)throw new IllegalArgumentException("incomplete Native reclaim operation");
                 final int schema=QueryCodecSupport.uint32(entry.getFirst(),1);
                 if(schema<1||schema>(version==ANCHOR_ALLOCATION_BODY_VERSION?2:1)||QueryCodecSupport.uint32(entry.get(1),2)!=3)
                     throw new IllegalArgumentException("unknown Native reclaim operation schema/kind");
                 final int action=QueryCodecSupport.uint32(entry.get(2),3);final byte[] payload=QueryCodecSupport.bytes(entry.get(3),4);
-                if(action==1||action==2){
+                if(version==DUPLICATE_POSITION_BODY_VERSION?action==6:action==1||action==2){
                     if(schema!=1)throw new IllegalArgumentException("unknown Native leaf schema");
                     QueryCodecSupport.requireNumbers(entry,new int[]{1,2,3,4},"Native leaf operation");
                     final var value=new RetainedRecordDelete(TargetResultRecord.decode(payload));
                     if(value.action()!=action)throw new IllegalArgumentException("Native leaf action/value mismatch");decoded.add(value);
-                }else if(action==3){
+                }else if(action==3&&version!=DUPLICATE_POSITION_BODY_VERSION){
                     final var confirmations=new ArrayList<TargetEvidenceConfirmedRecord>();
                     for(int i=4;i<entry.size();i++)confirmations.add(TargetEvidenceConfirmedRecord.decode(QueryCodecSupport.bytes(entry.get(i),5)));
                     final var allocation=new RetainedAllocationRelease(TargetQuotaAttemptBudget.decode(payload),confirmations);
@@ -476,7 +481,7 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
                 QueryCodecSupport.fixed(f.get(5),11,16),QueryCodecSupport.fixed(f.get(6),12,32),QueryCodecSupport.fixed(f.get(7),13,32),
                 QueryCodecSupport.uint(f.get(2),3),RecoveryFloorRef.decode(QueryCodecSupport.bytes(f.get(8),14)),decoded,
                 version==SELF_CONTAINED_INLINE_BODY_VERSION||version==OBJECT_PAYLOAD_BODY_VERSION&&f.size()==11?TargetInlinePayloadSourceFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null,
-                version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION||version==INCARNATION_BODY_VERSION?TargetNativeReclaimFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null);
+                version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION||version==INCARNATION_BODY_VERSION||version==DUPLICATE_POSITION_BODY_VERSION?TargetNativeReclaimFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null);
         if(!value.shard().equals(ShardSubject.decode(QueryCodecSupport.bytes(f.get(0),1)).shardId()))throw new IllegalArgumentException("reclaim subject differs from scope");
         if(value.nativeFacts()!=null)value.nativeFacts().requireFor(value);
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Target reclaim body");return value;

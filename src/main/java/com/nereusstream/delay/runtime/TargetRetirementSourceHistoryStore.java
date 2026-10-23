@@ -64,6 +64,8 @@ public final class TargetRetirementSourceHistoryStore {
             throw new IllegalStateException("OBJECT first lacks its distinct prior activation");
         if(tuple.equals(ProtocolTuple.targetNativeRetainedReclaim())&&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
             throw new IllegalStateException("Native retained reclaim first lacks actual prior descriptor9");
+        if(tuple.equals(ProtocolTuple.targetDuplicatePositionReclaim())&&!activation.body().payload().descriptor().supportsDuplicatePositionReclaim())
+            throw new IllegalStateException("duplicate POSITION first lacks descriptor14 activation");
         if(tuple.equals(ProtocolTuple.targetIncarnationReclaim())&&!activation.body().payload().descriptor().supportsIncarnationReclaim())
             throw new IllegalStateException("incarnation lifecycle lacks actual descriptor13");
         if(tuple.equals(ProtocolTuple.targetAnchorAllocationReclaim())&&!activation.body().payload().descriptor().supportsAnchorAllocationReclaim())
@@ -122,11 +124,12 @@ public final class TargetRetirementSourceHistoryStore {
                 if(!activation.body().payload().descriptor().supportsObjectPayloadReclaim())throw new IllegalStateException("OBJECT history lacks its exact activation");
                 TargetObjectPayloadReclaim.requireAppliedDecision(view,overlay,input,record.decidedAt(),frontier);
             }
-            if(record.requiredTuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||record.requiredTuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())||record.requiredTuple().equals(ProtocolTuple.targetIncarnationReclaim())){
+            if(record.requiredTuple().equals(ProtocolTuple.targetNativeRetainedReclaim())||record.requiredTuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())||record.requiredTuple().equals(ProtocolTuple.targetIncarnationReclaim())||record.requiredTuple().equals(ProtocolTuple.targetDuplicatePositionReclaim())){
                 if(!activation.body().payload().descriptor().supportsNativeRetainedReclaim())throw new IllegalStateException("Native retained history lacks actual descriptor9");
                 if(record.requiredTuple().equals(ProtocolTuple.targetAnchorAllocationReclaim())&&!activation.body().payload().descriptor().supportsAnchorAllocationReclaim())
                     throw new IllegalStateException("anchor allocation history lacks actual descriptor12");
                 if(record.requiredTuple().equals(ProtocolTuple.targetIncarnationReclaim())&&!activation.body().payload().descriptor().supportsIncarnationReclaim())throw new IllegalStateException("incarnation history lacks descriptor13");
+                if(record.requiredTuple().equals(ProtocolTuple.targetDuplicatePositionReclaim())&&!activation.body().payload().descriptor().supportsDuplicatePositionReclaim())throw new IllegalStateException("duplicate POSITION history lacks descriptor14");
                 TargetNativeRetainedReclaim.requireAppliedDecision(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),record.decidedAt(),frontier);
             }
             final var grant=record.declaredGrant().orElseThrow(()->new IllegalStateException("APPLIED Source history has no declared SERVICE grant"));

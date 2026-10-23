@@ -81,6 +81,7 @@ public final class ProtocolTuple {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.SELF_CONTAINED_INLINE_BODY_VERSION);
     }
     public static ProtocolTuple targetNativeRetainedReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.NATIVE_RETAINED_BODY_VERSION);}
+    public static ProtocolTuple targetDuplicatePositionReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.DUPLICATE_POSITION_BODY_VERSION);}
     public static ProtocolTuple targetIncarnationReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.INCARNATION_BODY_VERSION);}
     public static ProtocolTuple targetAnchorAllocationReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.ANCHOR_ALLOCATION_BODY_VERSION);}
     public static ProtocolTuple targetUncommittedObjectReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION);}

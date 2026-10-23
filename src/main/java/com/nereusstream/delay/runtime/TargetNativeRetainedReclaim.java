@@ -30,6 +30,10 @@ public final class TargetNativeRetainedReclaim {
         record.mutation().requireAtOrBefore(body.nativeFacts().fence().appliedAt());
         if(closeThrough(body)<deadline)throw new IllegalStateException("original Source fence has not closed full result/physical query retention");
     }
+    private static void requireOriginalFirst(TargetResultRecord leaf,TargetResultRecord original){
+        leaf.requireFirst(original);
+        if(leaf.kind()==TargetResultRecord.Kind.POSITION_COMMAND)leaf.mutation().requireAfter(original.mutation());
+    }
     /** Full current Floor or complete live fold; each original historical capability is independently authenticated outside. */
     public static TargetQuotaMutation requireClosed(TargetCheckpointDependencies d,SystemMutation input,boolean allowApplied,Runnable current){
         return requireClosed(d,TargetResourceReclaimBody.decode(input.canonicalBody()),input,allowApplied,current);
@@ -58,10 +62,11 @@ public final class TargetNativeRetainedReclaim {
                 retainedWindow(body,leaf.expected());final var actual=d.resultRecord(leaf.expected().key());
                 if(applied){if(actual!=null)throw new IllegalStateException("APPLIED Native leaf deletion retains its exact row");}
                 else if(actual==null||!Arrays.equals(actual.canonicalBytes(),leaf.expected().canonicalBytes()))throw new IllegalStateException("Native leaf changed after selection");
-                if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT){
+                if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND){
                     final var original=Objects.requireNonNull(d.resultRecord(firstKey(leaf.expected().logicalId())),"query deletion must keep original COMMAND first");
-                    leaf.expected().requireFirst(original);
-                }else if(d.root().source().compareTo(leaf.expected().mutation().source())<=0)
+                    requireOriginalFirst(leaf.expected(),original);
+                }
+                if(leaf.expected().kind().position()&&d.root().source().compareTo(leaf.expected().mutation().source())<=0)
                     throw new IllegalStateException("current Source frontier POSITION is not a reclaimable leaf");
             }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
                 final var actual=Objects.requireNonNull(budgets.get(Bytes.hex(allocation.expected().publishAttemptId())),"retained allocation Budget");
@@ -140,8 +145,8 @@ public final class TargetNativeRetainedReclaim {
         for(var operation:body.operations()){
             current.run();if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
                 retainedWindow(body,leaf.expected());
-                if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT)leaf.expected().requireFirst(result(reader,List.of(),firstKey(leaf.expected().logicalId())));
-                else if(reader.source().compareTo(leaf.expected().mutation().source())<=0)throw new IllegalStateException("cannot delete current frontier POSITION");
+                if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)requireOriginalFirst(leaf.expected(),result(reader,List.of(),firstKey(leaf.expected().logicalId())));
+                if(leaf.expected().kind().position()&&reader.source().compareTo(leaf.expected().mutation().source())<=0)throw new IllegalStateException("cannot delete current frontier POSITION");
             }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
                 for(var receipt:allocation.confirmations())requireConfirmation(reader,List.of(),receipt,allocation.expected());
             }
@@ -201,7 +206,7 @@ public final class TargetNativeRetainedReclaim {
         for(var operation:body.operations())if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
             retainedWindow(body,leaf.expected());
             if(view.projected(ColumnFamily.DEDUPE,leaf.expected().key(),overlay)!=null)throw new IllegalStateException("APPLIED Native record deletion retains its row");
-            if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT)leaf.expected().requireFirst(result(view,overlay,firstKey(leaf.expected().logicalId())));
+            if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)requireOriginalFirst(leaf.expected(),result(view,overlay,firstKey(leaf.expected().logicalId())));
         }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
             final var expected=allocation.expected();
             final var actual=TargetQuotaAttemptBudget.decodeForStore(expected.key(),value(view,overlay,ColumnFamily.META,expected.key(),TargetQuotaAttemptBudget.VALUE_TYPE),body.shard());

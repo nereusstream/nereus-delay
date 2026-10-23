@@ -1657,7 +1657,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final boolean uncommitted=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetUncommittedObjectReclaim(),clock);
         final boolean anchorAllocation=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetAnchorAllocationReclaim(),clock);
         final boolean incarnation=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetIncarnationReclaim(),clock);
-        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnation);
+        final boolean duplicatePosition=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim(),clock);
+        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnation,duplicatePosition);
     }
     synchronized ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
@@ -1795,6 +1796,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
+                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim())
+                        &&!activation.body().payload().descriptor().supportsDuplicatePositionReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetIncarnationReclaim())
                         &&!activation.body().payload().descriptor().supportsIncarnationReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetAnchorAllocationReclaim())

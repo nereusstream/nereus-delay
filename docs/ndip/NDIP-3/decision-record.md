@@ -1657,3 +1657,26 @@ grant增大不能复活DRAINING/退休identity，旧承诺工作与责任仍保�
 companion15。退休另需真实descriptor-only独立fold、所有零引用与原held权威，exact零grant
 同批移除，保零counter/Target total及仍活动Source归属的新增历史。真实闭合metadata组
 退休与部署qualification仍须继续；没有授权环境删除、保护解除或绕开当前root禁退。
+
+
+## 2026-10-23：保留实际first防重义务，不新增closed-ID协议
+
+主会话核对后不采纳REJECTED COMMAND first整组迁入永久Native54 closed-ID收据的方案。
+当前first按CommandId直接点读，仍承担换hash/deadline重新入场的防重职责；first缺失时
+replay用incoming retryUntil判过期，后续invalid才按当前Policy校验，仍可能重新写first。
+无存量业务引用不表示未来ID义务结束。SYSTEM first也有late-expired重写路径，本次不
+新增SYSTEM physical-only分支。两类first继续原样收费，等待原Source/Store真正生命周期
+关闭；不能再列为“可回收但缺writer”，也不把它们的整域清退从包4移除。
+
+不为此增加wire/result kind/永久ID事实、全Native54历史查找或大组分阶段协议；尤其不
+接受Native54扫描预算耗尽后无限等待Source承担新命令正常准入。RESULT查询副本和真正
+独立的POSITION叶子继续按原契约回收，首次来源POSITION、业务/旧body11/12/13/14/
+Native54/55仍需的记录保持原bytes/费用/校验，不用替代证书或缺行推断退休。
+
+本批依据该裁定只接后续重复COMMAND POSITION叶子：自主落定body17/kind3 action6、
+tuple17/descriptor14、Native54v10/lifecycle10/companion16，保实际first并强制候选
+Source与sequence均严格晚于first且早于当前frontier；原Route/fence/完整Floor/Pin/
+reader与外部引用保护继续。没有实现不采纳的closed-ID分支或改变既有查询扫描优先级。
+多页仅推进独立叶子，不截断成完整组。不以每种record都具备删除case作为包2终点。
+对其它metadata组先证明现有终态确已结束其义务；若只能发明新的永久ID/审计责任替代
+原记录，则归存续历史，不能自动扩成新回收项目。

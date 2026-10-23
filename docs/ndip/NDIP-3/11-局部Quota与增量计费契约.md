@@ -2898,3 +2898,12 @@ first的不可变allocation快照仍是历史事实并归原Source收费，不�
 账务装配时只验证原真实descriptor-only counters及exact typed删除投影，真正持久/冷读
 继续要求原retire Source的真实双零counter；不以投影或数值单独授权删除。其它实际记录/
 零费用引用存在、原writer/读者/Pin能力未提供或closed-group尚未实施时都继续保费用。
+
+
+2026-10-23 后续COMMAND POSITION叶子：body17 action6只删严格晚于实际first的独立
+physical audit；原first/首次来源POSITION及其它业务/history依赖保持。其原SHARD owner/
+accounting/tenant/lineage和EVIDENCE bytes/records按实际before减额，新GC Source first/
+POSITION/Native54/55按各自真实类别另计，不能把EVIDENCE退款解释为全局净空间减少或
+allocated结清。原signed Route/TimeFence关闭完整physical-query保留窗，完整实际保护
+和Source原子账本仍必需。COMMAND（包括REJECTED）与SYSTEM first的防重义务继续收费；
+本次不把完整ID事实换成另一套永久收据或缺行证书，整域关闭仍由原包4承担。

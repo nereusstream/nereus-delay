@@ -5813,3 +5813,34 @@ uses the original bounded META descriptor scan; GC/signing/Source/current Floor/
 and the original service maintenance owner share the existing pipeline. New GC/Source/image/lifecycle
 methods default deny without real original deployment capability. This is repository wiring only;
 eligible closed metadata-group reclamation and real deployment/runtime verification remain required.
+
+
+### Independent later COMMAND POSITION deletion (body17 / descriptor14)
+
+Type14/kind3 action6 uses operation fields1 schema1,2 kind3,3 action6,4 complete actual
+NV35 Kind.POSITION_COMMAND. Body17 retains common fields1/2/3/9..16 and NativeFacts1, with
+at most32 exact leaves and the existing32MiB limit; it cannot mix allocation or other operation
+families. No new result kind or NV35 schema is introduced. Old body12/query/expired-position
+operations and descriptor1..13/default bytes/permissions remain unchanged.
+
+The actual original COMMAND first must survive and match the full first digest/ID/tenant/lineage.
+Both Source position and native sequence of the candidate must strictly follow that first; the
+original first's POSITION is therefore ineligible. The current Source frontier is also ineligible.
+Original authenticated Route/TimeFence must close the candidate's full result/physical-query
+retention. Complete Floor/live and every actual Pin, external reference, reader/query/replay
+admission still require the original independent Native retained-reclaim hold through commit.
+
+Discovery kind12 independently pages the existing DEDUPE POSITION range after the existing
+families, preserving prior query/expired-position ordering. Selection, signing, actual Source
+atomic leaf deletion and frozen EVIDENCE refund, new root-owned first/POSITION/Native54/55,
+and current/cold historical checks use the original bounded pipeline. Pagination proves only
+each selected independent leaf, never complete CommandId closure. Original COMMAND first,
+first-source POSITION and all other dependencies retain their actual fees and semantics.
+
+The exact tuple is(1,1,SYSTEM_MUTATION,1,17), descriptor14. Vector3=companion16,
+4=body17,16=Native54v10 and new40=leaf-action6; other descriptor13 fields and Native max56
+remain. Lifecycle10/companion16 require the independent actual activation/history authentication.
+This capability does not retire logical IDs, add a permanent closed-ID receipt, scan Native54 on
+new Command admission, or change late-expired replay. Source/cold must continue finding the real
+original first. Net total storage reduction is not promised: retired EVIDENCE and newly retained
+Source/history bytes are separately charged. Runtime/Broker/recovery acceptance remains deferred.

@@ -87,7 +87,7 @@ public final class TargetResourceReclaimDiscovery {
             case TargetResourceReclaimBody.RetainedAllocationRelease p->p.expected().primaryIdentity();
             case TargetResourceReclaimBody.IncarnationDrain p->p.expected().identity();
             case TargetResourceReclaimBody.IncarnationRetire p->p.expected().identity();};}
-        public ProtocolTuple requiredTuple(){return incarnationLifecycle()?ProtocolTuple.targetIncarnationReclaim():operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease a&&a.includesAnchor()?ProtocolTuple.targetAnchorAllocationReclaim():uncommittedObject()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayload()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+        public ProtocolTuple requiredTuple(){return operation instanceof TargetResourceReclaimBody.RetainedRecordDelete d&&d.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND?ProtocolTuple.targetDuplicatePositionReclaim():incarnationLifecycle()?ProtocolTuple.targetIncarnationReclaim():operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease a&&a.includesAnchor()?ProtocolTuple.targetAnchorAllocationReclaim():uncommittedObject()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayload()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetained()?ProtocolTuple.targetNativeRetainedReclaim():inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
         public TargetResultRecord admission(){return admission;}
         public TargetResultRecord outcome(){return outcome;}
     }
@@ -132,27 +132,31 @@ public final class TargetResourceReclaimDiscovery {
     }
     public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
             boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle){
-        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this||!unused&&!inline&&!nativeRetained&&!object&&!uncommitted&&!anchorAllocation&&!incarnationLifecycle)
+        return scan(reads,previous,maximumRows,authority,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,false);
+    }
+    public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
+            boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle,boolean duplicatePosition){
+        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this||!unused&&!inline&&!nativeRetained&&!object&&!uncommitted&&!anchorAllocation&&!incarnationLifecycle&&!duplicatePosition)
             throw new IllegalArgumentException("invalid bounded reclaim scan or foreign continuation");
         return backend.guardedRead(reads,reader->{
             final var incarnation=reader.metadata().storeIncarnation();
             if(previous!=null&&!Arrays.equals(previous.storeIncarnation,incarnation))throw new StaleCursor();
             final var candidates=new ArrayList<Candidate>();
-            int kind=previous==null?nextKind(0,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle):previous.kind;
+            int kind=previous==null?nextKind(0,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,duplicatePosition):previous.kind;
             byte[] after=previous==null?null:previous.after;
-            if(!allowedKind(kind,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle)){kind=nextKind(0,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle);after=null;}
+            if(!allowedKind(kind,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,duplicatePosition)){kind=nextKind(0,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,duplicatePosition);after=null;}
             int count=0;
             while(count<maximumRows){
                 final int tag=switch(kind){case 1,5->TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG;case 2,7,9->TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG;
-                    case 3->TargetKeyCodec.RESULT_QUERY_TAG;case 4->TargetKeyCodec.RESULT_POSITION_TAG;case 6->TargetKeyCodec.EVIDENCE_CONFIRMED_TAG;case 8,10->TargetKeyCodec.PAYLOAD_OBJECT_RETIRING_TAG;case 11->TargetKeyCodec.QUOTA_INCARNATION_TAG;default->throw new IllegalStateException("unknown reclaim cursor family");};
-                final var family=kind==3||kind==4?ColumnFamily.DEDUPE:ColumnFamily.META;
+                    case 3->TargetKeyCodec.RESULT_QUERY_TAG;case 4,12->TargetKeyCodec.RESULT_POSITION_TAG;case 6->TargetKeyCodec.EVIDENCE_CONFIRMED_TAG;case 8,10->TargetKeyCodec.PAYLOAD_OBJECT_RETIRING_TAG;case 11->TargetKeyCodec.QUOTA_INCARNATION_TAG;default->throw new IllegalStateException("unknown reclaim cursor family");};
+                final var family=kind==3||kind==4||kind==12?ColumnFamily.DEDUPE:ColumnFamily.META;
                 final byte[] upper={(byte)tag,TargetKeyCodec.KEY_FORMAT+1};
                 final byte[] lower=after==null?new byte[]{(byte)tag,TargetKeyCodec.KEY_FORMAT}:Bytes.concat(after,new byte[]{0});
                 try{
                     final var row=reader.first(family,lower,upper,List.of());
                     if(row==null){
                         reader.requireWithinElapsedBudget();
-                        final int next=nextKind(kind,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle);
+                        final int next=nextKind(kind,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,duplicatePosition);
                         if(next!=0){
                             kind=next;after=null;
                             if(!candidates.isEmpty())return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
@@ -160,7 +164,7 @@ public final class TargetResourceReclaimDiscovery {
                         }
                         return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.RANGE_END);
                     }
-                    final var selected=kind==11?incarnation(reader,row):kind==1?unused(reader,row):kind==2?inline(reader,row):kind>=7?object(reader,row,kind):nativeRetained(reader,row,kind,nativeRetained,anchorAllocation);
+                    final var selected=kind==11?incarnation(reader,row):kind==1?unused(reader,row):kind==2?inline(reader,row):kind>=7&&kind<=10?object(reader,row,kind):nativeRetained(reader,row,kind,nativeRetained,anchorAllocation);
                     reader.requireWithinElapsedBudget();count++;
                     if(selected!=null)candidates.add(selected);
                     after=row.key();
@@ -172,11 +176,11 @@ public final class TargetResourceReclaimDiscovery {
             return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
         },authority);
     }
-    private static boolean allowedKind(int kind,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle){
-        return kind==1?unused:kind==2?inline:kind>=3&&kind<=5?nativeRetained:kind==6?nativeRetained||anchorAllocation:kind==7||kind==8?object:kind==9||kind==10?uncommitted:kind==11?incarnationLifecycle:false;
+    private static boolean allowedKind(int kind,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle,boolean duplicatePosition){
+        return kind==1?unused:kind==2?inline:kind>=3&&kind<=5?nativeRetained:kind==6?nativeRetained||anchorAllocation:kind==7||kind==8?object:kind==9||kind==10?uncommitted:kind==11?incarnationLifecycle:kind==12?duplicatePosition:false;
     }
-    private static int nextKind(int prior,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle){
-        for(int next=prior+1;next<=11;next++)if(allowedKind(next,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle))return next;return 0;
+    private static int nextKind(int prior,boolean unused,boolean inline,boolean nativeRetained,boolean object,boolean uncommitted,boolean anchorAllocation,boolean incarnationLifecycle,boolean duplicatePosition){
+        for(int next=prior+1;next<=12;next++)if(allowedKind(next,unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnationLifecycle,duplicatePosition))return next;return 0;
     }
     private Candidate incarnation(TargetStoreBackend.Reader reader,ShardStore.KeyValue row){
         final var owner=TargetQuotaIncarnation.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetQuotaIncarnation.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
@@ -232,14 +236,21 @@ public final class TargetResourceReclaimDiscovery {
         return new Candidate(this,new ObjectSelection(owner,message.locator(),message.stateVersion(),Bytes.sha256(primary),Bytes.sha256(terminalBytes)),null);
     }
     private Candidate nativeRetained(TargetStoreBackend.Reader reader,ShardStore.KeyValue row,int kind,boolean nativeRetained,boolean anchorAllocation){
-        if(kind==3||kind==4){
+        if(kind==3||kind==4||kind==12){
             final var record=TargetResultRecord.decode(TargetValueEnvelope.decode(row.value(),TargetResultRecord.VALUE_TYPE).payload());
             record.requireStored(row.key(),TargetResultRecord.VALUE_TYPE,record.canonicalBytes());
             scope.requireRoute(record.primaryIdentity().shard(),record.tenantScope());
             if(!Arrays.equals(record.recoveryLineage(),lineage))throw new IllegalStateException("Native record discovery changed lineage");
             record.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if(kind==3&&record.kind()!=TargetResultRecord.Kind.RESULT||kind==4&&record.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED)return null;
+            if(kind==3&&record.kind()!=TargetResultRecord.Kind.RESULT||kind==4&&record.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED||kind==12&&record.kind()!=TargetResultRecord.Kind.POSITION_COMMAND)return null;
             if(reader.source().compareTo(record.mutation().source())<=0)return null;
+            if(kind==12){
+                final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_COMMAND_TAG,TargetKeyCodec.KEY_FORMAT},record.logicalId());
+                final var original=TargetResultRecord.decode(payload(reader,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE));
+                original.requireStored(firstKey,TargetResultRecord.VALUE_TYPE,original.canonicalBytes());record.requireFirst(original);
+                if(record.mutation().equals(original.mutation()))return null;
+                record.mutation().requireAfter(original.mutation());
+            }
             return new Candidate(this,new TargetResourceReclaimBody.RetainedRecordDelete(record));
         }
         if(kind==5){
