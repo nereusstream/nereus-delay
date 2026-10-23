@@ -1608,3 +1608,38 @@ first/POS/history/owner/账务、正常及冷读取和原GC/I/O/Source独立准�
 
 本次按该裁定接线，仍仅必要编译。没有实际上传关闭/DELETE/退款/激活/恢复/迁退操作或
 验收完成声明；包2余项及完整四包/29切片/集中与真实验证终点保持。
+
+
+## 2026-10-23：包2活动域留存与最终整域清退边界
+
+主会话裁定活动Source/Store内有实际用途的原完整历史及计费身份是合法留存状态。
+被实际Native/Source/recovery/query/accounting引用的first/POS/terminal/owner/binding/
+history/descriptor保原owner与冻结费用；不表示泄漏、长期空间恒定或永久不可回收。
+能够证明整个候选组无外部存续引用且原replay/query/retention/全部writer/Pin/image承诺
+结束的实际闭合组仍属包2回收范围，不删引用指针制造资格，不改旧帧/tuple/历史语义，
+不引入compact tombstone/替代证书。原零counter tombstone继续收费。
+
+真实drain/非根identity retire Source写者仍是B4必做缺口。须沿原Source/control/Registry
+停止新ingress的实际原因和StateAuthority有序DRAINING，保持已承诺工作排空；独立真实
+ledger含零费用引用证明仅剩descriptor contribution且完整Floor/引用/权威都满足后，
+按原§15.4同批删除descriptor、结清STATE/cardinality、更新四层计费并保原零counter。
+本次回收first/history必须归仍有效的原Source/bookkeeping owner；不可给已删身份加费
+或转移旧费用，无真实eligible候选时保留，不用伪造empty DTO构造正向。
+
+当前bookkeeping root禁止在活动Store内退休。整Source lineage/Store终结与仍互相承担
+历史义务的根组，归原包4import/cutover/retirement具体生命周期：新入口/旧writer/晚到
+I/O、幂等/query/replay/Journal/恢复、全部Catalog/Pin/ancestry承诺均终结，仍需保管的
+原完整历史须有既定可独立认证且收费的原保管位置。Target Close/DRAINING/最新Floor/
+空counter均不代替整域关闭；包2不新增通用history-close服务或新账本，整域义务不删除。
+
+allocation只用原Admission/外部owner/Writer/Journal的完整实际归属及不可替代终态。
+缺basis旧余额保留并明确原责任组件/缺失事实，不能称永久费用已验收。原合法终态若
+完整覆盖剩余整份allocation可沿原契约结清，不为形式新造分项账本。已批准K2 Anchor
+独占原blobCharge沿kind3一次性结算；NV47删除/ref/alias消失使保守份额回Budget与后续
+Source退款是两次不同变化，不重复物理退款，不扣独立Native费或maximumRecoveryCharge。
+本实现自主落定body15/tuple15/descriptor12、Native54v8/lifecycle8/companion14。
+
+本阶段按原四包/29切片，将现有清单一次分为：必须接通的独立实际写者/组装、存续引用
+下合法留存、缺真实provider/history资格的不可执行路径、包4整Store清退事项。包3如实
+暴露留存占用/有限额度/拒绝，不承诺历史费用可无限自动循环回收；真实drain/identity与
+其它必需writer/provider缺口不可改名留存后宣称包2完成。集中测试/环境执行仍后置。

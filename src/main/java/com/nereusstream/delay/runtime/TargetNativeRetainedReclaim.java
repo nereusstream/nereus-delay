@@ -5,7 +5,7 @@ import com.nereusstream.delay.store.*;
 import com.nereusstream.delay.ownership.SourceReplayMutation;
 import java.util.*;
 
-/** Native leaf deletion and one-time consumed recovery shares. No caller-provided allocation delta is accepted. */
+/** Native leaf deletion and one-time owned-object shares. No caller-provided allocation delta is accepted. */
 public final class TargetNativeRetainedReclaim {
     private TargetNativeRetainedReclaim() {}
     public static SourceReplayMutation fence(TargetNativeReclaimFacts facts){
@@ -69,10 +69,14 @@ public final class TargetNativeRetainedReclaim {
                     throw new IllegalStateException("APPLIED retained allocation lost its exact Source successor");
                 requireWriterClosed(d,allocation.expected(),body,current);
                 for(var receipt:allocation.confirmations()){
-                    current.run();final var retained=Objects.requireNonNull(confirmed.get(Bytes.hex(receipt.key())),"actual confirmed recovery deletion");
-                    if(!Arrays.equals(retained.canonicalBytes(),receipt.canonicalBytes()))throw new IllegalStateException("recovery settlement replaced actual confirmation");
-                    final var original=Objects.requireNonNull(d.resultRecord(systemKey(receipt.confirmation().systemMutationId())),"recovery deletion first");
-                    if(!original.appliedFirst()||!original.mutation().equals(receipt.appliedAt()))throw new IllegalStateException("recovery allocation lacks actual APPLIED deletion");
+                    current.run();final var retained=Objects.requireNonNull(confirmed.get(Bytes.hex(receipt.key())),"actual confirmed owned-object deletion");
+                    if(!Arrays.equals(retained.canonicalBytes(),receipt.canonicalBytes()))throw new IllegalStateException("allocation settlement replaced actual confirmation");
+                    if(receipt.body().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Anchor anchor){
+                        final var mapping=d.kafkaMappings().stream().filter(m->Arrays.equals(m.mappingId(),anchor.mappingId())).findFirst().orElseThrow();
+                        requireAnchorOrigin(anchor,mapping,allocation.expected());
+                    }
+                    final var original=Objects.requireNonNull(d.resultRecord(systemKey(receipt.confirmation().systemMutationId())),"owned-object deletion first");
+                    if(!original.appliedFirst()||!original.mutation().equals(receipt.appliedAt()))throw new IllegalStateException("allocation lacks actual APPLIED deletion");
                     d.requireSystemPosition(original);
                     requireUnsettled(d,allocation.expected(),receipt,at);
                 }
@@ -95,8 +99,8 @@ public final class TargetNativeRetainedReclaim {
                     expected=unused.expected();next=expected.unusedReserveProjection(body.floor(),history.decidedAt());
                 }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
                     expected=allocation.expected();next=expected.retainedReleaseProjection(allocation.remaining(),body.floor(),history.decidedAt());
-                    for(var receipt:allocation.confirmations())if(!settled.add(Bytes.hex(expected.publishAttemptId())+":"+Bytes.hex(receipt.key())))
-                        throw new IllegalStateException("one recovery share has multiple APPLIED allocation settlements");
+                    for(var receipt:allocation.confirmations())if(!settled.add(Bytes.hex(expected.publishAttemptId())+":"+Bytes.hex(TargetResourceReclaimBody.RetainedAllocationRelease.shareIdentity(receipt))))
+                        throw new IllegalStateException("one owned-object share has multiple APPLIED allocation settlements");
                 }else continue;
                 final String key=Bytes.hex(expected.publishAttemptId());final var prior=latest.put(key,next);
                 if(prior!=null&&!Arrays.equals(prior.canonicalBytes(),expected.canonicalBytes()))throw new IllegalStateException("retained allocation history changed exact previous Budget");
@@ -118,7 +122,8 @@ public final class TargetNativeRetainedReclaim {
             final var first=d.resultRecord(systemKey(history.input().systemMutationId()));if(first==null||!first.appliedFirst())continue;
             for(var operation:prior.operations())if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation
                     &&Arrays.equals(allocation.expected().publishAttemptId(),budget.publishAttemptId()))for(var settled:allocation.confirmations())
-                if(Arrays.equals(settled.key(),receipt.key()))throw new IllegalStateException("recovery share was already settled by an earlier APPLIED Native reclaim");
+                if(Arrays.equals(TargetResourceReclaimBody.RetainedAllocationRelease.shareIdentity(settled),TargetResourceReclaimBody.RetainedAllocationRelease.shareIdentity(receipt)))
+                    throw new IllegalStateException("owned-object share was already settled by an earlier APPLIED Native reclaim");
         }
     }
     /** Point checks are backed by the opaque complete Floor closure and this Source's independent actual admission loan. */
@@ -144,13 +149,44 @@ public final class TargetNativeRetainedReclaim {
         final var actual=TargetEvidenceConfirmedRecord.decodeForStore(receipt.key(),value(view,overlay,ColumnFamily.META,receipt.key(),TargetEvidenceConfirmedRecord.VALUE_TYPE),
                 budget.locator().messageId().routingId().shardId(),budget.tenantScope(),budget.recoveryLineage());
         if(!Arrays.equals(actual.canonicalBytes(),receipt.canonicalBytes()))throw new IllegalStateException("Native allocation confirmation changed");
-        final var owner=((TargetExternalEvidenceObjectResource.Recovery)receipt.body().resource().provenance()).owner();final var ref=owner.referenceRecord();
-        for(var key:List.of(owner.key(),ref.key(),ref.attemptKey()))if(view.projected(ColumnFamily.META,key,overlay)!=null)
-            throw new IllegalStateException("confirmed recovery share still has live Native ownership/references");
+        final List<byte[]> absent;
+        if(receipt.body().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery){
+            final var owner=recovery.owner();final var ref=owner.referenceRecord();absent=List.of(owner.key(),ref.key(),ref.attemptKey());
+        }else{
+            final var anchor=(TargetExternalEvidenceObjectResource.Anchor)receipt.body().resource().provenance();
+            final byte[] mappingKey=Bytes.concat(new byte[]{TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG,TargetKeyCodec.KEY_FORMAT},anchor.mappingId());
+            final var mapping=TargetKafkaReceiptMapping.decodeForStore(mappingKey,value(view,overlay,ColumnFamily.META,mappingKey,TargetKafkaReceiptMapping.VALUE_TYPE),budget.primaryIdentity().shard());
+            requireAnchorOrigin(anchor,mapping,budget);
+            final var admission=result(view,overlay,systemKey(anchor.admissionId()));
+            final var accepted=SystemMutationResult.decode(admission.typedPayload());
+            if(!admission.appliedFirst()||!admission.mutation().equals(mapping.mutation())
+                    ||accepted.mutationType()!=SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    ||accepted.stableCode()!=StableCode.OK||!Arrays.equals(accepted.mutationHash(),anchor.admissionHash()))
+                throw new IllegalStateException("anchor settlement lost its actual creator Admission first");
+            result(view,overlay,positionKey(mapping.mutation().source())).requireFirst(admission);
+            final var ref=new TargetExternalEvidenceReference(TargetKafkaReceiptControlArtifact.ANCHOR,anchor.owner().artifactDigest(),anchor.mappingId(),
+                    budget.publishAttemptId(),budget.primaryIdentity(),budget.accounting(),mapping.mutation(),budget.recoveryLineage());
+            absent=List.of(anchor.owner().key(),ref.key(),TargetExternalEvidenceStore.referenceByAttemptKey(budget.publishAttemptId()));
+        }
+        for(var key:absent)if(view.projected(ColumnFamily.META,key,overlay)!=null)
+            throw new IllegalStateException("confirmed allocation share still has live Native ownership/references");
         final var first=result(view,overlay,systemKey(receipt.confirmation().systemMutationId()));
         if(!first.mutation().equals(receipt.appliedAt())||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(receipt.confirmation(),ApplyStatus.APPLIED,
                 StableCode.OK,receipt.appliedAt().source().canonicalBytes()).encode()))throw new IllegalStateException("allocation deletion lacks original Source first");
         result(view,overlay,positionKey(receipt.appliedAt().source())).requireFirst(first);
+    }
+    private static void requireAnchorOrigin(TargetExternalEvidenceObjectResource.Anchor anchor,TargetKafkaReceiptMapping mapping,TargetQuotaAttemptBudget budget){
+        if(!Arrays.equals(mapping.admission().publishAttemptId(),budget.publishAttemptId())
+                ||!mapping.admission().locator().equals(budget.locator())
+                ||!mapping.admission().commitment().equals(budget.commitment())||mapping.admission().executionBytes()!=budget.executionBytes()
+                ||!mapping.admission().allocated().covers(budget.allocated())
+                ||!mapping.mutation().equals(anchor.owner().createdAt())||!Arrays.equals(mapping.mutationHash(),anchor.admissionHash())
+                ||!Arrays.equals(mapping.mutationHash(),budget.admissionDigest())
+                ||!Arrays.equals(mapping.recoveryLineage(),budget.recoveryLineage())
+                ||!Arrays.equals(mapping.admission().kafkaReceipt().scanObservationDigest(),anchor.owner().artifactDigest())
+                ||!mapping.admission().channel().context().domain().equals(anchor.owner().originalDomain())
+                ||!mapping.admission().allocated().covers(anchor.owner().blobCharge()))
+            throw new IllegalStateException("anchor allocation lost its original unique creator Admission/mapping/charge");
     }
     public static void requireAppliedDecision(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetResourceReclaimBody body,
             TargetQuotaMutation decision,TargetQuotaMutation frontier){

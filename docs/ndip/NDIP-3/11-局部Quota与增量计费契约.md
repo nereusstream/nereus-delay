@@ -2873,3 +2873,13 @@ inventory与所有实际删除终态经独立Source认证后，action4原批次�
 最大32版本/4MiB清单及未来删除凭据需先容纳；shared held/hot/镜像/签名额度不足在DELETE前
 拒绝，不提高默认预算。持久provider关闭/未知远端操作责任不因local loan退出或Source减额
 消失，RELEASED后不可重开原上传generation。真实部署资格与全部集中验收继续OPEN。
+
+
+2026-10-23 Anchor allocation：原Admission已预留并由NV47独占实际blob份额；kind8确认
+移除owner/refs/Attempt alias后，该份额仍留在Budget.allocated，不能仅凭缺行退款。
+body15 kind3/action3/schema2以实际NV52完整Anchor provenance、creator Admission/NV45及
+原APPLIED删除first/POS作为结算basis，Source只减原owner.blobCharge。独立Native行费
+仍按kind8实际删除和type14新写分别计费，不混作allocated。原Recovery adoptedCharge规则
+保持，Protection/共享引用者/staging不借此退款；其它无不可变归属/终态basis余额保留。
+每个原owner share只能在实际APPLIED Native54 before/after链结算一次，保后继部分/最终
+释放与RELEASED Budget槽位费用。默认资源窗口不提高，真实准入/历史和全部运行验收后置。

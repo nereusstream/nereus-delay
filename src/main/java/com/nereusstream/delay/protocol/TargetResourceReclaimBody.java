@@ -16,6 +16,7 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
     public static final int NATIVE_RETAINED_BODY_VERSION=12;
     public static final int OBJECT_PAYLOAD_BODY_VERSION=13;
     public static final int UNCOMMITTED_OBJECT_BODY_VERSION=14;
+    public static final int ANCHOR_ALLOCATION_BODY_VERSION=15;
     public static final int MAX_OBJECT_INTENT_BYTES=24*1024*1024;
     public static final int MAX_NATIVE_CANONICAL_BYTES=32*1024*1024;
     public static final int MAX_OPERATIONS=32;
@@ -118,32 +119,61 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.uint32(out,2,3);
             CanonicalProtobuf.uint32(out,3,action());CanonicalProtobuf.bytes(out,4,expected.canonicalBytes());});}
     }
-    /** Confirmed recovery-object shares have one immutable ownership/settlement identity per original Attempt. */
+    /** Confirmed owned-object shares have one immutable ownership/settlement identity per original Attempt. */
     public record RetainedAllocationRelease(TargetQuotaAttemptBudget expected,List<TargetEvidenceConfirmedRecord> confirmations) implements Operation {
         public RetainedAllocationRelease {
             Objects.requireNonNull(expected);
             if(expected.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED||confirmations.size()>MAX_OPERATIONS)
                 throw new IllegalArgumentException("bounded retained Attempt settlement required");
             final var sorted=new java.util.TreeMap<String,TargetEvidenceConfirmedRecord>();
+            final var shares=new java.util.HashSet<String>();
             for(var confirmation:confirmations){
-                if(!(confirmation.body().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery)
-                        ||!Arrays.equals(recovery.owner().reference().attemptId(),expected.publishAttemptId())
+                final var provenance=confirmation.body().resource().provenance();
+                if(provenance instanceof TargetExternalEvidenceObjectResource.Recovery recovery){
+                    if(!Arrays.equals(recovery.owner().reference().attemptId(),expected.publishAttemptId())
                         ||!recovery.owner().primaryOwner().identity().equals(expected.primaryIdentity())
                         ||!recovery.owner().primaryOwner().accounting().equals(expected.accounting())
                         ||!Arrays.equals(recovery.owner().admissionHash(),expected.admissionDigest())
-                        ||!recovery.owner().adoptedAt().equals(expected.resolvedAt())
-                        ||sorted.put(Bytes.hex(confirmation.key()),confirmation)!=null)
-                    throw new IllegalArgumentException("recovery settlement changed original Attempt/frozen allocation origin");
+                        ||!recovery.owner().adoptedAt().equals(expected.resolvedAt()))
+                        throw new IllegalArgumentException("recovery settlement changed original Attempt/frozen allocation origin");
+                }else if(provenance instanceof TargetExternalEvidenceObjectResource.Anchor anchor){
+                    final var owner=anchor.owner();
+                    if(!Arrays.equals(owner.creatorAttemptId(),expected.publishAttemptId())
+                            ||!owner.primaryOwner().identity().equals(expected.primaryIdentity())
+                            ||!owner.primaryOwner().accounting().equals(expected.accounting())
+                            ||!Arrays.equals(owner.primaryOwner().tenantScope(),expected.tenantScope())
+                            ||!Arrays.equals(owner.primaryOwner().recoveryLineage(),expected.recoveryLineage())
+                            ||!Arrays.equals(anchor.admissionHash(),expected.admissionDigest()))
+                        throw new IllegalArgumentException("anchor settlement changed its unique creator/frozen allocation origin");
+                    expected.resolvedAt().requireAfter(owner.createdAt());
+                }else throw new IllegalArgumentException("allocation settlement requires an actually owned Anchor or Recovery share");
+                if(sorted.put(Bytes.hex(confirmation.key()),confirmation)!=null)
+                    throw new IllegalArgumentException("duplicate allocation settlement fact");
+                if(!shares.add(Bytes.hex(shareIdentity(confirmation))))throw new IllegalArgumentException("duplicate original allocation share");
             }
             confirmations=List.copyOf(sorted.values());
             if(!expected.allocated().isZero()&&confirmations.isEmpty())throw new IllegalArgumentException("nonzero allocation requires actual one-time settlement facts");
             CapacityVector remaining=expected.allocated();for(var confirmation:confirmations)
-                remaining=remaining.subtract(((TargetExternalEvidenceObjectResource.Recovery)confirmation.body().resource().provenance()).owner().adoptedCharge());
+                remaining=remaining.subtract(confirmedShare(confirmation));
         }
         public CapacityVector remaining(){CapacityVector value=expected.allocated();for(var confirmation:confirmations)
-            value=value.subtract(((TargetExternalEvidenceObjectResource.Recovery)confirmation.body().resource().provenance()).owner().adoptedCharge());return value;}
+            value=value.subtract(confirmedShare(confirmation));return value;}
+        public static CapacityVector confirmedShare(TargetEvidenceConfirmedRecord confirmation){
+            final var provenance=confirmation.body().resource().provenance();
+            if(provenance instanceof TargetExternalEvidenceObjectResource.Recovery recovery)return recovery.owner().adoptedCharge();
+            if(provenance instanceof TargetExternalEvidenceObjectResource.Anchor anchor)return anchor.owner().blobCharge();
+            throw new IllegalArgumentException("no uniquely owned allocation share for this confirmation");
+        }
+        public boolean includesAnchor(){return confirmations.stream().anyMatch(c->c.body().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Anchor);}
+        public static byte[] shareIdentity(TargetEvidenceConfirmedRecord confirmation){
+            final var provenance=confirmation.body().resource().provenance();
+            if(provenance instanceof TargetExternalEvidenceObjectResource.Recovery recovery)return recovery.owner().key();
+            if(provenance instanceof TargetExternalEvidenceObjectResource.Anchor anchor)return anchor.owner().key();
+            throw new IllegalArgumentException("confirmation has no unique original allocation share");
+        }
+        public int operationSchema(){return includesAnchor()?2:1;}
         public byte[] identity(){return Bytes.concat(new byte[]{3,3},expected.publishAttemptId());}
-        public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.uint32(out,2,3);
+        public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{CanonicalProtobuf.uint32(out,1,operationSchema());CanonicalProtobuf.uint32(out,2,3);
             CanonicalProtobuf.uint32(out,3,3);CanonicalProtobuf.bytes(out,4,expected.canonicalBytes());
             for(var confirmation:confirmations)CanonicalProtobuf.bytes(out,5,confirmation.canonicalBytes());});}
     }
@@ -274,9 +304,10 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
     public TargetInlinePayloadSourceFacts payloadFacts(){return operations.getFirst() instanceof ObjectPayloadConfirm confirmation?confirmation.intent().body().sourceFacts():sourceFacts;}
     public boolean selfContainedPayloadRelease(){return (inlinePayloadRelease()||objectPayloadReclaim())&&payloadFacts()!=null;}
     public boolean nativeRetainedReclaim(){return operations.getFirst() instanceof RetainedRecordDelete||operations.getFirst() instanceof RetainedAllocationRelease;}
+    public boolean anchorAllocationReclaim(){return operations.stream().anyMatch(o->o instanceof RetainedAllocationRelease a&&a.includesAnchor());}
     public int maximumCanonicalBytes(){return objectPayloadReclaim()?operations.getFirst() instanceof ObjectPayloadRetire||operations.getFirst() instanceof UncommittedObjectRetire?MAX_OBJECT_INTENT_BYTES:MAX_NATIVE_CANONICAL_BYTES:nativeRetainedReclaim()?MAX_NATIVE_CANONICAL_BYTES:MAX_CANONICAL_BYTES;}
-    public int bodyVersion(){return uncommittedObjectReclaim()?UNCOMMITTED_OBJECT_BODY_VERSION:objectPayloadReclaim()?OBJECT_PAYLOAD_BODY_VERSION:nativeRetainedReclaim()?NATIVE_RETAINED_BODY_VERSION:selfContainedInlinePayloadRelease()?SELF_CONTAINED_INLINE_BODY_VERSION:inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
-    public ProtocolTuple requiredTuple(){return uncommittedObjectReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():selfContainedInlinePayloadRelease()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+    public int bodyVersion(){return anchorAllocationReclaim()?ANCHOR_ALLOCATION_BODY_VERSION:uncommittedObjectReclaim()?UNCOMMITTED_OBJECT_BODY_VERSION:objectPayloadReclaim()?OBJECT_PAYLOAD_BODY_VERSION:nativeRetainedReclaim()?NATIVE_RETAINED_BODY_VERSION:selfContainedInlinePayloadRelease()?SELF_CONTAINED_INLINE_BODY_VERSION:inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
+    public ProtocolTuple requiredTuple(){return anchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():uncommittedObjectReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():objectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():nativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():selfContainedInlinePayloadRelease()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
     public TargetResourceReclaimBody withNativeFacts(TargetNativeReclaimFacts facts){
         if(nativeFacts!=null||!nativeRetainedReclaim())throw new IllegalArgumentException("Native reclaim facts already frozen or wrong family");
         final var body=new TargetResourceReclaimBody(scope,lineage,deploymentRoot,namespace,retryUntil,floor,operations,null,Objects.requireNonNull(facts));
@@ -314,8 +345,8 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         QueryCodecSupport.requireNumbers(f,f.size()==11?new int[]{1,2,3,9,10,11,12,13,14,15,16}:new int[]{1,2,3,9,10,11,12,13,14,15},"Target reclaim body");
         final int version=QueryCodecSupport.uint32(f.get(3),9);
         if(QueryCodecSupport.uint32(f.get(1),2)!=SystemMutationType.TARGET_RESOURCE_RECLAIM.wireValue()
-                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION&&version!=SELF_CONTAINED_INLINE_BODY_VERSION&&version!=NATIVE_RETAINED_BODY_VERSION&&version!=OBJECT_PAYLOAD_BODY_VERSION&&version!=UNCOMMITTED_OBJECT_BODY_VERSION
-                ||version!=OBJECT_PAYLOAD_BODY_VERSION&&(version==SELF_CONTAINED_INLINE_BODY_VERSION||version==NATIVE_RETAINED_BODY_VERSION)!=(f.size()==11)
+                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION&&version!=SELF_CONTAINED_INLINE_BODY_VERSION&&version!=NATIVE_RETAINED_BODY_VERSION&&version!=OBJECT_PAYLOAD_BODY_VERSION&&version!=UNCOMMITTED_OBJECT_BODY_VERSION&&version!=ANCHOR_ALLOCATION_BODY_VERSION
+                ||version!=OBJECT_PAYLOAD_BODY_VERSION&&(version==SELF_CONTAINED_INLINE_BODY_VERSION||version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION)!=(f.size()==11)
                 ||version<NATIVE_RETAINED_BODY_VERSION&&encoded.length>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("unknown Target reclaim type/body version");
         final var operations=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(f.get(9),15),version>=NATIVE_RETAINED_BODY_VERSION?MAX_NATIVE_CANONICAL_BYTES:MAX_CANONICAL_BYTES,MAX_OPERATIONS,true,"reclaim operation group");
         final var decoded=new ArrayList<Operation>();
@@ -355,19 +386,25 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
                 }else throw new IllegalArgumentException("unknown OBJECT payload stage");
                 continue;
             }
-            if(version==NATIVE_RETAINED_BODY_VERSION){
+            if(version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION){
                 final var entry=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(field,1),MAX_NATIVE_CANONICAL_BYTES,MAX_OPERATIONS+4,true,"Native retained reclaim operation");
-                if(entry.size()<4||QueryCodecSupport.uint32(entry.get(0),1)!=1||QueryCodecSupport.uint32(entry.get(1),2)!=3)
+                if(entry.size()<4)throw new IllegalArgumentException("incomplete Native reclaim operation");
+                final int schema=QueryCodecSupport.uint32(entry.getFirst(),1);
+                if(schema<1||schema>(version==ANCHOR_ALLOCATION_BODY_VERSION?2:1)||QueryCodecSupport.uint32(entry.get(1),2)!=3)
                     throw new IllegalArgumentException("unknown Native reclaim operation schema/kind");
                 final int action=QueryCodecSupport.uint32(entry.get(2),3);final byte[] payload=QueryCodecSupport.bytes(entry.get(3),4);
                 if(action==1||action==2){
+                    if(schema!=1)throw new IllegalArgumentException("unknown Native leaf schema");
                     QueryCodecSupport.requireNumbers(entry,new int[]{1,2,3,4},"Native leaf operation");
                     final var value=new RetainedRecordDelete(TargetResultRecord.decode(payload));
                     if(value.action()!=action)throw new IllegalArgumentException("Native leaf action/value mismatch");decoded.add(value);
                 }else if(action==3){
                     final var confirmations=new ArrayList<TargetEvidenceConfirmedRecord>();
                     for(int i=4;i<entry.size();i++)confirmations.add(TargetEvidenceConfirmedRecord.decode(QueryCodecSupport.bytes(entry.get(i),5)));
-                    decoded.add(new RetainedAllocationRelease(TargetQuotaAttemptBudget.decode(payload),confirmations));
+                    final var allocation=new RetainedAllocationRelease(TargetQuotaAttemptBudget.decode(payload),confirmations);
+                    if(schema!=allocation.operationSchema()||version==NATIVE_RETAINED_BODY_VERSION&&allocation.includesAnchor())
+                        throw new IllegalArgumentException("allocation provenance requires its explicit schema/body generation");
+                    decoded.add(allocation);
                 }else throw new IllegalArgumentException("unknown Native retained reclaim action");
                 continue;
             }
@@ -386,7 +423,7 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
                 QueryCodecSupport.fixed(f.get(5),11,16),QueryCodecSupport.fixed(f.get(6),12,32),QueryCodecSupport.fixed(f.get(7),13,32),
                 QueryCodecSupport.uint(f.get(2),3),RecoveryFloorRef.decode(QueryCodecSupport.bytes(f.get(8),14)),decoded,
                 version==SELF_CONTAINED_INLINE_BODY_VERSION||version==OBJECT_PAYLOAD_BODY_VERSION&&f.size()==11?TargetInlinePayloadSourceFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null,
-                version==NATIVE_RETAINED_BODY_VERSION?TargetNativeReclaimFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null);
+                version==NATIVE_RETAINED_BODY_VERSION||version==ANCHOR_ALLOCATION_BODY_VERSION?TargetNativeReclaimFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null);
         if(!value.shard().equals(ShardSubject.decode(QueryCodecSupport.bytes(f.get(0),1)).shardId()))throw new IllegalArgumentException("reclaim subject differs from scope");
         if(value.nativeFacts()!=null)value.nativeFacts().requireFor(value);
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Target reclaim body");return value;

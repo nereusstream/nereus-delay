@@ -5730,3 +5730,36 @@ RELEASED. Stop ends only exited local loans; Native intent/fees/global protectio
 remain under the original durable provider responsibility. Shared held/hot/image/signing windows and
 original physical SDK ownership stay separate. The implementation requires actual deployment history/
 fencing/admission qualification, still OPEN; compilation is not runtime/recovery/production evidence.
+
+
+### Target retained Anchor allocation settlement (body15 / descriptor12)
+
+Type14/kind3 keeps action3 and fields2 kind,3 action,4 full original RETAINED Budget,
+repeated5 complete actual Native52 confirmations. An allocation containing an Anchor uses operation
+schema2/field1 and outer body15; Recovery-only or zero-balance operations keep schema1/body12
+bytes. Body15 retains fields1/2/3/9..16, NativeFacts1 and the existing32MiB/32-operation limits.
+A body15 group must contain an Anchor settlement; canonical decoding rejects schema/version aliases.
+
+Only the uniquely owning creator Attempt may settle an Anchor. Full Native52 Anchor provenance
+must bind its frozen owner/accounting/tenant/lineage, creatorAttemptId, mappingId and admissionHash.
+The actual original NV45 mapping must retain that exact Admission stamp/hash/domain/anchor digest
+and cover the original blob allocation. The amount is ONLY original owner.blobCharge(); independent
+Native record fees are accounted by their own real before/after edits. Recovery continues using its
+original full adoptedCharge. Protection and staging have no such Attempt share. No caller delta,
+missing-row inference, total-reserve refund or replacement allocation certificate is admitted.
+
+Current actual Native52/APPLIED confirmation first/POSITION and absence of the original owned
+Native rows/references remain mandatory. Full authenticated Floor/live/Pin and separate held
+Native reader/admission protection precede Source. Complete APPLIED Native54 before/after history
+permits each original owned share only once, keyed by Budget Attempt plus original owner key;
+repeat confirmation aliases cannot settle that same share twice. Source atomically derives remaining,
+changes the same Budget and computes primary/mirror/total/aggregate fees together with its new
+first/POSITION/Native54/55. Source retry and later partial/final settlements use that original chain.
+
+The independent tuple is(1,1,SYSTEM_MUTATION,1,15), descriptor12. Its vector has3=companion14,
+4=body15,16=Native54v8 and new38=allocation-operation-schema2; other descriptor11 fields and
+Native max56 remain. Native54v8 carries the full original frame; lifecycle8/companion14 retain
+all actual original public history and exact Native joins. Descriptors1..11, their vectors, default
+construction, existing operations and old companion bytes are preserved; no activation is performed.
+GC bounded discovery/signing and Source/recovery/accounting use the original maintenance/provider
+seams. Actual external history/admission integration remains required; compilation is not acceptance.

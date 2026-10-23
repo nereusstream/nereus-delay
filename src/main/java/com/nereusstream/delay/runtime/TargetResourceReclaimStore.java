@@ -310,7 +310,7 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.uncommittedObjectReclaim()?activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim():body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
+        return activation!=null&&(body.anchorAllocationReclaim()?activation.body().payload().descriptor().supportsAnchorAllocationReclaim():body.uncommittedObjectReclaim()?activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim():body.objectPayloadReclaim()?activation.body().payload().descriptor().supportsObjectPayloadReclaim():body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
                 :body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
                 :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
