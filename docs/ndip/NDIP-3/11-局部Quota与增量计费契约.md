@@ -2801,3 +2801,12 @@ partial cleanup、失败 close、queued/running/UNKNOWN 均不得被 future.done
 保护不由旧 Prepared 转交或删除。queued withdrawal 仅从原有界队列精确减本地
 record/bytes，不减 Target commitment/allocated、SDK/native/physical/zombie；active
 Turn 的原资源 lease 仍由其真实退出机制结算。失败 close/cleanup 时本地额度仍保留。
+
+
+2026-10-23 旧 Pin 镜像内保守 commitment 的存在，不阻止当前 unused commitment 在
+完整当前 Floor/actual Native/held 资格下释放，也不使旧副本再次取得全局资源额度。
+当前 Floor 仍提供原 logical writer closure，旧严格祖先按其真实 Source cut 做全
+前态一致性认证；原记录/allocated 与 Pin/恢复保留责任完全不减。后续 record/payload/
+terminal/result 的实际删除不能继承本规则。Floor 已含回收决定时，原 mutation stamp
+与新实际 Source 批次分配的 stamp 全值相符才调用 retainAfterCheckpoint，费用变化仍
+由原 first/POSITION/history/primary-mirror-total-aggregate 同批结算，任何不符不部分退费。

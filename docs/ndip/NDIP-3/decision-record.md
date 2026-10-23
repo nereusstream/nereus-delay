@@ -1446,3 +1446,24 @@ termination 判服务端不会迟到或原帧不会再出现，不能造 first/A
 held，缺材料保持 pending；旧 Prepared 不授 apply 权限。调整 cleanup 顺序解除
 Source authority 被 GC 等 first 阻住的等待环。只有代码实施与必要编译，未授权真实
 环境操作、删除或保护解除，四包/29 切片及全部恢复验证义务不缩减。
+
+
+## 2026-10-23：unused commitment 允许完整认证的较早 Pin 前缀
+
+来源：主会话 `01a13046-4fcd-7e90-8a56-dc2c3828fe23` 的明确裁定。每张旧镜像必须
+已含 phase3/本次 RETAINED 不是必要条件；当前实际 Floor 的 exact expected、原
+Admission/definitive Outcome/first/POSITION/fence 加 actual Native/held 才是当前
+closure。合法更早 Pin 只按真实 Source cut 验完整不存在或 exact ADMITTED/revision1；
+直接 definitive 子集不默认接受 UNKNOWN，越过 Outcome仍须 resolved/精确回收后态。
+完整实际 Pin/session/version/namespace/Source/tenant/lineage/parent hash、ledger/
+companion/ImageAuthority 历史均保留，位置同 incarnation且 metadata/sequence一致。
+只消费既有恢复约束，不新增资格authority或 durable witness；保持当前 Floor restore
+candidate gate 和实际 Pin/Owner/Store/CATCHING_UP、strict successor、accepted barrier/
+activation/接管。不能仅凭 barrier 代码存在认为安全，未证明旧实例被隔离或必须重放
+原安全 Source 前缀者仍 unavailable，不授未知/旧 reader 写资格。仅退 unused commitment，
+不删记录、降 allocated 或解除 Pin/历史/恢复/SDK责任，后续删除另验依赖。
+新签发仍 exact current Floor；actual ReclaimRead 在 S 时，若新当前 Floor 的真实 Source/
+sequence 在 S/真实分配 stamp 前，不要求预含未来决定；到/越过 S 则须完整认证同
+canonical envelope/identity/S/已分配 mutation stamp 的 APPLIED first/POS/history和
+精确后态，不接 caller 预测位置，同排序点 metadata不一致拒绝。仅代码与必要编译，
+无实际环境、Pin解除或删除授权，集中/真实恢复和全部四包义务继续。

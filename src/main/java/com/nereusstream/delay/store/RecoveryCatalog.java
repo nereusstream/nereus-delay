@@ -652,6 +652,16 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     void validateRetainedRecoveryPin(RecoveryPin pin){validatePinProjection(Objects.requireNonNull(pin));}
+    /** Historical retained image, excluded by the unchanged current-Floor restore candidate gate. */
+    synchronized boolean isStrictCurrentFloorAncestor(CheckpointManifest candidate){
+        if(floor==null)throw new IllegalStateException("historical prefix requires current Recovery Floor");
+        final var published=manifests.get(key(candidate.checkpointId()));
+        if(published==null||!Arrays.equals(published.canonicalJsonBytes(),candidate.canonicalJsonBytes()))
+            throw new IllegalArgumentException("historical prefix changed actual published manifest");
+        final var ancestry=fullAncestry(floor.checkpointId());
+        final int index=indexOf(ancestry,candidate.checkpointId());
+        return index>=0&&index<ancestry.size()-1;
+    }
     private void validatePinProjection(final RecoveryPin pin) {
         if (catalogShard == null
                 || !new ShardSubject(catalogShard).equals(pin.shard())

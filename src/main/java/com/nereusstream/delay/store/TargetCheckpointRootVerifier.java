@@ -402,17 +402,22 @@ public final class TargetCheckpointRootVerifier {
         private final AuthenticatedImage image;
         private final byte[] envelope;
         private final List<UnusedReserveWriter> writers;
-        private final boolean retainedDecision;
-        private UnusedReserveCopy(AuthenticatedImage image,byte[] envelope,List<UnusedReserveWriter> writers,boolean retainedDecision){
-            this.image=image;this.envelope=envelope;this.writers=writers;this.retainedDecision=retainedDecision;}
+        private final com.nereusstream.delay.protocol.TargetQuotaMutation retainedDecision;
+        private final UnusedReserveCopy replayBasis;
+        private UnusedReserveCopy(AuthenticatedImage image,byte[] envelope,List<UnusedReserveWriter> writers,com.nereusstream.delay.protocol.TargetQuotaMutation retainedDecision){
+            this(image,envelope,writers,retainedDecision,null);}
+        private UnusedReserveCopy(AuthenticatedImage image,byte[] envelope,List<UnusedReserveWriter> writers,com.nereusstream.delay.protocol.TargetQuotaMutation retainedDecision,UnusedReserveCopy replayBasis){
+            this.image=image;this.envelope=envelope;this.writers=writers;this.retainedDecision=retainedDecision;this.replayBasis=replayBasis;}
         public List<UnusedReserveWriter> writers(){return writers;}
-        public boolean containsRetainedDecision(){return retainedDecision;}
+        public boolean containsRetainedDecision(){return retainedDecision!=null;}
+        public boolean containsRetainedDecisionAt(SourcePosition source){return retainedDecision!=null&&retainedDecision.source().equals(source);}
+        public com.nereusstream.delay.protocol.TargetQuotaMutation retainedDecision(){return retainedDecision;}
         public void requireFor(com.nereusstream.delay.protocol.SystemMutation input){
             if(!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))throw new IllegalArgumentException("unused-reserve copy changed exact Source frame");
             requireCurrent();
         }
-        public void requireCurrent(){image.requireCurrent();}
-        public long retainedBytes(){long bytes=128;for(var writer:writers)bytes=Math.addExact(bytes,
+        public void requireCurrent(){image.requireCurrent();if(replayBasis!=null)replayBasis.requireCurrent();}
+        public long retainedBytes(){long bytes=Math.addExact(128L,retainedDecision==null?0:retainedDecision.canonicalBytes().length);for(var writer:writers)bytes=Math.addExact(bytes,
                 Math.addExact(writer.expected().canonicalBytes().length,Math.addExact(writer.admission().encodeFrame().length,writer.outcome().encodeFrame().length+512L)));return bytes;}
     }
 
@@ -499,6 +504,14 @@ public final class TargetCheckpointRootVerifier {
 
         /** Full physical/ledger/original-input audit of the exact Native unused-reserve group. */
         public UnusedReserveCopy authenticateUnusedReserveCopy(com.nereusstream.delay.protocol.SystemMutation input){
+            return authenticateUnusedReserveCopy(input,null);
+        }
+        /** Complete historical prefix only; it grants no ability to activate or consume this old reserve. */
+        UnusedReserveCopy authenticateUnusedReservePredecessorCopy(com.nereusstream.delay.protocol.SystemMutation input,UnusedReserveCopy currentFloor){
+            Objects.requireNonNull(currentFloor).requireFor(input);
+            return authenticateUnusedReserveCopy(input,currentFloor);
+        }
+        private UnusedReserveCopy authenticateUnusedReserveCopy(com.nereusstream.delay.protocol.SystemMutation input,UnusedReserveCopy currentFloor){
             final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
             requireCurrent();
             final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
@@ -510,7 +523,18 @@ public final class TargetCheckpointRootVerifier {
             for(var operation:body.operations()){
                 final var expected=((com.nereusstream.delay.protocol.TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
                 final var actual=dependencies.admissions().stream().filter(a->Arrays.equals(a.attempt().publishAttemptId(),expected.publishAttemptId()))
-                        .findFirst().orElseThrow(()->new IllegalStateException("authenticated image lacks actual retained Budget"));
+                        .findFirst().orElse(null);
+                if(currentFloor!=null&&compareExactBoundary(manifest.appliedShardLogPosition(),currentFloor.image.manifest.appliedShardLogPosition())<0
+                        &&Long.compareUnsigned(manifest.shardMutationSequence(),currentFloor.image.manifest.shardMutationSequence())<0){
+                    final var writer=currentFloor.writers.stream().filter(w->Arrays.equals(w.expected().canonicalBytes(),expected.canonicalBytes())).findFirst().orElseThrow(
+                            ()->new IllegalStateException("current Floor omits exact original reserve witness"));
+                    if(compareExactBoundary(manifest.appliedShardLogPosition(),writer.outcomeSource())<0){
+                        requireUnusedReservePredecessor(actual,writer,manifest,dependencies);
+                        histories.add(writer);continue;
+                    }
+                }
+                if(actual==null)throw new IllegalStateException("authenticated image lacks actual retained Budget");
+                dependencies.requireSystemPosition(actual.first());
                 if(!Arrays.equals(actual.attempt().canonicalBytes(),expected.canonicalBytes())){
                     // A newer actual Floor can contain the same release first during cold Source replay.
                     final var decision=dependencies.sourceHistories().stream().filter(h->Arrays.equals(h.input().canonicalEnvelope(),input.canonicalEnvelope()))
@@ -524,14 +548,55 @@ public final class TargetCheckpointRootVerifier {
                 final var resolved=audited.snapshot().outcomes().stream().filter(o->Arrays.equals(o.source().canonicalBytes(),expected.resolvedAt().source().canonicalBytes())
                         &&Arrays.equals(Bytes.sha256(o.image().canonicalEnvelope()),expected.resolvedAt().mutationDigest()))
                         .findFirst().orElseThrow(()->new IllegalStateException("original authenticated definitive Outcome frame is unavailable"));
+                final var outcomeFirst=dependencies.outcomeResults().stream().filter(first->first.mutation().equals(expected.resolvedAt())
+                        &&Arrays.equals(com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload()).mutationId(),resolved.image().systemMutationId()))
+                        .findFirst().orElseThrow(()->new IllegalStateException("authenticated image lacks original definitive Outcome first"));
+                dependencies.requireSystemPosition(outcomeFirst);
                 histories.add(new UnusedReserveWriter(expected,admitted.image(),admitted.source(),resolved.image(),resolved.source()));
             }
-            final boolean retained=dependencies.sourceHistories().stream().anyMatch(h->Arrays.equals(h.input().canonicalEnvelope(),input.canonicalEnvelope()))
-                    &&dependencies.retirementResults().stream().anyMatch(first->{
-                        final var result=com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload());
-                        return result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED&&Arrays.equals(result.mutationId(),input.systemMutationId());
-                    });
-            requireCurrent();return new UnusedReserveCopy(this,Bytes.sha256(input.canonicalEnvelope()),List.copyOf(histories),retained);
+            com.nereusstream.delay.protocol.TargetQuotaMutation retained=null;
+            final var decision=dependencies.sourceHistories().stream().filter(h->Arrays.equals(h.input().canonicalEnvelope(),input.canonicalEnvelope())).findFirst().orElse(null);
+            if(decision!=null)for(var first:dependencies.retirementResults()){
+                final var result=com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload());
+                if(result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED&&Arrays.equals(result.mutationId(),input.systemMutationId())){
+                    dependencies.requireSystemPosition(first);
+                    if(!first.mutation().equals(decision.decidedAt())||!result.equals(com.nereusstream.delay.runtime.SystemMutationResult.from(input,
+                            com.nereusstream.delay.runtime.ApplyStatus.APPLIED,com.nereusstream.delay.protocol.StableCode.OK,decision.decidedAt().source().canonicalBytes())))
+                        throw new IllegalStateException("authenticated reclaim decision changed its exact Source first");
+                    retained=decision.decidedAt();
+                }
+            }
+            requireCurrent();if(currentFloor!=null)currentFloor.requireFor(input);
+            return new UnusedReserveCopy(this,Bytes.sha256(input.canonicalEnvelope()),List.copyOf(histories),retained,currentFloor);
+        }
+
+        private static void requireUnusedReservePredecessor(TargetCheckpointDependencies.Admission actual,UnusedReserveWriter writer,CheckpointManifest manifest,
+                TargetCheckpointDependencies dependencies){
+            final var expected=writer.expected();
+            if(Long.compareUnsigned(manifest.shardMutationSequence(),expected.resolvedAt().sequence())>=0)
+                throw new IllegalStateException("older reserve image crosses original resolution sequence");
+            if(compareExactBoundary(manifest.appliedShardLogPosition(),writer.admissionSource())<0){
+                if(actual!=null)throw new IllegalStateException("older image contains a reserve before its original Admission");
+                return;
+            }
+            if(actual==null)throw new IllegalStateException("older image lost a Source-admitted reserve");
+            final var first=actual.first();
+            dependencies.requireSystemPosition(first);
+            if(!first.mutation().source().equals(writer.admissionSource())
+                    ||!Arrays.equals(first.mutation().mutationDigest(),Bytes.sha256(writer.admission().canonicalEnvelope()))
+                    ||!com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload()).equals(
+                            com.nereusstream.delay.runtime.SystemMutationResult.from(writer.admission(),com.nereusstream.delay.runtime.ApplyStatus.APPLIED,
+                                    com.nereusstream.delay.protocol.StableCode.OK,writer.admissionSource().canonicalBytes())))
+                throw new IllegalStateException("older image changed original Admission first");
+            final var original=com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.admit(expected.locator(),expected.tenantScope(),expected.publishAttemptId(),
+                    expected.admissionDigest(),expected.accounting(),expected.executionBytes(),expected.commitment(),expected.allocated(),first.mutation(),expected.recoveryLineage());
+            if(!Arrays.equals(original.canonicalBytes(),actual.attempt().canonicalBytes()))
+                throw new IllegalStateException("older image is not the exact original ADMITTED reserve");
+        }
+        private static int compareExactBoundary(SourcePosition actual,SourcePosition boundary){
+            final int order=actual.compareTo(boundary);
+            if(order==0&&!Arrays.equals(actual.canonicalBytes(),boundary.canonicalBytes()))throw new IllegalStateException("recovery prefix changed metadata at the same Source position");
+            return order;
         }
 
         /** Short recheck of held permissions/pins at the CAS boundary; provider acquisition happens before it. */

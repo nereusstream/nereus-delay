@@ -45,7 +45,7 @@ public final class TargetResourceReclaimStore {
             final var catalog=source.catalog();
             if(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images)>maximumInputBytes)
                 throw new IllegalStateException("Native recovery authentication exceeds original Source input reservation");
-            final var recovery=catalog.captureNativeRecoveryProtection(source.entry().mutation(),images,recoveryReads,()->{source.requireCurrent();originalHeld.run();});
+            final var recovery=catalog.captureSourceNativeRecoveryProtection(source,images,recoveryReads,()->{source.requireCurrent();originalHeld.run();});
             final var result=new Protection(source,recovery,originalHeld);
             source.requireClosedUnused(result);
             recovery.requireCurrent(recoveryReads,()->{source.requireCurrent();originalHeld.run();});
@@ -62,7 +62,7 @@ public final class TargetResourceReclaimStore {
                     .orElseThrow(()->new IllegalStateException("protected images omit exact expected attempt"));
         }
         private void requireUnusedReservation(TargetQuotaAttemptBudget expected,RecoveryFloorRef floor,TargetQuotaMutation release){
-            requireCurrent();writer(expected);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+            requireCurrent();writer(expected);recovery.requireReleaseMutation(release);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
             if(!body.floor().equals(floor)||!Arrays.equals(release.source().canonicalBytes(),source.entry().position().canonicalBytes())
                     ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("unused reservation changed protected Source/Floor");
         }

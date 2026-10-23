@@ -599,6 +599,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             return readNative(reader->com.nereusstream.delay.runtime.TargetResourceReclaimStore.matchesExpected(reader,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody())));
         }
+        /** The original Native prefix must have replayed a newer Floor that still precedes this selected event. */
+        public void requireReplayedFloor(com.nereusstream.delay.protocol.RecoveryFloorRef floor){
+            requireCurrent();
+            if(!Arrays.equals(floor.recoveryLineageId(),runtime.lineage)||!floor.appliedSourcePosition().shardId().equals(runtime.scope.shard())
+                    ||floor.appliedSourcePosition().compareTo(entry.position())>=0)throw new IllegalArgumentException("replay Floor is not before the original Source event");
+            readNative(reader->{
+                if(reader.source()==null||floor.appliedSourcePosition().compareTo(reader.source())>0
+                        ||floor.appliedSourcePosition().compareTo(reader.source())==0&&!floor.appliedSourcePosition().equals(reader.source())
+                        ||Long.compareUnsigned(floor.includedMutationSequence(),reader.sourceSequence())>0)
+                    throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source prefix has not replayed the advanced Floor");
+                return Boolean.TRUE;
+            });
+        }
         public void requireClosedUnused(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{
                 com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnused(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);

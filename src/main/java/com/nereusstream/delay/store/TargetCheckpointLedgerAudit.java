@@ -363,6 +363,9 @@ final class TargetCheckpointLedgerAudit {
                         ||SystemMutationResult.decode(first.typedPayload()).mutationType()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
                     dependencies.retirementResult(first);
                 }
+            }else if(stored.key()[0]==TargetKeyCodec.RESULT_POSITION_TAG){
+                final var position=TargetResultRecord.decode(stored.payload());
+                if(position.kind()==TargetResultRecord.Kind.POSITION_SYSTEM)dependencies.systemPosition(position);
             }
         }
         return dependencies.finish(admissions);

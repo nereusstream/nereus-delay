@@ -98,6 +98,7 @@ public final class TargetCheckpointDependencies {
     private final List<TargetResultRecord> controlResults;
     private final List<TargetResultRecord> outcomeResults;
     private final List<TargetResultRecord> retirementResults;
+    private final Map<String,TargetResultRecord> systemPositions;
     private final List<Admission> admissions;
     private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings;
     private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence;
@@ -123,6 +124,7 @@ public final class TargetCheckpointDependencies {
         controlResults = List.copyOf(builder.controlResults.values());
         outcomeResults = List.copyOf(builder.outcomeResults.values());
         retirementResults=List.copyOf(builder.retirementResults.values());
+        systemPositions=Map.copyOf(builder.systemPositions);
         this.admissions = List.copyOf(admissions);
         kafkaMappings = List.copyOf(builder.kafkaMappings.values());
         externalEvidence = List.copyOf(builder.externalEvidence.values());
@@ -152,6 +154,14 @@ public final class TargetCheckpointDependencies {
     }
     public List<TargetResultRecord> outcomeResults() { return outcomeResults; }
     public List<TargetResultRecord> retirementResults(){return retirementResults;}
+    /** Exact original POSITION from the same complete physical fold; no re-encoding or missing-row substitute. */
+    void requireSystemPosition(TargetResultRecord first){
+        if(first.kind()!=TargetResultRecord.Kind.SYSTEM)throw new IllegalArgumentException("original system first required");
+        final var key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},first.mutation().source().canonicalBytes());
+        final var position=Objects.requireNonNull(systemPositions.get(Bytes.hex(key)),"authenticated image lacks original system POSITION");
+        if(!position.mutation().equals(first.mutation()))throw new IllegalStateException("image POSITION changed original first stamp");
+        position.requireFirst(first);
+    }
     public List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories(){return sourceHistories;}
     public List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips(){return historyTips;}
     public boolean hasLifecycleInputs(){return !historyTips.isEmpty()||!sourceHistories.isEmpty()||!protocolActivations.isEmpty()||!retirements.isEmpty()||!evidenceConfirmations.isEmpty()||!retirementResults.isEmpty();}
@@ -740,6 +750,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
         private final Map<String,TargetResultRecord> retirementResults=new TreeMap<>();
+        private final Map<String,TargetResultRecord> systemPositions=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryEvidence = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new TreeMap<>();
@@ -766,6 +777,7 @@ public final class TargetCheckpointDependencies {
             prior.controlResults.forEach(this::controlResult);
             prior.outcomeResults.forEach(this::outcomeResult);
             prior.retirementResults.forEach(this::retirementResult);
+            prior.systemPositions.values().forEach(this::systemPosition);
             prior.kafkaMappings.forEach(this::kafkaMapping);
             prior.externalEvidence.forEach(this::externalEvidence);
             prior.recoveryEvidence.forEach(this::recoveryEvidence);
@@ -840,6 +852,10 @@ public final class TargetCheckpointDependencies {
                         &&result.mutationType()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)
                 throw new IllegalArgumentException("retirement first differs from actual Source root/type");
             retirementResults.put(Bytes.hex(first.key()),first);
+        }
+        void systemPosition(TargetResultRecord position){
+            if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM)throw new IllegalArgumentException("actual system POSITION required");
+            if(systemPositions.putIfAbsent(Bytes.hex(position.key()),position)!=null)throw new IllegalStateException("duplicate physical system POSITION");
         }
 
         void outcomeResult(TargetResultRecord first) {

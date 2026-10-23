@@ -536,6 +536,23 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     /** Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held protocol. */
     public NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
+        return captureNativeRecoveryProtection(input,images,reads,current,null);
+    }
+    /** The actual selected Source point, never a predicted position supplied by a GC requester. */
+    public NativeRecoveryProtection captureSourceNativeRecoveryProtection(
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
+        source.requireCurrent();
+        if(source.catalog()!=this)throw new IllegalArgumentException("Native replay changed its original publication Catalog");
+        final var entry=source.entry();
+        final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody());
+        if(body.floor().appliedSourcePosition().compareTo(entry.position())>=0)
+            throw new IllegalStateException("reclaim Source is not strictly after its declared Floor");
+        return captureNativeRecoveryProtection(entry.mutation(),images,reads,()->{source.requireCurrent();current.run();},source);
+    }
+    private NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current,
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
         recoveryProtectionInputWindowBytes(images);
         if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native recovery reads required");
@@ -558,31 +575,47 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         for(var image:images)if(available.putIfAbsent(Bytes.hex(image.manifest().checkpointId()),image)!=null)
             throw new IllegalArgumentException("duplicate Native recovery image");
         final var copies=new java.util.LinkedHashMap<String,TargetCheckpointRootVerifier.UnusedReserveCopy>();
-        authenticateNativeRecoveryImage(catalog,floor.checkpointId(),floor.manifestSha256(),input,available,copies,reads,current);
+        authenticateNativeRecoveryImage(catalog,floor.checkpointId(),floor.manifestSha256(),input,available,copies,reads,current,null);
+        final var floorCopy=copies.get(Bytes.hex(floor.checkpointId()));
         if(pin!=null){
             catalog.validateRetainedRecoveryPin(pin.pin());
             if(!pin.pin().shard().shardId().equals(body.shard()))throw new IllegalStateException("Native RecoveryPin changed Source Shard");
             final var candidate=pin.pin().candidate();
-            authenticateNativeRecoveryImage(catalog,candidate.checkpointId(),candidate.manifestSha256(),input,available,copies,reads,current);
+            authenticateNativeRecoveryImage(catalog,candidate.checkpointId(),candidate.manifestSha256(),input,available,copies,reads,current,floorCopy);
             final var observed=pin.pin().observedFloor();
-            authenticateNativeRecoveryImage(catalog,observed.checkpointId(),observed.manifestSha256(),input,available,copies,reads,current);
+            authenticateNativeRecoveryImage(catalog,observed.checkpointId(),observed.manifestSha256(),input,available,copies,reads,current,floorCopy);
         }
         if(copies.size()!=available.size())throw new IllegalArgumentException("unrelated Native recovery images");
-        if(!floor.equals(declared)&&copies.values().stream().noneMatch(TargetCheckpointRootVerifier.UnusedReserveCopy::containsRetainedDecision))
-            throw new IllegalStateException("new Native reclaim requires exact current Floor; historical replay needs authenticated retained Source decision");
-        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,List.copyOf(copies.values()),floor.equals(declared));
+        com.nereusstream.delay.protocol.TargetQuotaMutation replayDecision=null;
+        if(!floor.equals(declared)){
+            final var at=source==null?null:source.entry().position();
+            // A newly advanced Floor can still precede the real event. At/after that event it must
+            // contain the exact original APPLIED first, not a later duplicate of the same frame.
+            final boolean beforeActualSource=at!=null&&floor.appliedSourcePosition().compareTo(at)<0;
+            if(at!=null&&floor.appliedSourcePosition().compareTo(at)==0&&!floor.appliedSourcePosition().equals(at))
+                throw new IllegalStateException("current Native Floor changed metadata at the original Source point");
+            if(beforeActualSource)source.requireReplayedFloor(floor);
+            final boolean retained=at==null?copies.values().stream().anyMatch(TargetCheckpointRootVerifier.UnusedReserveCopy::containsRetainedDecision)
+                    :copies.get(Bytes.hex(floor.checkpointId())).containsRetainedDecisionAt(at);
+            if(!beforeActualSource&&!retained)
+                throw new IllegalStateException("advanced Native Floor lacks the exact historical Source decision");
+            if(!beforeActualSource&&at!=null)replayDecision=floorCopy.retainedDecision();
+        }
+        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,List.copyOf(copies.values()),floor.equals(declared),replayDecision);
         result.requireCurrent(reads,current);return result;
     }
     private void authenticateNativeRecoveryImage(RecoveryCatalog catalog,byte[] id,byte[] digest,
             com.nereusstream.delay.protocol.SystemMutation input,java.util.Map<String,TargetCheckpointRootVerifier.AuthenticatedImage> images,
-            java.util.Map<String,TargetCheckpointRootVerifier.UnusedReserveCopy> copies,BoundedReadBudget reads,Runnable current){
+            java.util.Map<String,TargetCheckpointRootVerifier.UnusedReserveCopy> copies,BoundedReadBudget reads,Runnable current,
+            TargetCheckpointRootVerifier.UnusedReserveCopy currentFloor){
         final String key=Bytes.hex(id);if(copies.containsKey(key))return;
         final var manifest=catalog.manifest(id).orElseThrow(()->new IllegalStateException("Native protected candidate is not published"));
         final var image=Objects.requireNonNull(images.get(key),"actual complete Native Floor/Pin image is unavailable");
         if(!Arrays.equals(manifest.manifestSha256(),digest)||!Arrays.equals(manifest.canonicalJsonBytes(),image.manifest().canonicalJsonBytes()))
             throw new IllegalStateException("Native protected image differs from actual published manifest");
         if(!reads.beforeTimedWork())throw reads.incomplete();current.run();
-        final var copy=image.authenticateUnusedReserveCopy(input);current.run();
+        final var copy=currentFloor!=null&&catalog.isStrictCurrentFloorAncestor(manifest)
+                ?image.authenticateUnusedReservePredecessorCopy(input,currentFloor):image.authenticateUnusedReserveCopy(input);current.run();
         if(!reads.beforeTimedWork())throw reads.incomplete();copies.put(key,copy);
     }
     public static final class NativeRecoveryProtection {
@@ -592,10 +625,16 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         private final OxiaSessionBoundRecoveryPinStore.PinRecord pin;
         private final List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies;
         private final boolean exactRequestedFloor;
+        private final com.nereusstream.delay.protocol.TargetQuotaMutation replayDecision;
         private NativeRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,com.nereusstream.delay.protocol.SystemMutation input,
-                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies,boolean exactRequestedFloor){
+                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies,boolean exactRequestedFloor,
+                com.nereusstream.delay.protocol.TargetQuotaMutation replayDecision){
             this.owner=owner;envelope=Bytes.sha256(input.canonicalEnvelope());this.namespace=namespace;publicationVersion=version;publicationDigest=digest;this.pin=pin;this.copies=copies;
             this.exactRequestedFloor=exactRequestedFloor;
+            this.replayDecision=replayDecision;
+        }
+        public void requireReleaseMutation(com.nereusstream.delay.protocol.TargetQuotaMutation mutation){
+            if(replayDecision!=null&&!replayDecision.equals(mutation))throw new IllegalStateException("Native replay changed original APPLIED mutation stamp");
         }
         public List<TargetCheckpointRootVerifier.UnusedReserveWriter> writers(){return copies.getFirst().writers();}
         public long retainedBytes(){long bytes=Math.addExact(4096L,pin==null?0:pin.pin().canonicalBytes().length);
