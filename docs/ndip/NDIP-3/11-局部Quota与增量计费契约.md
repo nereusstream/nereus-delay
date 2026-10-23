@@ -2770,3 +2770,12 @@ activation、真实Catalog/Floor/Pin/full-image和原held未来准入保护接�
 POSITION仍收费，与预算before/after的primary/tenant/total/aggregate同批。整组任何
 expected改变只持久STALE、零phase/退款；保护改变则不提交。非此子集仍Unavailable。
 该Native写者代码不等于部署provider/自动签发/全部回收完成，且尚无运行验证。
+
+
+2026-10-23 请求端的有界候选/配置签发/Prepared/原Source提交不产生账本减费。
+准备中的配置、key、签名及完整镜像窗口必须由原I/O/资源owner保留到真实阶段退出；
+有限maximumInputBytes/heap上界或future.done不构成实际额度或释放证明。原外部
+future-reader/Pin/image held保护需持续到exact Source first和handoff action均结清。
+Source仍于实际first前独立采集原用途/实际Source与动态保护并同批核全值/phase/账务；
+GC opaque Prepared不能用作Source Protection。新请求只接受仍为当前的实际Floor，
+不借历史回收决定签发新GC请求；签发/重验失败不写Native、不退款。

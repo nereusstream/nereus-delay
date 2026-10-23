@@ -512,6 +512,27 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         return Bytes.sha256(Bytes.utf8("nereus-delay-native-reclaim-publication-namespace\0"),originalEvidenceNamespace(),Bytes.lp32(Bytes.utf8(recordKey)));
     }
 
+    /** Uses actual typed Floor/namespace data; caller candidates still need original Native and full image checks. */
+    public com.nereusstream.delay.protocol.TargetResourceReclaimBody selectNativeReclaimBody(
+            com.nereusstream.delay.protocol.TargetQuotaScope scope,byte[] lineage,byte[] deploymentRoot,long retryUntil,
+            List<com.nereusstream.delay.protocol.TargetQuotaAttemptBudget> candidates,BoundedReadBudget reads,Runnable current){
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native Floor reads required");
+        current.run();final var stored=readEvidenceState(reads);
+        if(stored.state.shard()==null||!stored.state.shard().equals(scope.shard()))throw new IllegalStateException("Native selection changed actual publication Shard");
+        final var floor=RecoveryCatalog.fromSnapshot(stored.state.catalog()).currentFloorRef().orElseThrow(
+                ()->new IllegalStateException("Native selection requires actual typed Floor"));
+        final List<com.nereusstream.delay.protocol.TargetResourceReclaimBody.Operation> operations=new ArrayList<>();
+        for(var expected:candidates)operations.add(new com.nereusstream.delay.protocol.TargetResourceReclaimBody.UnusedAttemptReserve(expected));
+        final var body=new com.nereusstream.delay.protocol.TargetResourceReclaimBody(scope,lineage,deploymentRoot,nativeReclaimNamespace(),retryUntil,floor,operations);
+        current.run();if(!reads.beforeTimedWork())throw reads.incomplete();return body;
+    }
+    /** Fresh GC requests must use the still-current Floor, never a historical decision copied from an image. */
+    public NativeRecoveryProtection captureNewNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
+        final var result=captureNativeRecoveryProtection(input,images,reads,current);
+        if(!result.exactRequestedFloor)throw new IllegalStateException("GC signing Floor changed before authenticated preparation completed");
+        return result;
+    }
     /** Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held protocol. */
     public NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
@@ -549,7 +570,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         if(copies.size()!=available.size())throw new IllegalArgumentException("unrelated Native recovery images");
         if(!floor.equals(declared)&&copies.values().stream().noneMatch(TargetCheckpointRootVerifier.UnusedReserveCopy::containsRetainedDecision))
             throw new IllegalStateException("new Native reclaim requires exact current Floor; historical replay needs authenticated retained Source decision");
-        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,List.copyOf(copies.values()));
+        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,List.copyOf(copies.values()),floor.equals(declared));
         result.requireCurrent(reads,current);return result;
     }
     private void authenticateNativeRecoveryImage(RecoveryCatalog catalog,byte[] id,byte[] digest,
@@ -570,9 +591,11 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         private final long publicationVersion;
         private final OxiaSessionBoundRecoveryPinStore.PinRecord pin;
         private final List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies;
+        private final boolean exactRequestedFloor;
         private NativeRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,com.nereusstream.delay.protocol.SystemMutation input,
-                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies){
+                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies,boolean exactRequestedFloor){
             this.owner=owner;envelope=Bytes.sha256(input.canonicalEnvelope());this.namespace=namespace;publicationVersion=version;publicationDigest=digest;this.pin=pin;this.copies=copies;
+            this.exactRequestedFloor=exactRequestedFloor;
         }
         public List<TargetCheckpointRootVerifier.UnusedReserveWriter> writers(){return copies.getFirst().writers();}
         public long retainedBytes(){long bytes=Math.addExact(4096L,pin==null?0:pin.pin().canonicalBytes().length);

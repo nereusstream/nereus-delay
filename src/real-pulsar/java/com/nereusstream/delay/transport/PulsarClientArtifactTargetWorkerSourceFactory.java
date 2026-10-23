@@ -301,6 +301,45 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }
 
+        /** Bounded actual Native candidates on this admitted P1 Source; no prediction of future Source positions. */
+        public com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(
+                com.nereusstream.delay.store.BoundedReadBudget reads,
+                com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Cursor cursor,int maximumRows){
+            startup.requireCurrent();final TargetWorkerShardRuntime actual;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted P1 Source Worker is unavailable");actual=worker;}
+            final var page=actual.discoverResourceReclaim(reads,cursor,maximumRows,clock);startup.requireCurrent();return page;
+        }
+        /** Caller owns this operation and its complete reservation on the original process bounded I/O pool. */
+        public com.nereusstream.delay.ownership.TargetResourceReclaimSigner.Prepared prepareConfiguredResourceReclaim(
+                java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,Path configuration,byte[] actualRoot,
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+                com.nereusstream.delay.store.BoundedReadBudget keyReads,com.nereusstream.delay.store.BoundedReadBudget recoveryReads,
+                com.nereusstream.delay.store.BoundedReadBudget nativeReads,long retryUntil,long maximumInputBytes,Runnable originalHeld)throws java.io.IOException{
+            startup.requireCurrent();
+            if(maximumInputBytes>startup.graph().config().resources().certifiedJvmHeapBytes())
+                throw new IllegalArgumentException("Native signing input reservation exceeds original process heap envelope");
+            final TargetWorkerShardRuntime actual;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted P1 Source Worker is unavailable");actual=worker;}
+            final Runnable held=()->{startup.requireCurrent();originalHeld.run();};
+            final var prepared=actual.prepareConfiguredResourceReclaim(candidates,configuration,actualRoot,images,keyReads,recoveryReads,nativeReads,
+                    time,retryUntil,maximumInputBytes,held,clock);
+            held.run();return prepared;
+        }
+        public com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission submitResourceReclaim(
+                com.nereusstream.delay.ownership.TargetResourceReclaimSigner.Prepared prepared,
+                java.util.function.Consumer<com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+            startup.requireCurrent();final TargetWorkerShardRuntime actual;final PulsarClientArtifactOwnedSystemWriter writer;
+            synchronized(this){
+                if(failed||worker==null||systemWriter==null)throw new IllegalStateException("original P1 Source writer is unavailable");actual=worker;writer=systemWriter;
+            }
+            return actual.submitResourceReclaim(prepared,writer,clock,retained);
+        }
+        public java.util.Optional<com.nereusstream.delay.runtime.SystemMutationResult> settleResourceReclaim(
+                com.nereusstream.delay.ownership.TargetResourceReclaimSigner.Prepared prepared){
+            startup.requireCurrent();final TargetWorkerShardRuntime actual;
+            synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted P1 Source Worker is unavailable");actual=worker;}
+            return actual.settleResourceReclaim(prepared.mutation(),clock);
+        }
         /** Trusted composition-root provider; no reflected classes/scripts or preconstructed Source runtime. */
         public synchronized void configureRecoveryProvider(
                 com.nereusstream.delay.ownership.TargetSourceRecoveryInputs.Provider provider, long maximumRetainedBytes) {

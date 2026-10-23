@@ -263,6 +263,27 @@ public final class TargetResourceReclaimStore {
         protection.requireSource(scope,lineage,input,source);
         if(!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||reader.source()==null||source.compareTo(reader.source())<=0)
             throw new IllegalArgumentException("unused-reserve closure changed selected Native Source");
+        requireClosedUnusedInventory(reader,scope,lineage,body,protection::writer);
+        protection.requireCurrent();
+    }
+    /** Pre-append validation has no nominated future Source position and grants no Native release authority. */
+    public static void requireClosedUnusedDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||reader.source()==null)
+            throw new IllegalArgumentException("Native reclaim draft changed actual Store scope");
+        if(reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs())
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("new reclaim retry deadline is already closed by actual Source ingress fence");
+        if(body.floor().appliedSourcePosition().compareTo(reader.source())>0
+                ||Long.compareUnsigned(body.floor().includedMutationSequence(),reader.sourceSequence())>0)
+            throw new IllegalStateException("active Native reclaim Store has not replayed its selected actual Floor");
+        requireClosedUnusedInventory(reader,scope,lineage,body,expected->recovery.writers().stream()
+                .filter(w->Arrays.equals(w.expected().canonicalBytes(),expected.canonicalBytes())).findFirst()
+                .orElseThrow(()->new IllegalStateException("draft recovery copies omit selected full Budget")));
+    }
+    private static void requireClosedUnusedInventory(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            TargetResourceReclaimBody body,java.util.function.Function<TargetQuotaAttemptBudget,
+                    com.nereusstream.delay.store.TargetCheckpointRootVerifier.UnusedReserveWriter> writers){
         final var rootId=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
         final byte[] rootKey=rootId.key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final var root=TargetQuotaIncarnation.decodeForStore(rootKey,payload(reader,ColumnFamily.META,rootKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
@@ -272,7 +293,7 @@ public final class TargetResourceReclaimStore {
             final var expected=((TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
             final var actual=TargetQuotaAttemptBudget.decodeForStore(expected.key(),payload(reader,ColumnFamily.META,expected.key(),TargetQuotaAttemptBudget.VALUE_TYPE),scope.shard());
             if(!Arrays.equals(actual.canonicalBytes(),expected.canonicalBytes()))throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("protected Native Budget no longer equals full expected value");
-            final var writer=protection.writer(expected);
+            final var writer=writers.apply(expected);
             if(writer.admission().type()!=SystemMutationType.TARGET_PUBLISH_ADMISSION||writer.outcome().type()!=SystemMutationType.PUBLISH_OUTCOME)
                 throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original writer is outside the proved BASELINE closure");
             final var admitted=TargetPublishAdmissionBody.decode(writer.admission().canonicalBody());
@@ -323,7 +344,7 @@ public final class TargetResourceReclaimStore {
                             :TargetRecoveryEvidenceReference.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage).attemptId();
                 if(attempts.containsKey(Bytes.hex(attempt)))throw new IllegalStateException("BASELINE reserve has a mapping/proof obligation outside the supported closure");
             });
-        reader.requireWithinElapsedBudget();protection.requireCurrent();
+        reader.requireWithinElapsedBudget();
     }
     private static void scan(TargetStoreBackend.Reader reader,ColumnFamily family,byte tag,
             java.util.function.Consumer<com.nereusstream.delay.store.ShardStore.KeyValue> visitor){

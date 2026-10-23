@@ -664,6 +664,53 @@ public final class TargetWorkerShardRuntime
         if(image.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)throw new IllegalArgumentException("retirement confirmation type required");
         return submitRetirement(image,writer,protection,clock,retained);
     }
+    public synchronized com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(
+            BoundedReadBudget reads,com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Cursor cursor,int maximumRows,LongSupplier clock){
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.discoverResourceReclaim(reads,cursor,maximumRows,clock);
+    }
+    /** Caller owns this synchronous operation on its original bounded I/O pool, not a maintenance or Store thread. */
+    public TargetResourceReclaimSigner.Prepared prepareResourceReclaim(
+            java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,TargetResourceReclaimSigner signer,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,java.util.function.Supplier<TrustedUtcIntervalEvidence> time,
+            long retryUntil,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))
+            throw new IllegalStateException("Native signing/authentication must run outside original Worker/Source/Store monitors");
+        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        synchronized(this){
+            requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+            source=target.reclaimPreparationRead(candidates,clock);
+        }
+        return Objects.requireNonNull(signer).prepare(source,images,recoveryReads,nativeReads,time,retryUntil,maximumInputBytes,originalHeld);
+    }
+    /** The original caller reserves CONFIGURATION_WINDOW_BYTES plus the complete signing/authentication window. */
+    public TargetResourceReclaimSigner.Prepared prepareConfiguredResourceReclaim(
+            java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,
+            java.nio.file.Path configuration,byte[] actualRoot,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget keyReads,BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,java.util.function.Supplier<TrustedUtcIntervalEvidence> time,
+            long retryUntil,long maximumInputBytes,Runnable originalHeld,LongSupplier clock)throws java.io.IOException{
+        if(maximumInputBytes<=TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES||maximumInputBytes==Long.MAX_VALUE)
+            throw new IllegalArgumentException("Native signing configuration requires its original finite reserved input window");
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))
+            throw new IllegalStateException("Native signing/authentication must run outside original Worker/Source/Store monitors");
+        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        synchronized(this){
+            requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();source=target.reclaimPreparationRead(candidates,clock);
+        }
+        final Runnable held=()->{source.requireCurrent();originalHeld.run();};
+        try(var signer=TargetResourceReclaimSigner.loadConfigured(configuration,actualRoot,keyReads,held)){
+            return signer.prepare(source,images,recoveryReads,nativeReads,time,retryUntil,
+                    maximumInputBytes-TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES,held);
+        }
+    }
+    public TargetEvidenceRetirementWorkClassExecutor.Submission submitResourceReclaim(TargetResourceReclaimSigner.Prepared prepared,
+            OwnedSourceSystemWriter writer,LongSupplier clock,
+            java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){
+        Objects.requireNonNull(prepared).requireRuntime(target);
+        return submitResourceReclaim(prepared.mutation(),writer,prepared::requireCurrent,clock,retained);
+    }
     public TargetEvidenceRetirementWorkClassExecutor.Submission submitResourceReclaim(SystemMutation image,
             OwnedSourceSystemWriter writer,Runnable protection,LongSupplier clock,
             java.util.function.Consumer<TargetEvidenceRetirementWorkClassExecutor.Submission> retained){

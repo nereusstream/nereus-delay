@@ -474,6 +474,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final TargetQuotaGrantStore grants;
     private final TargetPublishAdmissionStore targetAdmissions;
     private final TargetPublishRecoveryDiscovery publishRecoveryDiscovery;
+    private final com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery reclaimDiscovery;
     private final TargetPublishOutcomeStore targetOutcomes;
     private final TargetTimeFenceStore fences;
     private final TargetExpiryDiscoveryStore expiryDiscovery;
@@ -844,6 +845,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         targetAdmissions = new TargetPublishAdmissionStore(
                 backend, scope, lineage, limits.counters(), 1, limits.domains());
         publishRecoveryDiscovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
+        reclaimDiscovery=new com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery(backend,scope,lineage);
         targetOutcomes = new TargetPublishOutcomeStore(
                 backend, scope, lineage, limits.counters(), 1, limits.domains());
         fences = new TargetTimeFenceStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -1600,6 +1602,66 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return replay.appliedResult(
                 new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock),
                 mutation, workerReads(clock));
+    }
+
+    synchronized com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(BoundedReadBudget reads,
+            com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Cursor cursor,int maximumRows,LongSupplier clock){
+        requireResourceReclaimProtocolActive(clock);
+        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock));
+    }
+    synchronized ReclaimPreparationRead reclaimPreparationRead(
+            java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
+        requireResourceReclaimProtocolActive(clock);
+        if(candidates.isEmpty()||candidates.size()>com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_OPERATIONS)
+            throw new IllegalArgumentException("bounded original Native candidates required");
+        candidates.forEach(reclaimDiscovery::requireCandidate);
+        final long primaryOwners=candidates.stream().map(c->c.expected().primaryIdentity()).distinct().count();
+        // Source root and each frozen Target owner need their independent tenant mirrors.
+        if(2+2*primaryOwners>limits.counters())throw new IllegalArgumentException("candidate group exceeds original Source counter window");
+        return new ReclaimPreparationRead(this,java.util.List.copyOf(candidates),clock);
+    }
+    /** Actual active GC context. It cannot stand in for the selected Source apply's separate ReclaimRead. */
+    public static final class ReclaimPreparationRead {
+        private final TargetSourceApplyRuntime runtime;
+        private final java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates;
+        private final LongSupplier clock;
+        private ReclaimPreparationRead(TargetSourceApplyRuntime runtime,
+                java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
+            this.runtime=runtime;this.candidates=candidates;this.clock=clock;
+        }
+        void requireRuntime(TargetSourceApplyRuntime actual){if(runtime!=actual)throw new IllegalArgumentException("prepared reclaim belongs to another Worker Source");}
+        public void requireCurrent(){
+            synchronized(runtime.ownerStateLock){
+                final long now=clock.getAsLong();final var lease=runtime.lease;
+                if(runtime.recoveryOnly||runtime.fenced||runtime.store.isCloseStarted()||now<runtime.lastOwnerTime||!lease.validAt(now)
+                        ||lease.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS||runtime.store.runtimeMetadata().lastOpenedOwnerEpoch()!=lease.ownerEpoch())
+                    throw new IllegalStateException("original GC Source Owner/Store is no longer active");
+            }
+        }
+        public com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog(){
+            requireCurrent();
+            if(!(runtime.originalEvidenceCatalog instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend actual))
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("original GC managed publication Catalog is unavailable");
+            return actual;
+        }
+        com.nereusstream.delay.protocol.TargetResourceReclaimBody selectBody(byte[] root,long retryUntil,BoundedReadBudget reads,Runnable held){
+            requireCurrent();held.run();
+            return catalog().selectNativeReclaimBody(runtime.scope,runtime.lineage,root,retryUntil,
+                    candidates.stream().map(com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate::expected).toList(),reads,()->{requireCurrent();held.run();});
+        }
+        void requireClosedDraft(SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
+                BoundedReadBudget reads,Runnable held){
+            requireCurrent();held.run();recovery.requireHeldFor(catalog(),input);
+            synchronized(runtime){
+                runtime.requireGcOwner(clock);
+                runtime.backend.guardedRead(reads,reader->{
+                    com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                    return Boolean.TRUE;
+                },runtime.workerReads(clock));
+                runtime.requireGcOwner(clock);
+            }
+            recovery.requireHeldFor(catalog(),input);held.run();requireCurrent();
+        }
     }
 
     synchronized Optional<SystemMutationResult> retirementMutationResult(SystemMutation mutation,LongSupplier clock){
