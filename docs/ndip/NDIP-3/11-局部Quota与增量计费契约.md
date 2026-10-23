@@ -2836,3 +2836,13 @@ STATE承担原费用，first/POSITION、owner STATE、terminal/binding/history�
 持续携带同一原body11，不额外建立旁路日志。账务、独立ledger和查询会核capsule原
 APPLIED first/POSITION依赖，后继Floor不能因Message消失丢弃。实际动态reader/Pin准入
 保护尚待具体provider装配，缺失仍不可回收；编译不构成已发生退款或实际恢复验证。
+
+
+2026-10-23 kind3：Native记录删除只退该实际记录的frozen贡献，不关联猜测Attempt分配。
+RETAINED allocation首批从实际已确认删除的Recovery owner推导adoptedCharge：在独立
+owner/ref存在时，Budget contribution原已抵扣这份消费；确认移除它们后，剩余reserve
+恢复承担该份费用，kind3一次性减少对应allocated才真正结束该付费义务。原Source/
+Native54结算链按Budget+confirmation key去重，不对同一旧receipt反复减额。没有精确
+归属/完整性/一次性依据的余额继续收费，不能因表里缺行归零。0余额转RELEASED仍保NV28
+槽位；新Source/capsule/Native历史、first/POS/SDK/物理副本仍各自计费。所有实际delta
+仅由原同批before/after计算；完整协议/窗口/Root/Pin/读者责任见Registry，不由纯DTO授予。

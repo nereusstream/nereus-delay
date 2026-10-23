@@ -5432,3 +5432,67 @@ Source RECLAIM load、image held authority三个接点已接精确范围、独�
 和resolvedAt关联该Message与原owner stamp。不能拿同Shard其它Message的有效Source事实替代。
 该关联用于签名前完整fold、Source点读、只读账务/metadata和独立ledger/companion；原closure
 TimeFence在各读路径均须实际APPLIED/OK。
+
+
+### Native retained回收（2026-10-23，kind3/body12）
+
+type14/System envelope不变；新增kind3/body12/tuple(1,1,SYSTEM_MUTATION,1,12)。旧kind1/2、
+body9/10/11、descriptor1..8及原grant/Native/lifecycle/companion bytes和旧8MiB body界限
+保持。kind3不混其它kind，可以同时包含独立记录删除与相关allocation结算，不强迫绑定Budget。
+body12沿fields1/2/3/9..16，field9=12、field16为完整TargetNativeReclaimFacts1；操作组仍
+最多32个。body12单独最大32MiB，容纳既有最大16MiB的完整signed Route及原事实，不提高
+已有配置默认预算。签发前以新上限预留原输入窗口，超原有限预算拒绝；旧body不获得新上限。
+逻辑身份沿body11的tuple后缀规则使用lp32(tuple12)，完整原事实仍在outer hash/签名内。
+
+每个kind3操作的闭合字段：1 schema=1；2 kind=3；3 action；4完整原typed value；仅
+action3可有repeated5完整TargetEvidenceConfirmedRecord，按其实际key排序唯一。当前action：
+- 1 QUERY_RESULT_DELETE：field4为NV25 Kind.RESULT，identity为byte3+byte1+derived DEDUPE key；
+- 2 EXPIRED_POSITION_DELETE：field4为NV25 Kind.POSITION_COMMAND_EXPIRED，identity为
+  byte3+byte2+derived physical SourcePosition key；
+- 3 RETAINED_ALLOCATION_RELEASE：field4为RETAINED NV28，identity为byte3+byte3+AttemptId。
+固定CF/key从语义value推导，full typed checksum/源stamp/冻结owner、accounting、lineage及
+实际完整value均核对，不接受任意CF/key/prefix/delete patch或caller quota delta。原first、
+一般POSITION、terminal、RELEASED Budget记录自身及永久identity guard未纳入本批叶子种类。
+
+Native facts1：1 schema=1；2原TimeFence Frame（复用已注册SourceFacts Frame，完整actual
+APPLIED stamp与原signed envelope）；可选3完整原RouteSnapshot canonical bytes（最多16MiB）
+和4对应44-byte公有key材料，二者同有同无。存在记录删除必须有原Route；仅allocation可以
+不带Route。原fence actual APPLIED/OK first/POSITION被Floor覆盖，Native prefix含该fence。
+记录的原Source stamp在fence前，使用原first/physical Source persistence time checked加
+原Route.fullCommandResultRetentionMs作为保留边界；不取今天配置或本地墙钟。嵌入key只
+检验结构/签名，不是独立pin：原ImageAuthority另须认证原Route/key/publication/use及原
+Source事实。完整facts有显式总界限，原public history/权限和真实held准入继续独立必要。
+
+QUERY删除保留原COMMAND first且精确requireFirst；原Command重放原已允许查询副本缺失。
+EXPIRED_POSITION仍须完整actual ledger/保留窗/真实引用与query/Source/Pin闭合，不能因其
+不referencesFirst推无依赖；当前frontier POSITION拒绝。未知读者、未覆盖旧部署、仍需该
+物理行的消费者均不可释放；actual Floor及candidate/observed Pin image全部完整认证和
+独立无该行依赖，不借unused祖先宽松规则。GC准备、Source提交和image三个原准入接点
+默认拒绝，实际部署provider负责其独立loan/epoch/scope与真实read退出，不能用noop替代。
+
+allocation首批支持零余额RETAINED结清，以及原实际APPLIED recovery-object确认所代表的
+一次性份额。每份确认的完整原Recovery owner须匹配AttemptId、frozen identity/accounting、
+Admission hash和resolvedAt；actual NV52及原first/POS/history继续保留，原owner/ref/alias
+确已删除，实际合法物理退役仍由其原独立协议认证。Source从原allocated减该owner按原
+frozen accounting计算的adoptedCharge，包含已转移的blob及三条Native owner/ref贡献；
+不接受nextAllocated作为oracle。原Native54 APPLIED kind3链按Budget+confirmation key
+核一次性，已结算份额不得再次减额；旧kind1与后继kind3按完整before/after和source/revision
+连续核验。其它没有精确归属/结算事实的allocation继续保留；Anchor/WAL等不由本分支猜零。
+
+每条Native RESULT/terminal/NV28有独立记录费；remainingAttemptCharge对独立证据的原
+抵扣不与记录删除混算。两类动作的实际counter/mirror/total/aggregate delta仍仅由
+TargetSourceAccounting对真实同批before/after重建。0 allocation转RELEASED不删除NV28
+槽位；历史/capsule/原证明、SDK和物理副本继续各自收费。新的Source first/POS/history
+本次不能自删，SOURCE UNKNOWN和重复first不双退。
+
+descriptor9独立tuple12；向量3=companion11、4=body12、16=Native54v5，新增28=Native
+facts schema1、29=body12 maximum bytes=33554432，其余沿descriptor8，Native max55。
+Action3精确tuple12及actual先行APPLIED activation9/compatible readers必需；新grant
+identity仍在原字段后追加lp32(tuple12)，不继承旧9/10/11。Native54v5沿完整原envelope
+保存全部kind3事实；v1..4维持旧frame界限。lifecycle5仍fields2..5，companion11沿
+原fields1..17/digest18，不增旁路可变账本。正常/冷Source、只读账务、独立ledger、后继
+checkpoint和full image都识别精确合法后态及已结算链；旧Source截断不能丢原fence/Route。
+原APPLIED决定还须原lifecycle authority单独requireNativeRetainedDecision，默认拒绝。
+
+本批不包含OBJECT动作；它后续使用type14自己的intent/provider/Source confirmation
+能力边界和PAYLOAD_OBJECT身份，不能借本descriptor9或kind8作条件删除成功。

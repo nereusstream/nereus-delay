@@ -592,7 +592,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protectUnused(
                 java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,long maximumBytes,Runnable originalHeld){
             requireCurrent();
-            if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody()).inlinePayloadRelease())
+            if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody()).inlinePayloadRelease()
+                    ||com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody()).nativeRetainedReclaim())
                 throw new IllegalArgumentException("unused protection entry cannot select inline capability");
             return protectReclaim(images,maximumBytes,originalHeld);
         }
@@ -627,6 +628,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         public void requireClosedInline(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInline(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
+        }
+        public void requireClosedNative(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
+            readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNative(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
         }
         private <T> T readNative(java.util.function.Function<TargetStoreBackend.Reader,T> read){
             synchronized(runtime){
@@ -1632,7 +1636,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         final boolean unused=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
         final boolean inline=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim(),clock);
-        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline);
+        final boolean nativeRetained=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim(),clock);
+        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained);
     }
     synchronized ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
@@ -1682,7 +1687,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             synchronized(runtime){
                 runtime.requireGcOwner(clock);
                 runtime.backend.guardedRead(reads,reader->{
-                    if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease())
+                    if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim())
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNativeDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                    else if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease())
                         com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInlineDraft(reader,runtime.scope,runtime.lineage,input,recovery);
                     else com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery);
                     return Boolean.TRUE;
@@ -1736,7 +1743,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetInlinePayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
-                        &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+                        &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
+                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim())
+                        &&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
                 return Boolean.FALSE;
             return Boolean.TRUE;
         },workerReads(clock));

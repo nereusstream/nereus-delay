@@ -407,6 +407,21 @@ public final class TargetCheckpointRootVerifier {
                 com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts closure){
             throw new IllegalStateException("image has no real primary-payload reader/recovery independence proof");
         }
+        /** Original immutable Route retention and actual TimeFence, collected inside the original finite image/Source hold. */
+        default com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest manifest,LedgerProof proof,
+                TargetCheckpointSemanticSnapshot snapshot,com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,long maximumBytes){
+            throw new IllegalStateException("image authority lacks original Native retained-reclaim inputs");
+        }
+        /** Independently pin the original Route/key/publication and accepted Source fence, never the capsule's embedded key alone. */
+        default void requireNativeRetainedFactsAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody body){
+            throw new IllegalStateException("image authority lacks original Native retained-reclaim fact authentication");
+        }
+        /** Real record/query/Source/Pin admission and exited old readers; unused-prefix ancestry is insufficient. */
+        default void requireNativeRetainedIndependent(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody body,RecoveryFloorRef actualFloor){
+            throw new IllegalStateException("image lacks actual Native record reader/recovery independence");
+        }
     }
     /** Preserves all existing image obligations and adds mandatory original g8 proof authentication. */
     public static ImageAuthority withLifecycleAuthority(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
@@ -426,6 +441,10 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts c){
                 original.requireInlinePayloadIndependent(m,p,s,b,f,c);
             }
+            public com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.nativeRetainedFacts(m,p,s,b,bytes);}
+            public void requireNativeRetainedFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireNativeRetainedFactsAuthenticated(m,p,s,b);}
+            public void requireNativeRetainedIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f){original.requireNativeRetainedIndependent(m,p,s,b,f);}
         };
     }
 
@@ -445,6 +464,10 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts c){
                 original.requireInlinePayloadIndependent(m,p,s,b,f,c);
             }
+            public com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.nativeRetainedFacts(m,p,s,b,bytes);}
+            public void requireNativeRetainedFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireNativeRetainedFactsAuthenticated(m,p,s,b);}
+            public void requireNativeRetainedIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f){original.requireNativeRetainedIndependent(m,p,s,b,f);}
         };
     }
 
@@ -453,7 +476,27 @@ public final class TargetCheckpointRootVerifier {
             com.nereusstream.delay.protocol.SystemMutation admission,SourcePosition admissionSource,
             com.nereusstream.delay.protocol.SystemMutation outcome,SourcePosition outcomeSource){}
     /** Private receipt from a full authenticated physical image and real held reader/restore qualification. */
-    public static final class InlinePayloadCopy {
+    public sealed interface DeletionCopy permits InlinePayloadCopy,NativeRetainedCopy {
+        CheckpointManifest manifest();
+        com.nereusstream.delay.protocol.TargetQuotaMutation released();
+        void requireFor(com.nereusstream.delay.protocol.SystemMutation input);
+        void requireCurrent();
+        long retainedBytes();
+    }
+    public static final class NativeRetainedCopy implements DeletionCopy {
+        private final AuthenticatedImage image;
+        private final byte[] envelope;
+        private final com.nereusstream.delay.protocol.TargetQuotaMutation applied;
+        private NativeRetainedCopy(AuthenticatedImage image,com.nereusstream.delay.protocol.SystemMutation input,com.nereusstream.delay.protocol.TargetQuotaMutation applied){
+            this.image=image;envelope=Bytes.sha256(input.canonicalEnvelope());this.applied=applied;
+        }
+        public CheckpointManifest manifest(){return image.manifest();}
+        public com.nereusstream.delay.protocol.TargetQuotaMutation released(){return applied;}
+        public void requireFor(com.nereusstream.delay.protocol.SystemMutation input){requireCurrent();if(!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))throw new IllegalArgumentException("Native retained copy changed exact signed Source");}
+        public void requireCurrent(){image.requireCurrent();}
+        public long retainedBytes(){return 4096L+(applied==null?0:applied.canonicalBytes().length);}
+    }
+    public static final class InlinePayloadCopy implements DeletionCopy {
         private final AuthenticatedImage image;
         private final byte[] envelope;
         private final List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies;
@@ -548,6 +591,38 @@ public final class TargetCheckpointRootVerifier {
             final var body=draft.withSourceFacts(facts.freeze(audited.ledger().dependencies(),draft));
             if(body.canonicalBytes().length>maximumBytes)throw new IllegalStateException("complete self-contained request exceeds original preparation window");
             authority.requireInlinePayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,body.floor(),facts);requireCurrent();return body;
+        }
+        com.nereusstream.delay.protocol.TargetResourceReclaimBody freezeNativeRetainedFacts(
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,long maximumBytes){
+            if(!draft.nativeRetainedReclaim()||draft.nativeFacts()!=null||!Arrays.equals(manifest.checkpointId(),draft.floor().checkpointId())
+                    ||!Arrays.equals(manifest.manifestSha256(),draft.floor().manifestSha256()))throw new IllegalArgumentException("Native facts preparation requires exact current Floor");
+            requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            final var facts=Objects.requireNonNull(authority.nativeRetainedFacts(manifest,audited.ledger(),audited.snapshot(),draft,maximumBytes),"original Native reclaim facts");
+            if(facts.canonicalBytes().length>maximumBytes)throw new IllegalStateException("Native facts exceed original held input window");
+            final var body=draft.withNativeFacts(facts);
+            authority.requireNativeRetainedFactsAuthenticated(manifest,audited.ledger(),audited.snapshot(),body);requireCurrent();
+            com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.requireDraftClosed(audited.ledger().dependencies(),body,this::requireCurrent);
+            authority.requireNativeRetainedIndependent(manifest,audited.ledger(),audited.snapshot(),body,body.floor());requireCurrent();return body;
+        }
+        DeletionCopy authenticateDeletionFloor(com.nereusstream.delay.protocol.SystemMutation input,RecoveryFloorRef actualFloor,long maximumBytes){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!body.nativeRetainedReclaim())return authenticateInlinePayloadFloor(input,actualFloor,maximumBytes);
+            if(!Arrays.equals(manifest.checkpointId(),actualFloor.checkpointId())||!Arrays.equals(manifest.manifestSha256(),actualFloor.manifestSha256()))
+                throw new IllegalArgumentException("Native retained witness is not actual Floor");
+            requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            authority.requireNativeRetainedFactsAuthenticated(manifest,audited.ledger(),audited.snapshot(),body);requireCurrent();
+            final var applied=com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.requireClosed(audited.ledger().dependencies(),input,true,this::requireCurrent);
+            authority.requireNativeRetainedIndependent(manifest,audited.ledger(),audited.snapshot(),body,actualFloor);requireCurrent();
+            return new NativeRetainedCopy(this,input,applied);
+        }
+        DeletionCopy authenticateDeletionPin(com.nereusstream.delay.protocol.SystemMutation input,RecoveryFloorRef actualFloor,DeletionCopy floor){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!body.nativeRetainedReclaim())return authenticateInlinePayloadPin(input,actualFloor,(InlinePayloadCopy)floor);
+            floor.requireFor(input);requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            if(!manifest.shardId().equals(body.shard())||!Arrays.equals(manifest.recoveryLineageId(),body.lineage())
+                    ||!Arrays.equals(audited.ledger().root().root().tenantScope(),body.scope().tenantScope()))throw new IllegalArgumentException("Native retained Pin changed scope");
+            authority.requireNativeRetainedIndependent(manifest,audited.ledger(),audited.snapshot(),body,actualFloor);
+            floor.requireCurrent();requireCurrent();return new NativeRetainedCopy(this,input,null);
         }
         /** Current actual Floor only. Includes the exact pre-delete fold or this exact historical APPLIED release. */
         InlinePayloadCopy authenticateInlinePayloadFloor(com.nereusstream.delay.protocol.SystemMutation input,RecoveryFloorRef actualFloor,long maximumBytes){

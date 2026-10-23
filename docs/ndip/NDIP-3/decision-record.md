@@ -1534,3 +1534,27 @@ object生命周期权限、普通Snapshot/reader membership或Source Action3。�
 责任链；Source/cold重新取得自己的实际hold，GC-local退出只释放准备loan。外部provider
 及资格材料、真实动态保护验证仍明确OPEN，缺失默认拒绝；该边界不再阻挡继续其它仓内
 缺口，也不能把接口接通升格为生产验收。关闭cut、原全部引用、Action3与冻结账务独立保持。
+
+
+## 2026-10-23：kind3有界Native记录与allocation结算
+
+主会话批准type14 kind3/body12/tuple12/descriptor9，Native54/lifecycle/companion各
+升级5/5/11，旧bytes与权限保持。首批明确正向叶子为RESULT查询副本和独立expired
+POSITION，保原first且仍核原冻结窗口、完整引用与真实读者/Pin保护；不将TTL作为
+payload/identity/history统一退休规则。0余额RETAINED可结清且NV28槽位仍收费。
+
+记录费用与Budget.allocated分开核算。只能减少归属明确、尚未结算的实际allocation项，
+Source推导remaining而非接受caller delta；当前实现支持原APPLIED Recovery确认对应
+的adopted share，原Native历史给一次性结算依据。其它缺basis余额保留；不由“缺行”
+猜零，不补compact tombstone或替代历史证书。仍被RELEASED owner/body11/Native54/55/
+Budget/恢复/查询/Counter归属引用的first/POS/terminal继续付费保存。
+
+实际GC发现/准备/签发、完整Floor/live及Pin image、Source同批删除/结算、正常/冷/账务
+与独立ledger链已按首批接线。source facts存原完整Route/fence而非当前配置；默认预算
+不提高，body12独立32MiB界限容纳既有16MiB Route。原外部可信准入/历史provider仍承担
+真实loan/epoch/旧image/read退出，缺能力默认拒绝。集中验证后置，全部flags不提升。
+
+OBJECT按主会话另定：后续type14专用“持久exact intent→原provider条件操作→Source确认”，
+复用PAYLOAD_OBJECT身份并绑定Native owner/reservation/commit/各代/冻结费用；现有后端
+没有生产条件删除API，不能借kind8/legacy intent/裸GET absence/SDK close伪称完成。
+当前descriptor9不宣布该能力；此后续与其它未闭合记录/身份流程保留在完整目标中。

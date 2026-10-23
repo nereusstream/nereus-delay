@@ -52,6 +52,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         default void requireInlinePayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source hold has no inline payload reader/admission protection");
         }
+        /** This RECLAIM load owns a separate actual record/query/Source/Pin admission loan through the exact Native commit. */
+        default void requireNativeRetainedIndependent(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Native record/query/recovery admission protection unavailable");
+        }
         /** Original hold release; a failed close must retain the original release state for retry. */
         @Override void close();
     }
@@ -248,7 +252,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         });
         final boolean authorized=selected!=null&&mutation.verifySignature(selected.writerKey());
         if(authorized&&source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim Source/Store context is unavailable");
-        final Runnable reclaimHeld=()->{held.requireCurrent();if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);held.requireCurrent();};
+        final Runnable reclaimHeld=()->{held.requireCurrent();if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);
+            else if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);held.requireCurrent();};
         final var protection=authorized&&source.matchesExpected()?source.protectReclaim(input.recoveryImages(),maximumBytes-held.bytes,reclaimHeld):null;
         if(protection!=null){
             protection.requireSource(body.scope(),body.lineage(),mutation,entry.position());protection.requireCurrent();

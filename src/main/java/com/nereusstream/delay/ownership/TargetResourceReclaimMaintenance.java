@@ -80,6 +80,8 @@ public final class TargetResourceReclaimMaintenance {
          * close() below releases only this preparation's acquisition, retaining a failed close for cleanup.
          */
         default void requireInlinePayloadIndependent(){throw new IllegalStateException("GC input hold has no real inline reader/admission protection");}
+        /** This preparation's actual record/query/Source/Pin admission, bound to exact original values and safe cut. */
+        default void requireNativeRetainedIndependent(){throw new IllegalStateException("GC hold lacks actual Native record/query/recovery admission");}
         /**
          * Idempotent release of this preparation's loans/admission acquisition only. Does not remove
          * authoritative RecoveryPins, retained images, Source/history or other durable recovery protection.
@@ -228,7 +230,8 @@ public final class TargetResourceReclaimMaintenance {
             final Held original = held;
             // Do not retain the transient OwnedCheckpointIo stop guard in a signed Source request.
             final Runnable current = () -> { reservation.requireCurrent(); original.requireCurrent();
-                if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();original.requireCurrent(); };
+                if(page.candidates().getFirst().nativeRetained())original.requireNativeRetainedIndependent();
+                else if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();original.requireCurrent(); };
             final long retryUntil = Math.addExact(Objects.requireNonNull(time.get()).latestEpochMs(), configuration.retryWindowMs());
             final var prepared = worker.prepareConfiguredResourceReclaim(page.candidates(), configuration.signingConfiguration(), configuration.deploymentRoot(),
                     held.images(), configuration.keys().budget(nanos), configuration.recovery().budget(nanos), configuration.nativeReads().budget(nanos),

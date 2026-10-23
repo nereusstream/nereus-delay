@@ -351,6 +351,18 @@ public final class TargetQuotaAttemptBudget {
                 resolvedAt,
                 floor.floorDigest());
     }
+    /** Read-only full successor projection; it grants no release authority and invokes no approval callback. */
+    public TargetQuotaAttemptBudget retainedReleaseProjection(CapacityVector remaining,RecoveryFloorRef floor,TargetQuotaMutation stamp){
+        if(phase!=Phase.RETAINED||!allocated.covers(remaining)||allocated.equals(remaining)&&!allocated.isZero())
+            throw new IllegalStateException("retained projection must settle a real allocation or a zero balance");
+        requireFloor(floor,stamp);
+        return next(remaining,remaining.isZero()?Phase.RELEASED:Phase.RETAINED,stamp,resolvedAt,floor.floorDigest());
+    }
+    /** Read-only image of the original kind1 transition, including all frozen bytes. */
+    public TargetQuotaAttemptBudget unusedReserveProjection(RecoveryFloorRef floor,TargetQuotaMutation stamp){
+        if(phase!=Phase.RESOLVED_AWAITING_FLOOR)throw new IllegalStateException("unused projection requires resolved reserve");
+        requireFloor(floor,stamp);return next(allocated,Phase.RETAINED,stamp,resolvedAt,floor.floorDigest());
+    }
 
     private void requireOpen() {
         if (phase != Phase.ADMITTED && phase != Phase.UNKNOWN) {

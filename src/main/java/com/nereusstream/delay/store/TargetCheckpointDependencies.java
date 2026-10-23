@@ -150,6 +150,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations;
     private final Map<String,TargetResultRecord> retentionFirsts,retentionPositions;
     private final Map<String,TargetResultRecord> timeFences;
+    private final Map<String,TargetResultRecord> resultRecords;
     private final IngressFenceState ingressFence;
 
     private TargetCheckpointDependencies(Builder builder, List<Admission> admissions, boolean complete) {
@@ -182,6 +183,7 @@ public final class TargetCheckpointDependencies {
         retentionFirsts=Map.copyOf(builder.retentionFirsts);retentionPositions=Map.copyOf(builder.retentionPositions);
         ingressFence=builder.ingressFence;
         timeFences=Map.copyOf(builder.timeFences);
+        resultRecords=Map.copyOf(builder.resultRecords);
     }
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
@@ -189,6 +191,7 @@ public final class TargetCheckpointDependencies {
     public com.nereusstream.delay.protocol.TargetQuotaPayloadOwner payloadOwner(com.nereusstream.delay.protocol.DelayMessageId id){return payloadOwners.get(Bytes.hex(id.bytes()));}
     public List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations(){return terminalGenerations;}
     public IngressFenceState ingressFence(){return ingressFence;}
+    public TargetResultRecord resultRecord(byte[] key){return resultRecords.get(Bytes.hex(key));}
     /** Exact original Source first/POSITION for RETAINED, not a later physical duplicate or a caller timestamp. */
     public TargetResultRecord requireRetentionDecision(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner retained){
         final String token=retentionToken(retained.mutation());
@@ -897,6 +900,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String,com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations=new TreeMap<>();
         private final Map<String,TargetResultRecord> retentionFirsts=new TreeMap<>(),retentionPositions=new TreeMap<>();
         private final Map<String,TargetResultRecord> timeFences=new TreeMap<>();
+        private final Map<String,TargetResultRecord> resultRecords=new TreeMap<>();
         private IngressFenceState ingressFence=new IngressFenceState(IngressFenceState.OPEN,null);
 
         Builder(TargetCheckpointRootVerifier.RootProof root) { this.root = root; }
@@ -929,6 +933,7 @@ public final class TargetCheckpointDependencies {
             prior.terminalGenerations.forEach(this::terminalGeneration);
             retentionFirsts.putAll(prior.retentionFirsts);retentionPositions.putAll(prior.retentionPositions);ingressFence=prior.ingressFence;
             timeFences.putAll(prior.timeFences);
+            resultRecords.putAll(prior.resultRecords);
         }
         void messageState(com.nereusstream.delay.runtime.TargetMessageRecord message,byte[] canonical){
             messageStates.put(Bytes.hex(message.locator().messageId().bytes()),new MessageState(message.locator(),message.stateVersion(),message.runtime(),Bytes.sha256(canonical)));
@@ -946,6 +951,7 @@ public final class TargetCheckpointDependencies {
             }
             for(var row:rows){
                 final var value=TargetResultRecord.decode(row.payload());final String token=retentionToken(value.mutation());
+                resultRecords.put(Bytes.hex(value.key()),value);
                 if(!needed.contains(token))continue;
                 if(value.kind()==TargetResultRecord.Kind.COMMAND||value.kind()==TargetResultRecord.Kind.SYSTEM)retentionFirsts.put(token,value);
                 else if(value.kind()==TargetResultRecord.Kind.POSITION_COMMAND||value.kind()==TargetResultRecord.Kind.POSITION_SYSTEM)retentionPositions.put(token,value);

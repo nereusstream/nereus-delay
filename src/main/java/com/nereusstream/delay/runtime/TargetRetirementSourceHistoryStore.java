@@ -58,6 +58,8 @@ public final class TargetRetirementSourceHistoryStore {
             throw new IllegalStateException("inline reclaim first lacks actual prior descriptor7");
         if(tuple.equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())&&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
             throw new IllegalStateException("self-contained inline reclaim first lacks actual prior descriptor8");
+        if(tuple.equals(ProtocolTuple.targetNativeRetainedReclaim())&&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
+            throw new IllegalStateException("Native retained reclaim first lacks actual prior descriptor9");
         if(activation.body().payload().descriptor().supportsSourceHistoryRecords()&&activation.appliedAt().source().compareTo(first.mutation().source())<0)
             requireRetained(view,overlay,scope,lineage,owner,result.mutationId(),first.mutation(),frontier,tuple);
     }
@@ -104,6 +106,10 @@ public final class TargetRetirementSourceHistoryStore {
                     throw new IllegalStateException("self-contained inline reclaim history lacks actual descriptor8");
                 TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),frontier);
             }
+            if(record.requiredTuple().equals(ProtocolTuple.targetNativeRetainedReclaim())){
+                if(!activation.body().payload().descriptor().supportsNativeRetainedReclaim())throw new IllegalStateException("Native retained history lacks actual descriptor9");
+                TargetNativeRetainedReclaim.requireAppliedDecision(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),record.decidedAt(),frontier);
+            }
             final var grant=record.declaredGrant().orElseThrow(()->new IllegalStateException("APPLIED Source history has no declared SERVICE grant"));
             if(!input.verifySignature(grant.writerKey()))throw new IllegalStateException("APPLIED Source frame differs from retained grant key");
             grant.requireActivation(activation,record.decidedAt().source());
@@ -133,6 +139,23 @@ public final class TargetRetirementSourceHistoryStore {
     public static void requireAttemptReclaim(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity owner,TargetQuotaAttemptBudget budget,TargetQuotaMutation frontier){
         if(budget.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED&&budget.phase()!=TargetQuotaAttemptBudget.Phase.RELEASED)return;
+        final byte[] nativeKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetNativeRetainedReclaim()),nativeRaw=view.projected(ColumnFamily.META,nativeKey,overlay);
+        if(nativeRaw!=null){
+            final var nativeActivation=TargetProtocolActivationRecord.decodeForStore(nativeKey,TargetValueEnvelope.decode(nativeRaw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
+            if(nativeActivation.appliedAt().source().compareTo(budget.mutation().source())<0){
+                final var at=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},budget.mutation().source().canonicalBytes()),TargetResultRecord.VALUE_TYPE));
+                final byte[] key=TargetRetirementSourceHistoryRecord.key(at.logicalId());
+                final var record=TargetRetirementSourceHistoryRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
+                if(record.requiredTuple().equals(ProtocolTuple.targetNativeRetainedReclaim())){
+                    requireFirst(view,overlay,scope,lineage,owner,record,frontier);
+                    final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},record.input().systemMutationId());
+                    if(!TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE)).appliedFirst())
+                        throw new IllegalStateException("retained allocation references a rejected Native reclaim");
+                    final var body=TargetResourceReclaimBody.decode(record.input().canonicalBody());
+                    TargetNativeRetainedReclaim.requireAllocationSuccessor(view,overlay,body,budget,record.decidedAt());return;
+                }
+            }
+        }
         final byte[] activationKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetResourceReclaim());
         final byte[] active=view.projected(ColumnFamily.META,activationKey,overlay);if(active==null)return;
         final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,TargetValueEnvelope.decode(active,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);

@@ -102,13 +102,12 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
         Objects.requireNonNull(originalHeld);Objects.requireNonNull(source);Objects.requireNonNull(time);
         if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||recoveryReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
             throw new IllegalArgumentException("Native signing requires finite original input/read reservations");
-        final long window=Math.addExact(OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),
-                4L*(TargetResourceReclaimBody.MAX_CANONICAL_BYTES+4096L));
-        if(window>maximumInputBytes)throw new IllegalStateException("Native signing/full authentication exceeds original reserved input window");
         final Runnable current=()->{source.requireCurrent();originalHeld.run();};
         current.run();requireSigningCurrent(time,retryUntil);
         final var draft=source.selectBody(root,retryUntil,recoveryReads,current);
-        final var body=draft.inlinePayloadRelease()?source.catalog().freezeInlinePayloadSourceFacts(draft,images,recoveryReads,maximumInputBytes,current):draft;
+        final long window=Math.addExact(OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),4L*(draft.maximumCanonicalBytes()+4096L));
+        if(window>maximumInputBytes)throw new IllegalStateException("Native signing/full authentication exceeds original reserved input window");
+        final var body=draft.inlinePayloadRelease()||draft.nativeRetainedReclaim()?source.catalog().freezeReclaimSourceFacts(draft,images,recoveryReads,maximumInputBytes,current):draft;
         final var key=privateKey;
         if(key==null)throw new IllegalStateException("original Native signing key closed");
         final var input=SystemMutation.signed(body.shard(),SystemMutationType.TARGET_RESOURCE_RECLAIM,retryUntil,

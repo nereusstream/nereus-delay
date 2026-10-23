@@ -389,6 +389,9 @@ final class TargetCheckpointLedgerAudit {
             if(body.selfContainedInlinePayloadRelease()){
                 final var first=complete.retirementResults().stream().filter(r->Arrays.equals(r.logicalId(),history.input().systemMutationId())).findFirst().orElseThrow();
                 if(first.appliedFirst())com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(complete,body);
+            }else if(body.nativeRetainedReclaim()){
+                final var first=complete.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()));
+                if(first.appliedFirst())com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.requireClosed(complete,history.input(),true,()->{});
             }
         }
         return complete;
@@ -402,6 +405,9 @@ final class TargetCheckpointLedgerAudit {
         final var firsts=new HashMap<String,TargetResultRecord>();for(var row:results){
             final var record=TargetResultRecord.decode(row.payload());if(record.kind()==TargetResultRecord.Kind.SYSTEM)firsts.put(Bytes.hex(record.logicalId()),record);
         }
+        final var projected=com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.projectedBudgets(histories,id->firsts.get(Bytes.hex(id)));
+        for(var entry:projected.entrySet())if(!Arrays.equals(Objects.requireNonNull(byAttempt.get(entry.getKey()),"reclaimed retained Budget").canonicalBytes(),entry.getValue().canonicalBytes()))
+            throw new IllegalStateException("APPLIED reclaim chain lost latest exact retained allocation state");
         for(var history:histories){
             if(history.input().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)continue;
             final var first=Objects.requireNonNull(firsts.get(Bytes.hex(history.input().systemMutationId())),"reclaim actual first");
@@ -409,7 +415,7 @@ final class TargetCheckpointLedgerAudit {
             final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
             for(var operation:body.operations())switch(operation){case com.nereusstream.delay.protocol.TargetResourceReclaimBody.UnusedAttemptReserve unused->{
                 final var actual=Objects.requireNonNull(byAttempt.get(Bytes.hex(unused.expected().publishAttemptId())),"reclaim actual retained budget");
-                if(actual.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED||!actual.mutation().equals(history.decidedAt()))
+                if(!projected.containsKey(Bytes.hex(actual.publishAttemptId())))
                     throw new IllegalStateException("APPLIED unused-reserve reclaim lost exact actual phase/Source result");
             }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.InlinePayloadRelease inline->{
                 final String id=Bytes.hex(inline.expected().messageId().bytes());
@@ -417,6 +423,10 @@ final class TargetCheckpointLedgerAudit {
                 if(!owner.mutation().equals(history.decidedAt())||primaryMessages.contains(id))
                     throw new IllegalStateException("APPLIED inline release lost actual Source/absent primary");
                 owner.requireReleasedFrom(inline.expected(),body.floor());
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedRecordDelete leaf->{
+                for(var row:results)if(Arrays.equals(row.key(),leaf.expected().key()))throw new IllegalStateException("APPLIED Native record deletion retains its row");
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedAllocationRelease allocation->{
+                if(!projected.containsKey(Bytes.hex(allocation.expected().publishAttemptId())))throw new IllegalStateException("APPLIED retained settlement lost its Budget");
             }}
         }
     }

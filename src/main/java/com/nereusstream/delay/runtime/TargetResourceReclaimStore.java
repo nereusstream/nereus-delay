@@ -48,7 +48,7 @@ public final class TargetResourceReclaimStore {
                 throw new IllegalStateException("Native recovery authentication exceeds original Source input reservation");
             final var recovery=catalog.captureSourceNativeRecoveryProtection(source,images,recoveryReads,maximumInputBytes,()->{source.requireCurrent();originalHeld.run();});
             final var result=new Protection(source,recovery,originalHeld);
-            if(body.inlinePayloadRelease())source.requireClosedInline(result);else source.requireClosedUnused(result);
+            if(body.nativeRetainedReclaim())source.requireClosedNative(result);else if(body.inlinePayloadRelease())source.requireClosedInline(result);else source.requireClosedUnused(result);
             recovery.requireCurrent(recoveryReads,()->{source.requireCurrent();originalHeld.run();});
             result.requireCurrent();return result;
         }
@@ -73,6 +73,13 @@ public final class TargetResourceReclaimStore {
                     ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
                     ||body.operations().stream().noneMatch(o->Arrays.equals(o.canonicalBytes(),expected.canonicalBytes())))
                 throw new IllegalStateException("inline release changed protected Source/Floor/expected value");
+        }
+        private void requireNativeRelease(TargetResourceReclaimBody.Operation expected,RecoveryFloorRef floor,TargetQuotaMutation release){
+            requireCurrent();recovery.requireReleaseMutation(release);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!recovery.nativeRetained()||!body.floor().equals(floor)||!Arrays.equals(release.source().canonicalBytes(),source.entry().position().canonicalBytes())
+                    ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
+                    ||body.operations().stream().noneMatch(o->Arrays.equals(o.canonicalBytes(),expected.canonicalBytes())))
+                throw new IllegalStateException("Native retained release changed exact Source/Floor/value");
         }
         public void requireCurrent(){source.requireCurrent();held.run();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
         public long retainedBytes(){return Math.addExact(recovery.retainedBytes(),input.canonicalEnvelope().length);}
@@ -180,7 +187,26 @@ public final class TargetResourceReclaimStore {
             if(rejection==null&&protection==null)throw new IllegalStateException("expected reclaim value reappeared without original held protections");
             if(rejection==null){
                 protection.requireSource(scope,lineage,input,source);protection.requireCurrent();
-                if(body.inlinePayloadRelease()){
+                if(body.nativeRetainedReclaim()){
+                    requireClosedNative(reader,scope,lineage,input,source,protection);
+                    for(var operation:body.operations()){
+                        if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
+                            leaf.expected().requireDeletion(body.floor(),stamp,(record,floor,deletion)->{
+                                if(!Arrays.equals(record.canonicalBytes(),leaf.expected().canonicalBytes()))throw new IllegalStateException("Native deletion changed exact leaf");
+                                protection.requireNativeRelease(leaf,floor,deletion);
+                            });
+                            edits.add(reader.replace(ColumnFamily.DEDUPE,leaf.expected().key(),TargetResultRecord.VALUE_TYPE,null));
+                        }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
+                            final var actual=TargetQuotaAttemptBudget.decodeForStore(allocation.expected().key(),payload(reader,ColumnFamily.META,allocation.expected().key(),TargetQuotaAttemptBudget.VALUE_TYPE),scope.shard());
+                            final var after=actual.releaseRetained(allocation.remaining(),body.floor(),stamp,(prior,kind,floor,remaining,decision)->{
+                                if(kind!=TargetQuotaAttemptBudget.ReleaseKind.RETAINED_ALLOCATION||!Arrays.equals(prior.canonicalBytes(),allocation.expected().canonicalBytes())
+                                        ||!remaining.equals(allocation.remaining()))throw new IllegalStateException("retained settlement changed frozen allocation basis");
+                                protection.requireNativeRelease(allocation,floor,decision);
+                            });
+                            edits.add(reader.replace(ColumnFamily.META,after.key(),TargetQuotaAttemptBudget.VALUE_TYPE,after.canonicalBytes()));
+                        }else throw new IllegalArgumentException("Native retained group changed family");
+                    }
+                }else if(body.inlinePayloadRelease()){
                     requireClosedInline(reader,scope,lineage,input,source,protection);
                     for(var operation:body.operations()){
                         final var inline=(TargetResourceReclaimBody.InlinePayloadRelease)operation;final var expected=inline.expected();
@@ -261,7 +287,8 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
+        return activation!=null&&(body.nativeRetainedReclaim()?activation.body().payload().descriptor().supportsNativeRetainedReclaim()
+                :body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
                 :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
     }
@@ -286,6 +313,14 @@ public final class TargetResourceReclaimStore {
                         ||terminal==null||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(primary,TargetMessageRecord.VALUE_TYPE).payload()),inline.primaryDigest())
                         ||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(terminal,TargetTerminalGenerationRecord.VALUE_TYPE).payload()),inline.terminalDigest()))return false;
                 expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }case TargetResourceReclaimBody.RetainedRecordDelete leaf->{
+                final var expected=leaf.expected();final byte[] raw=reader.get(ColumnFamily.DEDUPE,expected.key());
+                if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetResultRecord.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
+                expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }case TargetResourceReclaimBody.RetainedAllocationRelease allocation->{
+                final var expected=allocation.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+                if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaAttemptBudget.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
+                expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
             }}
         }
         return true;
@@ -309,6 +344,21 @@ public final class TargetResourceReclaimStore {
         if(!protection.recovery.inlinePayload())throw new IllegalArgumentException("inline Source lacks actual full Floor closure");
         TargetInlinePayloadReclaim.requireCurrent(reader,body,protection.recovery.inlinePolicies(),
                 ()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
+    }
+    public static void requireClosedNative(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,SourcePosition source,Protection protection){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());protection.requireSource(scope,lineage,input,source);
+        if(!body.nativeRetainedReclaim()||!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||reader.source()==null
+                ||source.compareTo(reader.source())<=0||!protection.recovery.nativeRetained())throw new IllegalArgumentException("Native retained closure changed actual Source context");
+        TargetNativeRetainedReclaim.requireCurrent(reader,input,()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
+    }
+    public static void requireClosedNativeDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,
+            com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.nativeRetainedReclaim()||!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||!recovery.nativeRetained()
+                ||reader.source()==null||reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs())throw new IllegalArgumentException("Native draft changed actual scope/protection/window");
+        if(body.floor().appliedSourcePosition().compareTo(reader.source())>0||Long.compareUnsigned(body.floor().includedMutationSequence(),reader.sourceSequence())>0)
+            throw new IllegalStateException("Native prefix has not replayed original Floor");
+        TargetNativeRetainedReclaim.requireClosed(reader.auditLedger(),input,false,reader::requireWithinElapsedBudget);
     }
     private static void requireClosedInlineInventory(TargetStoreBackend.Reader reader,TargetResourceReclaimBody body,
             com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable current){
