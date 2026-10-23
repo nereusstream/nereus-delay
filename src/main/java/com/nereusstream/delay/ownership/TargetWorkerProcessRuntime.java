@@ -99,6 +99,8 @@ public final class TargetWorkerProcessRuntime {
     private record ChannelInputs(TargetWorkerChannelInventory inventory, long bytes) {}
     private final java.util.Map<TargetWorkerSourceStartup, ChannelInputs> channelInputs = new java.util.IdentityHashMap<>();
     private long channelInputBytes;
+    private final java.util.Map<TargetWorkerSourceStartup, ReclaimInputs> reclaimInputs = new java.util.IdentityHashMap<>();
+    private long reclaimInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
@@ -431,7 +433,7 @@ public final class TargetWorkerProcessRuntime {
         requireSourceAssemblyAdmission(source);
         final long bytes = Math.addExact(original.limits().maximumRetainedBytes(), original.limits().readBytes());
         final long next = Math.addExact(channelInputBytes, bytes);
-        if (channelInputs.containsKey(source) || next > configuration.worker().resources().certifiedJvmHeapBytes()) {
+        if (channelInputs.containsKey(source) || Math.addExact(next, reclaimInputBytes) > configuration.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalStateException("original channel input reservations exceed the process heap envelope");
         }
         channelInputs.put(source, new ChannelInputs(original, bytes)); channelInputBytes = next;
@@ -441,6 +443,41 @@ public final class TargetWorkerProcessRuntime {
         final var retained = channelInputs.get(source);
         if (retained == null || retained.inventory() != original) throw new IllegalStateException("channel input release changed its original owner");
         channelInputs.remove(source); channelInputBytes = Math.subtractExact(channelInputBytes, retained.bytes());
+    }
+
+    /** Extends the original process input envelope; no fake SDK client or independent memory pool. */
+    synchronized ReclaimInputs reserveReclaimInputs(TargetWorkerSourceStartup source, long bytes) {
+        requireSourceAssemblyAdmission(source);
+        if (bytes <= 0 || bytes == Long.MAX_VALUE || reclaimInputs.containsKey(source)
+                || Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), bytes)
+                        > configuration.worker().resources().certifiedJvmHeapBytes()) {
+            throw new IllegalStateException("original Native GC input reservation exceeds process envelope or is already owned");
+        }
+        final var retained = new ReclaimInputs(this, source, bytes);
+        reclaimInputs.put(source, retained); reclaimInputBytes = Math.addExact(reclaimInputBytes, bytes);
+        return retained;
+    }
+
+    static final class ReclaimInputs {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private final long bytes;
+        private ReclaimInputs(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source, long bytes) {
+            this.process = process; this.source = source; this.bytes = bytes;
+        }
+        void requireCurrent() {
+            synchronized (process) {
+                if (process.reclaimInputs.get(source) != this) throw new IllegalStateException("original Native GC input reservation released");
+            }
+        }
+        long bytes() { return bytes; }
+        /** Only after the controller's original operations, holds and handoff have actually exited. */
+        void release() {
+            synchronized (process) {
+                if (!process.reclaimInputs.remove(source, this)) throw new IllegalStateException("Native GC input release changed original owner");
+                process.reclaimInputBytes = Math.subtractExact(process.reclaimInputBytes, bytes);
+            }
+        }
     }
 
     /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
@@ -623,7 +660,7 @@ public final class TargetWorkerProcessRuntime {
                 final var usage = systemWriters.usage();
                 if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
             }
-            if (!channelInputs.isEmpty() || channelInputBytes != 0) return;
+            if (!channelInputs.isEmpty() || channelInputBytes != 0 || !reclaimInputs.isEmpty() || reclaimInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

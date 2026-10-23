@@ -42,6 +42,7 @@ public final class TargetWorkerShardFleetRuntime {
             return Optional.empty();
         }
         default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() { return Optional.empty(); }
+        default Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() { return Optional.empty(); }
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -100,6 +101,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int publishCursor;
     private int journalSettlementCursor;
     private int publicationResourceCursor;
+    private int resourceReclaimCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -179,6 +181,7 @@ public final class TargetWorkerShardFleetRuntime {
                 messageExpiryCursor = afterRemoval(messageExpiryCursor, index, shards.size());
                 publishRecoveryCursor = afterRemoval(publishRecoveryCursor, index, shards.size());
                 publicationResourceCursor = afterRemoval(publicationResourceCursor, index, shards.size());
+                resourceReclaimCursor = afterRemoval(resourceReclaimCursor, index, shards.size());
                 return;
             }
         }
@@ -274,6 +277,17 @@ public final class TargetWorkerShardFleetRuntime {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
         }
+    }
+
+    synchronized Optional<TargetResourceReclaimMaintenance.Turn> runNextResourceReclaimTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) return Optional.empty();
+        final var selected = shards.get(resourceReclaimCursor);
+        resourceReclaimCursor = resourceReclaimCursor == shards.size() - 1 ? 0 : resourceReclaimCursor + 1;
+        if (selected.pendingCheckpointTask().isPresent()) return Optional.empty();
+        activeTurnThread = Thread.currentThread();
+        try { return selected.runResourceReclaimMaintenanceTurn(); }
+        finally { activeTurnThread = null; }
     }
 
     synchronized Optional<TargetJournalNegativeSettlementMaintenance.Turn> runNextJournalSettlementTurnIfPresent() {

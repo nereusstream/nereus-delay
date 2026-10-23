@@ -108,6 +108,30 @@ public final class TargetWorkerShardRuntime
     private volatile TargetPulsarPublishRuntime publishRuntime;
     private volatile TargetChannelControlWorkClassExecutor channelControlHandoff;
     private volatile TargetEvidenceRetirementWorkClassExecutor retirementHandoff;
+    private volatile TargetResourceReclaimMaintenance resourceReclaim;
+
+    synchronized void registerResourceReclaimMaintenance(TargetResourceReclaimMaintenance original, OwnedSourceSystemWriter writer) {
+        requireNewTurnsAdmitted(); resources.requireRuntimeBusinessAdmission();
+        if (resourceReclaim != null || writer.sourceWriterWorker() != this || writer.resourcesTerminated() || !writer.readyForAppending()
+                || systemWriterBackends.values().stream().noneMatch(retained -> retained == writer)) {
+            throw new IllegalStateException("Native GC requires the original admitted Source writer and one maintenance owner");
+        }
+        resourceReclaim = Objects.requireNonNull(original);
+    }
+    @Override public Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() {
+        final var original = resourceReclaim;
+        return original == null ? Optional.empty() : Optional.of(original.runTurn());
+    }
+    @Override public void requestResourceReclaimStop() {
+        final var original = resourceReclaim; if (original != null) original.requestStop();
+    }
+    @Override public Optional<WorkClassTask> settlePendingResourceReclaimForDrain() {
+        final var original = resourceReclaim;
+        if (original == null) return Optional.empty();
+        original.requestStop(); original.runTurn();
+        return original.ioExited() ? Optional.empty() : Optional.of(new WorkClassTask(
+                com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL, "target-native-reclaim-exit/" + shardId(), 1));
+    }
     private SourceRecordConsumer.CheckpointCut preparedCheckpointCut;
 
     TargetWorkerShardRuntime(
@@ -742,11 +766,12 @@ public final class TargetWorkerShardRuntime
         workClasses.submit(task,action);
     }
     synchronized SourceMutationAppend appendRetirement(SystemMutation image,OwnedSourceSystemWriter writer,
-            Runnable protection,LongSupplier clock){
+            Runnable protection,LongSupplier clock,Runnable beforeAppend){
         requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
         final var first=target.retirementMutationResult(image,clock).orElse(null);
         if(first!=null)return new SourceMutationAppend(first,null);
         target.requireRetirementWriter(image,clock);protection.run();
+        beforeAppend.run();
         try{
             final var result=Objects.requireNonNull(writer.append(image),"actual retirement Source append");
             if(result.disposition()==ShardLogMutationAppender.AppendDisposition.PERSISTED)
@@ -1849,6 +1874,8 @@ public final class TargetWorkerShardRuntime
         }
         if(retirementHandoff!=null&&retirementHandoff.pending().isPresent())
             throw new IllegalStateException("Target Worker cannot pause a retained retirement Source submission");
+        if (resourceReclaim != null && !resourceReclaim.ioExited())
+            throw new IllegalStateException("Target Worker cannot pause retained Native GC inputs or owned I/O");
         if (publishRuntime != null && !publishRuntime.available()) {
             throw new IllegalStateException("Target Worker cannot pause a retained publication flight");
         }
@@ -1956,8 +1983,10 @@ public final class TargetWorkerShardRuntime
     public Optional<WorkClassTask> settlePendingRetirementForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){
         final var handoff=retirementHandoff;
         if(handoff==null||handoff.pending().isEmpty())return Optional.empty();
+        if (handoff.pending().orElseThrow().releaseIfNeverAppended()) return Optional.empty();
         if(handoff.settle(clock).isPresent())return Optional.empty();
         handoff.retryPending(clock);workClasses.runTurn(workBudget);
+        if (handoff.pending().filter(TargetEvidenceRetirementWorkClassExecutor.Submission::releaseIfNeverAppended).isPresent()) return Optional.empty();
         if(handoff.settle(clock).isPresent())return Optional.empty();
         synchronized(this){
             requireNewTurnsAdmitted();
@@ -2114,6 +2143,7 @@ public final class TargetWorkerShardRuntime
 
     /** Does not wait for Source ACK or SDK reads holding the Worker monitor; it fences their later Store commits. */
     void quarantineBackendWrites() {
+        requestResourceReclaimStop();
         backendQuarantined = true;
         sourceAndMaintenancePaused = true;
         drainCoordinator.fenceNormalDrain();
@@ -2126,6 +2156,8 @@ public final class TargetWorkerShardRuntime
     synchronized Optional<TargetOwnerDrainCoordinator.ReplayExit> exitQuarantinedForReplay(
             TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         if (!backendQuarantined) { throw new IllegalStateException("Worker is not quarantined"); }
+        final var reclaim = resourceReclaim;
+        if (reclaim != null) { reclaim.runQuarantinedTurn(); if (!reclaim.ioExited()) return Optional.empty(); }
         if (stopPublicationMaintenanceForExit().isPresent()) return Optional.empty();
         if (sourceBackendGroup == null || !sourceBackendGroup.resourcesTerminated()) { return Optional.empty(); }
         target.stopAuthorityPreparation(); target.retryAuthorityCleanup();

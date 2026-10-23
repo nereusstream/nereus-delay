@@ -301,6 +301,17 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }
 
+        /** Installs one original Native GC owner on the existing Host maintenance tick; no new executor. */
+        public com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance configureResourceReclaimMaintenance(
+                com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.Configuration configuration,
+                com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.InputProvider provider) {
+            final TargetWorkerShardRuntime actual; final PulsarClientArtifactOwnedSystemWriter writer;
+            synchronized (this) {
+                if (failed || worker == null || systemWriter == null) throw new IllegalStateException("original P1 Source writer is unavailable");
+                actual = worker; writer = systemWriter;
+            }
+            return startup.configureResourceReclaimMaintenance(actual, writer, configuration, provider, time, clock);
+        }
         /** Bounded actual Native candidates on this admitted P1 Source; no prediction of future Source positions. */
         public com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(
                 com.nereusstream.delay.store.BoundedReadBudget reads,

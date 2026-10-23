@@ -472,6 +472,17 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             synchronized(this){if(failed||worker==null)throw new IllegalStateException("original admitted Source Worker is unavailable");original=worker;}
             management.catalog().settleRetiredMarkerCapacity(startup,original,management,selected,admission,catalogReads,nativeReads,current);
         }
+        /** Installs one original Native GC owner on the existing Host maintenance tick; no new executor. */
+        public com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance configureResourceReclaimMaintenance(
+                com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.Configuration configuration,
+                com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.InputProvider provider) {
+            final TargetWorkerShardRuntime actual; final KafkaClientArtifactOwnedSystemWriter writer;
+            synchronized (this) {
+                if (failed || worker == null || systemWriter == null) throw new IllegalStateException("original K1 Source writer is unavailable");
+                actual = worker; writer = systemWriter;
+            }
+            return startup.configureResourceReclaimMaintenance(actual, writer, configuration, provider, time, clock);
+        }
         /** Bounded actual Native candidates on this admitted K1 Source; no prediction of future Source positions. */
         public com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(
                 com.nereusstream.delay.store.BoundedReadBudget reads,

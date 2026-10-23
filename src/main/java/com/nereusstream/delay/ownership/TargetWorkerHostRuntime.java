@@ -112,6 +112,8 @@ public final class TargetWorkerHostRuntime {
 
         default Optional<WorkClassTask> settlePendingRetirementForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget,LongSupplier clock){return Optional.empty();}
+        default void requestResourceReclaimStop() {}
+        default Optional<WorkClassTask> settlePendingResourceReclaimForDrain(){return Optional.empty();}
 
         default Optional<WorkClassTask> settlePendingPublicationForDrain(SchedulerBudget workBudget,
                 SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
@@ -1738,6 +1740,7 @@ public final class TargetWorkerHostRuntime {
             SourceApplyCoordinator.TurnResult sourceTurn = null;
             try {
                 requireNormalDrain();
+                shard.requestResourceReclaimStop();
                 final var schedule = checkpointSchedule;
                 final boolean finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
                 if (!finalFlight) { shard.requestCheckpointPreparationStop(); }
@@ -1768,6 +1771,8 @@ public final class TargetWorkerHostRuntime {
                 }
                 final var retirement=shard.settlePendingRetirementForDrain(request.gcBudget(),sourceBudget,ownerClock);
                 if(retirement.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_GC,null,null,retirement.orElseThrow(),null);
+                final var reclaimInputs = shard.settlePendingResourceReclaimForDrain();
+                if (reclaimInputs.isPresent()) return new ShardDrain(shard.shardId(), Status.PENDING_GC, null, null, reclaimInputs.orElseThrow(), null);
                 final Optional<WorkClassTask> publication = shard.settlePendingPublicationForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);
                 if (publication.isPresent()) {

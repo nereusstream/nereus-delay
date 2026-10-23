@@ -2779,3 +2779,15 @@ future-reader/Pin/image held保护需持续到exact Source first和handoff actio
 Source仍于实际first前独立采集原用途/实际Source与动态保护并同批核全值/phase/账务；
 GC opaque Prepared不能用作Source Protection。新请求只接受仍为当前的实际Floor，
 不借历史回收决定签发新GC请求；签发/重验失败不写Native、不退款。
+
+
+2026-10-23 自动请求端的实际本地输入额度：原 process 按每个 Source 一个原 GC owner
+登记有限窗口，与原 channel input 预留合计不超过 certifiedJvmHeapBytes；冲突/超界
+在 I/O/签名前拒绝，原 owner 的真实 cleanup 与 Source handoff 未结清时保留窗口，
+进程资源关闭也必须等这些原窗口归零。这不是新的 SDK client、Target commitment
+退款或物理释放。原 InputProvider 必须在该窗口内加载/保留完整稳定镜像和准入保护，
+数值配置本身不提供 external admission。normal drain 由原 writer-entry 互斥门证明
+no-start 或由实际 Source first + action/registry exit 证明结算后才能 close；provider
+partial cleanup、失败 close、queued/running/UNKNOWN 均不得被 future.done 代替。
+已进 writer 的未知请求在 quarantine 后继续保留，尚无 durable cold protection handoff
+许可；不能将 backend termination 单独视作可退款/可移除持久保护的依据。

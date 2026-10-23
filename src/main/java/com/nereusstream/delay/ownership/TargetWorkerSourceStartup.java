@@ -1112,6 +1112,23 @@ public final class TargetWorkerSourceStartup {
     }
     public TargetWorkerProcessRuntime.Assembly graph() { return graph; }
 
+    /** Explicit deployment composition; uses this Source's original writer, process I/O and input envelope. */
+    public TargetResourceReclaimMaintenance configureResourceReclaimMaintenance(TargetWorkerShardRuntime actual,
+            OwnedSourceSystemWriter writer, TargetResourceReclaimMaintenance.Configuration configuration,
+            TargetResourceReclaimMaintenance.InputProvider provider,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, LongSupplier clock) {
+        try (var construction = beginWorkerResourceConstruction(actual)) {
+            construction.requireCurrent();
+            final var reservation = process.reserveReclaimInputs(this, configuration.maximumInputBytes());
+            try {
+                final var original = new TargetResourceReclaimMaintenance(actual, writer, configuration, provider, reservation,
+                        graph.io(), time, clock, nanos, () -> actual.requireRetirementReadCurrent(clock));
+                actual.registerResourceReclaimMaintenance(original, writer);
+                return original;
+            } catch (RuntimeException | Error failure) { reservation.release(); throw failure; }
+        }
+    }
+
     /** Original process-wide window; Source factories cannot replace pending generations or UNKNOWN appends. */
     public synchronized SystemWriterAppendBudget systemWriterBudget() {
         requireCurrent();

@@ -81,7 +81,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
                     submission.running = true;
                 }
                 try {
-                    final var result = worker.appendRetirement(submission.image, appender, submission.protection, clock);
+                    final var result = worker.appendRetirement(submission.image, appender, submission.protection, clock, submission::beginAppend);
                     if(result.firstResult()!=null)submission.first = result.firstResult();
                     submission.append = result.append(); submission.failure = null;
                 } catch (ReadIncompleteException incomplete) {
@@ -135,7 +135,7 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         private volatile ShardLogMutationAppender.AppendOutcome append;
         private volatile SystemMutationResult first;
         private volatile Throwable failure;
-        private boolean queued, running, stopped, closed;
+        private boolean queued, running, stopped, closed, appendStarted;
         private Submission(TargetEvidenceRetirementWorkClassExecutor owner, SystemMutation image,
                 WorkClassTask task, Runnable protection) {
             this.owner = owner; this.image = image; this.task = task; this.protection = protection;
@@ -145,6 +145,39 @@ public final class TargetEvidenceRetirementWorkClassExecutor {
         public Optional<ShardLogMutationAppender.AppendOutcome> append() { return Optional.ofNullable(append); }
         public Optional<SystemMutationResult> firstResult() { return Optional.ofNullable(first); }
         public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        private synchronized void beginAppend() {
+            if (stopped || closed) throw new IllegalStateException("retirement stopped before original writer entry");
+            appendStarted = true;
+        }
+        /** Serializes no-start proof against the actual writer entry, including a running preflight. */
+        public synchronized boolean stopBeforeAppend() {
+            if (appendStarted) return false;
+            stopped = true; return true;
+        }
+        /** No timeout/disposition inference: only this exact writer-entry gate and actual registry exit. */
+        public boolean releaseIfNeverAppended() {
+            if (!owner.worker.retirementActionExited(task)) return false;
+            synchronized (this) {
+                if (!stopped || appendStarted || queued || running) return false;
+                closed = true;
+            }
+            owner.pending.compareAndSet(this, null); return true;
+        }
+        /** Reconciles this retained handle even after another request occupies the shared slot. */
+        public Optional<SystemMutationResult> settle(LongSupplier clock) {
+            final var result = owner.observe(this, clock);
+            if (result.isPresent() && closeForRelease()) {
+                owner.pending.compareAndSet(this, null); return result;
+            }
+            return Optional.empty();
+        }
+        public void retry(LongSupplier clock) {
+            if (owner.pending.get() != this) {
+                if (first == null) throw new IllegalStateException("original retirement handle lost its pending slot");
+                return;
+            }
+            if (owner.observe(this, clock).isEmpty()) owner.enqueue(this, clock);
+        }
         public boolean ioExited() {
             synchronized (this) { if (running || !stopped && queued) return false; if (stopped) return true; }
             return owner.worker.retirementActionExited(task);
