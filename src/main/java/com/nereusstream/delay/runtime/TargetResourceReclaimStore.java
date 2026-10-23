@@ -42,6 +42,8 @@ public final class TargetResourceReclaimStore {
                 List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget recoveryReads,
                 long maximumInputBytes,Runnable originalHeld){
             Objects.requireNonNull(source);Objects.requireNonNull(originalHeld).run();source.requireCurrent();
+            if(TargetResourceReclaimBody.decode(source.entry().mutation().canonicalBody()).inlinePayloadRelease())
+                throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("inline release requires its independent actual reader/Pin and terminal-policy closure");
             final var catalog=source.catalog();
             if(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images)>maximumInputBytes)
                 throw new IllegalStateException("Native recovery authentication exceeds original Source input reservation");
@@ -118,9 +120,9 @@ public final class TargetResourceReclaimStore {
 
     /** Native-only rejection preflight; the Source runtime still checks retained-first before this read. */
     public boolean requiresInputs(BoundedReadBudget reads,SystemMutation input,SourcePosition source){
-        body(input,source);
+        final var body=body(input,source);
         return source.brokerPersistenceTimeEpochMs()<=input.retryUntilEpochMs()&&backend.prepareRead(reads,
-                r->r.closedIngressDeadlineThrough()<input.retryUntilEpochMs()&&protocolReady(r,source)).value();
+                r->r.closedIngressDeadlineThrough()<input.retryUntilEpochMs()&&protocolReady(r,source,body)).value();
     }
 
     /** Retained-first replay must run before this entry and before any protection provider. */
@@ -129,7 +131,7 @@ public final class TargetResourceReclaimStore {
         final var body=body(input,source);
         final boolean expired=source.brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs()
                 ||backend.prepareRead(reads,r->r.closedIngressDeadlineThrough()>=input.retryUntilEpochMs()).value();
-        final boolean ready=!expired&&backend.prepareRead(reads,r->protocolReady(r,source)).value();
+        final boolean ready=!expired&&backend.prepareRead(reads,r->protocolReady(r,source,body)).value();
         final var history=ready?Objects.requireNonNull(authority.history(scope,input,source),"complete reclaim Source history"):null;
         final var grant=history==null?null:history.select(body,input,source).orElse(null);
         if(history!=null)backend.prepareRead(reads,r->{TargetRetirementSourceHistoryStore.currentTip(r,scope,lineage,history.proof());return Boolean.TRUE;});
@@ -146,7 +148,7 @@ public final class TargetResourceReclaimStore {
             requireAbsent(reader,ColumnFamily.DEDUPE,positionKey(source));
             final var stamp=new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),source,Bytes.sha256(input.canonicalEnvelope()));
             final var root=sourceRoot(reader,stamp);
-            final boolean nativeReady=protocolReady(reader,source);
+            final boolean nativeReady=protocolReady(reader,source,body);
             if(nativeReady&&!expired&&history==null)throw new IllegalStateException("reclaim activation changed; retain and recollect original inputs");
             boolean bound=authorized&&nativeReady;
             if(bound){
@@ -171,6 +173,7 @@ public final class TargetResourceReclaimStore {
             if(rejection==null&&!matchesExpected(reader,body))rejection=StableCode.STALE_SYSTEM_MUTATION;
             if(rejection==null&&protection==null)throw new IllegalStateException("expected reclaim value reappeared without original held protections");
             if(rejection==null){
+                if(body.inlinePayloadRelease())throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("inline atomic deletion has no complete actual reader/Pin closure yet");
                 protection.requireSource(scope,lineage,input,source);protection.requireCurrent();
                 requireClosedUnused(reader,scope,lineage,input,source,protection);
                 for(var operation:body.operations()){
@@ -235,9 +238,10 @@ public final class TargetResourceReclaimStore {
                 ||!Arrays.equals(body.logicalOperationIdentity(),input.logicalOperationIdentity()))throw new IllegalArgumentException("reclaim Source/scope/lineage/identity mismatch");
         return body;
     }
-    private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source){
-        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetResourceReclaim());
-        return activation!=null&&activation.body().payload().descriptor().supportsResourceReclaim()&&activation.appliedAt().source().compareTo(source)<0;
+    private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
+        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
+        return activation!=null&&(body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
+                :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
     }
     private TargetQuotaIncarnation sourceRoot(TargetStoreBackend.Reader reader,TargetQuotaMutation stamp){
         final var id=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
@@ -248,10 +252,19 @@ public final class TargetResourceReclaimStore {
     }
     public static boolean matchesExpected(TargetStoreBackend.Reader reader,TargetResourceReclaimBody body){
         for(var operation:body.operations()){
-            final var expected=((TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
-            final byte[] raw=reader.get(ColumnFamily.META,expected.key());
-            if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaAttemptBudget.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
-            expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            switch(operation){case TargetResourceReclaimBody.UnusedAttemptReserve unused->{
+                final var expected=unused.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+                if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaAttemptBudget.VALUE_TYPE).payload(),expected.canonicalBytes()))return false;
+                expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }case TargetResourceReclaimBody.InlinePayloadRelease inline->{
+                final var expected=inline.expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+                final byte[] primary=reader.get(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()));
+                final byte[] terminal=reader.get(ColumnFamily.TERMINAL,TargetTerminalGenerationRecord.key(inline.locator()));
+                if(raw==null||primary==null||!Arrays.equals(TargetValueEnvelope.decode(raw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes())
+                        ||terminal==null||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(primary,TargetMessageRecord.VALUE_TYPE).payload()),inline.primaryDigest())
+                        ||!Arrays.equals(Bytes.sha256(TargetValueEnvelope.decode(terminal,TargetTerminalGenerationRecord.VALUE_TYPE).payload()),inline.terminalDigest()))return false;
+                expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+            }}
         }
         return true;
     }
@@ -284,6 +297,7 @@ public final class TargetResourceReclaimStore {
     private static void requireClosedUnusedInventory(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
             TargetResourceReclaimBody body,java.util.function.Function<TargetQuotaAttemptBudget,
                     com.nereusstream.delay.store.TargetCheckpointRootVerifier.UnusedReserveWriter> writers){
+        if(body.inlinePayloadRelease())throw new IllegalArgumentException("unused reserve closure cannot authorize payload deletion");
         final var rootId=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
         final byte[] rootKey=rootId.key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final var root=TargetQuotaIncarnation.decodeForStore(rootKey,payload(reader,ColumnFamily.META,rootKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());

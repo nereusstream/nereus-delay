@@ -1697,7 +1697,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
             final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(mutation.canonicalBody());
             if(!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage))throw new IllegalArgumentException("reclaim writer changed Source scope/lineage");
-            requireResourceReclaimProtocolActive(clock);
+            requireResourceReclaimProtocolActive(body.requiredTuple(),clock);
         }else if(mutation.type()==SystemMutationType.RESOURCE_RETIRE_INTENT){
             final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());requireRetirementProtocolActive(body.resource(),clock);
         }else{
@@ -1705,13 +1705,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
     synchronized void requireResourceReclaimProtocolActive(LongSupplier clock){
-        requireGcOwner(clock);final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim();
+        requireResourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
+    }
+    private void requireResourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple tuple,LongSupplier clock){
+        requireGcOwner(clock);
         final var compatible=store.controlSnapshot();
-        if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("reclaim writer lacks independently admitted tuple9");
+        if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("reclaim writer lacks its independently admitted body tuple "+tuple.bodyVersion());
         backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
             final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
-            if(activation==null||!activation.body().payload().descriptor().supportsResourceReclaim())
-                throw new IllegalStateException("reclaim writer requires actual APPLIED descriptor6");
+            if(activation==null||!activation.body().payload().descriptor().supportsResourceReclaim()
+                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetInlinePayloadReclaim())
+                        &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim())
+                throw new IllegalStateException("reclaim writer requires its exact actual APPLIED descriptor capability");
             return Boolean.TRUE;
         },workerReads(clock));
     }

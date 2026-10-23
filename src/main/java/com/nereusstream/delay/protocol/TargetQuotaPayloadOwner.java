@@ -414,6 +414,22 @@ public final class TargetQuotaPayloadOwner {
         return next;
     }
 
+    /** Read-only correlation of persisted Source state. This neither authorizes nor executes a release. */
+    public void requireReleasedFrom(final TargetQuotaPayloadOwner expected, final RecoveryFloorRef floor) {
+        Objects.requireNonNull(expected, "expected");Objects.requireNonNull(floor, "floor");
+        if(expected.phase!=Phase.RETAINED||phase!=Phase.RELEASED)throw new IllegalStateException("payload release phase mismatch");
+        mutation.requireSourceApplied();mutation.requireAfter(expected.mutation);expected.mutation.requireCoveredByFloor(floor);
+        if(!Arrays.equals(expected.recoveryLineage,floor.recoveryLineageId())
+                ||floor.appliedSourcePosition().compareTo(mutation.source())>=0
+                ||Long.compareUnsigned(floor.includedMutationSequence(),mutation.sequence())>=0)
+            throw new IllegalStateException("payload release did not follow its complete Floor");
+        final var projected=new TargetQuotaPayloadOwner(expected.messageId,expected.owner,expected.tenantScope,
+                expected.accounting,expected.bindingDigest,expected.kind,expected.length,expected.payloadSha256,
+                expected.reservationId,expected.objectStoreProfileHash,expected.committed,Phase.RELEASED,
+                TargetQuotaMutation.increment(expected.revision),mutation,expected.recoveryLineage,floor.floorDigest());
+        if(!Arrays.equals(canonicalBytes(),projected.canonicalBytes()))throw new IllegalStateException("released payload changed frozen owner/value");
+    }
+
     /** Rebinds decoded owner data to the full retained first Schedule/Prepare, not just its digest. */
     public void requireInitialBinding(final TargetScheduleBinding binding) {
         if (!messageId.equals(binding.messageId())

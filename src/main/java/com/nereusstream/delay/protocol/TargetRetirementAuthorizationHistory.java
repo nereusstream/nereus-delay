@@ -45,7 +45,9 @@ public final class TargetRetirementAuthorizationHistory {
         public Grant {
             Objects.requireNonNull(service); Objects.requireNonNull(action); Objects.requireNonNull(activation);
             if(service.kind()!=AuthorIdentity.Kind.SERVICE||service.canonicalBytes().length>1024||keyVersion==0
-                    ||!activation.tuple().equals(action==Action.RESOURCE_RECLAIM?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement())
+                    ||!(action==Action.RESOURCE_RECLAIM
+                        ?activation.tuple().equals(ProtocolTuple.targetResourceReclaim())||activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())
+                        :activation.tuple().equals(ProtocolTuple.targetEvidenceRetirement()))
                     ||activation.canonicalBytes().length>4096)
                 throw new IllegalArgumentException("history grant requires exact SERVICE/key/action and its independent activation tuple");
             publicKey=Bytes.copy(Objects.requireNonNull(publicKey));decodeKey(publicKey);
@@ -70,7 +72,8 @@ public final class TargetRetirementAuthorizationHistory {
                 throw new IllegalArgumentException("history grant differs from actual prior Target activation");
         }
         private byte[] identity() {
-            return Bytes.concat(Bytes.lp32(service.canonicalBytes()),Bytes.u32beBits(keyVersion),Bytes.u32be(action.wire));
+            final byte[] old=Bytes.concat(Bytes.lp32(service.canonicalBytes()),Bytes.u32beBits(keyVersion),Bytes.u32be(action.wire));
+            return activation.tuple().equals(ProtocolTuple.targetInlinePayloadReclaim())?Bytes.concat(old,Bytes.lp32(activation.tuple().canonicalBytes())):old;
         }
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(out->{
@@ -302,7 +305,11 @@ public final class TargetRetirementAuthorizationHistory {
             interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source);
         }
         public Optional<Grant> select(TargetResourceReclaimBody body,SourcePosition source,AuthorIdentity service,int version){
-            return select(interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source),service,version,Action.RESOURCE_RECLAIM);
+            final var covered=interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source);
+            final byte[] actor=Objects.requireNonNull(service).canonicalBytes();
+            for(var grant:covered.grants)if(grant.keyVersion==version&&grant.action==Action.RESOURCE_RECLAIM
+                    &&grant.activation().tuple().equals(body.requiredTuple())&&Arrays.equals(grant.service.canonicalBytes(),actor))return Optional.of(grant);
+            return Optional.empty();
         }
         private Optional<Grant> select(Interval covered,AuthorIdentity service,int version,Action action){
             final byte[] actor=Objects.requireNonNull(service).canonicalBytes();

@@ -333,6 +333,8 @@ public final class TargetCheckpointDependencies {
     }
     public List<RetryPolicyRef> retryPolicies() { return retryPolicies; }
     public List<RetryUse> retryUses() { return retryUses; }
+    /** Actual fold inputs, including earlier generations; package-local so audits can join them in one pass. */
+    List<TargetScheduleBinding> retainedBindings(){return bindings;}
     public List<PayloadProofTrustSetRef> trustSets() { return trustSets; }
     public List<byte[]> objectProfileHashes() { return copies(objectProfileHashes); }
     public List<byte[]> artifactDigests() { return copies(artifactDigests); }

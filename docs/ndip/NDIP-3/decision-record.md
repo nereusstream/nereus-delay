@@ -1487,3 +1487,16 @@ STATE/terminal/binding/history；OBJECT不借此分支。
 并修既有companion8摘要分派漏项。body10实际生命周期/companion/读者闭合继续实施，
 未因本依赖完成而宣布payload回收或四包完成；单agent非Fast、仅必要编译、集中验证
 后置，没有真实服务/材料/激活/删除/迁退或保护解除授权。
+
+
+## 2026-10-23：落实inline新能力及独立恢复认证边界
+
+承接主会话已批准的kind2/body10/tuple10新能力裁定，本次实现descriptor7、Native54v3、
+lifecycle3和companion9（确切字段见Registry）。旧body9/tuple9/descriptor6、旧grant
+身份及旧companion字节保持；Action3必须选择精确tuple，新tuple不能继承旧grant。
+保留terminal locator/version/hash作为删除后metadata关联，不仅冻结payload owner。
+只读账务/full ledger和原策略companion已接，原Image/lifecycle权限继续独立认证；旧
+Source-history verifier默认拒绝APPLIED inline决定，不能借一般Action3批准实际删除。
+当前正向Source仍因完整动态闭合未接而pending，不套unused旧Pin规则。此是协议与
+恢复读路径进度，后续真实kind2准备/签发、Reader/Pin/retention fence、安全cut、
+metadata查询、Native全部引用及原子删除/精确计费继续，未缩减完整包或授权真实环境。

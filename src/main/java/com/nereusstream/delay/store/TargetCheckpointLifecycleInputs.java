@@ -44,6 +44,8 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
      * protection/capacity/copy and authenticated exact provider deletion, respectively; DTOs never suffice.
      * For body9, requireOriginal authenticates the original Source decision's complete Native reserved-writer
      * closure and checked recovery protection as well as its distinct purpose. Current policy is no substitute.
+     * Body10 additionally requires the explicit original inline-decision method below; an old Action3 verifier
+     * cannot silently authenticate actual deletion, reader/Pin independence or Source retention closure.
      */
     public interface Authority{
         void requireActivation(TargetProtocolActivationRecord record);
@@ -52,6 +54,10 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
         void requireRetiring(TargetEvidenceRetiringRecord record,TargetRetirementAuthorizationHistory.Grant grant);
         void requireConfirmed(TargetEvidenceConfirmedRecord record,HistoryImage originalIntent,
                 TargetRetirementAuthorizationHistory.Grant intentGrant,TargetRetirementAuthorizationHistory.Grant confirmationGrant);
+        /** Original retention/fence/safe-cut, all Native references, metadata readers and actual Pin/reader admission. */
+        default void requireInlinePayloadDecision(HistoryImage input,TargetResultRecord originalFirst){
+            throw new IllegalStateException("original lifecycle authority lacks complete inline payload decision authentication");
+        }
     }
     public TargetCheckpointLifecycleInputs{
         activations=ordered(activations,TargetProtocolActivationRecord::key);retirements=ordered(retirements,TargetEvidenceRetiringRecord::key);
@@ -65,9 +71,12 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     }
     public boolean requiresResourceReclaimCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsResourceReclaim())
             ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM);}
+    public boolean requiresInlinePayloadReclaimCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsInlinePayloadReclaim())
+            ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                &&TargetResourceReclaimBody.decode(v.image().canonicalBody()).inlinePayloadRelease());}
     public int recordCount(){return Math.addExact(Math.addExact(activations.size(),retirements.size()),Math.addExact(confirmations.size(),histories.size()));}
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,requiresResourceReclaimCapability()?2:1);
+        CanonicalProtobuf.uint32(out,1,requiresInlinePayloadReclaimCapability()?3:requiresResourceReclaimCapability()?2:1);
         for(var v:activations)CanonicalProtobuf.bytes(out,2,v.canonicalBytes());
         for(var v:retirements)CanonicalProtobuf.bytes(out,3,v.canonicalBytes());
         for(var v:confirmations)CanonicalProtobuf.bytes(out,4,v.canonicalBytes());
@@ -183,6 +192,14 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             grant.requireActivation(activation,input.source());
             if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&!activation.body().payload().descriptor().supportsResourceReclaim())
                 throw new IllegalStateException("APPLIED reclaim history lacks actual descriptor6 capability");
+            if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                    &&TargetResourceReclaimBody.decode(input.image().canonicalBody()).inlinePayloadRelease()
+                    &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim())
+                throw new IllegalStateException("APPLIED inline release history lacks actual descriptor7 capability");
+            if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                    &&TargetResourceReclaimBody.decode(input.image().canonicalBody()).inlinePayloadRelease()){
+                authority.requireInlinePayloadDecision(input,first);after(budget,guard);
+            }
             if(input.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
                     &&TargetEvidenceDeleteConfirmedBody.decode(input.image().canonicalBody()).markerRetained()
                     &&!activation.body().payload().descriptor().supportsRetainedMarkerConfirmation())
@@ -199,7 +216,7 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     public static TargetCheckpointLifecycleInputs decode(byte[] encoded,TargetCheckpointSemanticSnapshot.Limits limits){
         final var f=read(encoded,limits.maximumBytes(),limits.maximumRecords()+1,true);
         if(f.isEmpty())throw new IllegalArgumentException("missing lifecycle companion schema");
-        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version!=1&&version!=2)throw new IllegalArgumentException("unknown lifecycle companion schema");
+        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>3)throw new IllegalArgumentException("unknown lifecycle companion schema");
         final var a=new ArrayList<TargetProtocolActivationRecord>();final var r=new ArrayList<TargetEvidenceRetiringRecord>();
         final var c=new ArrayList<TargetEvidenceConfirmedRecord>();final var h=new ArrayList<HistoryImage>();int i=1;
         while(i<f.size()&&f.get(i).number()==2)a.add(TargetProtocolActivationRecord.decode(QueryCodecSupport.bytes(f.get(i++),2)));

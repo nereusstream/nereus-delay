@@ -171,7 +171,7 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
             final var snapshot = complete.hasLifecycleInputs()
                     ? TargetCheckpointSemanticSnapshot.fromLifecycleValues(complete,originals,values.profiles(),values.retries(),values.trusts(),
                             control.inputs(),outcome.inputs(),authorities.controls(),authorities.outcomes(),authorities.externalEvidence(),
-                            authorities.recoveryEvidence(),authorities.lifecycle(),budget,p.semanticLimits(),p.protection())
+                            authorities.recoveryEvidence(),authorities.lifecycle(),budget,p.semanticLimits(),p.protection(),values.terminalPolicies())
                     : TargetCheckpointSemanticSnapshot.fromCollectedValues(complete, originals,
                     values.profiles(), values.retries(), values.trusts(), p.semanticLimits(), p.protection())
                     .withControlInputs(complete, control.inputs(), budget, p.semanticLimits(), authorities.controls(),

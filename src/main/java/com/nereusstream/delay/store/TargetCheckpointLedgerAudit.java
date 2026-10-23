@@ -141,6 +141,8 @@ final class TargetCheckpointLedgerAudit {
         final Map<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference> recoveryReferences = new HashMap<>();
         final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
+        final Map<String,TargetQuotaPayloadOwner> payloadOwners=new HashMap<>();
+        final var primaryMessages=new java.util.HashSet<String>();
         final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
@@ -201,6 +203,7 @@ final class TargetCheckpointLedgerAudit {
                         final var message =
                                 TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId());
                         attemptProjections.add(new AttemptProjection(message.locator(), message.runtime()));
+                        primaryMessages.add(Bytes.hex(message.locator().messageId().bytes()));
                         auditMessageDependencies(message, view);
                     } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
                         auditOrderStateDependencies(TargetOrderState.decode(payload), view);
@@ -261,6 +264,9 @@ final class TargetCheckpointLedgerAudit {
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
+                    } else if(family==ColumnFamily.META&&type==TargetQuotaPayloadOwner.VALUE_TYPE){
+                        final var owner=TargetQuotaPayloadOwner.decodeForStore(key,payload,proof.metadata().shardId(),proof.root().tenantScope());
+                        payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);
                     } else if (family == ColumnFamily.META && type == TargetMembershipClosureRecord.VALUE_TYPE) {
                         membershipClosures.add(TargetMembershipClosureRecord.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
@@ -345,7 +351,7 @@ final class TargetCheckpointLedgerAudit {
         auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);
         auditRecoveryEvidenceReferences(kafkaMappings,externalOwners,recoveryOwners,recoveryReferences,attemptBudgets,resultRows);
         auditRetirementResults(retirements,resultRows);
-        auditReclaimResults(sourceHistories,attemptBudgets,resultRows);
+        auditReclaimResults(sourceHistories,attemptBudgets,payloadOwners,primaryMessages,resultRows);
         TargetQuotaDelta.audit(proof.aggregate(), counters, rebuilt);
         for (final var stored : resultRows) {
             if (stored.key()[0] == TargetKeyCodec.RESULT_SYSTEM_TAG) {
@@ -372,7 +378,8 @@ final class TargetCheckpointLedgerAudit {
     }
     /** A reclaim event cannot survive without the actual phase result for every operation in its bounded group. */
     private static void auditReclaimResults(List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> histories,
-            List<TargetQuotaAttemptBudget> budgets,List<TargetResultLedgerAudit.Stored> results){
+            List<TargetQuotaAttemptBudget> budgets,Map<String,TargetQuotaPayloadOwner> payloadOwners,
+            java.util.Set<String> primaryMessages,List<TargetResultLedgerAudit.Stored> results){
         if(histories.stream().noneMatch(h->h.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM))return;
         final var byAttempt=new HashMap<String,TargetQuotaAttemptBudget>();for(var budget:budgets)byAttempt.put(Bytes.hex(budget.publishAttemptId()),budget);
         final var firsts=new HashMap<String,TargetResultRecord>();for(var row:results){
@@ -387,6 +394,12 @@ final class TargetCheckpointLedgerAudit {
                 final var actual=Objects.requireNonNull(byAttempt.get(Bytes.hex(unused.expected().publishAttemptId())),"reclaim actual retained budget");
                 if(actual.phase()!=TargetQuotaAttemptBudget.Phase.RETAINED||!actual.mutation().equals(history.decidedAt()))
                     throw new IllegalStateException("APPLIED unused-reserve reclaim lost exact actual phase/Source result");
+            }case com.nereusstream.delay.protocol.TargetResourceReclaimBody.InlinePayloadRelease inline->{
+                final String id=Bytes.hex(inline.expected().messageId().bytes());
+                final var owner=Objects.requireNonNull(payloadOwners.get(id),"APPLIED inline release lost permanent owner STATE");
+                if(!owner.mutation().equals(history.decidedAt())||primaryMessages.contains(id))
+                    throw new IllegalStateException("APPLIED inline release lost actual Source/absent primary");
+                owner.requireReleasedFrom(inline.expected(),body.floor());
             }}
         }
     }

@@ -554,6 +554,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current,
             com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(body.inlinePayloadRelease())throw new IllegalStateException("inline payload requires its own complete recovery dependency qualification");
         recoveryProtectionInputWindowBytes(images);
         if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite Native recovery reads required");
         current.run();final byte[] namespace=nativeReclaimNamespace();

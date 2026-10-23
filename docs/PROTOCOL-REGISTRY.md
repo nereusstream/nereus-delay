@@ -3378,8 +3378,8 @@ RetryPolicyRef/Source use. Stored bytes are not original CONTROL/Profile/Source 
 Complete Native dependencies can collect all retained binding uses for one Message under an
 external original-history guard and finite read budget; empty/incomplete inputs or missing terminal
 content fail. Other Messages' opaque digests do not enter that selected Message's static closure.
-This step does not add body10/kind2/tuple10, descriptor7 or a new companion format, and grants no
-actual payload deletion. Companion8's existing digest is field17, as for schemas6/7; encoding and
+Milestone17e0757e added no body10/kind2/tuple10, descriptor7 or new companion. The later body10
+read/authorization boundary below adds those formats; actual payload deletion remains unavailable. Companion8's existing digest is field17, as for schemas6/7; encoding and
 decoding now dispatch schema8 to that field without changing canonical bytes.
 
 Target checkpoint semantic snapshot v1 (2026-10-09) is a bounded companion representation, not a new
@@ -5336,3 +5336,46 @@ Catalog父哈希祖先链/合法Pin/完整认证镜像及原held admission共同
 在完整认证镜像中保同一Source回收决定；旧Pin镜像缺精确Budget/同一后态仍Unavailable。
 原histories/activation/companion及retained-first路径保持；拒绝输入的body9 lifecycle
 只认证完整覆盖，不因非法作者再解码而阻断已持久拒绝的恢复。无实际激活/环境操作。
+
+
+### Target inline payload回收的新读取/授权边界（2026-10-23，body10）
+
+接17e0757e的策略内容基础，type14/System envelope1不变。纯kind1仍原body9/tuple9，
+纯kind2 INLINE_PAYLOAD_RELEASE使用body10/tuple(1,1,SYSTEM_MUTATION,1,10)，混组拒绝。
+外层fields1/2/3/9..15及逻辑身份domain沿body9，field9明确=10。kind2操作闭合字段：
+1 uint32 operation schema=1；2 uint32 kind=2；3完整TargetQuotaPayloadOwner1（只准
+RETAINED+INLINE）；4 exact primary TargetMessageRecord canonical bytes的SHA256[32]；
+5完整当前TargetMessageLocator；6 nonzero raw uint64 stateVersion；7 exact
+TargetTerminalGenerationRecord canonical bytes的SHA256[32]。locator需匹配完整owner的
+Message/Target/accounting incarnation/初始binding，body Floor覆盖原owner mutation。
+操作identity为byte2+MessageId[32]，原32操作/8MiB总上限及unsigned排序/重复拒绝保持。
+新operation解码额外上限为Owner.MAX_CANONICAL_BYTES+Locator.MAX_CANONICAL_BYTES+128。
+
+TargetProtocolActivationDescriptor7使用tuple10；旧1..6和默认constructor5 bytes不变。
+版本向量3=companion9，4=body10，16=Native54 schema3，原23=operation schema1，新增
+24=TerminalPolicySemantic1，25=inline kind2，26=inline ledger/recovery schema1，其余
+原字段保持；Native max55。新能力独立于supportsResourceReclaim，必须实际APPLIED
+且在Source之前的精确descriptor7/tuple10/reader evidence。Action3 grant只选择与body
+相等的activation tuple；同SERVICE/key/Action3可以独立保留9和10，旧identity bytes
+不变，tuple10 identity在旧identity后追加lp32(canonical tuple10)，表仍严格排序唯一。
+Native54历史旧schema1/2不变，body10为schema3；Native55仍schema1且由原Native54决定tuple。
+
+生命周期companion3保持fields2..5，descriptor7或body10 frame要求3。外部语义companion9
+保fields1..16，repeated17 TerminalPolicyImage（1完整RetryUse；2完整TerminalPolicy1），
+按原use canonical排序唯一，digest改为field18，仍原snapshot domain。schema1..8原
+字段/digest不变。每份内容必须属于实际retained binding use且匹配field9原Retry内容；
+APPLIED kind2要求该Message各代全部retained binding uses有完整内容、首个支持策略及
+checked retained Source deadline。上述仅静态关联，不证明动态到期或读者退出。原
+Registry在同一个retry lookup receipt中取原immutable pair，原finite executor/owned
+I/O/cleanup不变；旧provider默认缺内容，不为旧opaque值填补。完整record/byte上限计入
+这些内容。ImageAuthority必须独立认证原publication/use，旧实现默认拒新内容；原
+lifecycle Authority另须显式requireInlinePayloadDecision，默认拒绝，认证原实际时间/
+fence/引用/metadata reader/Pin准入与安全cut。所有原whole-image/历史权限继续。
+
+只读记账要求每个INLINE RELEASED owner存在exact APPLIED body10 Source first/POSITION/
+Native54v3/实际activation7，完整frozen owner后态及Floor关系一致；primary Message缺失，
+原terminal的key/locator/stateVersion/hash/closed runtime保持且被Floor覆盖。完整ledger
+反向检查每个APPLIED操作仍有同Source RELEASED owner，不能整行漏失；这不授写者授权。
+当前实际kind2准备/签发/引用与Reader/Pin/retention闭合及原子删除writer仍未接，Source
+positive分支显式pending，Catalog/unused保护入口拒绝以旧宽松规则资格化kind2。未
+减少任何费用、删除数据或提供实际环境激活/保护解除授权。

@@ -2819,3 +2819,12 @@ RETAINED payload、Message STATE、owner STATE、allocated、SDK/读 buffer/历�
 保留原费用。后续 kind2 只能在真实 Source 原子删除 exact primary Message 并转换
 owner RELEASED 后，由原 frozen before/after 同批结算；本步没有该 writer，没有退款。
 旧 binding/checkpoint 中 inline 副本仍保留原历史费用，不由 terminal policy 授新读取权。
+
+
+2026-10-23 body10读路径计费约束：INLINE RELEASED owner的STATE继续按原frozen
+accounting计费；phase不再足以自证合法。只读账务需实际APPLIED tuple10/descriptor7
+first/POSITION/Native54v3及exact retained owner→RELEASED、primary缺失、原terminal
+metadata hash/version/closed-runtime和Floor关系；完整ledger也反查每个APPLIED kind2
+不能遗漏owner。companion9原策略/历史认证仍独立必要，纯codec或声明grant不能授权。
+本步未接positive删除writer，未减少payload/Message/SDK/reader/历史费用；后续仅真实
+同Source原子批次删除并转换owner时，才能由原before-after计费链结算。

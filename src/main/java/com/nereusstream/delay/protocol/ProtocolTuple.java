@@ -74,6 +74,9 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetResourceReclaim() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.BODY_VERSION);
     }
+    public static ProtocolTuple targetInlinePayloadReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.INLINE_BODY_VERSION);
+    }
 
     public long framingVersion() {
         return framingVersion;

@@ -30,7 +30,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
     }
     public TargetExternalEvidenceObjectResource resource(){return resource(input);}
     public ProtocolTuple requiredTuple(){return input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
-            ?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
+            ?TargetResourceReclaimBody.decode(input.canonicalBody()).requiredTuple():ProtocolTuple.targetEvidenceRetirement();}
     public byte[] key(){return key(input.systemMutationId());}
     public static byte[] key(byte[] id){Bytes.requireLength(id,32,"retirement Source mutation ID");return Bytes.concat(new byte[]{TargetKeyCodec.RETIREMENT_SOURCE_HISTORY_TAG,TargetKeyCodec.KEY_FORMAT},id);}
     /** Local data consistency only. The original independent purpose pin is still required for authentication. */
@@ -39,10 +39,13 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final byte[] actor=input.authorIdentity();
         final var policy=proof.chain().getLast().intervals().stream().filter(i->decidedAt.source().compareTo(i.throughInclusive())<=0).findFirst().orElseThrow();
         return policy.grants().stream().filter(g->g.keyVersion()==input.signingKeyVersion()
-                &&g.action()==TargetRetirementAuthorizationHistory.Action.of(input.type())&&Arrays.equals(g.service().canonicalBytes(),actor)).findFirst();
+                &&g.action()==TargetRetirementAuthorizationHistory.Action.of(input.type())&&g.activation().tuple().equals(requiredTuple())
+                &&Arrays.equals(g.service().canonicalBytes(),actor)).findFirst();
     }
+    private int schemaVersion(){return input.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM?1
+            :TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease()?3:2;}
     private byte[] fields(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM?2:1);CanonicalProtobuf.bytes(out,2,input.canonicalEnvelope());
+        CanonicalProtobuf.uint32(out,1,schemaVersion());CanonicalProtobuf.bytes(out,2,input.canonicalEnvelope());
         CanonicalProtobuf.bytes(out,3,decidedAt.canonicalBytes());CanonicalProtobuf.bytes(out,4,proof.canonicalBytes());
     });}
     public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
@@ -54,11 +57,11 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,5,false,"retirement Source history record");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5},"retirement Source history record");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if(version!=1&&version!=2)throw new IllegalArgumentException("unknown retirement Source history schema");
+        if(version<1||version>3)throw new IllegalArgumentException("unknown retirement Source history schema");
         final byte[] frame=QueryCodecSupport.bytes(f.get(1),2);if(frame.length>MAX_ENVELOPE_BYTES)throw new IllegalArgumentException("retirement history frame exceeds bound");
         final var value=new TargetRetirementSourceHistoryRecord(SystemMutation.decodeEnvelope(frame),TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(2),3)),
                 TargetRetirementAuthorizationHistory.PublicProof.decode(QueryCodecSupport.bytes(f.get(3),4)));
-        if((version==2)!=(value.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM))throw new IllegalArgumentException("Source history version/type mismatch");
+        if(version!=value.schemaVersion())throw new IllegalArgumentException("Source history version/type mismatch");
         if(!Arrays.equals(value.digest(),QueryCodecSupport.fixed(f.get(4),5,32)))throw new IllegalArgumentException("Source history checksum mismatch");
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"retirement Source history record");return value;
     }

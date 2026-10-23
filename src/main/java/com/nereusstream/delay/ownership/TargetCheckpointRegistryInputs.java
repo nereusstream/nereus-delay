@@ -30,7 +30,14 @@ public final class TargetCheckpointRegistryInputs {
             java.util.function.Function<TargetCheckpointDependencies.RetryUse,
                     CompletableFuture<RetryPolicySemantic>> retries,
             java.util.function.Function<PayloadProofTrustSetRef,
-                    CompletableFuture<PayloadProofTrustSetSemantic>> trusts) {
+                    CompletableFuture<PayloadProofTrustSetSemantic>> trusts,
+            java.util.function.Function<TargetCheckpointDependencies.RetryUse,
+                    CompletableFuture<com.nereusstream.delay.runtime.RetryPolicyCatalog.Publication>> retryPublications) {
+        public Providers(java.util.function.Function<TargetCheckpointDependencies.ProfileUse,CompletableFuture<ProfileSemanticEnvelope>> profiles,
+                java.util.function.Function<TargetCheckpointDependencies.RetryUse,CompletableFuture<RetryPolicySemantic>> retries,
+                java.util.function.Function<PayloadProofTrustSetRef,CompletableFuture<PayloadProofTrustSetSemantic>> trusts){
+            this(profiles,retries,trusts,null);
+        }
         public Providers {
             Objects.requireNonNull(profiles, "profiles");
             Objects.requireNonNull(retries, "retries");
@@ -51,7 +58,8 @@ public final class TargetCheckpointRegistryInputs {
             Objects.requireNonNull(executor, "executor");
             return new Providers(use -> profiles.resolveAsync(use.reference(), use.source(), timeout,
                     protection, executor), use -> retries.resolveAsync(use.reference(), use.source(), timeout,
-                    protection, executor), reference -> trusts.resolveAsync(reference, timeout, protection, executor));
+                    protection, executor), reference -> trusts.resolveAsync(reference, timeout, protection, executor),
+                    use->retries.resolvePublicationAsync(use.reference(),use.source(),timeout,protection,executor));
         }
     }
 
@@ -67,11 +75,15 @@ public final class TargetCheckpointRegistryInputs {
     public record Turn(Status status, Throwable failure) {}
 
     public record Values(List<ProfileSemanticEnvelope> profiles, List<RetryPolicySemantic> retries,
-            List<PayloadProofTrustSetSemantic> trusts) {
+            List<PayloadProofTrustSetSemantic> trusts,List<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.TerminalPolicyImage> terminalPolicies) {
+        public Values(List<ProfileSemanticEnvelope> profiles,List<RetryPolicySemantic> retries,List<PayloadProofTrustSetSemantic> trusts){
+            this(profiles,retries,trusts,List.of());
+        }
         public Values {
             profiles = List.copyOf(profiles);
             retries = List.copyOf(retries);
             trusts = List.copyOf(trusts);
+            terminalPolicies=List.copyOf(terminalPolicies);
         }
     }
 
@@ -88,6 +100,7 @@ public final class TargetCheckpointRegistryInputs {
     private final List<PayloadProofTrustSetRef> trustUses;
     private final TreeMap<String, ProfileSemanticEnvelope> profiles = new TreeMap<>();
     private final TreeMap<String, RetryPolicySemantic> retries = new TreeMap<>();
+    private final TreeMap<String, com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.TerminalPolicyImage> terminalPolicies=new TreeMap<>();
     private final TreeMap<String, PayloadProofTrustSetSemantic> trusts = new TreeMap<>();
     private CompletableFuture<?> loading;
     private TargetCheckpointDependencies.ProfileUse selectedProfile;
@@ -134,7 +147,8 @@ public final class TargetCheckpointRegistryInputs {
             }
             if (loading == null) {
                 loading = selectedProfile != null ? providers.profiles().apply(selectedProfile)
-                        : retryIndex < retryUses.size() ? providers.retries().apply(retryUses.get(retryIndex))
+                        : retryIndex < retryUses.size() ? providers.retryPublications()==null?providers.retries().apply(retryUses.get(retryIndex))
+                            :providers.retryPublications().apply(retryUses.get(retryIndex))
                         : providers.trusts().apply(trustUses.get(trustIndex));
                 Objects.requireNonNull(loading, "Registry future");
                 requireCurrent();
@@ -157,12 +171,17 @@ public final class TargetCheckpointRegistryInputs {
                 }
                 selectedProfile = null;
             } else if (retryIndex < retryUses.size()) {
-                final var retry = (RetryPolicySemantic) value;
+                final var publication=providers.retryPublications()==null?null:(com.nereusstream.delay.runtime.RetryPolicyCatalog.Publication)value;
+                final var retry = publication==null?(RetryPolicySemantic)value:publication.retry();
                 final var use = retryUses.get(retryIndex);
                 if (!use.reference().matches(retry)) {
                     throw new IllegalStateException("Registry Retry Policy differs from its original use");
                 }
                 charge(retry.canonicalBytes().length);
+                if(publication!=null&&publication.terminal()!=null){
+                    publication.terminal().requireBinding(retry);charge(publication.terminal().canonicalBytes().length);
+                    terminalPolicies.put(Bytes.hex(use.canonicalBytes()),new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.TerminalPolicyImage(use,publication.terminal()));
+                }
                 retries.put(Bytes.hex(use.reference().canonicalBytes()), retry);
                 retryIndex++;
             } else {
@@ -190,7 +209,7 @@ public final class TargetCheckpointRegistryInputs {
         try {
             requireCurrent();
             return Optional.of(new Values(List.copyOf(profiles.values()), List.copyOf(retries.values()),
-                    List.copyOf(trusts.values())));
+                    List.copyOf(trusts.values()),List.copyOf(terminalPolicies.values())));
         } catch (ReadIncompleteException incomplete) {
             throw incomplete;
         } catch (RuntimeException invalid) {

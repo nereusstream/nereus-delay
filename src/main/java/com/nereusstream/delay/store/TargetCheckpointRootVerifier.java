@@ -381,6 +381,9 @@ public final class TargetCheckpointRootVerifier {
         default void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
             if(proof.dependencies().hasLifecycleInputs())throw new IllegalStateException("image authority lacks original Target lifecycle authentication");
         }
+        default void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+            if(!snapshot.terminalPolicies().isEmpty())throw new IllegalStateException("image authority lacks original terminal-policy publication authentication");
+        }
     }
     /** Preserves all existing image obligations and adds mandatory original g8 proof authentication. */
     public static ImageAuthority withLifecycleAuthority(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
@@ -390,6 +393,22 @@ public final class TargetCheckpointRootVerifier {
             public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireAuthenticated(manifest,proof,snapshot);}
             public void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
                 protection.run();snapshot.authenticateLifecycle(proof.dependencies(),limits,lifecycle,Objects.requireNonNull(budgets.get()),protection);protection.run();
+            }
+            public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+                original.requireTerminalPoliciesAuthenticated(manifest,proof,snapshot);
+            }
+        };
+    }
+
+    /** Keeps the original whole-image and lifecycle authority; adds every original retry/content/use check. */
+    public static ImageAuthority withTerminalPolicyAuthority(ImageAuthority original,com.nereusstream.delay.runtime.RetryPolicyCatalog policies,
+            java.util.function.Supplier<BoundedReadBudget> budgets,TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
+        Objects.requireNonNull(original);Objects.requireNonNull(policies);Objects.requireNonNull(budgets);Objects.requireNonNull(limits);Objects.requireNonNull(protection);
+        return new ImageAuthority(){
+            public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireAuthenticated(manifest,proof,snapshot);}
+            public void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireLifecycleAuthenticated(manifest,proof,snapshot);}
+            public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+                protection.run();snapshot.authenticateTerminalPolicies(proof.dependencies(),limits,Objects.requireNonNull(budgets.get()),policies,protection);protection.run();
             }
         };
     }
@@ -513,6 +532,7 @@ public final class TargetCheckpointRootVerifier {
         }
         private UnusedReserveCopy authenticateUnusedReserveCopy(com.nereusstream.delay.protocol.SystemMutation input,UnusedReserveCopy currentFloor){
             final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(body.inlinePayloadRelease())throw new IllegalArgumentException("unused reserve image qualification cannot authorize payload deletion");
             requireCurrent();
             final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
             final var dependencies=audited.ledger().dependencies();
@@ -752,6 +772,8 @@ public final class TargetCheckpointRootVerifier {
         authority.requireAuthenticated(manifest, verified.ledger(), verified.snapshot());
         protection.run();
         authority.requireLifecycleAuthenticated(manifest,verified.ledger(),verified.snapshot());
+        protection.run();
+        authority.requireTerminalPoliciesAuthenticated(manifest,verified.ledger(),verified.snapshot());
         protection.run();
         return verified;
     }

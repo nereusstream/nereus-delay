@@ -254,6 +254,8 @@ public final class TargetRecordAccounting {
                         TargetQuotaPayloadOwner.decodeForStore(key, payload, scope.shard(), scope.tenantScope());
                 final var descriptor = descriptor(owner.primaryIdentity());
                 descriptor.requirePayloadOwner(owner);
+                TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,overlay,scope,lineage,
+                        root.owner(),owner,operation);
                 result = new Charge(
                         descriptor,
                         resources(TargetQuotaMessageRecords.payloadOwner(owner, key, payload)
