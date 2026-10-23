@@ -497,6 +497,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Object ownerStateLock = new Object();
     private WorkClassExecutionRegistry workClasses;
     private TargetReservationGcRuntime maintenanceRuntime;
+    private volatile TargetResourceReclaimMaintenance resourceReclaimMaintenance;
+    void registerResourceReclaimMaintenance(TargetResourceReclaimMaintenance original){
+        if(resourceReclaimMaintenance!=null)throw new IllegalStateException("Source already has its original Native GC owner");
+        resourceReclaimMaintenance=Objects.requireNonNull(original);
+    }
     private volatile OwnerLease lease;
     private volatile boolean fenced;
     private long lastOwnerTime = -1;
@@ -628,6 +633,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         public void requireClosedInline(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInline(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
+        }
+        public java.util.Optional<com.nereusstream.delay.adapter.PayloadObjectDelete.Observation> objectDeletion(){
+            requireCurrent();final var original=runtime.resourceReclaimMaintenance;
+            return original==null?java.util.Optional.empty():original.objectDeletionFor(entry.mutation());
         }
         public void requireClosedObject(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
             readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedObject(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
@@ -1640,7 +1649,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final boolean unused=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
         final boolean inline=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim(),clock);
         final boolean nativeRetained=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim(),clock);
-        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained);
+        final boolean object=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetObjectPayloadReclaim(),clock);
+        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline,nativeRetained,object);
     }
     synchronized ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
@@ -1679,10 +1689,39 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new TargetSourceAuthorityPreparation.InputUnavailable("original GC managed publication Catalog is unavailable");
             return actual;
         }
-        com.nereusstream.delay.protocol.TargetResourceReclaimBody selectBody(byte[] root,long retryUntil,BoundedReadBudget reads,Runnable held){
+        com.nereusstream.delay.protocol.TargetResourceReclaimBody selectBody(byte[] root,long retryUntil,BoundedReadBudget reads,BoundedReadBudget nativeReads,Runnable held){
             requireCurrent();held.run();
-            return catalog().selectNativeReclaimOperations(runtime.scope,runtime.lineage,root,retryUntil,
-                    candidates.stream().map(com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate::operation).toList(),reads,()->{requireCurrent();held.run();});
+            final var operations=new java.util.ArrayList<com.nereusstream.delay.protocol.TargetResourceReclaimBody.Operation>();
+            for(var candidate:candidates){
+                if(candidate.needsObjectProof()){
+                    synchronized(runtime){
+                        runtime.requireGcOwner(clock);
+                        final var origin=runtime.backend.guardedRead(nativeReads,reader->{
+                            final var expected=candidate.objectSelection().expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
+                            if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes()))throw new IllegalStateException("OBJECT selected owner changed before original Native acceptance read");
+                            final var value=com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.collect(reader,expected);held.run();requireCurrent();return value;
+                        },runtime.workerReads(clock));
+                        operations.add(candidate.withNativeOrigin(origin).operation());
+                    }
+                }else operations.add(candidate.operation());
+            }
+            return catalog().selectNativeReclaimOperations(runtime.scope,runtime.lineage,root,retryUntil,operations,reads,()->{requireCurrent();held.run();});
+        }
+        void requirePendingObjectProvider(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,BoundedReadBudget reads,Runnable held){
+            requireCurrent();held.run();recovery.requirePendingObject(pending);
+            synchronized(runtime){
+                runtime.requireGcOwner(clock);
+                runtime.backend.guardedRead(reads,reader->{
+                    final var body=pending.body();final byte[] raw=reader.get(ColumnFamily.META,pending.key());
+                    if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),pending.canonicalBytes()))
+                        throw new IllegalStateException("live Native OBJECT intent changed before provider operation");
+                    com.nereusstream.delay.runtime.TargetObjectPayloadReclaim.requirePending(reader,java.util.List.of(),pending,reader.aggregate().mutation());
+                    final var applied=com.nereusstream.delay.runtime.TargetObjectPayloadReclaim.requireClosed(reader.auditLedger(),pending.intent(),recovery.objectPolicies(),true,reader::requireWithinElapsedBudget);
+                    if(!pending.appliedAt().equals(applied))throw new IllegalStateException("live OBJECT lacks original APPLIED pending decision");
+                    held.run();requireCurrent();return Boolean.TRUE;
+                },runtime.workerReads(clock));
+            }
         }
         void requireClosedDraft(SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
                 BoundedReadBudget reads,Runnable held){

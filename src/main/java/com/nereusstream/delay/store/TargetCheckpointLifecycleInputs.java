@@ -62,12 +62,16 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
         default void requireObjectPayloadDecision(HistoryImage input,TargetResultRecord originalFirst){
             throw new IllegalStateException("original lifecycle authority lacks actual Native OBJECT decision authentication");
         }
+        /** Historical accepted creation semantics and exact original ownership; raw DTOs/hash joins do not authenticate it. */
+        default void requireObjectPayloadAcceptance(HistoryImage input,TargetResultRecord originalFirst,TargetObjectPayloadOrigin origin){
+            throw new IllegalStateException("original lifecycle authority lacks Native OBJECT accepted-creation authentication");
+        }
         /** Original record/query/Source/Pin admission and immutable retention/allocation provenance, not today's policy. */
         default void requireNativeRetainedDecision(HistoryImage input,TargetResultRecord originalFirst){
             throw new IllegalStateException("original lifecycle authority lacks Native retained-reclaim decision authentication");
         }
     }
-    public boolean requiresObjectPayloadCapability(){return histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+    public boolean requiresObjectPayloadCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsObjectPayloadReclaim())||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
             &&TargetResourceReclaimBody.decode(v.image().canonicalBody()).objectPayloadReclaim());}
     public TargetCheckpointLifecycleInputs{
         activations=ordered(activations,TargetProtocolActivationRecord::key);retirements=ordered(retirements,TargetEvidenceRetiringRecord::key);
@@ -232,6 +236,11 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&TargetResourceReclaimBody.decode(input.image().canonicalBody()).objectPayloadReclaim()){
                 if(!activation.body().payload().descriptor().supportsObjectPayloadReclaim())throw new IllegalStateException("OBJECT decision lacks its distinct prior reader capability");
                 com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,TargetResourceReclaimBody.decode(input.image().canonicalBody()));
+                final var object=TargetResourceReclaimBody.decode(input.image().canonicalBody()).objectOperation();
+                if(object.nativeOrigin()!=null){
+                    com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.requireActual(d,object.expected(),object.nativeOrigin());
+                    authority.requireObjectPayloadAcceptance(input,first,object.nativeOrigin());after(budget,guard);
+                }
                 authority.requireObjectPayloadDecision(input,first);after(budget,guard);
             }
             grants.put(Bytes.hex(input.image().systemMutationId()),grant);after(budget,guard);

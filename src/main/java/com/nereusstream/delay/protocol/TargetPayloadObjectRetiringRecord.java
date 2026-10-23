@@ -59,8 +59,10 @@ public record TargetPayloadObjectRetiringRecord(SystemMutation intent,TargetQuot
         final var group=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(body.get(9),15),TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES,1,false,"one OBJECT intent");
         QueryCodecSupport.requireNumbers(group,new int[]{1},"one OBJECT intent");
         final var operation=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(group.getFirst(),1),TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES,9,false,"OBJECT intent operation");
-        QueryCodecSupport.requireNumbers(operation,new int[]{1,2,3,4,5,6,7,8,9},"OBJECT intent operation");
-        if(QueryCodecSupport.uint32(operation.get(0),1)!=1||QueryCodecSupport.uint32(operation.get(1),2)!=4||QueryCodecSupport.uint32(operation.get(2),3)!=1)
+        final int schema=QueryCodecSupport.uint32(operation.get(0),1);
+        if(schema!=1&&schema!=2)throw new IllegalArgumentException("unknown OBJECT intent operation schema");
+        QueryCodecSupport.requireNumbers(operation,schema==1?new int[]{1,2,3,4,5,6,7,8,9}:new int[]{1,2,3,4,5,6,7,8,10},"OBJECT intent operation");
+        if(QueryCodecSupport.uint32(operation.get(1),2)!=4||QueryCodecSupport.uint32(operation.get(2),3)!=1)
             throw new IllegalArgumentException("only a nonrecursive original OBJECT intent can be retained");
     }
 }

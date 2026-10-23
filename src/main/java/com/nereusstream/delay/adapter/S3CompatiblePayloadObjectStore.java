@@ -259,12 +259,19 @@ public final class S3CompatiblePayloadObjectStore {
      * Missing versions, conflicts and transport ambiguity throw without creating a success witness.
      */
     public PayloadObjectDelete.Observation deleteExact(final PayloadObjectDelete.Request request) {
+        return backend.deleteExact(requireDeleteRequest(request),request);
+    }
+
+    /** The Native owner supplies its exact held guard; it is rechecked before every ownership attempt. */
+    public PayloadObjectDelete.Observation deleteExact(final PayloadObjectDelete.Request request,final Runnable originalProtection) {
+        Objects.requireNonNull(originalProtection).run();
+        return backend.deleteExact(requireDeleteRequest(request),request,originalProtection);
+    }
+    private String requireDeleteRequest(final PayloadObjectDelete.Request request){
         Objects.requireNonNull(request);
-        if (credentialGate == null || !profile.ref().equals(request.profile())
-                || client.followRedirects() != HttpClient.Redirect.NEVER) {
+        if(credentialGate==null||!profile.ref().equals(request.profile())||client.followRedirects()!=HttpClient.Redirect.NEVER)
             throw new IllegalStateException("exact payload deletion requires its original Profile credential lease");
-        }
-        return backend.deleteExact(identityFor(request.reference()), request);
+        return identityFor(request.reference());
     }
 
     /**
@@ -451,8 +458,12 @@ public final class S3CompatiblePayloadObjectStore {
         }
 
         @Override
-        public PayloadObjectDelete.Observation deleteExact(
-                final String objectIdentity, final PayloadObjectDelete.Request request) {
+        public PayloadObjectDelete.Observation deleteExact(final String objectIdentity,final PayloadObjectDelete.Request request){
+            if(credentialGate==null)throw new IllegalStateException("OBJECT deletion requires its original credential lease");
+            return deleteExact(objectIdentity,request,credentialGate::requireBeforeProviderCall);
+        }
+        private PayloadObjectDelete.Observation deleteExact(
+                final String objectIdentity, final PayloadObjectDelete.Request request,final Runnable originalProtection) {
             if (!profile.ref().equals(request.profile()) || !objectIdentity.equals(identityFor(request.reference()))
                     || credentialGate == null) {
                 throw new IllegalArgumentException("exact payload deletion changed adapter identity or credential custody");
@@ -463,7 +474,8 @@ public final class S3CompatiblePayloadObjectStore {
             final String key = remoteObjectKey(objectIdentity);
             // If-Match on DELETE checks the current version in S3. Independently read and hash the
             // selected immutable version; the versionId query is what prevents deleting another version.
-            verifyDeleteCandidate(key, objectIdentity, reference, version, etag);
+            verifyDeleteCandidate(key, objectIdentity, reference, version, etag,originalProtection);
+            originalProtection.run();
             final HttpResponse<Void> response = send(
                     "DELETE", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(),
                     Map.of("if-match", etag), version, HttpResponse.BodyHandlers.discarding());
@@ -482,10 +494,11 @@ public final class S3CompatiblePayloadObjectStore {
         }
 
         private void verifyDeleteCandidate(final String key, final String identity,
-                final PayloadReference reference, final String version, final String etag) {
+                final PayloadReference reference, final String version, final String etag,final Runnable originalProtection) {
             if (reference.length() > objectStore.maxObjectBytes()) {
                 throw new IllegalArgumentException("selected payload exceeds its original Profile maximum");
             }
+            originalProtection.run();
             final HttpResponse<InputStream> response = send(
                     "GET", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(),
                     Map.of("if-match", etag), version, HttpResponse.BodyHandlers.ofInputStream());
@@ -506,7 +519,7 @@ public final class S3CompatiblePayloadObjectStore {
                 long length = 0;
                 int count;
                 while ((count = input.read(buffer)) != -1) {
-                    length = Math.addExact(length, count);
+                    originalProtection.run();length = Math.addExact(length, count);
                     if (length > reference.length()) {
                         throw new IllegalStateException("S3 deletion candidate exceeds its exact committed length");
                     }

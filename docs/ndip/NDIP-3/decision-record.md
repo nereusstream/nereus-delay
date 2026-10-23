@@ -1571,3 +1571,21 @@ retained/fence；Native56记录pending，保收费；独立Source确认消费act
 视为实现完成。descriptor1..9字节及最大构造版本仍9，descriptor10尚未登记，tuple13不能
 取得实际activation。实现完整写入编排后再一次性开放对应reader能力；不提早广告或扩大
 默认输入预算。未提交reservation、lost-response provider历史及真实集成验证仍OPEN。
+
+
+### 2026-10-23：采用D复用原认证Native接受事实，完成committed OBJECT维护编排接线
+
+主会话明确选择D：原完整proof/Profile/tenant/trust/Source权限经合格writer验证后，同批
+COMMITTED NV38/owner/Message/首结果/POS是既有持久接受事实；无需GC重取或重签上传proof。
+body13旧operation schema1/field9字节不动，新schema2/field10完整区分PREPARE_COMMIT与
+DIRECT_SCHEDULE，实际同视图重关联全部保留依赖，不能以proofId/公开DTO代替权威。
+DIRECT_SCHEDULE另要求原Schedule接受语义和原删除所有权；缺失保持保留，不伪造Prepare。
+Root在原完整image/Profile/历史语义认证后私有构造opaque receipt；Source/cold各自实际重核
+与权利认证。旧key过期/轮换不抹销合法已接受事实，不重建旧签名/key版本。
+
+实际发现→签发→持久intent→当前Floor含pending/Pin/live→原provider条件I/O→hot保管→
+Source确认生产者已接原maintenance/I/O/Source链，descriptor10登记精确operation2/origin1
+向量；旧1..9默认及字节保持，无Native57/NV38扩展，现有Native56/54v6/lifecycle6/comp12
+完整envelope不再升版。provider前真实durable operation-history资格仍默认拒绝；UNKNOWN/
+late I/O/local stop不释放全局义务。此项取代原raw-proof持久载体等待，不替代真实外部集成，
+未提交reservation、其它退休种类及全部集中/Broker/恢复/迁退验收继续OPEN，无完成提升。

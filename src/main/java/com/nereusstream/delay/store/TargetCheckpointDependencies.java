@@ -140,6 +140,8 @@ public final class TargetCheckpointDependencies {
     private final List<ProfileRef> profiles;
     private final List<ProfileUse> profileUses;
     private final List<TargetScheduleBinding> bindings;
+    private final Map<String,TargetScheduleBinding> bindingIndex;
+    private final Map<String,com.nereusstream.delay.runtime.TargetReservationRecord> reservationProjections;
     private final List<RetryPolicyRef> retryPolicies;
     private final List<RetryUse> retryUses;
     private final List<PayloadProofTrustSetRef> trustSets;
@@ -172,7 +174,7 @@ public final class TargetCheckpointDependencies {
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
         profileUses = List.copyOf(builder.profileUses.values());
-        bindings = List.copyOf(builder.bindings.values());
+        bindings = List.copyOf(builder.bindings.values());bindingIndex=Map.copyOf(builder.bindings);reservationProjections=Map.copyOf(builder.reservationProjections);
         retryPolicies = List.copyOf(builder.retries.values());
         retryUses = List.copyOf(builder.retryUses.values());
         trustSets = List.copyOf(builder.trusts.values());
@@ -373,6 +375,8 @@ public final class TargetCheckpointDependencies {
         if(!used.equals(owners.keySet()))throw new IllegalStateException("recovery proof lacks its exact APPLIED signed Outcome image");
     }
 
+    public TargetScheduleBinding binding(byte[] digest){return bindingIndex.get(Bytes.hex(digest));}
+    public com.nereusstream.delay.runtime.TargetReservationRecord reservationProjection(byte[] key){return reservationProjections.get(Bytes.hex(key));}
     public List<ProfileRef> profiles() { return profiles; }
     public List<ProfileUse> profileUses() { return profileUses; }
     public TargetScheduleBinding requireBinding(TargetMessageLocator locator) {
@@ -895,6 +899,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new TreeMap<>();
         private final Map<String, ProfileUse> profileUses = new TreeMap<>();
         private final Map<String, TargetScheduleBinding> bindings = new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.runtime.TargetReservationRecord> reservationProjections=new TreeMap<>();
         private final Map<String, RetryPolicyRef> retries = new TreeMap<>();
         private final Map<String, RetryUse> retryUses = new TreeMap<>();
         private final Map<String, PayloadProofTrustSetRef> trusts = new TreeMap<>();
@@ -928,7 +933,7 @@ public final class TargetCheckpointDependencies {
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
             prior.profileUses.forEach(this::profileUse);
-            prior.bindings.forEach(this::binding);
+            prior.bindings.forEach(this::binding);reservationProjections.putAll(prior.reservationProjections);
             prior.retryPolicies.forEach(this::retry);
             prior.retryUses.forEach(this::retryUse);
             prior.trustSets.forEach(this::trust);
@@ -1037,6 +1042,9 @@ public final class TargetCheckpointDependencies {
             outcomeResults.put(Bytes.hex(first.key()), first);
         }
 
+        void reservation(byte[] key,com.nereusstream.delay.runtime.TargetReservationRecord record){
+            if(reservationProjections.putIfAbsent(Bytes.hex(key),record)!=null)throw new IllegalStateException("duplicate physical Native reservation projection");
+        }
         void binding(TargetScheduleBinding binding) {
             bindings.put(Bytes.hex(binding.digest()), binding);
             profileUse(new ProfileUse(binding.intent().profile(), binding.bindingSource()));

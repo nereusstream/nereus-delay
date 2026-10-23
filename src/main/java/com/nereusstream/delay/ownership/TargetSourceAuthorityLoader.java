@@ -269,17 +269,19 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         });
         final boolean authorized=selected!=null&&mutation.verifySignature(selected.writerKey());
         if(authorized&&source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim Source/Store context is unavailable");
-        if(input.objectDeletion()!=null){
+        final var objectDeletion=input.objectDeletion()!=null?input.objectDeletion():
+                source!=null&&body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm?source.objectDeletion().orElse(null):null;
+        if(objectDeletion!=null){
             if(!(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm))throw new IllegalArgumentException("hot OBJECT observation supplied for another Source action");
-            input.objectDeletion().requireConfirmation(body);
-            final var request=input.objectDeletion().request();held.bytes=Math.addExact(held.bytes,request.expectedOwner().canonicalBytes().length+request.proof().canonicalBytes().length+request.intentAt().canonicalBytes().length+256L);
+            objectDeletion.requireConfirmation(body);
+            final var request=objectDeletion.request();held.bytes=Math.addExact(held.bytes,request.expectedOwner().canonicalBytes().length+request.originBytes()+request.intentAt().canonicalBytes().length+256L);
         }
         final Runnable reclaimHeld=()->{
             held.requireCurrent();
             if(body.objectPayloadReclaim()){
                 held.original.requireObjectPayloadIndependent(source);
                 if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm){
-                    if(input.objectDeletion()!=null)input.objectDeletion().requireConfirmation(body);
+                    if(objectDeletion!=null)objectDeletion.requireConfirmation(body);
                     else held.original.requireObjectPayloadHistoricalConfirmation(source);
                 }
             }else if(body.nativeRetainedReclaim())held.original.requireNativeRetainedIndependent(source);

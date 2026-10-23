@@ -596,9 +596,21 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         source.requireReplayedFloor(body.floor());
         return captureDeletionRecoveryProtection(source.entry().mutation(),images,reads,maximumBytes,()->{source.requireCurrent();current.run();},source);
     }
+    /** The current full Floor must actually contain the original pending intent before any provider ownership. */
+    public NativeRecoveryProtection capturePendingObjectProviderProtection(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current){
+        final var result=captureDeletionRecoveryProtection(intent.intent(),images,reads,maximumBytes,current,null,intent);
+        result.requirePendingObject(intent);return result;
+    }
     private NativeRecoveryProtection captureDeletionRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current,
             com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
+        return captureDeletionRecoveryProtection(input,images,reads,maximumBytes,current,source,null);
+    }
+    private NativeRecoveryProtection captureDeletionRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current,
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source,
+            com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pendingProvider){
         final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
         if((!body.objectPayloadReclaim()&&!body.inlinePayloadRelease()&&!body.nativeRetainedReclaim())||maximumBytes<=0||maximumBytes==Long.MAX_VALUE||reads.maxBytes()==Long.MAX_VALUE)
             throw new IllegalArgumentException("inline recovery requires its explicit original finite input/read window");
@@ -649,6 +661,10 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             if(order<0)source.requireReplayedFloor(floor);
             else if(floorCopy.released()==null||!Arrays.equals(floorCopy.released().source().canonicalBytes(),at.canonicalBytes()))
                 throw new IllegalStateException("advanced inline Floor lacks this exact actual APPLIED Source");
+        }else if(pendingProvider!=null){
+            if(!(floorCopy instanceof TargetCheckpointRootVerifier.ObjectPayloadCopy objectCopy)
+                    ||!Arrays.equals(pendingProvider.intent().canonicalEnvelope(),input.canonicalEnvelope()))throw new IllegalArgumentException("provider stage changed its original pending OBJECT intent");
+            objectCopy.requirePending(pendingProvider);
         }else if(!floor.equals(declared))throw new IllegalStateException("fresh inline signing requires exact current Floor");
         current.run();final var after=readEvidenceState(reads);
         if(before.versionId!=after.versionId||!Arrays.equals(before.encoded,after.encoded)||!samePin(pin,pinStore.readForProtection(reads)))
@@ -757,7 +773,16 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             if(replayDecision!=null&&!replayDecision.equals(mutation))throw new IllegalStateException("Native replay changed original APPLIED mutation stamp");
         }
         public boolean inlinePayload(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.InlinePayloadCopy;}
+        public void requirePendingObject(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent){
+            requireHeldFor(owner,intent.intent());
+            if(!objectPayload())throw new IllegalStateException("pending OBJECT lacks its separately qualified current Floor");
+            ((TargetCheckpointRootVerifier.ObjectPayloadCopy)deletionCopies.getFirst()).requirePending(intent);
+        }
         public boolean objectPayload(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.ObjectPayloadCopy;}
+        public TargetCheckpointRootVerifier.ObjectAcceptance objectAcceptance(){
+            if(!objectPayload())throw new IllegalStateException("actual OBJECT recovery protection required");
+            return ((TargetCheckpointRootVerifier.ObjectPayloadCopy)deletionCopies.getFirst()).acceptance();
+        }
         public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> objectPolicies(){return ((TargetCheckpointRootVerifier.ObjectPayloadCopy)deletionCopies.getFirst()).policies();}
         public boolean nativeRetained(){return !deletionCopies.isEmpty()&&deletionCopies.getFirst() instanceof TargetCheckpointRootVerifier.NativeRetainedCopy;}
         public List<TargetCheckpointRootVerifier.InlinePayloadCopy> inlineCopies(){return deletionCopies.stream().filter(c->c instanceof TargetCheckpointRootVerifier.InlinePayloadCopy).map(c->(TargetCheckpointRootVerifier.InlinePayloadCopy)c).toList();}

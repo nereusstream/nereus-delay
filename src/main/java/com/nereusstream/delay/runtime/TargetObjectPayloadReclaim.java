@@ -15,6 +15,7 @@ public final class TargetObjectPayloadReclaim {
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT lifecycle body required");
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,body);
+        if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(d,body.objectOperation().expected(),body.objectOperation().nativeOrigin());
         final var first=d.resultRecord(systemKey(input));
         final boolean applied=first!=null&&first.appliedFirst();
         if(applied){
@@ -52,6 +53,7 @@ public final class TargetObjectPayloadReclaim {
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT stage required");
         TargetInlinePayloadReclaim.requireCurrent(reader,body,policies,current);
+        if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(reader,List.of(),body.objectOperation().expected(),body.objectOperation().nativeOrigin(),reader.aggregate().mutation());
         final var operation=body.objectOperation();
         final byte[] key=TargetPayloadObjectRetiringRecord.key(operation.expected().messageId());
         final byte[] raw=reader.get(ColumnFamily.META,key);
@@ -70,6 +72,7 @@ public final class TargetObjectPayloadReclaim {
         final var body=record.body();record.appliedAt().requireAtOrBefore(frontier);
         requireFirst(view,overlay,record.intent(),record.appliedAt(),frontier);
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,body,frontier);
+        if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(view,overlay,body.objectOperation().expected(),body.objectOperation().nativeOrigin(),frontier);
         requirePrimary(view,overlay,body.objectOperation(),frontier);
         requireTerminal(view,overlay,body.objectOperation(),frontier).mutation().requireCoveredByFloor(body.floor());
     }
@@ -79,6 +82,7 @@ public final class TargetObjectPayloadReclaim {
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
         if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT Source decision required");
         TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,body,frontier);
+        if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(view,overlay,body.objectOperation().expected(),body.objectOperation().nativeOrigin(),frontier);
         final var selected=body.objectOperation();
         requireTerminal(view,overlay,selected,frontier).mutation().requireCoveredByFloor(body.floor());
         final var expected=selected.expected();

@@ -5500,18 +5500,25 @@ checkpoint和full image都识别精确合法后态及已结算链；旧Source截
 
 ### 2026-10-23 Native OBJECT Source core: reserved body13 / kind4 / Native56
 
-This is the typed Source/recovery implementation, not an admitted OBJECT writer capability.
-Descriptor constructors/decoders still accept only1..9, their canonical bytes/native maximum55
-remain unchanged, and no actual tuple13 activation can currently be installed. The complete
-OBJECT discovery/signing/provider-maintenance integration must land before descriptor10 is
-registered. Old Action3/inline/kind8 permissions do not confer OBJECT authority.
+The committed OBJECT maintenance chain now includes bounded discovery, Native-origin preparation,
+signing, the original provider I/O owner, hot witness custody and Source confirmation production.
+Descriptor10 registers tuple13, Native maximum56, lifecycle6/companion12 and the exact operation
+schema2/origin schema1 contract. Its version vector appends fields30=Native56 schema1,
+31=24MiB intent ceiling,32=maximum OBJECT intent operation schema2,33=Native origin schema1.
+Descriptors1..9 retain their exact bytes and maxima; the default constructor remains descriptor5.
+Registration is not actual activation, deployment qualification or production authority.
+Old Action3/inline/kind8 permissions do not confer OBJECT authority.
 
 Type14 retains its unchanged envelope and common fields1/2/3/9..15. New body13 uses
 ProtocolTuple(1,1,SYSTEM_MUTATION,1,13), exactly one kind4 operation per decision:
 - action1 intent fields1 schema1,2 kind4,3 action1,4 complete frozen RETAINED committed
   OBJECT TargetQuotaPayloadOwner,5 current TargetMessageLocator,6 nonzero uint64 stateVersion,
   7 exact primary canonical SHA256,8 exact terminal canonical SHA256,9 complete original
-  CanonicalPayloadCommitProof. All owner/Message/tenant/reservation/Profile/immutable version/
+  CanonicalPayloadCommitProof. This existing operation schema1/field9 is unchanged and canonically
+  decodes the complete original proof; field9 is never reinterpreted as a reference or digest.
+  New D intent operation schema2 retains fields2..8, omits field9 and adds field10 containing the
+  complete TargetObjectPayloadOrigin schema1 below. Exactly one explicitly tagged origin is required.
+  All owner/Message/tenant/reservation/Profile/immutable version/
   etag/length/hash/proof identities correlate. Original signatures/publication/use still need
   independent authentication. Body field16 is mandatory original retained/fence SourceFacts1,
   with its original8MiB total bound; the full intent body has its own24MiB bound.
@@ -5542,15 +5549,74 @@ new-frame ceiling. Old schemas1..5 retain their exact prior byte rules. Lifecycl
 companion schema12 encode the existing lifecycle fields with full original intent/confirmation
 Source history; native inventory includes Native56. Old lifecycle/companion bytes remain unchanged.
 Original independently pinned Action3 history, actual activation/reader set, full Floor/live/Pin
-closure, original policy/Source facts, reservation/commit proof and actual provider/reader admission
+closure, original policy/Source facts, authenticated Native acceptance or full original commit proof, and actual provider/reader admission
 remain mandatory. Normal/cold/point accounting recognizes both pending and lawful released
 successors; no Broker pull of truncated original retained/fence input is substituted.
 
 The Source loader accepts a real non-deserializable PayloadObjectDelete.Observation and checks
-its full owner/proof/intent and both response hashes. When it is absent, a separate existing held
+its full owner/explicit origin/intent and both response hashes. When it is absent, a separate existing held
 provider-history check must independently authenticate the exact earlier provider operation;
 it defaults to rejection. Actual OBJECT admission is separately held/revalidated across commit.
 Image and original lifecycle authorities also default-deny this distinct purpose. Raw absence,
 credential/Profile flags, an embedded proof key or serialized response digest do not prove success.
-Discovery/producer maintenance, actual provider invocation/retry/UNKNOWN custody, reader capability
-activation, uncommitted reservations and centralized/Broker/recovery validation remain required.
+Actual deployment admission/activation and durable provider-operation-history qualification,
+uncommitted reservations and centralized/Broker/recovery validation remain required.
+
+
+#### Native OBJECT acceptance origin (D, operation schema2 field10)
+
+TargetObjectPayloadOrigin schema1 fields:1 schema1,2 provenance (PREPARE_COMMIT=1,
+DIRECT_SCHEDULE=2),3 complete original TargetScheduleBinding,4 complete original accepted
+COMMAND first,5 its complete original POSITION_COMMAND. PREPARE_COMMIT additionally requires
+6 complete COMMITTED NV38,7 original successful Prepare COMMAND first,8 its POSITION_COMMAND;
+DIRECT_SCHEDULE forbids fields6..8 and never fabricates a reservation. Unknown branches/fields,
+noncanonical bytes and a different shape reject. The origin shares the original24MiB intent
+ceiling; complete signed intent/facts must still fit the existing held input allowance.
+
+Actual guarded reads and the complete physical image inventory join both identical NV38 primary/
+lookup rows, full Prepare/anchor/reservation identity, immutable first COMMITTED mutation and its
+first/POSITION, full binding and exact owner/PayloadReference/Profile reference/version/etag/length/
+SHA256/reservation/proofId/tenant/lineage. First creation must be APPLIED/SCHEDULED generation0,
+stateVersion1/statusSCHEDULED; an ALREADY_COMMITTED retry cannot substitute. Prepare is the
+original APPLIED/OK with no Message result. COMMAND first uses the frozen Target owner/accounting;
+POSITION independently uses the actual Source SHARD descriptor/accounting. The retained owner
+stamp is later than or equal to creation and does not replace the Commit stamp. DIRECT_SCHEDULE
+joins its own complete original Schedule and first/APPLIED/POSITION/frame binding.
+
+These public bytes only project Native facts. Original Root/image authority must independently
+authenticate historical accepted-source writer/tenant/trust/Profile semantics; the exact full object
+Profile semantic must be in that image. DIRECT_SCHEDULE additionally needs original deletion
+ownership, not merely object import/use rights. Unsupported/missing/unknown origin or original
+semantics remains retained. Root alone mints non-deserializable ObjectAcceptance via its private
+constructor after those actual joins/authentication. It retains only immutable owner/origin facts,
+not an image/Owner/loan or today's deletion rights. Source independently rechecks actual Native
+rows and reacquires all current retirement rights; cold uses the same actual retained joins and
+explicit original lifecycle acceptance authentication, default-deny for an old authority.
+
+D attests the qualified writer's original acceptance. It does not reconstruct the upload signature
+or signing-key version, assert that the old proof is unexpired now, or revoke accepted creation
+because of later key rotation/expiry. No Native57/NV38 expansion, new mutable acceptance ledger,
+compact substitute or Broker reread after truncation is introduced. Original dependencies stay
+retained and charged. Native56/54/lifecycle/companion outer layouts and numbers above are unchanged.
+
+Provider Request accepts the opaque Root receipt for D; it cannot mint one from field10 bytes.
+Its digest uses domain `nereus-delay-native-payload-delete-accepted-origin-request` + NUL, then
+lp32(exact resource canonical bytes),lp32(full frozen owner),lp32(full origin),lp32(intent stamp).
+Schema1 keeps its existing request constructor and `nereus-delay-native-payload-delete-request`
+preimage unchanged. Actual hot confirmation compares the full original origin/owner/intent and
+both provider response hashes; a serialized origin or hash does not create a hot witness.
+
+The original bounded maintenance owner scans kinds7/8, signs intent and requires the actual current
+Floor to contain exact APPLIED pending Native56 before provider I/O; all Pins/live Native and real
+reader/writer admission still hold. Only this exact pending-provider stage may use an advanced
+Floor; fresh signing still requires the exact current Floor. Original guards run before GET/DELETE
+and during streaming. Actual204 custody is published before later signing/final-guard failures;
+confirmation retries reuse that hot observation rather than delete again. Source loader obtains it
+from the same original maintenance owner and independently acquires its Source protection.
+
+Before irreversible I/O the original deployment must qualify durable exact provider-operation
+history across lost responses/process/Owner/epoch/local-close/late I/O. Missing capability rejects
+before DELETE; absence/404/SDK exit never substitutes success. A local stop ends only exited local
+loans; pending Native56/charges and global Source/Pin/reader/history duties continue. Original held,
+hot, full signing and image windows remain finite and shared without larger configuration defaults.
+This is implementation/compile scope only, not actual provider-history deployment or recovery proof.

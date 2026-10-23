@@ -116,7 +116,8 @@ public final class TargetWorkerShardRuntime
                 || systemWriterBackends.values().stream().noneMatch(retained -> retained == writer)) {
             throw new IllegalStateException("Native GC requires the original admitted Source writer and one maintenance owner");
         }
-        resourceReclaim = Objects.requireNonNull(original);
+        target.registerResourceReclaimMaintenance(Objects.requireNonNull(original));
+        resourceReclaim = original;
     }
     @Override public Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() {
         final var original = resourceReclaim;
@@ -707,6 +708,29 @@ public final class TargetWorkerShardRuntime
             source=target.reclaimPreparationRead(candidates,clock);
         }
         return Objects.requireNonNull(signer).prepare(source,images,recoveryReads,nativeReads,time,retryUntil,maximumInputBytes,originalHeld);
+    }
+    /** Provider I/O uses the original bounded maintenance executor, after both real image and live Native closure. */
+    public com.nereusstream.delay.adapter.PayloadObjectDelete.Observation deletePendingObjectPayload(
+            com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
+            com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))throw new IllegalStateException("OBJECT provider stage must run outside Worker/Source/Store monitors");
+        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();source=target.reclaimPreparationRead(java.util.List.of(candidate),clock);}
+        final var pending=candidate.objectIntent();
+        final long window=Math.addExact(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),
+                4L*(com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES+4096L)+TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES);
+        if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||window>maximumInputBytes)throw new IllegalStateException("OBJECT provider/signing stages exceed their original shared input reservation");
+        final Runnable current=()->{source.requireCurrent();originalHeld.run();};current.run();
+        final var recovery=source.catalog().capturePendingObjectProviderProtection(pending,images,recoveryReads,maximumInputBytes,current);
+        source.requirePendingObjectProvider(pending,recovery,nativeReads,current);recovery.requireCurrent(recoveryReads,current);current.run();
+        final var operation=pending.operation();
+        final var request=operation.nativeOrigin()==null?new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
+                operation.expected(),operation.proof(),pending.appliedAt()):new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
+                operation.expected(),recovery.objectAcceptance(),pending.appliedAt());
+        // Return the actual response directly: a post-DELETE guard failure must not erase the hot witness.
+        return Objects.requireNonNull(provider).deleteExact(request,current);
     }
     /** The original caller reserves CONFIGURATION_WINDOW_BYTES plus the complete signing/authentication window. */
     public TargetResourceReclaimSigner.Prepared prepareConfiguredResourceReclaim(

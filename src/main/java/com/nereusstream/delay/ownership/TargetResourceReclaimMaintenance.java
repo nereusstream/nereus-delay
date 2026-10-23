@@ -82,6 +82,22 @@ public final class TargetResourceReclaimMaintenance {
         default void requireInlinePayloadIndependent(){throw new IllegalStateException("GC input hold has no real inline reader/admission protection");}
         /** This preparation's actual record/query/Source/Pin admission, bound to exact original values and safe cut. */
         default void requireNativeRetainedIndependent(){throw new IllegalStateException("GC hold lacks actual Native record/query/recovery admission");}
+        /** Exact Native OBJECT read/replay/export/upload/commit/Pin purpose, never inline/Catalog/Action3 rights. */
+        default void requireObjectPayloadIndependent(){throw new IllegalStateException("actual Native OBJECT admission unavailable");}
+        /** The original Profile/namespace adapter; a local content-hash backend is not a production delete provider. */
+        default com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore objectPayloadStore(){throw new IllegalStateException("actual OBJECT provider unavailable");}
+        /** A bounded already loaded, independently authenticated original provider operation; absence is not evidence. */
+        default Optional<com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadConfirm> objectPayloadHistoricalConfirmation(
+                com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent){return Optional.empty();}
+        /**
+         * The original load authenticates the durable exact-operation-history guarantee outside locks; recheck it locally before I/O.
+         * It survives response loss, process/Owner/epoch loss and this preparation's close. Native56 and original
+         * Source/Pin/reader protections remain durable until confirmation. No current Profile flag/empty GET or
+         * in-memory receipt is that guarantee. Missing deployment integration rejects before DELETE.
+         */
+        default void requireRecoverableObjectProviderOperation(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent){
+            throw new IllegalStateException("durable original OBJECT provider operation history is unqualified");
+        }
         /**
          * Idempotent release of this preparation's loans/admission acquisition only. Does not remove
          * authoritative RecoveryPins, retained images, Source/history or other durable recovery protection.
@@ -91,6 +107,22 @@ public final class TargetResourceReclaimMaintenance {
     }
     public enum Status { IDLE, PREPARING, SOURCE_PENDING, CLOSING, SETTLED, STOPPED, STOPPED_FOR_REPLAY, FAILED }
     public record Turn(Status status, Optional<SystemMutationResult> result, Throwable failure) {}
+    /** Only an actual provider response minted after the real durable-history qualification enters this owner. */
+    private record ObjectDebt(TargetResourceReclaimDiscovery.Candidate candidate,
+            com.nereusstream.delay.adapter.PayloadObjectDelete.Observation observation,TargetResourceReclaimDiscovery.Page page){
+        long retainedBytes(){final var request=observation.request();return Math.addExact(candidate.operation().canonicalBytes().length,
+                request.expectedOwner().canonicalBytes().length+request.originBytes()+request.intentAt().canonicalBytes().length+512L);}
+    }
+    private volatile ObjectDebt objectDebt;
+    /** Inspectable only for the selected actual Source input; this receipt grants no Source/admission permission. */
+    Optional<com.nereusstream.delay.adapter.PayloadObjectDelete.Observation> objectDeletionFor(com.nereusstream.delay.protocol.SystemMutation input){
+        final var debt=objectDebt;
+        if(debt==null)return Optional.empty();
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm confirmation)
+                ||!java.util.Arrays.equals(confirmation.intent().canonicalBytes(),((TargetResourceReclaimBody.ObjectPayloadConfirm)debt.candidate().operation()).intent().canonicalBytes()))return Optional.empty();
+        debt.observation().requireConfirmation(body);return Optional.of(debt.observation());
+    }
     private record Opened(TargetResourceReclaimDiscovery.Page page, Held held, TargetResourceReclaimSigner.Prepared prepared, Throwable failure) {}
 
     private final TargetWorkerShardRuntime worker;
@@ -174,6 +206,11 @@ public final class TargetResourceReclaimMaintenance {
                 final var failure = ownedFailure(closing);
                 if (!closing.completedValue().orElse(false)
                         && !(failure instanceof CleanupFailure cleanup && cleanup.cleanupComplete())) return turn(Status.CLOSING, failure);
+                if(objectDebt!=null&&result!=null&&result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                        &&result.stableCode()==com.nereusstream.delay.protocol.StableCode.OK
+                        &&TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()).operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm){
+                    objectDebt.observation().requireConfirmation(TargetResourceReclaimBody.decode(selected.prepared().mutation().canonicalBody()));objectDebt=null;
+                }
                 closing = null; selected = null; submission = null;
                 if (stopping) return finishStop();
                 final var settled = new Turn(result == null ? Status.IDLE : Status.SETTLED, Optional.ofNullable(result), null); result = null; return settled;
@@ -213,14 +250,15 @@ public final class TargetResourceReclaimMaintenance {
         }
         if (stopping) return finishStop();
         final var after = cursor; started = nanos.getAsLong();
-        try { opening = OwnedCheckpointIo.submitResource(guard -> prepare(after, guard), this::requirePreparing, TargetResourceReclaimMaintenance::discard, executor); }
+        try { opening = OwnedCheckpointIo.submitResource(guard -> prepare(after, guard), this::requirePreparing, this::discard, executor); }
         catch (RejectedExecutionException full) { return turn(Status.IDLE, full); }
         return turn(Status.PREPARING, null);
     }
 
     private Opened prepare(TargetResourceReclaimDiscovery.Cursor after, Runnable guard) {
         guard.run();
-        final var page = worker.discoverResourceReclaim(configuration.discovery().budget(nanos), after, configuration.maximumRows(), clock);
+        final var debt=objectDebt;
+        final var page=debt==null?worker.discoverResourceReclaim(configuration.discovery().budget(nanos),after,configuration.maximumRows(),clock):debt.page();
         if (page.candidates().isEmpty()) return new Opened(page, null, null, null);
         Held held = null;
         try {
@@ -228,14 +266,46 @@ public final class TargetResourceReclaimMaintenance {
             held.requireCurrent(); guard.run();
             if (held.retainedBytes() < 0 || held.retainedBytes() > configuration.heldWindow()) throw new IllegalArgumentException("held Native GC inputs exceed original reservation");
             final Held original = held;
-            // Do not retain the transient OwnedCheckpointIo stop guard in a signed Source request.
-            final Runnable current = () -> { reservation.requireCurrent(); original.requireCurrent();
-                if(page.candidates().getFirst().nativeRetained())original.requireNativeRetainedIndependent();
-                else if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();original.requireCurrent(); };
-            final long retryUntil = Math.addExact(Objects.requireNonNull(time.get()).latestEpochMs(), configuration.retryWindowMs());
-            final var prepared = worker.prepareConfiguredResourceReclaim(page.candidates(), configuration.signingConfiguration(), configuration.deploymentRoot(),
-                    held.images(), configuration.keys().budget(nanos), configuration.recovery().budget(nanos), configuration.nativeReads().budget(nanos),
-                    time, retryUntil, configuration.signingWindow(), current, clock);
+            // No transient OwnedCheckpointIo stop guard escapes into a submitted Source frame.
+            final Runnable current=()->{
+                reservation.requireCurrent();original.requireCurrent();
+                if(page.candidates().getFirst().objectPayload())original.requireObjectPayloadIndependent();
+                else if(page.candidates().getFirst().nativeRetained())original.requireNativeRetainedIndependent();
+                else if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();
+                original.requireCurrent();
+            };
+            current.run();
+            var candidates=debt==null?page.candidates():List.of(debt.candidate());
+            if(debt==null&&candidates.getFirst().objectPayload()){
+                final var selected=candidates.getFirst();
+                if(selected.pendingObject()){
+                    final var intent=selected.objectIntent();
+                    final var historical=Objects.requireNonNull(original.objectPayloadHistoricalConfirmation(intent),"bounded original provider history selection");
+                    if(historical.isPresent())candidates=List.of(selected.withObjectConfirmation(historical.orElseThrow()));
+                    else{
+                        original.requireRecoverableObjectProviderOperation(intent);current.run();guard.run();
+                        final var operation=intent.operation();
+                        final long debtWindow=intent.canonicalBytes().length+operation.expected().canonicalBytes().length+(operation.nativeOrigin()==null?operation.proof().canonicalBytes().length:operation.nativeOrigin().canonicalBytes().length)+intent.appliedAt().canonicalBytes().length+1024L;
+                        final long available=Math.subtractExact(configuration.signingWindow(),Math.addExact(original.retainedBytes(),debtWindow));
+                        final var observation=worker.deletePendingObjectPayload(selected,original.objectPayloadStore(),original.images(),
+                                configuration.recovery().budget(nanos),configuration.nativeReads().budget(nanos),available,
+                                ()->{current.run();guard.run();original.requireRecoverableObjectProviderOperation(intent);},clock);
+                        final var ready=selected.withObjectConfirmation(new TargetResourceReclaimBody.ObjectPayloadConfirm(intent,observation.providerRequestIdHash(),observation.providerResponseHash()));
+                        // Publish custody before a stop, signer failure or final OwnedCheckpointIo guard can discard it.
+                        objectDebt=new ObjectDebt(ready,observation,new TargetResourceReclaimDiscovery.Page(List.of(ready),page.continuation(),page.stop()));
+                        candidates=List.of(ready);
+                    }
+                }
+            }
+            current.run();guard.run();
+            final long heldBytes=original.retainedBytes();
+            if(heldBytes<0||heldBytes>configuration.heldWindow())throw new IllegalStateException("complete OBJECT proof/history inputs exceed original held reservation");
+            long signingWindow=configuration.signingWindow();
+            if(candidates.getFirst().objectPayload())signingWindow=Math.subtractExact(signingWindow,Math.addExact(heldBytes,objectDebt==null?0:objectDebt.retainedBytes()));
+            final long retryUntil=Math.addExact(Objects.requireNonNull(time.get()).latestEpochMs(),configuration.retryWindowMs());
+            final var prepared=worker.prepareConfiguredResourceReclaim(candidates,configuration.signingConfiguration(),configuration.deploymentRoot(),
+                    original.images(),configuration.keys().budget(nanos),configuration.recovery().budget(nanos),configuration.nativeReads().budget(nanos),
+                    time,retryUntil,signingWindow,current,clock);
             guard.run(); return new Opened(page, held, prepared, null);
         } catch (RuntimeException | IOException failure) {
             if (held != null) release(held, failure);
@@ -262,7 +332,9 @@ public final class TargetResourceReclaimMaintenance {
         return turn(Status.CLOSING, cause);
     }
     private Turn finishStop() {
-        cursor = null; reservation.release(); exited = true; return turn(stoppedStatus(), null);
+        // Original local I/O has exited. Late/UNKNOWN provider work remains covered by the qualified durable
+        // operation history and Native56 protections. Source UNKNOWN follows the original submission custody above.
+        cursor = null;objectDebt=null;reservation.release(); exited = true; return turn(stoppedStatus(), null);
     }
     private Status stoppedStatus() { return replayStopping ? Status.STOPPED_FOR_REPLAY : Status.STOPPED; }
     /** Stops acquisition; a submitted UNKNOWN keeps its exact frame, input reservation and original protections. */
@@ -274,7 +346,7 @@ public final class TargetResourceReclaimMaintenance {
     public boolean ioExited() { return exited; }
     private Turn turn(Status status, Throwable failure) { return new Turn(status, Optional.ofNullable(result), failure); }
     private static Throwable ownedFailure(OwnedCheckpointIo<?> io) { return CheckpointInputFuture.ownedFailure(io.receipt()); }
-    private static void discard(Opened loaded) { if (loaded.held() != null) release(loaded.held(), null); }
+    private void discard(Opened loaded) { if (loaded.held() != null) release(loaded.held(), null); }
     private static void release(Held original, Throwable cause) {
         try { original.close(); }
         catch (RuntimeException | Error failure) {

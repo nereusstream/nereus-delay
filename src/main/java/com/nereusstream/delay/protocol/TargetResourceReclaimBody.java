@@ -35,9 +35,12 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         byte[] primaryDigest(); byte[] terminalDigest();
     }
     public record ObjectPayloadRetire(TargetQuotaPayloadOwner expected,TargetMessageLocator locator,long stateVersion,
-            byte[] primaryDigest,byte[] terminalDigest,CanonicalPayloadCommitProof proof) implements Operation,RetainedPayload {
+            byte[] primaryDigest,byte[] terminalDigest,CanonicalPayloadCommitProof proof,TargetObjectPayloadOrigin nativeOrigin) implements Operation,RetainedPayload {
+        public ObjectPayloadRetire(TargetQuotaPayloadOwner expected,TargetMessageLocator locator,long stateVersion,byte[] primary,byte[] terminal,CanonicalPayloadCommitProof proof){this(expected,locator,stateVersion,primary,terminal,proof,null);}
+        public ObjectPayloadRetire(TargetQuotaPayloadOwner expected,TargetMessageLocator locator,long stateVersion,byte[] primary,byte[] terminal,TargetObjectPayloadOrigin origin){this(expected,locator,stateVersion,primary,terminal,null,origin);}
         public ObjectPayloadRetire {
-            Objects.requireNonNull(expected);Objects.requireNonNull(locator);Objects.requireNonNull(proof);
+            Objects.requireNonNull(expected);Objects.requireNonNull(locator);
+            if((proof==null)==(nativeOrigin==null))throw new IllegalArgumentException("one explicitly versioned OBJECT acceptance origin required");
             primaryDigest=TargetCompatibilityCodec.assigned(primaryDigest,32,"object primary digest");
             terminalDigest=TargetCompatibilityCodec.assigned(terminalDigest,32,"object terminal digest");
             if(expected.kind()!=TargetQuotaPayloadOwner.Kind.OBJECT||expected.phase()!=TargetQuotaPayloadOwner.Phase.RETAINED
@@ -46,19 +49,23 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
                     ||!Arrays.equals(expected.primaryIdentity().accountingIncarnation(),locator.accountingIncarnation())
                     ||!Arrays.equals(expected.initialBindingDigest(),locator.scheduleBindingDigest()))
                 throw new IllegalArgumentException("exact retained committed OBJECT owner/primary required");
+            if(proof!=null){
             final var reference=TargetPayloadReference.requireBounded(new PayloadReference(proof.objectStoreProfileHash(),proof.container(),
                     proof.objectKey(),proof.immutableObjectVersion(),proof.etag(),proof.length(),proof.payloadSha256(),proof.reservationId(),proof.proofId()));
             if(!reference.equals(expected.committedPayload())||!proof.delayMessageId().equals(expected.messageId())
                     ||!Arrays.equals(proof.tenantRoutingScope(),expected.tenantScope()))throw new IllegalArgumentException("object intent changed original commit proof");
+            }else nativeOrigin.requireOwner(expected);
         }
+        public int operationSchema(){return nativeOrigin==null?1:2;}
         @Override public byte[] primaryDigest(){return Bytes.copy(primaryDigest);}
         @Override public byte[] terminalDigest(){return Bytes.copy(terminalDigest);}
         public byte[] identity(){return Bytes.concat(new byte[]{4,1},expected.messageId().bytes());}
         public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-            CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.uint32(out,2,4);CanonicalProtobuf.uint32(out,3,1);
+            CanonicalProtobuf.uint32(out,1,operationSchema());CanonicalProtobuf.uint32(out,2,4);CanonicalProtobuf.uint32(out,3,1);
             CanonicalProtobuf.bytes(out,4,expected.canonicalBytes());CanonicalProtobuf.bytes(out,5,locator.canonicalBytes());
             CanonicalProtobuf.uint64Bits(out,6,stateVersion);CanonicalProtobuf.bytes(out,7,primaryDigest);
-            CanonicalProtobuf.bytes(out,8,terminalDigest);CanonicalProtobuf.bytes(out,9,proof.canonicalBytes());
+            CanonicalProtobuf.bytes(out,8,terminalDigest);
+            if(proof!=null)CanonicalProtobuf.bytes(out,9,proof.canonicalBytes());else CanonicalProtobuf.bytes(out,10,nativeOrigin.canonicalBytes());
         });}
     }
     /** Serialized response hashes only correlate the actual hot or independently authenticated historical witness. */
@@ -272,17 +279,20 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         for(var field:operations){
             if(version==OBJECT_PAYLOAD_BODY_VERSION){
                 final var entry=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(field,1),MAX_NATIVE_CANONICAL_BYTES,9,false,"OBJECT payload stage");
-                if(entry.size()<6||QueryCodecSupport.uint32(entry.get(0),1)!=1||QueryCodecSupport.uint32(entry.get(1),2)!=4)
+                if(entry.size()<6||QueryCodecSupport.uint32(entry.get(0),1)<1||QueryCodecSupport.uint32(entry.get(0),1)>2||QueryCodecSupport.uint32(entry.get(1),2)!=4)
                     throw new IllegalArgumentException("unknown OBJECT payload operation kind/schema");
                 final int action=QueryCodecSupport.uint32(entry.get(2),3);
                 if(action==1){
-                    QueryCodecSupport.requireNumbers(entry,new int[]{1,2,3,4,5,6,7,8,9},"OBJECT intent");
+                    final int schema=QueryCodecSupport.uint32(entry.get(0),1);
+                    QueryCodecSupport.requireNumbers(entry,schema==1?new int[]{1,2,3,4,5,6,7,8,9}:new int[]{1,2,3,4,5,6,7,8,10},"OBJECT intent");
                     decoded.add(new ObjectPayloadRetire(TargetQuotaPayloadOwner.decode(QueryCodecSupport.bytes(entry.get(3),4)),
                             TargetMessageLocator.decode(QueryCodecSupport.bytes(entry.get(4),5)),QueryCodecSupport.uint64Bits(entry.get(5),6),
                             QueryCodecSupport.fixed(entry.get(6),7,32),QueryCodecSupport.fixed(entry.get(7),8,32),
-                            CanonicalPayloadCommitProof.decode(QueryCodecSupport.bytes(entry.get(8),9))));
+                            schema==1?CanonicalPayloadCommitProof.decode(QueryCodecSupport.bytes(entry.get(8),9)):null,
+                            schema==2?TargetObjectPayloadOrigin.decode(QueryCodecSupport.bytes(entry.get(8),10)):null));
                     if(f.size()!=11)throw new IllegalArgumentException("OBJECT intent omitted original Source facts");
                 }else if(action==2){
+                    if(QueryCodecSupport.uint32(entry.get(0),1)!=1)throw new IllegalArgumentException("unknown OBJECT confirmation operation schema");
                     QueryCodecSupport.requireNumbers(entry,new int[]{1,2,3,4,5,6},"OBJECT confirmation");
                     decoded.add(new ObjectPayloadConfirm(TargetPayloadObjectRetiringRecord.decode(QueryCodecSupport.bytes(entry.get(3),4)),
                             QueryCodecSupport.fixed(entry.get(4),5,32),QueryCodecSupport.fixed(entry.get(5),6,32)));

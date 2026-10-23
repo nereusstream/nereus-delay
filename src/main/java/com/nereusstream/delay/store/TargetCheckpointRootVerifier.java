@@ -423,6 +423,17 @@ public final class TargetCheckpointRootVerifier {
                 com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f){
             throw new IllegalStateException("image lacks actual Native OBJECT reader/writer/provider qualification");
         }
+        /**
+         * Authenticate the original qualified writer's accepted creation under its historical full Profile,
+         * tenant/trust/Source admission semantics. The exact retained Native first/POSITION/binding joins
+         * are checked separately. DIRECT_SCHEDULE additionally requires original deletion ownership;
+         * permission to import/use an object is insufficient. This does not revalidate an expired upload
+         * signature, infer its key version, or grant today's reader/writer/provider retirement rights.
+         */
+        default void requireObjectPayloadAcceptanceAuthenticated(CheckpointManifest m,LedgerProof p,
+                TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b){
+            throw new IllegalStateException("image lacks original Native OBJECT acceptance semantics/ownership authentication");
+        }
         /** Original immutable Route retention and actual TimeFence, collected inside the original finite image/Source hold. */
         default com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest manifest,LedgerProof proof,
                 TargetCheckpointSemanticSnapshot snapshot,com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,long maximumBytes){
@@ -461,6 +472,8 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.objectPayloadSourceFacts(m,p,s,b,bytes);}
             public void requireObjectPayloadIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f){original.requireObjectPayloadIndependent(m,p,s,b,f);}
+            public void requireObjectPayloadAcceptanceAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireObjectPayloadAcceptanceAuthenticated(m,p,s,b);}
             public com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.nativeRetainedFacts(m,p,s,b,bytes);}
             public void requireNativeRetainedFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireNativeRetainedFactsAuthenticated(m,p,s,b);}
@@ -488,6 +501,8 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.objectPayloadSourceFacts(m,p,s,b,bytes);}
             public void requireObjectPayloadIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f){original.requireObjectPayloadIndependent(m,p,s,b,f);}
+            public void requireObjectPayloadAcceptanceAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireObjectPayloadAcceptanceAuthenticated(m,p,s,b);}
             public com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.nativeRetainedFacts(m,p,s,b,bytes);}
             public void requireNativeRetainedFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireNativeRetainedFactsAuthenticated(m,p,s,b);}
@@ -540,16 +555,49 @@ public final class TargetCheckpointRootVerifier {
         public long retainedBytes(){long bytes=Math.addExact(4096L,facts.retainedBytes());for(var policy:policies)
             bytes=Math.addExact(bytes,policy.use().canonicalBytes().length+policy.retry().canonicalBytes().length+policy.terminal().canonicalBytes().length+256L);return bytes;}
     }
+    /**
+     * Opaque historical acceptance receipt minted only by a fully authenticated original image.
+     * It keeps immutable facts, not an image/Owner/loan or current deletion authority. Ending a hold
+     * or rotating a proof signer does not revoke the original accepted Native creation fact.
+     */
+    public static final class ObjectAcceptance {
+        private final com.nereusstream.delay.protocol.TargetQuotaPayloadOwner owner;
+        private final com.nereusstream.delay.protocol.TargetObjectPayloadOrigin origin;
+        private ObjectAcceptance(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner owner,
+                com.nereusstream.delay.protocol.TargetObjectPayloadOrigin origin){
+            origin.requireOwner(owner);this.owner=owner;this.origin=origin;
+        }
+        public com.nereusstream.delay.protocol.TargetObjectPayloadOrigin origin(){return origin;}
+        public com.nereusstream.delay.protocol.ProfileRef profile(){return origin.profile();}
+        public void requireOwner(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner expected){
+            if(!Arrays.equals(owner.canonicalBytes(),expected.canonicalBytes()))throw new IllegalArgumentException("Native OBJECT acceptance receipt belongs to another frozen owner");
+        }
+        public long retainedBytes(){return Math.addExact(owner.canonicalBytes().length,origin.canonicalBytes().length);}
+    }
     public static final class ObjectPayloadCopy implements DeletionCopy {
         private final AuthenticatedImage image;
         private final byte[] envelope;
         private final List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies;
         private final com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts;
         private final com.nereusstream.delay.protocol.TargetQuotaMutation released;
+        private final com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending;
+        private final ObjectAcceptance acceptance;
         private ObjectPayloadCopy(AuthenticatedImage image,com.nereusstream.delay.protocol.SystemMutation input,
                 List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies,
                 com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts,com.nereusstream.delay.protocol.TargetQuotaMutation released){
-            this.image=image;envelope=Bytes.sha256(input.canonicalEnvelope());this.policies=List.copyOf(policies);this.facts=facts;this.released=released;
+            this(image,input,policies,facts,released,null,null);
+        }
+        private ObjectPayloadCopy(AuthenticatedImage image,com.nereusstream.delay.protocol.SystemMutation input,
+                List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies,
+                com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts,com.nereusstream.delay.protocol.TargetQuotaMutation released,
+                com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,ObjectAcceptance acceptance){
+            this.image=image;envelope=Bytes.sha256(input.canonicalEnvelope());this.policies=List.copyOf(policies);this.facts=facts;this.released=released;this.pending=pending;this.acceptance=acceptance;
+        }
+        public ObjectAcceptance acceptance(){requireCurrent();return Objects.requireNonNull(acceptance,"actual Floor lacks authenticated Native OBJECT acceptance");}
+        public void requirePending(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord expected){
+            requireFor(expected.intent());
+            if(pending==null||released==null||!released.equals(expected.appliedAt())||!Arrays.equals(pending.canonicalBytes(),expected.canonicalBytes()))
+                throw new IllegalStateException("actual Floor does not retain this exact pending OBJECT intent");
         }
         public CheckpointManifest manifest(){return image.manifest();}
         public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies(){return policies;}
@@ -557,7 +605,7 @@ public final class TargetCheckpointRootVerifier {
         public com.nereusstream.delay.protocol.TargetQuotaMutation released(){return released;}
         public void requireFor(com.nereusstream.delay.protocol.SystemMutation input){requireCurrent();if(!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))throw new IllegalArgumentException("OBJECT image changed original Source frame");}
         public void requireCurrent(){image.requireCurrent();}
-        public long retainedBytes(){long bytes=Math.addExact(4096L,facts.retainedBytes());for(var policy:policies)
+        public long retainedBytes(){long bytes=Math.addExact(4096L,facts.retainedBytes());if(pending!=null)bytes=Math.addExact(bytes,pending.canonicalBytes().length);if(acceptance!=null)bytes=Math.addExact(bytes,acceptance.retainedBytes());for(var policy:policies)
             bytes=Math.addExact(bytes,policy.use().canonicalBytes().length+policy.retry().canonicalBytes().length+policy.terminal().canonicalBytes().length+256L);return bytes;}
     }
     public static final class UnusedReserveCopy {
@@ -621,6 +669,18 @@ public final class TargetCheckpointRootVerifier {
                     Math.addExact(ledger.maxKeyValueBytes(),Math.addExact(ledger.maxPointReadBytes(),semantic.maximumBytes()))));
             return Math.multiplyExact(8L,encoded);
         }
+        private ObjectAcceptance authenticateObjectAcceptance(ManifestCompanion audited,
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody body){
+            final var operation=body.objectOperation();final var origin=operation.nativeOrigin();
+            if(origin==null)return null;
+            requireCurrent();
+            com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.requireActual(audited.ledger().dependencies(),operation.expected(),origin);
+            if(origin.profile().profileKind()!=com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE
+                    ||audited.snapshot().profiles().stream().noneMatch(value->value.ref().equals(origin.profile())))
+                throw new IllegalStateException("original Native OBJECT acceptance lacks its exact complete Profile semantic");
+            authority.requireObjectPayloadAcceptanceAuthenticated(manifest,audited.ledger(),audited.snapshot(),body);
+            requireCurrent();return new ObjectAcceptance(operation.expected(),origin);
+        }
         /** Preparation only: the complete original Source inputs are frozen before the signed request can escape. */
         com.nereusstream.delay.protocol.TargetResourceReclaimBody freezeInlinePayloadSourceFacts(
                 com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,long maximumBytes){
@@ -636,6 +696,7 @@ public final class TargetCheckpointRootVerifier {
             if(body.canonicalBytes().length>maximumBytes)throw new IllegalStateException("complete self-contained request exceeds original preparation window");
             if(body.objectPayloadReclaim()){
                 if(audited.ledger().dependencies().payloadObjectIntent(body.objectOperation().expected().messageId())!=null)throw new IllegalStateException("OBJECT already has a pending intent");
+                authenticateObjectAcceptance(audited,body);
                 authority.requireObjectPayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,body.floor());
             }else authority.requireInlinePayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,body.floor(),facts);
             requireCurrent();return body;
@@ -659,8 +720,10 @@ public final class TargetCheckpointRootVerifier {
                 requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
                 final var policies=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.policies(audited.ledger().dependencies(),audited.snapshot(),body,this::requireCurrent);
                 final var applied=com.nereusstream.delay.runtime.TargetObjectPayloadReclaim.requireClosed(audited.ledger().dependencies(),input,policies,true,this::requireCurrent);
+                final var acceptance=authenticateObjectAcceptance(audited,body);
                 authority.requireObjectPayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,actualFloor);requireCurrent();
-                return new ObjectPayloadCopy(this,input,policies,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts.from(body.payloadFacts()),applied);
+                return new ObjectPayloadCopy(this,input,policies,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts.from(body.payloadFacts()),applied,
+                        audited.ledger().dependencies().payloadObjectIntent(body.objectOperation().expected().messageId()),acceptance);
             }
             if(!body.nativeRetainedReclaim())return authenticateInlinePayloadFloor(input,actualFloor,maximumBytes);
             if(!Arrays.equals(manifest.checkpointId(),actualFloor.checkpointId())||!Arrays.equals(manifest.manifestSha256(),actualFloor.manifestSha256()))

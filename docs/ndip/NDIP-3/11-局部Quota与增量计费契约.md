@@ -2855,3 +2855,10 @@ provider见证、真实reader/writer/Pin保护，才同Source原子删除primary
 TargetRecordAccounting与full ledger/Source history局部投影辨识pending和确认后态，保留
 原reservation、terminal、first/POSITION、Native54/55与相应费用；既不退款Attempt allocated，
 也不把记录费等同payload byte费。writer/activation尚未开放，不构成实际回收/退费授权。
+
+
+2026-10-23 D接受事实边界：OBJECT intent schema2仅复用实际已接受的Native38/first/POS/
+binding等完整事实，不新增接受ledger或退款通道；COMMAND first冻结Target归属，POSITION
+按原Source SHARD归属核验。原依赖仍保留并各计自身费用，D opaque收据不等于新当前删除权。
+Native56/primary/owner与独立Source确认的精确before-after结算规则不变；真实provider历史
+或动态保护未提供时仍保费用。descriptor10登记能力不意味着已激活或实际完成退费。

@@ -163,6 +163,8 @@ final class TargetCheckpointLedgerAudit {
                     if (family == ColumnFamily.ID && type == TargetScheduleBinding.VALUE_TYPE) {
                         final var binding = TargetScheduleBinding.decode(payload);
                         dependencies.binding(binding);
+                    } else if(family==ColumnFamily.ID&&type==com.nereusstream.delay.runtime.TargetReservationRecord.VALUE_TYPE){
+                        dependencies.reservation(key,com.nereusstream.delay.runtime.TargetReservationRecord.decode(payload));
                     } else if (family == ColumnFamily.META) {
                         final int tag = Byte.toUnsignedInt(key[0]);
                         if (Arrays.equals(key, KeyCodec.metaFixed(10))) {
