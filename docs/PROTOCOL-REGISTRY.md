@@ -5376,6 +5376,51 @@ fence/引用/metadata reader/Pin准入与安全cut。所有原whole-image/历史
 Native54v3/实际activation7，完整frozen owner后态及Floor关系一致；primary Message缺失，
 原terminal的key/locator/stateVersion/hash/closed runtime保持且被Floor覆盖。完整ledger
 反向检查每个APPLIED操作仍有同Source RELEASED owner，不能整行漏失；这不授写者授权。
-当前实际kind2准备/签发/引用与Reader/Pin/retention闭合及原子删除writer仍未接，Source
-positive分支显式pending，Catalog/unused保护入口拒绝以旧宽松规则资格化kind2。未
-减少任何费用、删除数据或提供实际环境激活/保护解除授权。
+69e9c81c时实际kind2准备/签发/动态闭合和删除writer尚未接；后续实现见下面的新边界。
+
+### 自含原Source事实的inline回收（2026-10-23，body11）
+
+type14/kind2和通用System envelope不变。body9/tuple9、body10/tuple10、descriptor7、
+Native54v3/lifecycle3/companion9的原bytes保持。当前writer仅签发body11/tuple11：
+body10原fields1/2/3/9..15保持布局，field9=11，新增field16完整
+TargetInlinePayloadSourceFacts1。body11逻辑身份在原hash预像末尾追加lp32(tuple11)，
+不因retry/Floor/closure fence变化创建同一冻结owner的新身份；完整capsule受外层签名绑定。
+仍最多32个同kind操作，body和capsule各自最多8MiB且body总限额包含capsule，不调高默认预算。
+
+SourceFacts1闭合字段：1 uint32 schema=1；2完整原closure TimeFence Frame；repeated3
+Retained（1 MessageId[32]，2完整原RETAINED Frame），按MessageId unsigned顺序唯一，
+集合与操作精确相等。Frame字段：1 uint32 kind（1 Command，2 System）；2完整实际
+Source-applied TargetQuotaMutation（含完整canonical SourcePosition及真实持久时间）；
+3完整canonical输入（Command为原ShardLog frame，System为可精确重建frame的原signed
+canonical envelope）。每帧最多8MiB+4096，capsule总限额更严格；拒嵌套type14，避免
+递归capsule。原RETAINED stamp必须与expected owner全值一致，且在原TimeFence之前，
+原TimeFence实际APPLIED/OK first/POSITION须被声明Floor覆盖。不是当前fixed4或墙钟补值。
+
+GC preparation在原held输入及完整当前Floor认证内收集原帧，核Native实际APPLIED
+first/POSITION、Source身份/序列/原hash、原policy和完整引用后冻结，之后才签名/入Source。
+Source/cold分支直接从选中的body11读取capsule，不再回Broker拉更早RETAINED/TimeFence。
+原独立Root/pin、原语义/历史认证及Native first/POSITION仍为信任链，不从capsule中的
+数据生成独立信任。capsule不含秘密、公钥自授权、持久批准token或新日志服务。
+
+descriptor8独立使用tuple11；版本向量3=companion10、4=body11、16=Native54v4，新增
+27=SourceFacts schema1，其余保持descriptor7。Action3须精确tuple11及实际先行APPLIED
+activation8/compatible-reader evidence；新grant identity同tuple10规则追加lp32(tuple11)，
+不能继承旧9/10 grant。Native54v4字段2沿用完整原signed envelope承载capsule；同一
+Source原子批次保留它、first/POSITION/history/tip并删除exact Message、owner转RELEASED，
+费用由原frozen before/after计算。owner STATE、terminal/binding及SDK/读副本责任仍保留。
+
+lifecycle4仍fields2..5，由原HistoryImage中的完整body11携带capsule；companion10仍使用
+原fields1..16、repeated17 TerminalPolicyImage及digest18，仅显式版本/生命周期升级。
+descriptor8或body11要求该新边界，不给旧9插字段。独立ledger、只读账务、metadata查询、
+companion/完整image每次均核capsule与原Native first/POSITION/owner/terminal/policy。
+只要这些真实保留依赖存在，后继checkpoint继续携带原capsule；Message删除或Floor推进
+不允许丢弃。每份Native STATE及物理checkpoint副本继续计费，不以payload归零抵消证据费。
+这覆盖请求已入Source未apply、Native已apply未checkpoint、后继Floor/旧Source截断三个窗口。
+
+实际GC discovery/sign、Source原子删除、metadata-only查询及释放后Cancel/Reschedule终态
+路径已接入。完整Floor/live fold核全部代际引用；Source同批使用精确owner/primary/terminal/
+原first/POSITION点读和真实held writer/reader准入保护，避免在普通Source预算内重扫全Shard。
+实际Pin/candidate/observed image均全认证并须真实无primary依赖，不借unused祖先宽松规则。
+动态reader/replay/export/Pin准入与实际read退出仍须原provider的真实held协议，新增入口默认
+拒绝，当前没有以空回调补齐的生产实现；该具体装配仍在推进，不记完整inline功能闭合。
+旧body10缺长期原Source保护时不能取得正向资格。编译不是Broker/cold运行或生产验收。

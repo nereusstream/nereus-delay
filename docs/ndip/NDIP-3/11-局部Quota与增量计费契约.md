@@ -2828,3 +2828,11 @@ metadata hash/version/closed-runtime和Floor关系；完整ledger也反查每个
 不能遗漏owner。companion9原策略/历史认证仍独立必要，纯codec或声明grant不能授权。
 本步未接positive删除writer，未减少payload/Message/SDK/reader/历史费用；后续仅真实
 同Source原子批次删除并转换owner时，才能由原before-after计费链结算。
+
+2026-10-23 body11实际Source writer已接入上述同批删除/转换；计费仍只由原精确记录
+before/after重建，不接受调用方refund。完整signed请求及SourceFacts由Native54v4的
+STATE承担原费用，first/POSITION、owner STATE、terminal/binding/history和物理checkpoint
+副本仍各计自身费用；释放payload不抵消证据、SDK或read buffer费用。lifecycle4/companion10
+持续携带同一原body11，不额外建立旁路日志。账务、独立ledger和查询会核capsule原
+APPLIED first/POSITION依赖，后继Floor不能因Message消失丢弃。实际动态reader/Pin准入
+保护尚待具体provider装配，缺失仍不可回收；编译不构成已发生退款或实际恢复验证。

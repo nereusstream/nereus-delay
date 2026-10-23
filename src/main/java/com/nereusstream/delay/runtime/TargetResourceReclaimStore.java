@@ -42,14 +42,13 @@ public final class TargetResourceReclaimStore {
                 List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget recoveryReads,
                 long maximumInputBytes,Runnable originalHeld){
             Objects.requireNonNull(source);Objects.requireNonNull(originalHeld).run();source.requireCurrent();
-            if(TargetResourceReclaimBody.decode(source.entry().mutation().canonicalBody()).inlinePayloadRelease())
-                throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("inline release requires its independent actual reader/Pin and terminal-policy closure");
+            final var body=TargetResourceReclaimBody.decode(source.entry().mutation().canonicalBody());
             final var catalog=source.catalog();
             if(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images)>maximumInputBytes)
                 throw new IllegalStateException("Native recovery authentication exceeds original Source input reservation");
-            final var recovery=catalog.captureSourceNativeRecoveryProtection(source,images,recoveryReads,()->{source.requireCurrent();originalHeld.run();});
+            final var recovery=catalog.captureSourceNativeRecoveryProtection(source,images,recoveryReads,maximumInputBytes,()->{source.requireCurrent();originalHeld.run();});
             final var result=new Protection(source,recovery,originalHeld);
-            source.requireClosedUnused(result);
+            if(body.inlinePayloadRelease())source.requireClosedInline(result);else source.requireClosedUnused(result);
             recovery.requireCurrent(recoveryReads,()->{source.requireCurrent();originalHeld.run();});
             result.requireCurrent();return result;
         }
@@ -67,6 +66,13 @@ public final class TargetResourceReclaimStore {
             requireCurrent();writer(expected);recovery.requireReleaseMutation(release);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
             if(!body.floor().equals(floor)||!Arrays.equals(release.source().canonicalBytes(),source.entry().position().canonicalBytes())
                     ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("unused reservation changed protected Source/Floor");
+        }
+        private void requireInlineRelease(TargetResourceReclaimBody.InlinePayloadRelease expected,RecoveryFloorRef floor,TargetQuotaMutation release){
+            requireCurrent();recovery.requireReleaseMutation(release);final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!recovery.inlinePayload()||!body.floor().equals(floor)||!Arrays.equals(release.source().canonicalBytes(),source.entry().position().canonicalBytes())
+                    ||!Arrays.equals(release.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
+                    ||body.operations().stream().noneMatch(o->Arrays.equals(o.canonicalBytes(),expected.canonicalBytes())))
+                throw new IllegalStateException("inline release changed protected Source/Floor/expected value");
         }
         public void requireCurrent(){source.requireCurrent();held.run();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
         public long retainedBytes(){return Math.addExact(recovery.retainedBytes(),input.canonicalEnvelope().length);}
@@ -173,8 +179,22 @@ public final class TargetResourceReclaimStore {
             if(rejection==null&&!matchesExpected(reader,body))rejection=StableCode.STALE_SYSTEM_MUTATION;
             if(rejection==null&&protection==null)throw new IllegalStateException("expected reclaim value reappeared without original held protections");
             if(rejection==null){
-                if(body.inlinePayloadRelease())throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("inline atomic deletion has no complete actual reader/Pin closure yet");
                 protection.requireSource(scope,lineage,input,source);protection.requireCurrent();
+                if(body.inlinePayloadRelease()){
+                    requireClosedInline(reader,scope,lineage,input,source,protection);
+                    for(var operation:body.operations()){
+                        final var inline=(TargetResourceReclaimBody.InlinePayloadRelease)operation;final var expected=inline.expected();
+                        final var actual=TargetQuotaPayloadOwner.decodeForStore(expected.key(),
+                                payload(reader,ColumnFamily.META,expected.key(),TargetQuotaPayloadOwner.VALUE_TYPE),scope.shard(),scope.tenantScope());
+                        final var released=actual.release(body.floor(),stamp,(before,after,floor)->{
+                            if(!Arrays.equals(before.canonicalBytes(),expected.canonicalBytes())||!after.mutation().equals(stamp)
+                                    ||after.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED)throw new IllegalStateException("inline release changed complete original owner");
+                            protection.requireInlineRelease(inline,floor,stamp);protection.requireCurrent();
+                        });
+                        edits.add(reader.replace(ColumnFamily.ID,TargetKeyCodec.message(expected.messageId()),TargetMessageRecord.VALUE_TYPE,null));
+                        edits.add(reader.replace(ColumnFamily.META,released.key(),TargetQuotaPayloadOwner.VALUE_TYPE,released.canonicalBytes()));
+                    }
+                }else{
                 requireClosedUnused(reader,scope,lineage,input,source,protection);
                 for(var operation:body.operations()){
                     final var expected=((TargetResourceReclaimBody.UnusedAttemptReserve)operation).expected();
@@ -186,6 +206,7 @@ public final class TargetResourceReclaimStore {
                         protection.requireUnusedReservation(expected,floor,release);protection.requireCurrent();
                     });
                     edits.add(reader.replace(ColumnFamily.META,retained.key(),TargetQuotaAttemptBudget.VALUE_TYPE,retained.canonicalBytes()));
+                }
                 }
             }
             final var outcome=SystemMutationResult.from(input,rejection==null?ApplyStatus.APPLIED:ApplyStatus.REJECTED,
@@ -240,7 +261,8 @@ public final class TargetResourceReclaimStore {
     }
     private boolean protocolReady(TargetStoreBackend.Reader reader,SourcePosition source,TargetResourceReclaimBody body){
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
-        return activation!=null&&(body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
+        return activation!=null&&(body.selfContainedInlinePayloadRelease()?activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
+                :body.inlinePayloadRelease()?activation.body().payload().descriptor().supportsInlinePayloadReclaim()
                 :activation.body().payload().descriptor().supportsResourceReclaim())&&activation.appliedAt().source().compareTo(source)<0;
     }
     private TargetQuotaIncarnation sourceRoot(TargetStoreBackend.Reader reader,TargetQuotaMutation stamp){
@@ -278,6 +300,33 @@ public final class TargetResourceReclaimStore {
             throw new IllegalArgumentException("unused-reserve closure changed selected Native Source");
         requireClosedUnusedInventory(reader,scope,lineage,body,protection::writer);
         protection.requireCurrent();
+    }
+    public static void requireClosedInline(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            SystemMutation input,SourcePosition source,Protection protection){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());protection.requireSource(scope,lineage,input,source);
+        if(!body.inlinePayloadRelease()||!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)
+                ||reader.source()==null||source.compareTo(reader.source())<=0)throw new IllegalArgumentException("inline closure changed original Native Source");
+        if(!protection.recovery.inlinePayload())throw new IllegalArgumentException("inline Source lacks actual full Floor closure");
+        TargetInlinePayloadReclaim.requireCurrent(reader,body,protection.recovery.inlinePolicies(),
+                ()->{reader.requireWithinElapsedBudget();protection.requireCurrent();});
+    }
+    private static void requireClosedInlineInventory(TargetStoreBackend.Reader reader,TargetResourceReclaimBody body,
+            com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable current){
+        if(!recovery.inlinePayload())throw new IllegalArgumentException("inline closure requires actual inline image qualification");
+        if(body.floor().appliedSourcePosition().compareTo(reader.source())>0
+                ||Long.compareUnsigned(body.floor().includedMutationSequence(),reader.sourceSequence())>0)
+            throw new IllegalStateException("inline Native prefix has not replayed its declared Floor");
+        final var dependencies=reader.auditLedger();
+        TargetInlinePayloadReclaim.requireClosed(dependencies,body,recovery.inlinePolicies(),recovery.inlineSourceFacts(),false,current);
+    }
+    /** The pre-append check has no predicted Source position and grants no Source mutation authority. */
+    public static void requireClosedInlineDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,SystemMutation input,
+            com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.scope().equals(scope)||!Arrays.equals(body.lineage(),lineage)||reader.source()==null||!body.inlinePayloadRelease())
+            throw new IllegalArgumentException("inline draft changed original Native scope");
+        if(reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs())throw new IllegalStateException("inline draft retry window is already closed");
+        requireClosedInlineInventory(reader,body,recovery,reader::requireWithinElapsedBudget);
     }
     /** Pre-append validation has no nominated future Source position and grants no Native release authority. */
     public static void requireClosedUnusedDraft(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,

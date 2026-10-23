@@ -107,14 +107,15 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
         if(window>maximumInputBytes)throw new IllegalStateException("Native signing/full authentication exceeds original reserved input window");
         final Runnable current=()->{source.requireCurrent();originalHeld.run();};
         current.run();requireSigningCurrent(time,retryUntil);
-        final var body=source.selectBody(root,retryUntil,recoveryReads,current);
+        final var draft=source.selectBody(root,retryUntil,recoveryReads,current);
+        final var body=draft.inlinePayloadRelease()?source.catalog().freezeInlinePayloadSourceFacts(draft,images,recoveryReads,maximumInputBytes,current):draft;
         final var key=privateKey;
         if(key==null)throw new IllegalStateException("original Native signing key closed");
         final var input=SystemMutation.signed(body.shard(),SystemMutationType.TARGET_RESOURCE_RECLAIM,retryUntil,
                 body.logicalOperationIdentity(),body.canonicalBytes(),service.canonicalBytes(),version,key);
         if(!input.verifySignature(publicKey))throw new IllegalArgumentException("original Native private/public signing keys differ");
         current.run();requireSigningCurrent(time,retryUntil);
-        final var recovery=source.catalog().captureNewNativeRecoveryProtection(input,images,recoveryReads,current);
+        final var recovery=source.catalog().captureNewNativeRecoveryProtection(input,images,recoveryReads,maximumInputBytes,current);
         source.requireClosedDraft(input,recovery,nativeReads,current);
         recovery.requireCurrent(recoveryReads,current);
         final var prepared=new Prepared(source,input,recovery,originalHeld);

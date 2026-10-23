@@ -123,6 +123,9 @@ final class TargetCheckpointLedgerAudit {
                 proof.aggregate().mutation(),
                 proof.bookkeeping(),
                 TargetQueueState.MAX_DOMAIN_SLOTS);
+        final byte[] ingressRaw=view.projected(ColumnFamily.META,KeyCodec.metaFixed(4),List.of());
+        dependencies.ingressFence(ingressRaw==null?new IngressFenceState(IngressFenceState.OPEN,null)
+                :IngressFenceState.decode(TargetValueEnvelope.decode(ingressRaw,1).payload()));
         final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt = new HashMap<>();
         final Map<TargetQuotaIdentity, CapacityVector> resultContributions = new HashMap<>();
         final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
@@ -203,6 +206,7 @@ final class TargetCheckpointLedgerAudit {
                         final var message =
                                 TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId());
                         attemptProjections.add(new AttemptProjection(message.locator(), message.runtime()));
+                        dependencies.messageState(message,payload);
                         primaryMessages.add(Bytes.hex(message.locator().messageId().bytes()));
                         auditMessageDependencies(message, view);
                     } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
@@ -267,6 +271,7 @@ final class TargetCheckpointLedgerAudit {
                     } else if(family==ColumnFamily.META&&type==TargetQuotaPayloadOwner.VALUE_TYPE){
                         final var owner=TargetQuotaPayloadOwner.decodeForStore(key,payload,proof.metadata().shardId(),proof.root().tenantScope());
                         payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);
+                        dependencies.payloadOwner(owner);
                     } else if (family == ColumnFamily.META && type == TargetMembershipClosureRecord.VALUE_TYPE) {
                         membershipClosures.add(TargetMembershipClosureRecord.decodeForStore(
                                 key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
@@ -280,6 +285,7 @@ final class TargetCheckpointLedgerAudit {
                             throw new IllegalArgumentException("Target checkpoint terminal key mismatch");
                         }
                         attemptProjections.add(new AttemptProjection(terminal.locator(), terminal.runtime()));
+                        dependencies.terminalGeneration(terminal);
                     }
                     final var charge = accounting.charge(family, key, raw);
                     if (charge != null) {
@@ -359,6 +365,8 @@ final class TargetCheckpointLedgerAudit {
                 if (SystemMutationResult.decode(first.typedPayload()).mutationType()
                         == SystemMutationType.APPLY_SHARD_CONTROL) {
                     dependencies.controlResult(first);
+                } else if(SystemMutationResult.decode(first.typedPayload()).mutationType()==SystemMutationType.TIME_FENCE){
+                    dependencies.timeFence(first);
                 } else if (SystemMutationResult.decode(first.typedPayload()).mutationType()
                         == SystemMutationType.PUBLISH_OUTCOME
                         || SystemMutationResult.decode(first.typedPayload()).mutationType()
@@ -374,7 +382,16 @@ final class TargetCheckpointLedgerAudit {
                 if(position.kind()==TargetResultRecord.Kind.POSITION_SYSTEM)dependencies.systemPosition(position);
             }
         }
-        return dependencies.finish(admissions);
+        dependencies.captureRetentionDecisions(resultRows);
+        final var complete=dependencies.finish(admissions);
+        for(var history:complete.sourceHistories())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
+            if(body.selfContainedInlinePayloadRelease()){
+                final var first=complete.retirementResults().stream().filter(r->Arrays.equals(r.logicalId(),history.input().systemMutationId())).findFirst().orElseThrow();
+                if(first.appliedFirst())com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(complete,body);
+            }
+        }
+        return complete;
     }
     /** A reclaim event cannot survive without the actual phase result for every operation in its bounded group. */
     private static void auditReclaimResults(List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> histories,

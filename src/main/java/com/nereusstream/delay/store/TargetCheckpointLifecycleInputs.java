@@ -74,9 +74,12 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     public boolean requiresInlinePayloadReclaimCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsInlinePayloadReclaim())
             ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
                 &&TargetResourceReclaimBody.decode(v.image().canonicalBody()).inlinePayloadRelease());}
+    public boolean requiresSelfContainedInlinePayloadReclaimCapability(){return activations.stream().anyMatch(v->v.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+            ||histories.stream().anyMatch(v->v.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                &&TargetResourceReclaimBody.decode(v.image().canonicalBody()).selfContainedInlinePayloadRelease());}
     public int recordCount(){return Math.addExact(Math.addExact(activations.size(),retirements.size()),Math.addExact(confirmations.size(),histories.size()));}
     public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,requiresInlinePayloadReclaimCapability()?3:requiresResourceReclaimCapability()?2:1);
+        CanonicalProtobuf.uint32(out,1,requiresSelfContainedInlinePayloadReclaimCapability()?4:requiresInlinePayloadReclaimCapability()?3:requiresResourceReclaimCapability()?2:1);
         for(var v:activations)CanonicalProtobuf.bytes(out,2,v.canonicalBytes());
         for(var v:retirements)CanonicalProtobuf.bytes(out,3,v.canonicalBytes());
         for(var v:confirmations)CanonicalProtobuf.bytes(out,4,v.canonicalBytes());
@@ -198,6 +201,12 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
                 throw new IllegalStateException("APPLIED inline release history lacks actual descriptor7 capability");
             if(input.image().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
                     &&TargetResourceReclaimBody.decode(input.image().canonicalBody()).inlinePayloadRelease()){
+                final var body=TargetResourceReclaimBody.decode(input.image().canonicalBody());
+                if(body.selfContainedInlinePayloadRelease()){
+                    if(!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+                        throw new IllegalStateException("APPLIED self-contained inline release lacks actual descriptor8 capability");
+                    com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,body);
+                }
                 authority.requireInlinePayloadDecision(input,first);after(budget,guard);
             }
             if(input.image().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
@@ -216,7 +225,7 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
     public static TargetCheckpointLifecycleInputs decode(byte[] encoded,TargetCheckpointSemanticSnapshot.Limits limits){
         final var f=read(encoded,limits.maximumBytes(),limits.maximumRecords()+1,true);
         if(f.isEmpty())throw new IllegalArgumentException("missing lifecycle companion schema");
-        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>3)throw new IllegalArgumentException("unknown lifecycle companion schema");
+        final int version=QueryCodecSupport.uint32(f.get(0),1);if(version<1||version>4)throw new IllegalArgumentException("unknown lifecycle companion schema");
         final var a=new ArrayList<TargetProtocolActivationRecord>();final var r=new ArrayList<TargetEvidenceRetiringRecord>();
         final var c=new ArrayList<TargetEvidenceConfirmedRecord>();final var h=new ArrayList<HistoryImage>();int i=1;
         while(i<f.size()&&f.get(i).number()==2)a.add(TargetProtocolActivationRecord.decode(QueryCodecSupport.bytes(f.get(i++),2)));

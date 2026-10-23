@@ -17,19 +17,29 @@ public final class TargetResourceReclaimDiscovery {
     public static final class Cursor {
         private final TargetResourceReclaimDiscovery owner;
         private final byte[] storeIncarnation,after;
-        private Cursor(TargetResourceReclaimDiscovery owner,byte[] storeIncarnation,byte[] after){
-            this.owner=owner;this.storeIncarnation=Bytes.copy(storeIncarnation);this.after=after==null?null:Bytes.copy(after);
+        private final int kind;
+        private Cursor(TargetResourceReclaimDiscovery owner,byte[] storeIncarnation,byte[] after,int kind){
+            this.owner=owner;this.storeIncarnation=Bytes.copy(storeIncarnation);this.after=after==null?null:Bytes.copy(after);this.kind=kind;
         }
     }
     public static final class Candidate {
         private final TargetResourceReclaimDiscovery owner;
         private final TargetQuotaAttemptBudget expected;
+        private final TargetResourceReclaimBody.Operation operation;
         private final TargetResultRecord admission,outcome;
         private Candidate(TargetResourceReclaimDiscovery owner,TargetQuotaAttemptBudget expected,
                 TargetResultRecord admission,TargetResultRecord outcome){
             this.owner=owner;this.expected=expected;this.admission=admission;this.outcome=outcome;
+            operation=new TargetResourceReclaimBody.UnusedAttemptReserve(expected);
         }
-        public TargetQuotaAttemptBudget expected(){return expected;}
+        private Candidate(TargetResourceReclaimDiscovery owner,TargetResourceReclaimBody.InlinePayloadRelease operation){
+            this.owner=owner;this.operation=operation;expected=null;admission=null;outcome=null;
+        }
+        public TargetQuotaAttemptBudget expected(){if(expected==null)throw new IllegalStateException("inline candidate has no unused attempt Budget");return expected;}
+        public TargetResourceReclaimBody.Operation operation(){return operation;}
+        public boolean inlinePayload(){return operation instanceof TargetResourceReclaimBody.InlinePayloadRelease;}
+        public TargetQuotaIdentity primaryIdentity(){return inlinePayload()?((TargetResourceReclaimBody.InlinePayloadRelease)operation).expected().primaryIdentity():expected.primaryIdentity();}
+        public ProtocolTuple requiredTuple(){return inlinePayload()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
         public TargetResultRecord admission(){return admission;}
         public TargetResultRecord outcome(){return outcome;}
     }
@@ -38,8 +48,6 @@ public final class TargetResourceReclaimDiscovery {
         /** End of this traversal only; concurrent earlier inserts are picked up when the caller starts the next sweep. */
         public boolean complete(){return stop==Stop.RANGE_END;}
     }
-    private static final byte[] LOWER={TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,TargetKeyCodec.KEY_FORMAT};
-    private static final byte[] UPPER={TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,TargetKeyCodec.KEY_FORMAT+1};
     private final TargetStoreBackend backend;
     private final TargetQuotaScope scope;
     private final byte[] lineage;
@@ -55,52 +63,96 @@ public final class TargetResourceReclaimDiscovery {
      * proves a consistent whole-Store absence; a range end tells the caller to wrap to the first key.
      */
     public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority){
-        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this)
+        return scan(reads,previous,maximumRows,authority,true,false);
+    }
+    /** Family selection only; discovery confers no tuple, signing, protection or deletion permission. */
+    public Page scan(BoundedReadBudget reads,Cursor previous,int maximumRows,TargetStoreBackend.ReadAuthority authority,
+            boolean unused,boolean inline){
+        if(maximumRows<1||maximumRows>TargetResourceReclaimBody.MAX_OPERATIONS||previous!=null&&previous.owner!=this||!unused&&!inline)
             throw new IllegalArgumentException("invalid bounded reclaim scan or foreign continuation");
         return backend.guardedRead(reads,reader->{
             final var incarnation=reader.metadata().storeIncarnation();
             if(previous!=null&&!Arrays.equals(previous.storeIncarnation,incarnation))throw new StaleCursor();
             final var candidates=new ArrayList<Candidate>();
+            int kind=previous==null?(unused?1:2):previous.kind;
             byte[] after=previous==null?null:previous.after;
-            byte[] lower=after==null?LOWER:Bytes.concat(after,new byte[]{0});
-            for(int count=0;count<maximumRows;count++){
+            if(kind==1&&!unused||kind==2&&!inline){kind=unused?1:2;after=null;}
+            int count=0;
+            while(count<maximumRows){
+                final int tag=kind==1?TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG:TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG;
+                final byte[] upper={(byte)tag,TargetKeyCodec.KEY_FORMAT+1};
+                final byte[] lower=after==null?new byte[]{(byte)tag,TargetKeyCodec.KEY_FORMAT}:Bytes.concat(after,new byte[]{0});
                 try{
-                    final var row=reader.first(ColumnFamily.META,lower,UPPER,List.of());
-                    if(row==null){reader.requireWithinElapsedBudget();return new Page(candidates,new Cursor(this,incarnation,after),Stop.RANGE_END);}
-                    final var expected=TargetQuotaAttemptBudget.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetQuotaAttemptBudget.VALUE_TYPE).payload(),scope.shard());
-                    scope.requireRoute(expected.locator().messageId().routingId().shardId(),expected.tenantScope());
-                    if(!Arrays.equals(expected.recoveryLineage(),lineage))throw new IllegalStateException("reclaim candidate changed original lineage");
-                    expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
-                    Candidate selected=null;
-                    if(expected.phase()==TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR&&expected.mutation().equals(expected.resolvedAt())){
-                        final var root=root(reader);
-                        final byte[] admissionId=SystemMutation.computeSystemMutationId(scope.shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,
-                                expected.publishAttemptId(),expected.admissionDigest());
-                        final var admission=first(reader,root,admissionId);
-                        final var position=position(reader,root,expected.resolvedAt());
-                        final var outcome=first(reader,root,position.logicalId());position.requireFirst(outcome);
-                        final var admitted=SystemMutationResult.decode(admission.typedPayload());
-                        final var resolved=SystemMutationResult.decode(outcome.typedPayload());
-                        if(admitted.mutationType()!=SystemMutationType.TARGET_PUBLISH_ADMISSION
-                                ||!Arrays.equals(admitted.mutationHash(),expected.admissionDigest())
-                                ||admission.mutation().source().compareTo(outcome.mutation().source())>=0
-                                ||!outcome.mutation().equals(expected.resolvedAt()))throw new IllegalStateException("resolved reclaim candidate lost original Source firsts");
-                        if(resolved.mutationType()==SystemMutationType.PUBLISH_OUTCOME
-                                &&AuthorIdentity.decode(admitted.authorIdentity()).kind()==AuthorIdentity.Kind.OWNER
-                                &&Arrays.equals(admitted.authorIdentity(),resolved.authorIdentity())
-                                &&reader.closedIngressDeadlineThrough()>=Math.max(admitted.retryUntilEpochMs(),resolved.retryUntilEpochMs())){
-                            // Baseline/channel/evidence, full images, aliases and admission are proved before a signed request escapes preparation.
-                            final var admissionPosition=position(reader,root,admission.mutation());admissionPosition.requireFirst(admission);
-                            selected=new Candidate(this,expected,admission,outcome);
+                    final var row=reader.first(ColumnFamily.META,lower,upper,List.of());
+                    if(row==null){
+                        reader.requireWithinElapsedBudget();
+                        if(kind==1&&inline){
+                            kind=2;after=null;
+                            if(!candidates.isEmpty())return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
+                            continue;
                         }
+                        return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.RANGE_END);
                     }
-                    reader.requireWithinElapsedBudget();
+                    final var selected=kind==1?unused(reader,row):inline(reader,row);
+                    reader.requireWithinElapsedBudget();count++;
                     if(selected!=null)candidates.add(selected);
-                    after=row.key();lower=Bytes.concat(after,new byte[]{0});
-                }catch(ReadIncompleteException exhausted){return new Page(candidates,new Cursor(this,incarnation,after),Stop.READ_BUDGET);}
+                    after=row.key();
+                    // A legacy opaque policy stays retained without blocking eligible neighbours in one atomic group.
+                    // The Source protocol and explicit preparation APIs still support up to32 INLINE operations.
+                    if(kind==2&&selected!=null)return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
+                }catch(ReadIncompleteException exhausted){return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.READ_BUDGET);}
             }
-            return new Page(candidates,new Cursor(this,incarnation,after),Stop.PAGE_LIMIT);
+            return new Page(candidates,new Cursor(this,incarnation,after,kind),Stop.PAGE_LIMIT);
         },authority);
+    }
+    private Candidate unused(TargetStoreBackend.Reader reader,ShardStore.KeyValue row){
+        final var expected=TargetQuotaAttemptBudget.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetQuotaAttemptBudget.VALUE_TYPE).payload(),scope.shard());
+        scope.requireRoute(expected.locator().messageId().routingId().shardId(),expected.tenantScope());
+        if(!Arrays.equals(expected.recoveryLineage(),lineage))throw new IllegalStateException("reclaim candidate changed original lineage");
+        expected.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        Candidate selected=null;
+        if(expected.phase()==TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR&&expected.mutation().equals(expected.resolvedAt())){
+            final var root=root(reader);
+            final byte[] admissionId=SystemMutation.computeSystemMutationId(scope.shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                    expected.publishAttemptId(),expected.admissionDigest());
+            final var admission=first(reader,root,admissionId);
+            final var position=position(reader,root,expected.resolvedAt());
+            final var outcome=first(reader,root,position.logicalId());position.requireFirst(outcome);
+            final var admitted=SystemMutationResult.decode(admission.typedPayload());
+            final var resolved=SystemMutationResult.decode(outcome.typedPayload());
+            if(admitted.mutationType()!=SystemMutationType.TARGET_PUBLISH_ADMISSION
+                    ||!Arrays.equals(admitted.mutationHash(),expected.admissionDigest())
+                    ||admission.mutation().source().compareTo(outcome.mutation().source())>=0
+                    ||!outcome.mutation().equals(expected.resolvedAt()))throw new IllegalStateException("resolved reclaim candidate lost original Source firsts");
+            if(resolved.mutationType()==SystemMutationType.PUBLISH_OUTCOME
+                    &&AuthorIdentity.decode(admitted.authorIdentity()).kind()==AuthorIdentity.Kind.OWNER
+                    &&Arrays.equals(admitted.authorIdentity(),resolved.authorIdentity())
+                    &&reader.closedIngressDeadlineThrough()>=Math.max(admitted.retryUntilEpochMs(),resolved.retryUntilEpochMs())){
+                // Baseline/channel/evidence, full images, aliases and admission are proved before a signed request escapes preparation.
+                final var admissionPosition=position(reader,root,admission.mutation());admissionPosition.requireFirst(admission);
+                selected=new Candidate(this,expected,admission,outcome);
+            }
+        }
+        return selected;
+    }
+    private Candidate inline(TargetStoreBackend.Reader reader,ShardStore.KeyValue row){
+        final var owner=TargetQuotaPayloadOwner.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
+        if(!Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("inline discovery changed original lineage");
+        owner.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if(owner.kind()!=TargetQuotaPayloadOwner.Kind.INLINE||owner.phase()!=TargetQuotaPayloadOwner.Phase.RETAINED)return null;
+        final byte[] key=TargetKeyCodec.message(owner.messageId()),raw=reader.get(ColumnFamily.ID,key);
+        if(raw==null)throw new IllegalStateException("retained inline candidate lost primary Message");
+        final byte[] primary=TargetValueEnvelope.decode(raw,TargetMessageRecord.VALUE_TYPE).payload();
+        final var message=TargetMessageRecord.decodeForStore(key,primary,scope.shard());owner.requireMessagePayload(message);
+        if(!message.runtime().terminal()||!message.runtime().attemptObligations().isEmpty())return null;
+        final byte[] terminalKey=TargetTerminalGenerationRecord.key(message.locator());
+        final byte[] terminalBytes=payload(reader,ColumnFamily.TERMINAL,terminalKey,TargetTerminalGenerationRecord.VALUE_TYPE);
+        final var terminal=TargetTerminalGenerationRecord.decode(terminalBytes);terminal.requireOwner(owner);
+        if(!Arrays.equals(terminal.key(),terminalKey)||!Arrays.equals(terminal.recoveryLineage(),lineage)
+                ||terminal.stateVersion()!=message.stateVersion()||!Arrays.equals(terminal.runtime().canonicalBytes(),message.runtime().canonicalBytes()))
+            throw new IllegalStateException("inline candidate lost exact current terminal metadata");
+        terminal.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        return new Candidate(this,new TargetResourceReclaimBody.InlinePayloadRelease(owner,message.locator(),message.stateVersion(),Bytes.sha256(primary),Bytes.sha256(terminalBytes)));
     }
     public void requireCandidate(Candidate candidate){
         if(Objects.requireNonNull(candidate).owner!=this)throw new IllegalArgumentException("reclaim candidate came from another original Store");

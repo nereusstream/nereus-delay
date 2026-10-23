@@ -434,6 +434,11 @@ public final class TargetResultRecord {
     public Kind kind() {
         return kind;
     }
+    /** Local retained-first classification only; historical signatures and Source facts remain independent. */
+    public boolean appliedFirst(){
+        return kind==Kind.SYSTEM?SystemMutationResult.decode(payload).applyStatus()==ApplyStatus.APPLIED
+                :kind==Kind.COMMAND&&CommandDedupeRecord.decode(payload).result().applyStatus()==ApplyStatus.APPLIED;
+    }
 
     public byte[] logicalId() {
         return Bytes.copy(logicalId);

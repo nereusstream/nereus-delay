@@ -1061,6 +1061,10 @@ public final class TargetCommandStore {
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
             if (payloadRaw != null) {
+                final var retained=TargetQuotaPayloadOwner.decodeForStore(payloadKey,
+                        TargetValueEnvelope.decode(payloadRaw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
+                if(retained.kind()==TargetQuotaPayloadOwner.Kind.INLINE&&retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED)
+                    return modifyReleasedInline(reader,retained,precondition,reschedule,stamp,root,controls);
                 return modifyReservation(
                         reader, command, precondition, payloadKey, payloadRaw, stamp, reservationControls);
             }
@@ -1194,6 +1198,35 @@ public final class TargetCommandStore {
                         List.of(new TargetMessageStore.Transition(before, after)), releaseOrder(reader, before), edits),
                 applied(StableCode.CANCELED, source, after),
                 owner);
+    }
+
+    /** A released identity keeps the same terminal command semantics and never re-enters reservation/Schedule. */
+    private Decision modifyReleasedInline(TargetStoreBackend.Reader reader,TargetQuotaPayloadOwner retained,
+            MessagePrecondition precondition,RescheduleCommandBody reschedule,TargetQuotaMutation stamp,
+            TargetQuotaIncarnation root,CancellationControls controls){
+        final var operation=TargetRetirementSourceHistoryStore.releasedInlineOperation(reader,List.of(),scope,lineage,
+                root.identity(),retained,reader.aggregate().mutation());
+        final var terminal=TargetTerminalGenerationRecord.decode(payload(reader,ColumnFamily.TERMINAL,
+                TargetTerminalGenerationRecord.key(operation.locator()),TargetTerminalGenerationRecord.VALUE_TYPE));
+        final var owner=descriptor(reader,retained.primaryIdentity());owner.requirePayloadOwner(retained);
+        if((precondition.expectedGeneration()!=null&&precondition.expectedGeneration()!=Integer.toUnsignedLong(terminal.locator().generation()))
+                ||(precondition.expectedStateVersion()!=null&&precondition.expectedStateVersion()!=terminal.stateVersion()))
+            return unchanged(appliedTerminal(StableCode.VERSION_CONFLICT,stamp.source(),terminal),owner);
+        final byte[] bindingKey=TargetKeyCodec.scheduleBinding(terminal.locator().scheduleBindingDigest());
+        final var binding=TargetScheduleBinding.decodeForStore(bindingKey,
+                payload(reader,ColumnFamily.ID,bindingKey,TargetScheduleBinding.VALUE_TYPE),scope.shard());
+        retained.requireInitialBinding(binding);binding.requireLocator(terminal.locator());binding.requireMessageSource(terminal.mutation().source());
+        final var queue=TargetQueueState.decode(payload(reader,ColumnFamily.META,TargetKeyCodec.state(terminal.locator().target()),TargetQueueState.VALUE_TYPE));
+        terminal.locator().requireQueueProjection(queue);binding.requireQueueProjection(queue);
+        controls.closed(reader,binding,stamp.source());
+        final StableCode code=reschedule==null&&terminal.runtime().aggregateState()==GenerationAggregateState.CANCELED
+                ?StableCode.ALREADY_CANCELED:terminal.terminalCode()==StableCode.LANE_CLOSED_BEFORE_ADMISSION
+                    ?reschedule==null?StableCode.ALREADY_DEAD_LETTERED:StableCode.LANE_CLOSED:StableCode.TOO_LATE;
+        return unchanged(appliedTerminal(code,stamp.source(),terminal),owner);
+    }
+    private static CommandResult appliedTerminal(StableCode code,SourcePosition source,TargetTerminalGenerationRecord terminal){
+        return new CommandResult(ApplyStatus.APPLIED,code,terminal.locator().generation(),terminal.stateVersion(),
+                MessageStatus.valueOf(terminal.runtime().aggregateState().name()),source.canonicalBytes());
     }
 
     private Decision reschedule(

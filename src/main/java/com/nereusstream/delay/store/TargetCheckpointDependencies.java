@@ -54,6 +54,12 @@ public final class TargetCheckpointDependencies {
             Objects.requireNonNull(first, "first");
         }
     }
+    /** Derived from the complete fold, retaining no inline payload bytes and changing no companion digest. */
+    public record MessageState(TargetMessageLocator locator,long stateVersion,
+            com.nereusstream.delay.runtime.TargetGenerationRuntimeIndex runtime,byte[] primaryDigest){
+        public MessageState { Objects.requireNonNull(locator);Objects.requireNonNull(runtime);primaryDigest=Bytes.copy(primaryDigest);Bytes.requireLength(primaryDigest,32,"primary digest"); }
+        @Override public byte[] primaryDigest(){return Bytes.copy(primaryDigest);}
+    }
 
     /** Each use retains its original visibility point, including old bindings after later policy publication. */
     public record RetryUse(RetryPolicyRef reference, SourcePosition source) {
@@ -139,6 +145,12 @@ public final class TargetCheckpointDependencies {
     private final List<byte[]> objectProfileHashes;
     private final List<byte[]> artifactDigests;
     private final boolean admissionImagesComplete;
+    private final Map<String,MessageState> messageStates;
+    private final Map<String,com.nereusstream.delay.protocol.TargetQuotaPayloadOwner> payloadOwners;
+    private final List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations;
+    private final Map<String,TargetResultRecord> retentionFirsts,retentionPositions;
+    private final Map<String,TargetResultRecord> timeFences;
+    private final IngressFenceState ingressFence;
 
     private TargetCheckpointDependencies(Builder builder, List<Admission> admissions, boolean complete) {
         root = builder.root;
@@ -165,9 +177,30 @@ public final class TargetCheckpointDependencies {
         objectProfileHashes = copies(builder.objectHashes.values().stream().toList());
         artifactDigests = copies(builder.artifacts.values().stream().toList());
         admissionImagesComplete = complete;
+        messageStates=Map.copyOf(builder.messageStates);payloadOwners=Map.copyOf(builder.payloadOwners);
+        terminalGenerations=List.copyOf(builder.terminalGenerations.values());
+        retentionFirsts=Map.copyOf(builder.retentionFirsts);retentionPositions=Map.copyOf(builder.retentionPositions);
+        ingressFence=builder.ingressFence;
+        timeFences=Map.copyOf(builder.timeFences);
     }
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
+    public MessageState messageState(com.nereusstream.delay.protocol.DelayMessageId id){return messageStates.get(Bytes.hex(id.bytes()));}
+    public com.nereusstream.delay.protocol.TargetQuotaPayloadOwner payloadOwner(com.nereusstream.delay.protocol.DelayMessageId id){return payloadOwners.get(Bytes.hex(id.bytes()));}
+    public List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations(){return terminalGenerations;}
+    public IngressFenceState ingressFence(){return ingressFence;}
+    /** Exact original Source first/POSITION for RETAINED, not a later physical duplicate or a caller timestamp. */
+    public TargetResultRecord requireRetentionDecision(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner retained){
+        final String token=retentionToken(retained.mutation());
+        final var first=Objects.requireNonNull(retentionFirsts.get(token),"retained owner lost original Source first");
+        final var position=Objects.requireNonNull(retentionPositions.get(token),"retained owner lost original Source POSITION");
+        if(!first.mutation().equals(retained.mutation())||!position.mutation().equals(first.mutation()))
+            throw new IllegalStateException("retained owner Source stamp differs from actual original decision");
+        position.requireFirst(first);
+        if(!first.appliedFirst())throw new IllegalStateException("retained owner references a non-APPLIED Source first");
+        return first;
+    }
+    private static String retentionToken(com.nereusstream.delay.protocol.TargetQuotaMutation stamp){return Bytes.hex(Bytes.sha256(stamp.canonicalBytes()));}
     public List<StoredControl> controls() { return controls; }
     /** Every retained APPLY_SHARD_CONTROL first result, including durable rejections. */
     public List<TargetResultRecord> controlResults() { return controlResults; }
@@ -177,12 +210,23 @@ public final class TargetCheckpointDependencies {
     public List<TargetResultRecord> outcomeResults() { return outcomeResults; }
     public List<TargetResultRecord> retirementResults(){return retirementResults;}
     /** Exact original POSITION from the same complete physical fold; no re-encoding or missing-row substitute. */
-    void requireSystemPosition(TargetResultRecord first){
+    public void requireSystemPosition(TargetResultRecord first){
         if(first.kind()!=TargetResultRecord.Kind.SYSTEM)throw new IllegalArgumentException("original system first required");
         final var key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},first.mutation().source().canonicalBytes());
         final var position=Objects.requireNonNull(systemPositions.get(Bytes.hex(key)),"authenticated image lacks original system POSITION");
         if(!position.mutation().equals(first.mutation()))throw new IllegalStateException("image POSITION changed original first stamp");
         position.requireFirst(first);
+    }
+    public TargetResultRecord requireTimeFence(com.nereusstream.delay.ownership.SourceReplayMutation original){
+        final var input=original.mutation();
+        if(input.type()!=SystemMutationType.TIME_FENCE)throw new IllegalArgumentException("original TimeFence required");
+        final var first=Objects.requireNonNull(timeFences.get(Bytes.hex(input.systemMutationId())),"original Source TimeFence first");
+        if(!Arrays.equals(first.typedPayload(),SystemMutationResult.from(input,com.nereusstream.delay.runtime.ApplyStatus.APPLIED,
+                com.nereusstream.delay.protocol.StableCode.OK,original.position().canonicalBytes()).encode())
+                ||!Arrays.equals(first.mutation().source().canonicalBytes(),original.position().canonicalBytes())
+                ||!Arrays.equals(first.mutation().mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))
+            throw new IllegalStateException("TimeFence input differs from actual original Source decision");
+        requireSystemPosition(first);return first;
     }
     public List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories(){return sourceHistories;}
     public List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips(){return historyTips;}
@@ -335,6 +379,19 @@ public final class TargetCheckpointDependencies {
     public List<RetryUse> retryUses() { return retryUses; }
     /** Actual fold inputs, including earlier generations; package-local so audits can join them in one pass. */
     List<TargetScheduleBinding> retainedBindings(){return bindings;}
+    /** Bounded selected group; scans the complete retained binding inventory once under the original guard. */
+    public Map<com.nereusstream.delay.protocol.DelayMessageId,List<RetryUse>> retryUsesFor(
+            java.util.Set<com.nereusstream.delay.protocol.DelayMessageId> ids,Runnable current){
+        if(ids.isEmpty()||ids.size()>32)throw new IllegalArgumentException("bounded inline Message group required");
+        final var selected=new java.util.HashMap<com.nereusstream.delay.protocol.DelayMessageId,TreeMap<String,RetryUse>>();
+        for(var binding:bindings){
+            current.run();if(!ids.contains(binding.messageId()))continue;
+            final var use=new RetryUse(binding.intent().retryPolicy(),binding.bindingSource());
+            selected.computeIfAbsent(binding.messageId(),id->new TreeMap<>()).put(Bytes.hex(use.canonicalBytes()),use);
+        }
+        final var result=new java.util.HashMap<com.nereusstream.delay.protocol.DelayMessageId,List<RetryUse>>();
+        selected.forEach((id,uses)->result.put(id,List.copyOf(uses.values())));current.run();return Map.copyOf(result);
+    }
     public List<PayloadProofTrustSetRef> trustSets() { return trustSets; }
     public List<byte[]> objectProfileHashes() { return copies(objectProfileHashes); }
     public List<byte[]> artifactDigests() { return copies(artifactDigests); }
@@ -835,6 +892,12 @@ public final class TargetCheckpointDependencies {
         private final Map<String, PayloadProofTrustSetRef> trusts = new TreeMap<>();
         private final Map<String, byte[]> objectHashes = new TreeMap<>();
         private final Map<String, byte[]> artifacts = new TreeMap<>();
+        private final Map<String,MessageState> messageStates=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetQuotaPayloadOwner> payloadOwners=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations=new TreeMap<>();
+        private final Map<String,TargetResultRecord> retentionFirsts=new TreeMap<>(),retentionPositions=new TreeMap<>();
+        private final Map<String,TargetResultRecord> timeFences=new TreeMap<>();
+        private IngressFenceState ingressFence=new IngressFenceState(IngressFenceState.OPEN,null);
 
         Builder(TargetCheckpointRootVerifier.RootProof root) { this.root = root; }
 
@@ -862,6 +925,31 @@ public final class TargetCheckpointDependencies {
             prior.trustSets.forEach(this::trust);
             prior.objectProfileHashes.forEach(this::objectHash);
             prior.artifactDigests.forEach(this::artifact);
+            messageStates.putAll(prior.messageStates);payloadOwners.putAll(prior.payloadOwners);
+            prior.terminalGenerations.forEach(this::terminalGeneration);
+            retentionFirsts.putAll(prior.retentionFirsts);retentionPositions.putAll(prior.retentionPositions);ingressFence=prior.ingressFence;
+            timeFences.putAll(prior.timeFences);
+        }
+        void messageState(com.nereusstream.delay.runtime.TargetMessageRecord message,byte[] canonical){
+            messageStates.put(Bytes.hex(message.locator().messageId().bytes()),new MessageState(message.locator(),message.stateVersion(),message.runtime(),Bytes.sha256(canonical)));
+        }
+        void payloadOwner(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner owner){payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);}
+        void terminalGeneration(com.nereusstream.delay.runtime.TargetTerminalGenerationRecord terminal){terminalGenerations.put(Bytes.hex(terminal.key()),terminal);}
+        void ingressFence(IngressFenceState state){ingressFence=Objects.requireNonNull(state);}
+        void timeFence(TargetResultRecord first){timeFences.put(Bytes.hex(first.logicalId()),first);}
+        void captureRetentionDecisions(List<com.nereusstream.delay.runtime.TargetResultLedgerAudit.Stored> rows){
+            final var needed=new java.util.HashSet<String>();
+            for(var owner:payloadOwners.values())if(owner.phase()==com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.Phase.RETAINED)needed.add(retentionToken(owner.mutation()));
+            for(var history:sourceHistories.values())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+                final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
+                if(body.inlinePayloadRelease())for(var operation:body.operations())needed.add(retentionToken(((com.nereusstream.delay.protocol.TargetResourceReclaimBody.InlinePayloadRelease)operation).expected().mutation()));
+            }
+            for(var row:rows){
+                final var value=TargetResultRecord.decode(row.payload());final String token=retentionToken(value.mutation());
+                if(!needed.contains(token))continue;
+                if(value.kind()==TargetResultRecord.Kind.COMMAND||value.kind()==TargetResultRecord.Kind.SYSTEM)retentionFirsts.put(token,value);
+                else if(value.kind()==TargetResultRecord.Kind.POSITION_COMMAND||value.kind()==TargetResultRecord.Kind.POSITION_SYSTEM)retentionPositions.put(token,value);
+            }
         }
 
         void externalEvidence(com.nereusstream.delay.protocol.TargetExternalEvidenceOwner owner) {

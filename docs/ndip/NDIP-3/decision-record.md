@@ -1500,3 +1500,24 @@ Source-history verifier默认拒绝APPLIED inline决定，不能借一般Action3
 当前正向Source仍因完整动态闭合未接而pending，不套unused旧Pin规则。此是协议与
 恢复读路径进度，后续真实kind2准备/签发、Reader/Pin/retention fence、安全cut、
 metadata查询、Native全部引用及原子删除/精确计费继续，未缩减完整包或授权真实环境。
+
+## 2026-10-23：B路径，完整SourceFacts必须先随回收请求持久
+
+主会话裁定选择B，拒依赖尚未接通的独立Source-retention provider无限保护旧原帧。
+完整有界SourceFacts在GC准备中核原APPLIED first/POSITION/Source/policy/TimeFence后，
+先随本次原signed Source请求持久，再由同批Native54及后继checkpoint延续。只在apply
+后写companion不能覆盖append已持久/UNKNOWN而first尚不存在的窗口。
+采用明确body11/tuple11、descriptor8、Native54v4/lifecycle4/companion10，旧body10及
+其边界不补字段、不追认事实、不让旧grant授权新语义。完整原frames、Source/stamps和
+签名绑定均持久保存；原Native first/POSITION、Root/pin/语义历史仍是独立信任链，
+capsule不生成独立权限、不带秘密、不引入新服务/日志/token。每帧/组/总bytes都使用
+原输入与STATE/checkpoint额度。完整字段和旧bytes边界见Registry。
+
+同批原子Message删除/owner RELEASED/精确账务和metadata/Cancel/Reschedule已接线；
+Source/cold取body11自含原帧，local reopen/ledger/companion要求持久依赖继续保留。
+只要相关owner/first/history/terminal/查询/Pin/恢复仍依赖该证据，后继Floor就不能丢弃，
+证据和历史物理副本继续计费。本次不批准真实Source截断、历史删除或保护解除。
+capsule解决历史事实存续，不能证明当前无读者或未来不会复活；实际动态reader/replay/
+export/Pin准入与read退出仍须真实原held协议。当前生产provider没有该具体实现，新契约
+默认拒绝；已向主会话提出应复用哪条原admission权限链的实际分歧，不记inline功能闭合。
+单agent非Fast、必要编译、集中验证后置和全部四包/29切片目标保持。

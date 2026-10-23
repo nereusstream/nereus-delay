@@ -25,7 +25,7 @@ import java.util.TreeMap;
 
 /** Closed Target semantic contents and original Admission frames; external control/pin/authentication is required. */
 public final class TargetCheckpointSemanticSnapshot {
-    public static final int MAX_SCHEMA_VERSION=9;
+    public static final int MAX_SCHEMA_VERSION=10;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-checkpoint-semantic-snapshot\0");
 
     public record Limits(int maximumRecords, int maximumBytes, long maximumAdmissionFrameBytes) {
@@ -131,6 +131,10 @@ public final class TargetCheckpointSemanticSnapshot {
             throw new IllegalArgumentException("inline payload lifecycle requires explicit schema9 companion");
         if(version==9&&!lifecycle.requiresInlinePayloadReclaimCapability())
             throw new IllegalArgumentException("schema9 requires explicit inline capability inputs");
+        if(version<10&&lifecycle!=null&&lifecycle.requiresSelfContainedInlinePayloadReclaimCapability())
+            throw new IllegalArgumentException("self-contained inline lifecycle requires explicit schema10 companion");
+        if(version==10&&!lifecycle.requiresSelfContainedInlinePayloadReclaimCapability())
+            throw new IllegalArgumentException("schema10 requires explicit self-contained inline capability inputs");
         this.lifecycle=lifecycle;
         this.terminalPolicies=ordered(terminalPolicies,value->value.use().canonicalBytes());
         if (version < 1 || version > MAX_SCHEMA_VERSION || version == 1 && !controls.isEmpty()
@@ -359,7 +363,7 @@ public final class TargetCheckpointSemanticSnapshot {
         final var recovery=complete.resolveRecoveryEvidence(originalOutcomes,recoveryAuthority,budget,guard);
         final var lifecycle=TargetCheckpointLifecycleInputs.collect(complete,lifecycleAuthority,budget,limits,guard);
         final var root=complete.root();
-        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresInlinePayloadReclaimCapability()?9:lifecycle.requiresResourceReclaimCapability()?8:lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
+        final var result=new TargetCheckpointSemanticSnapshot(lifecycle.requiresSelfContainedInlinePayloadReclaimCapability()?10:lifecycle.requiresInlinePayloadReclaimCapability()?9:lifecycle.requiresResourceReclaimCapability()?8:lifecycle.requiresRetainedMarkerCapability()?7:6,root.metadata(),root.source(),root.mutationSequence(),
                 root.root().recoveryLineage(),complete.storedControlsDigest(),complete.semanticInputsDigest(),profiles,retries,trusts,
                 admissions,originalControls,originalOutcomes,external,recovery,lifecycle,lifecycle.requiresInlinePayloadReclaimCapability()?terminalPolicies:List.of(),limits);
         result.validateAgainst(complete,limits);guard.run();if(!budget.beforeTimedWork())throw budget.incomplete();return result;
@@ -402,6 +406,12 @@ public final class TargetCheckpointSemanticSnapshot {
             if(!body.inlinePayloadRelease())continue;
             final var first=Objects.requireNonNull(firsts.get(Bytes.hex(history.input().systemMutationId())),"inline history lost original first");
             if(com.nereusstream.delay.runtime.SystemMutationResult.decode(first.typedPayload()).applyStatus()!=com.nereusstream.delay.runtime.ApplyStatus.APPLIED)continue;
+            if(body.selfContainedInlinePayloadRelease()){
+                final var inlinePolicies=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.policies(complete,this,body,()->{});
+                final var actual=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireClosed(complete,body,inlinePolicies,
+                        com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts.from(body.sourceFacts()),true,()->{});
+                if(!history.decidedAt().equals(actual))throw new IllegalStateException("self-contained inline lifecycle changed actual APPLIED release");
+            }
             for(var operation:body.operations()){
                 final var inline=(com.nereusstream.delay.protocol.TargetResourceReclaimBody.InlinePayloadRelease)operation;
                 final var uses=usesByMessage.get(Bytes.hex(inline.expected().messageId().bytes()));
@@ -683,7 +693,7 @@ public final class TargetCheckpointSemanticSnapshot {
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target semantic snapshot");
         return result;
     }
-    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7,8->17;case 9->18;
+    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7,8->17;case 9,10->18;
         default->throw new IllegalArgumentException("unknown Target semantic snapshot version");};}
 
     private static void before(BoundedReadBudget budget, Runnable guard) {

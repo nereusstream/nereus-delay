@@ -37,6 +37,14 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
          * Two observations, an empty caller inventory, or signatures alone are not that held protocol.
          */
         void requireCurrent();
+        /**
+         * Actual original read/replay/export and writer/alias admission hold for this private Source context.
+         * Must keep the full qualified Floor closure valid for the exact terminal values through commit;
+         * no untracked dependency may arise after that safe cut. Local held checks only, never remote I/O.
+         */
+        default void requireInlinePayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source hold has no inline payload reader/admission protection");
+        }
         /** Original hold release; a failed close must retain the original release state for retry. */
         @Override void close();
     }
@@ -233,7 +241,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         });
         final boolean authorized=selected!=null&&mutation.verifySignature(selected.writerKey());
         if(authorized&&source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Native reclaim Source/Store context is unavailable");
-        final var protection=authorized&&source.matchesExpected()?source.protectUnused(input.recoveryImages(),maximumBytes-held.bytes,held::requireCurrent):null;
+        final Runnable reclaimHeld=()->{held.requireCurrent();if(body.inlinePayloadRelease())held.original.requireInlinePayloadIndependent(source);held.requireCurrent();};
+        final var protection=authorized&&source.matchesExpected()?source.protectReclaim(input.recoveryImages(),maximumBytes-held.bytes,reclaimHeld):null;
         if(protection!=null){
             protection.requireSource(body.scope(),body.lineage(),mutation,entry.position());protection.requireCurrent();
             final long bytes=protection.retainedBytes();

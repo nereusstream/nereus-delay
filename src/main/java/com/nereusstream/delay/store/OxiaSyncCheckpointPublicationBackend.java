@@ -526,12 +526,45 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         final var body=new com.nereusstream.delay.protocol.TargetResourceReclaimBody(scope,lineage,deploymentRoot,nativeReclaimNamespace(),retryUntil,floor,operations);
         current.run();if(!reads.beforeTimedWork())throw reads.incomplete();return body;
     }
+    public com.nereusstream.delay.protocol.TargetResourceReclaimBody selectNativeReclaimOperations(
+            com.nereusstream.delay.protocol.TargetQuotaScope scope,byte[] lineage,byte[] deploymentRoot,long retryUntil,
+            List<com.nereusstream.delay.protocol.TargetResourceReclaimBody.Operation> operations,BoundedReadBudget reads,Runnable current){
+        if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite actual inline Floor reads required");
+        current.run();final var stored=readEvidenceState(reads);
+        if(stored.state.shard()==null||!stored.state.shard().equals(scope.shard()))throw new IllegalStateException("reclaim operation selection changed actual publication Shard");
+        final var floor=RecoveryCatalog.fromSnapshot(stored.state.catalog()).currentFloorRef().orElseThrow();
+        final var body=new com.nereusstream.delay.protocol.TargetResourceReclaimBody(scope,lineage,deploymentRoot,nativeReclaimNamespace(),retryUntil,floor,operations);
+        current.run();if(!reads.beforeTimedWork())throw reads.incomplete();return body;
+    }
     /** Fresh GC requests must use the still-current Floor, never a historical decision copied from an image. */
+    public com.nereusstream.delay.protocol.TargetResourceReclaimBody freezeInlinePayloadSourceFacts(
+            com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,List<TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget reads,long maximumBytes,Runnable current){
+        final long window=maximumBytes-recoveryProtectionInputWindowBytes(images)
+                -4L*(com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_CANONICAL_BYTES+4096L);
+        if(window<=0||reads.maxBytes()==Long.MAX_VALUE)throw new IllegalStateException("SourceFacts collection has no original bounded input/read reservation");
+        current.run();final var before=readEvidenceState(reads);final var catalog=RecoveryCatalog.fromSnapshot(before.state.catalog());
+        if(!draft.floor().equals(catalog.currentFloorRef().orElseThrow())||!Arrays.equals(draft.namespace(),nativeReclaimNamespace()))
+            throw new IllegalStateException("SourceFacts selection changed actual Floor/namespace");
+        final var image=images.stream().filter(i->Arrays.equals(i.manifest().checkpointId(),draft.floor().checkpointId())).findFirst().orElseThrow();
+        final var frozen=image.freezeInlinePayloadSourceFacts(draft,window);
+        current.run();final var after=readEvidenceState(reads);
+        if(before.versionId!=after.versionId||!Arrays.equals(before.encoded,after.encoded))throw new IllegalStateException("Catalog changed during original SourceFacts collection");
+        if(!reads.beforeTimedWork())throw reads.incomplete();return frozen;
+    }
+
     public NativeRecoveryProtection captureNewNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current){
         final var result=captureNativeRecoveryProtection(input,images,reads,current);
         if(!result.exactRequestedFloor)throw new IllegalStateException("GC signing Floor changed before authenticated preparation completed");
         return result;
+    }
+    public NativeRecoveryProtection captureNewNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current){
+        final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+        final var result=body.inlinePayloadRelease()?captureInlineRecoveryProtection(input,images,reads,maximumBytes,current,null)
+                :captureNativeRecoveryProtection(input,images,reads,current);
+        if(!result.exactRequestedFloor)throw new IllegalStateException("GC signing Floor changed before authenticated preparation completed");return result;
     }
     /** Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held protocol. */
     public NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
@@ -549,6 +582,78 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         if(body.floor().appliedSourcePosition().compareTo(entry.position())>=0)
             throw new IllegalStateException("reclaim Source is not strictly after its declared Floor");
         return captureNativeRecoveryProtection(entry.mutation(),images,reads,()->{source.requireCurrent();current.run();},source);
+    }
+    public NativeRecoveryProtection captureSourceNativeRecoveryProtection(
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current){
+        source.requireCurrent();if(source.catalog()!=this)throw new IllegalArgumentException("inline Source changed original managed Catalog");
+        final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(source.entry().mutation().canonicalBody());
+        if(!body.inlinePayloadRelease())return captureSourceNativeRecoveryProtection(source,images,reads,current);
+        if(body.floor().appliedSourcePosition().compareTo(source.entry().position())>=0)throw new IllegalStateException("inline Source must follow its declared Floor");
+        source.requireReplayedFloor(body.floor());
+        return captureInlineRecoveryProtection(source.entry().mutation(),images,reads,maximumBytes,()->{source.requireCurrent();current.run();},source);
+    }
+    private NativeRecoveryProtection captureInlineRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
+            List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,long maximumBytes,Runnable current,
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead source){
+        final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.inlinePayloadRelease()||maximumBytes<=0||maximumBytes==Long.MAX_VALUE||reads.maxBytes()==Long.MAX_VALUE)
+            throw new IllegalArgumentException("inline recovery requires its explicit original finite input/read window");
+        final long sourceWindow=maximumBytes-recoveryProtectionInputWindowBytes(images)
+                -Math.multiplyExact(4L,input.canonicalEnvelope().length+4096L);
+        if(sourceWindow<=0)throw new IllegalStateException("inline full image authentication leaves no held original Source input window");
+        current.run();final byte[] namespace=nativeReclaimNamespace();
+        if(!Arrays.equals(body.namespace(),namespace))throw new IllegalArgumentException("inline recovery namespace differs from original managed publication");
+        final var before=readEvidenceState(reads);final var catalog=RecoveryCatalog.fromSnapshot(before.state.catalog());
+        final var floor=catalog.currentFloorRef().orElseThrow(()->new IllegalStateException("inline release requires actual typed Floor"));
+        final var declared=body.floor();final var declaredManifest=catalog.manifest(declared.checkpointId()).orElseThrow();
+        if(!Arrays.equals(floor.recoveryLineageId(),body.lineage())||!floor.appliedSourcePosition().shardId().equals(body.shard())
+                ||!Arrays.equals(declaredManifest.manifestSha256(),declared.manifestSha256())
+                ||!Arrays.equals(declaredManifest.recoveryLineageId(),declared.recoveryLineageId())
+                ||!declaredManifest.appliedShardLogPosition().equals(declared.appliedSourcePosition())
+                ||declaredManifest.shardMutationSequence()!=declared.includedMutationSequence()
+                ||!declaredManifest.evidenceCursors().equals(declared.evidenceCursors())
+                ||Long.compareUnsigned(declared.catalogGeneration(),floor.catalogGeneration())>0)
+            throw new IllegalStateException("inline declared Floor differs from actual published projection");
+        catalog.requirePublishedFloorAncestor(declared,floor);
+        catalog.proveFloorCoverage(floor.checkpointId(),declared.includedMutationSequence(),declared.appliedSourcePosition()).orElseThrow();
+        final var pin=pinStore.readForProtection(reads);current.run();
+        final var available=new java.util.HashMap<String,TargetCheckpointRootVerifier.AuthenticatedImage>();
+        for(var image:images)if(available.putIfAbsent(Bytes.hex(image.manifest().checkpointId()),image)!=null)throw new IllegalArgumentException("duplicate inline protected image");
+        final var copies=new java.util.LinkedHashMap<String,TargetCheckpointRootVerifier.InlinePayloadCopy>();
+        final String floorId=Bytes.hex(floor.checkpointId());
+        final var floorImage=Objects.requireNonNull(available.get(floorId),"actual inline Floor image");
+        if(!Arrays.equals(floorImage.manifest().manifestSha256(),floor.manifestSha256()))throw new IllegalArgumentException("inline Floor image changed Manifest");
+        final var floorCopy=floorImage.authenticateInlinePayloadFloor(input,floor,sourceWindow);copies.put(floorId,floorCopy);
+        if(pin!=null){
+            catalog.validateRetainedRecoveryPin(pin.pin());
+            if(!pin.pin().shard().shardId().equals(body.shard()))throw new IllegalStateException("inline Pin changed Source Shard");
+            final var candidate=pin.pin().candidate();final var observed=pin.pin().observedFloor();
+            for(var ref:List.of(new byte[][]{candidate.checkpointId(),candidate.manifestSha256()},new byte[][]{observed.checkpointId(),observed.manifestSha256()})){
+                current.run();final String id=Bytes.hex(ref[0]);
+                final var manifest=catalog.manifest(ref[0]).orElseThrow(()->new IllegalStateException("inline protected image is not published"));
+                final var image=Objects.requireNonNull(available.get(id),"actual inline Pin image");
+                if(!Arrays.equals(manifest.manifestSha256(),ref[1])||!Arrays.equals(image.manifest().manifestSha256(),ref[1]))
+                    throw new IllegalArgumentException("inline Pin image changed exact Manifest");
+                if(!copies.containsKey(id))copies.put(id,image.authenticateInlinePayloadPin(input,floor,floorCopy));
+            }
+        }
+        if(copies.size()!=available.size())throw new IllegalArgumentException("unrelated inline recovery images");
+        final var at=source==null?null:source.entry().position();
+        if(at!=null){
+            final int order=floor.appliedSourcePosition().compareTo(at);
+            if(order==0&&!floor.appliedSourcePosition().equals(at))throw new IllegalStateException("inline Floor changed metadata at actual Source point");
+            if(order<0)source.requireReplayedFloor(floor);
+            else if(floorCopy.released()==null||!Arrays.equals(floorCopy.released().source().canonicalBytes(),at.canonicalBytes()))
+                throw new IllegalStateException("advanced inline Floor lacks this exact actual APPLIED Source");
+        }else if(!floor.equals(declared))throw new IllegalStateException("fresh inline signing requires exact current Floor");
+        current.run();final var after=readEvidenceState(reads);
+        if(before.versionId!=after.versionId||!Arrays.equals(before.encoded,after.encoded)||!samePin(pin,pinStore.readForProtection(reads)))
+            throw new IllegalStateException("inline Catalog/Floor/Pin changed during full authentication");
+        final var result=new NativeRecoveryProtection(this,input,namespace,before.versionId,Bytes.sha256(before.encoded),pin,
+                List.copyOf(copies.values()),floor.equals(declared),floorCopy.released(),true);
+        if(result.retainedBytes()>maximumBytes)throw new IllegalStateException("complete inline proof exceeds original held input window");
+        result.requireCurrent(reads,current);return result;
     }
     private NativeRecoveryProtection captureNativeRecoveryProtection(com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,BoundedReadBudget reads,Runnable current,
@@ -625,6 +730,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         private final long publicationVersion;
         private final OxiaSessionBoundRecoveryPinStore.PinRecord pin;
         private final List<TargetCheckpointRootVerifier.UnusedReserveCopy> copies;
+        private final List<TargetCheckpointRootVerifier.InlinePayloadCopy> inlineCopies;
         private final boolean exactRequestedFloor;
         private final com.nereusstream.delay.protocol.TargetQuotaMutation replayDecision;
         private NativeRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,com.nereusstream.delay.protocol.SystemMutation input,
@@ -633,17 +739,32 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             this.owner=owner;envelope=Bytes.sha256(input.canonicalEnvelope());this.namespace=namespace;publicationVersion=version;publicationDigest=digest;this.pin=pin;this.copies=copies;
             this.exactRequestedFloor=exactRequestedFloor;
             this.replayDecision=replayDecision;
+            inlineCopies=List.of();
+        }
+        private NativeRecoveryProtection(OxiaSyncCheckpointPublicationBackend owner,com.nereusstream.delay.protocol.SystemMutation input,
+                byte[] namespace,long version,byte[] digest,OxiaSessionBoundRecoveryPinStore.PinRecord pin,
+                List<TargetCheckpointRootVerifier.InlinePayloadCopy> inlineCopies,boolean exactRequestedFloor,
+                com.nereusstream.delay.protocol.TargetQuotaMutation replayDecision,boolean inline){
+            if(!inline||inlineCopies.isEmpty())throw new IllegalArgumentException("complete actual inline copies required");
+            this.owner=owner;envelope=Bytes.sha256(input.canonicalEnvelope());this.namespace=namespace;publicationVersion=version;
+            publicationDigest=digest;this.pin=pin;copies=List.of();this.inlineCopies=List.copyOf(inlineCopies);
+            this.exactRequestedFloor=exactRequestedFloor;this.replayDecision=replayDecision;
         }
         public void requireReleaseMutation(com.nereusstream.delay.protocol.TargetQuotaMutation mutation){
             if(replayDecision!=null&&!replayDecision.equals(mutation))throw new IllegalStateException("Native replay changed original APPLIED mutation stamp");
         }
-        public List<TargetCheckpointRootVerifier.UnusedReserveWriter> writers(){return copies.getFirst().writers();}
+        public boolean inlinePayload(){return !inlineCopies.isEmpty();}
+        public List<TargetCheckpointRootVerifier.InlinePayloadCopy> inlineCopies(){return inlineCopies;}
+        public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> inlinePolicies(){return inlineCopies.getFirst().policies();}
+        public com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts inlineSourceFacts(){return inlineCopies.getFirst().facts();}
+        public List<TargetCheckpointRootVerifier.UnusedReserveWriter> writers(){if(inlinePayload())throw new IllegalStateException("inline proof is not an unused reserve witness");return copies.getFirst().writers();}
         public long retainedBytes(){long bytes=Math.addExact(4096L,pin==null?0:pin.pin().canonicalBytes().length);
-            for(var copy:copies)bytes=Math.addExact(bytes,copy.retainedBytes());return bytes;}
+            for(var copy:copies)bytes=Math.addExact(bytes,copy.retainedBytes());for(var copy:inlineCopies)bytes=Math.addExact(bytes,copy.retainedBytes());return bytes;}
         public void requireHeldFor(OxiaSyncCheckpointPublicationBackend expected,com.nereusstream.delay.protocol.SystemMutation input){
             if(owner!=expected||!Arrays.equals(namespace,owner.nativeReclaimNamespace())||!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))
                 throw new IllegalArgumentException("Native recovery protection changed original Catalog/Source frame");
             for(var copy:copies)copy.requireFor(input);
+            for(var copy:inlineCopies)copy.requireFor(input);
         }
         /** Acquisition-time bounded rereads, never called at Native commit; original admission remains held. */
         public void requireCurrent(BoundedReadBudget reads,Runnable current){
@@ -651,7 +772,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             current.run();final var state=owner.readEvidenceState(reads);
             if(state.versionId!=publicationVersion||!Arrays.equals(publicationDigest,Bytes.sha256(state.encoded))
                     ||!samePin(pin,owner.pinStore.readForProtection(reads)))throw new IllegalStateException("Native protected Catalog/Floor/Pin changed");
-            for(var copy:copies)copy.requireCurrent();current.run();
+            for(var copy:copies)copy.requireCurrent();for(var copy:inlineCopies)copy.requireCurrent();current.run();
             if(!reads.beforeTimedWork())throw reads.incomplete();
         }
     }

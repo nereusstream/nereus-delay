@@ -1,6 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
 import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.RecoveryCandidateRef;
@@ -384,6 +385,24 @@ public final class TargetCheckpointRootVerifier {
         default void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
             if(!snapshot.terminalPolicies().isEmpty())throw new IllegalStateException("image authority lacks original terminal-policy publication authentication");
         }
+        /** Load/authenticate original RETAINED transitions and the committed closure TimeFence under this image's held Source history. */
+        default com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts inlinePayloadSourceFacts(
+                CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody body,long maximumBytes){
+            throw new IllegalStateException("image authority has no original inline Source retention/fence inputs");
+        }
+        /**
+         * Actual recovery/reader/Source-retention admission must keep this image from legally depending on the
+         * current primary. Old readable/replayable views block unless their real protocol excludes activation
+         * or requires complete replay through the closed safe cut before service. Historical authentication,
+         * phase, ancestry alone and a caller's empty inventory do not satisfy this. The image protection must
+         * hold these rights and actual read exits through the Native Source commit; this is no new authority.
+         */
+        default void requireInlinePayloadIndependent(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody body,RecoveryFloorRef actualFloor,
+                com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts closure){
+            throw new IllegalStateException("image has no real primary-payload reader/recovery independence proof");
+        }
     }
     /** Preserves all existing image obligations and adds mandatory original g8 proof authentication. */
     public static ImageAuthority withLifecycleAuthority(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
@@ -396,6 +415,12 @@ public final class TargetCheckpointRootVerifier {
             }
             public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
                 original.requireTerminalPoliciesAuthenticated(manifest,proof,snapshot);
+            }
+            public com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts inlinePayloadSourceFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.inlinePayloadSourceFacts(m,p,s,b,bytes);}
+            public void requireInlinePayloadIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts c){
+                original.requireInlinePayloadIndependent(m,p,s,b,f,c);
             }
         };
     }
@@ -410,6 +435,12 @@ public final class TargetCheckpointRootVerifier {
             public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
                 protection.run();snapshot.authenticateTerminalPolicies(proof.dependencies(),limits,Objects.requireNonNull(budgets.get()),policies,protection);protection.run();
             }
+            public com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts inlinePayloadSourceFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long bytes){return original.inlinePayloadSourceFacts(m,p,s,b,bytes);}
+            public void requireInlinePayloadIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetResourceReclaimBody b,RecoveryFloorRef f,com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts c){
+                original.requireInlinePayloadIndependent(m,p,s,b,f,c);
+            }
         };
     }
 
@@ -417,6 +448,27 @@ public final class TargetCheckpointRootVerifier {
     public record UnusedReserveWriter(com.nereusstream.delay.protocol.TargetQuotaAttemptBudget expected,
             com.nereusstream.delay.protocol.SystemMutation admission,SourcePosition admissionSource,
             com.nereusstream.delay.protocol.SystemMutation outcome,SourcePosition outcomeSource){}
+    /** Private receipt from a full authenticated physical image and real held reader/restore qualification. */
+    public static final class InlinePayloadCopy {
+        private final AuthenticatedImage image;
+        private final byte[] envelope;
+        private final List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies;
+        private final com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts;
+        private final com.nereusstream.delay.protocol.TargetQuotaMutation released;
+        private InlinePayloadCopy(AuthenticatedImage image,com.nereusstream.delay.protocol.SystemMutation input,
+                List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies,
+                com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts,com.nereusstream.delay.protocol.TargetQuotaMutation released){
+            this.image=image;envelope=Bytes.sha256(input.canonicalEnvelope());this.policies=List.copyOf(policies);this.facts=facts;this.released=released;
+        }
+        public CheckpointManifest manifest(){return image.manifest();}
+        public List<com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.Policy> policies(){return policies;}
+        public com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts facts(){return facts;}
+        public com.nereusstream.delay.protocol.TargetQuotaMutation released(){return released;}
+        public void requireFor(com.nereusstream.delay.protocol.SystemMutation input){requireCurrent();if(!Arrays.equals(envelope,Bytes.sha256(input.canonicalEnvelope())))throw new IllegalArgumentException("inline image changed original Source frame");}
+        public void requireCurrent(){image.requireCurrent();}
+        public long retainedBytes(){long bytes=Math.addExact(4096L,facts.retainedBytes());for(var policy:policies)
+            bytes=Math.addExact(bytes,policy.use().canonicalBytes().length+policy.retry().canonicalBytes().length+policy.terminal().canonicalBytes().length+256L);return bytes;}
+    }
     public static final class UnusedReserveCopy {
         private final AuthenticatedImage image;
         private final byte[] envelope;
@@ -477,6 +529,49 @@ public final class TargetCheckpointRootVerifier {
             final long encoded=Math.addExact(physical.maxManifestBytes(),Math.addExact(quota.maxKeyValueBytes(),
                     Math.addExact(ledger.maxKeyValueBytes(),Math.addExact(ledger.maxPointReadBytes(),semantic.maximumBytes()))));
             return Math.multiplyExact(8L,encoded);
+        }
+        /** Preparation only: the complete original Source inputs are frozen before the signed request can escape. */
+        com.nereusstream.delay.protocol.TargetResourceReclaimBody freezeInlinePayloadSourceFacts(
+                com.nereusstream.delay.protocol.TargetResourceReclaimBody draft,long maximumBytes){
+            if(!draft.inlinePayloadRelease()||draft.selfContainedInlinePayloadRelease()
+                    ||!Arrays.equals(manifest.checkpointId(),draft.floor().checkpointId())
+                    ||!Arrays.equals(manifest.manifestSha256(),draft.floor().manifestSha256()))throw new IllegalArgumentException("SourceFacts preparation requires exact current Floor");
+            requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            final var facts=Objects.requireNonNull(authority.inlinePayloadSourceFacts(manifest,audited.ledger(),audited.snapshot(),draft,maximumBytes),"original held inline Source inputs");
+            if(facts.retainedBytes()>maximumBytes)throw new IllegalStateException("original SourceFacts exceed reserved preparation window");
+            final var policies=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.policies(audited.ledger().dependencies(),audited.snapshot(),draft,this::requireCurrent);
+            com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireClosed(audited.ledger().dependencies(),draft,policies,facts,false,this::requireCurrent);
+            final var body=draft.withSourceFacts(facts.freeze(audited.ledger().dependencies(),draft));
+            if(body.canonicalBytes().length>maximumBytes)throw new IllegalStateException("complete self-contained request exceeds original preparation window");
+            authority.requireInlinePayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,body.floor(),facts);requireCurrent();return body;
+        }
+        /** Current actual Floor only. Includes the exact pre-delete fold or this exact historical APPLIED release. */
+        InlinePayloadCopy authenticateInlinePayloadFloor(com.nereusstream.delay.protocol.SystemMutation input,RecoveryFloorRef actualFloor,long maximumBytes){
+            final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            if(!body.inlinePayloadRelease()||!Arrays.equals(manifest.checkpointId(),actualFloor.checkpointId())
+                    ||!Arrays.equals(manifest.manifestSha256(),actualFloor.manifestSha256()))throw new IllegalArgumentException("inline witness is not the actual Floor");
+            requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            if(!body.selfContainedInlinePayloadRelease())throw new IllegalStateException("body10 lacks durable original SourceFacts and cannot obtain positive release protection");
+            final var facts=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts.from(body.sourceFacts());
+            if(facts.retainedBytes()>maximumBytes)throw new IllegalStateException("inline Source inputs exceed original held window");
+            requireCurrent();final var policies=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.policies(audited.ledger().dependencies(),audited.snapshot(),body,this::requireCurrent);
+            final var released=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireClosed(audited.ledger().dependencies(),body,policies,facts,true,this::requireCurrent);
+            if(released!=null){
+                final var history=audited.ledger().dependencies().sourceHistories().stream().filter(h->h.decidedAt().equals(released)).findFirst().orElseThrow();
+                if(!Arrays.equals(history.input().canonicalEnvelope(),input.canonicalEnvelope()))throw new IllegalStateException("inline Floor contains another actual release");
+            }
+            authority.requireInlinePayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,actualFloor,facts);requireCurrent();
+            final var result=new InlinePayloadCopy(this,input,policies,facts,released);
+            if(result.retainedBytes()>maximumBytes)throw new IllegalStateException("complete inline Floor proof exceeds held input window");return result;
+        }
+        /** Every actual Pin image is fully authenticated and independently qualified; no unused-prefix relaxation. */
+        InlinePayloadCopy authenticateInlinePayloadPin(com.nereusstream.delay.protocol.SystemMutation input,RecoveryFloorRef actualFloor,InlinePayloadCopy floor){
+            floor.requireFor(input);requireCurrent();final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody());
+            final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            if(!manifest.shardId().equals(body.shard())||!Arrays.equals(manifest.recoveryLineageId(),body.lineage())
+                    ||!Arrays.equals(audited.ledger().root().root().tenantScope(),body.scope().tenantScope()))throw new IllegalArgumentException("inline Pin image changed Source scope");
+            authority.requireInlinePayloadIndependent(manifest,audited.ledger(),audited.snapshot(),body,actualFloor,floor.facts());
+            floor.requireCurrent();requireCurrent();return new InlinePayloadCopy(this,input,floor.policies(),floor.facts(),null);
         }
 
         /** Authenticates the actual immutable image and requires its complete exact Native51 copy. */

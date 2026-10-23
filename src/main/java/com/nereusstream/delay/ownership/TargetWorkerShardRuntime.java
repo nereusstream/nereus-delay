@@ -1495,6 +1495,12 @@ public final class TargetWorkerShardRuntime
         resources.requireRuntimeBusinessAdmission();
         return target.readTargetActiveMessages(budget, targetId, ownerClock);
     }
+    /** Metadata only, including a Source-released INLINE identity; no historical payload read is granted. */
+    public synchronized java.util.Optional<com.nereusstream.delay.runtime.TargetMessageMetadataStore.Snapshot> readMessageMetadata(
+            BoundedReadBudget budget,com.nereusstream.delay.protocol.DelayMessageId id,LongSupplier ownerClock){
+        requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        return target.readMessageMetadata(budget,id,ownerClock);
+    }
 
     /** Rechecks this source Shard's Store revision after paged head enumeration. */
     public synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(

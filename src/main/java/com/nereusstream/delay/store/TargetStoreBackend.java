@@ -507,6 +507,28 @@ public final class TargetStoreBackend {
             requireActive();
             return readAggregate();
         }
+        /** Complete cold-path fold of this exact guarded view, sharing its original finite Native budget. */
+        public TargetCheckpointDependencies auditLedger(TargetCheckpointRootVerifier.LedgerAuditLimits auditLimits){
+            requireActive();final var aggregate=aggregate();
+            final var bookkeeping=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                    get(ColumnFamily.META,com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
+                    com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
+            final byte[] rootKey=bookkeeping.owner().key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root=com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(rootKey,
+                    TargetValueEnvelope.decode(get(ColumnFamily.META,rootKey),com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
+            if(!root.identity().equals(bookkeeping.owner())||!java.util.Arrays.equals(root.tenantScope(),scope.tenantScope())
+                    ||!java.util.Arrays.equals(root.recoveryLineage(),lineage)
+                    ||!java.util.Arrays.equals(root.accounting().canonicalBytes(),bookkeeping.accounting().canonicalBytes())
+                    ||!java.util.Arrays.equals(root.identity().accountingIncarnation(),aggregate.accountingIncarnation()))
+                throw new IllegalStateException("Native ledger changed original root/bookkeeping lineage");
+            final var proof=new TargetCheckpointRootVerifier.RootProof(metadata(),source(),sourceSequence(),root,bookkeeping,aggregate);
+            root.latestMutation().requireAtOrBefore(aggregate.mutation());bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
+            final var result=TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,proof,auditLimits,budget);
+            requireWithinElapsedBudget();return result;
+        }
+        public TargetCheckpointDependencies auditLedger(){
+            return auditLedger(new TargetCheckpointRootVerifier.LedgerAuditLimits(budget.maxRecords(),budget.maxBytes(),budget.maxRecords(),budget.maxBytes()));
+        }
 
         public TargetQuotaCounter counter(final TargetQuotaIdentity identity) {
             requireActive();

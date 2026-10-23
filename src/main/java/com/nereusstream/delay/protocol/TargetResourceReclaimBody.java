@@ -7,12 +7,15 @@ import java.util.Objects;
 
 /** Closed Source requests, never database edits, caller deltas, or a protection-release authority. */
 public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, byte[] deploymentRoot,
-        byte[] namespace, long retryUntil, RecoveryFloorRef floor, List<Operation> operations) {
+        byte[] namespace, long retryUntil, RecoveryFloorRef floor, List<Operation> operations,TargetInlinePayloadSourceFacts sourceFacts) {
     public static final int BODY_VERSION=9;
     public static final int INLINE_BODY_VERSION=10;
+    public static final int SELF_CONTAINED_INLINE_BODY_VERSION=11;
     public static final int MAX_OPERATIONS=32;
     public static final int MAX_CANONICAL_BYTES=8*1024*1024;
     private static final byte[] ID_DOMAIN=Bytes.utf8("nereus-delay-target-resource-reclaim-logical-identity\0");
+    public TargetResourceReclaimBody(TargetQuotaScope scope,byte[] lineage,byte[] root,byte[] namespace,long retryUntil,
+            RecoveryFloorRef floor,List<Operation> operations){this(scope,lineage,root,namespace,retryUntil,floor,operations,null);}
 
     public sealed interface Operation permits UnusedAttemptReserve, InlinePayloadRelease {
         byte[] identity();
@@ -85,19 +88,28 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
             if(bytes>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("reclaim group exceeds encoded byte bound");
         }
         operations=List.copyOf(ordered);
+        if(sourceFacts!=null){sourceFacts.requireFor(operations,floor);
+            if(Math.addExact(bytes,sourceFacts.canonicalBytes().length+8L)>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("self-contained reclaim exceeds total byte bound");}
     }
     @Override public byte[] lineage(){return Bytes.copy(lineage);}
     @Override public byte[] deploymentRoot(){return Bytes.copy(deploymentRoot);}
     @Override public byte[] namespace(){return Bytes.copy(namespace);}
     public ShardId shard(){return scope.shard();}
     public boolean inlinePayloadRelease(){return operations.getFirst() instanceof InlinePayloadRelease;}
-    public int bodyVersion(){return inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
-    public ProtocolTuple requiredTuple(){return inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+    public boolean selfContainedInlinePayloadRelease(){return sourceFacts!=null;}
+    public int bodyVersion(){return selfContainedInlinePayloadRelease()?SELF_CONTAINED_INLINE_BODY_VERSION:inlinePayloadRelease()?INLINE_BODY_VERSION:BODY_VERSION;}
+    public ProtocolTuple requiredTuple(){return selfContainedInlinePayloadRelease()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():inlinePayloadRelease()?ProtocolTuple.targetInlinePayloadReclaim():ProtocolTuple.targetResourceReclaim();}
+    public TargetResourceReclaimBody withSourceFacts(TargetInlinePayloadSourceFacts facts){
+        if(sourceFacts!=null)throw new IllegalStateException("inline SourceFacts already frozen");
+        return new TargetResourceReclaimBody(scope,lineage,deploymentRoot,namespace,retryUntil,floor,operations,Objects.requireNonNull(facts));
+    }
     private byte[] operationGroup(){return CanonicalProtobuf.message(out->{
         for(var operation:operations)CanonicalProtobuf.bytes(out,1,operation.canonicalBytes());
     });}
     /** Retry/deadline/Floor changes cannot create a fresh logical resource identity. The outer hash stays exact. */
-    public byte[] logicalOperationIdentity(){return Bytes.sha256(ID_DOMAIN,scope.canonicalBytes(),lineage,deploymentRoot,namespace,operationGroup());}
+    public byte[] logicalOperationIdentity(){return selfContainedInlinePayloadRelease()
+            ?Bytes.sha256(ID_DOMAIN,scope.canonicalBytes(),lineage,deploymentRoot,namespace,operationGroup(),Bytes.lp32(requiredTuple().canonicalBytes()))
+            :Bytes.sha256(ID_DOMAIN,scope.canonicalBytes(),lineage,deploymentRoot,namespace,operationGroup());}
     public byte[] canonicalBytes(){
         final byte[] value=CanonicalProtobuf.message(out->{
             CanonicalProtobuf.bytes(out,1,new ShardSubject(shard()).canonicalBytes());
@@ -106,19 +118,21 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
             CanonicalProtobuf.bytes(out,10,scope.canonicalBytes());CanonicalProtobuf.bytes(out,11,lineage);
             CanonicalProtobuf.bytes(out,12,deploymentRoot);CanonicalProtobuf.bytes(out,13,namespace);
             CanonicalProtobuf.bytes(out,14,floor.canonicalBytes());CanonicalProtobuf.bytes(out,15,operationGroup());
+            if(sourceFacts!=null)CanonicalProtobuf.bytes(out,16,sourceFacts.canonicalBytes());
         });
         if(value.length>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("reclaim body exceeds byte bound");return value;
     }
     public static TargetResourceReclaimBody decode(byte[] encoded){
-        final var f=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,10,false,"Target reclaim body");
-        QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,9,10,11,12,13,14,15},"Target reclaim body");
+        final var f=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,11,false,"Target reclaim body");
+        QueryCodecSupport.requireNumbers(f,f.size()==11?new int[]{1,2,3,9,10,11,12,13,14,15,16}:new int[]{1,2,3,9,10,11,12,13,14,15},"Target reclaim body");
         final int version=QueryCodecSupport.uint32(f.get(3),9);
         if(QueryCodecSupport.uint32(f.get(1),2)!=SystemMutationType.TARGET_RESOURCE_RECLAIM.wireValue()
-                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION)throw new IllegalArgumentException("unknown Target reclaim type/body version");
+                ||version!=BODY_VERSION&&version!=INLINE_BODY_VERSION&&version!=SELF_CONTAINED_INLINE_BODY_VERSION
+                ||(version==SELF_CONTAINED_INLINE_BODY_VERSION)!=(f.size()==11))throw new IllegalArgumentException("unknown Target reclaim type/body version");
         final var operations=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(f.get(9),15),MAX_CANONICAL_BYTES,MAX_OPERATIONS,true,"reclaim operation group");
         final var decoded=new ArrayList<Operation>();
         for(var field:operations){
-            final boolean inline=version==INLINE_BODY_VERSION;
+            final boolean inline=version!=BODY_VERSION;
             final var entry=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(field,1),
                     inline?TargetQuotaPayloadOwner.MAX_CANONICAL_BYTES+TargetMessageLocator.MAX_CANONICAL_BYTES+128:TargetQuotaAttemptBudget.MAX_CANONICAL_BYTES+32,inline?7:3,false,"reclaim operation");
             QueryCodecSupport.requireNumbers(entry,inline?new int[]{1,2,3,4,5,6,7}:new int[]{1,2,3},"reclaim operation");
@@ -131,7 +145,8 @@ public record TargetResourceReclaimBody(TargetQuotaScope scope, byte[] lineage, 
         }
         final var value=new TargetResourceReclaimBody(TargetQuotaScope.decode(QueryCodecSupport.bytes(f.get(4),10)),
                 QueryCodecSupport.fixed(f.get(5),11,16),QueryCodecSupport.fixed(f.get(6),12,32),QueryCodecSupport.fixed(f.get(7),13,32),
-                QueryCodecSupport.uint(f.get(2),3),RecoveryFloorRef.decode(QueryCodecSupport.bytes(f.get(8),14)),decoded);
+                QueryCodecSupport.uint(f.get(2),3),RecoveryFloorRef.decode(QueryCodecSupport.bytes(f.get(8),14)),decoded,
+                version==SELF_CONTAINED_INLINE_BODY_VERSION?TargetInlinePayloadSourceFacts.decode(QueryCodecSupport.bytes(f.get(10),16)):null);
         if(!value.shard().equals(ShardSubject.decode(QueryCodecSupport.bytes(f.get(0),1)).shardId()))throw new IllegalArgumentException("reclaim subject differs from scope");
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Target reclaim body");return value;
     }

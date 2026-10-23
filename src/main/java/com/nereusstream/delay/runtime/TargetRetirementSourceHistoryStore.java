@@ -56,6 +56,8 @@ public final class TargetRetirementSourceHistoryStore {
             throw new IllegalStateException("reclaim first lacks actual prior descriptor6");
         if(tuple.equals(ProtocolTuple.targetInlinePayloadReclaim())&&!activation.body().payload().descriptor().supportsInlinePayloadReclaim())
             throw new IllegalStateException("inline reclaim first lacks actual prior descriptor7");
+        if(tuple.equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())&&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+            throw new IllegalStateException("self-contained inline reclaim first lacks actual prior descriptor8");
         if(activation.body().payload().descriptor().supportsSourceHistoryRecords()&&activation.appliedAt().source().compareTo(first.mutation().source())<0)
             requireRetained(view,overlay,scope,lineage,owner,result.mutationId(),first.mutation(),frontier,tuple);
     }
@@ -97,6 +99,11 @@ public final class TargetRetirementSourceHistoryStore {
                 throw new IllegalStateException("reclaim history lacks actual descriptor6");
             if(record.requiredTuple().equals(ProtocolTuple.targetInlinePayloadReclaim())&&!activation.body().payload().descriptor().supportsInlinePayloadReclaim())
                 throw new IllegalStateException("inline reclaim history lacks actual descriptor7");
+            if(record.requiredTuple().equals(ProtocolTuple.targetSelfContainedInlinePayloadReclaim())){
+                if(!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+                    throw new IllegalStateException("self-contained inline reclaim history lacks actual descriptor8");
+                TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),frontier);
+            }
             final var grant=record.declaredGrant().orElseThrow(()->new IllegalStateException("APPLIED Source history has no declared SERVICE grant"));
             if(!input.verifySignature(grant.writerKey()))throw new IllegalStateException("APPLIED Source frame differs from retained grant key");
             grant.requireActivation(activation,record.decidedAt().source());
@@ -167,10 +174,15 @@ public final class TargetRetirementSourceHistoryStore {
         return TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"retained Source history dependency"),type).payload();
     }
 
-    /** Every new INLINE RELEASED row must retain its exact APPLIED body10 Source, activation and absent primary. */
+    /** Every INLINE RELEASED row retains its exact APPLIED inline Source, activation and absent primary. */
     public static void requirePayloadReclaim(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity owner,TargetQuotaPayloadOwner released,TargetQuotaMutation frontier){
-        if(released.kind()!=TargetQuotaPayloadOwner.Kind.INLINE||released.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED)return;
+        releasedInlineOperation(view,overlay,scope,lineage,owner,released,frontier);
+    }
+    /** Same complete read-only validation, returning the retained metadata locator without primary payload. */
+    public static TargetResourceReclaimBody.InlinePayloadRelease releasedInlineOperation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity owner,TargetQuotaPayloadOwner released,TargetQuotaMutation frontier){
+        if(released.kind()!=TargetQuotaPayloadOwner.Kind.INLINE||released.phase()!=TargetQuotaPayloadOwner.Phase.RELEASED)return null;
         released.mutation().requireAtOrBefore(frontier);released.mutation().requireSourceApplied();
         final byte[] posKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},released.mutation().source().canonicalBytes());
         final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,posKey,TargetResultRecord.VALUE_TYPE));
@@ -181,8 +193,8 @@ public final class TargetRetirementSourceHistoryStore {
         final var history=TargetRetirementSourceHistoryRecord.decodeForStore(key,
                 payload(view,overlay,ColumnFamily.META,key,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
         if(history.input().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM||!history.decidedAt().equals(released.mutation())
-                ||!history.requiredTuple().equals(ProtocolTuple.targetInlinePayloadReclaim()))
-            throw new IllegalStateException("released inline owner lacks its exact body10 Source history");
+                ||!TargetResourceReclaimBody.decode(history.input().canonicalBody()).inlinePayloadRelease())
+            throw new IllegalStateException("released inline owner lacks its exact inline Source history");
         requireFirst(view,overlay,scope,lineage,owner,history,frontier);
         final byte[] firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},position.logicalId());
         final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE));
@@ -192,7 +204,7 @@ public final class TargetRetirementSourceHistoryStore {
         final var body=TargetResourceReclaimBody.decode(history.input().canonicalBody());
         final var operation=body.operations().stream().map(o->(TargetResourceReclaimBody.InlinePayloadRelease)o)
                 .filter(o->o.expected().messageId().equals(released.messageId())).findFirst().orElseThrow(
-                        ()->new IllegalStateException("body10 omitted the released inline owner"));
+                        ()->new IllegalStateException("inline Source omitted the released owner"));
         released.requireReleasedFrom(operation.expected(),body.floor());
         final byte[] terminalKey=TargetTerminalGenerationRecord.key(operation.locator());
         final byte[] terminalBytes=payload(view,overlay,ColumnFamily.TERMINAL,terminalKey,TargetTerminalGenerationRecord.VALUE_TYPE);
@@ -204,5 +216,6 @@ public final class TargetRetirementSourceHistoryStore {
         terminal.mutation().requireCoveredByFloor(body.floor());
         if(view.projected(ColumnFamily.ID,TargetKeyCodec.message(released.messageId()),overlay)!=null)
             throw new IllegalStateException("RELEASED inline owner still has a primary Message");
+        return operation;
     }
 }

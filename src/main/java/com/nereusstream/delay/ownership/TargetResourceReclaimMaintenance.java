@@ -65,6 +65,8 @@ public final class TargetResourceReclaimMaintenance {
         long retainedBytes();
         /** Held future-reader/Pin/image/Source admission checks only; no remote I/O at Source commit. */
         void requireCurrent();
+        /** Actual held primary-read/replay/export/Pin/future-admission protocol for the captured inline candidates. */
+        default void requireInlinePayloadIndependent(){throw new IllegalStateException("GC input hold has no real inline reader/admission protection");}
         /**
          * Idempotent release of this preparation's loans/admission acquisition only. Does not remove
          * authoritative RecoveryPins, retained images, Source/history or other durable recovery protection.
@@ -212,7 +214,8 @@ public final class TargetResourceReclaimMaintenance {
             if (held.retainedBytes() < 0 || held.retainedBytes() > configuration.heldWindow()) throw new IllegalArgumentException("held Native GC inputs exceed original reservation");
             final Held original = held;
             // Do not retain the transient OwnedCheckpointIo stop guard in a signed Source request.
-            final Runnable current = () -> { reservation.requireCurrent(); original.requireCurrent(); };
+            final Runnable current = () -> { reservation.requireCurrent(); original.requireCurrent();
+                if(page.candidates().getFirst().inlinePayload())original.requireInlinePayloadIndependent();original.requireCurrent(); };
             final long retryUntil = Math.addExact(Objects.requireNonNull(time.get()).latestEpochMs(), configuration.retryWindowMs());
             final var prepared = worker.prepareConfiguredResourceReclaim(page.candidates(), configuration.signingConfiguration(), configuration.deploymentRoot(),
                     held.images(), configuration.keys().budget(nanos), configuration.recovery().budget(nanos), configuration.nativeReads().budget(nanos),

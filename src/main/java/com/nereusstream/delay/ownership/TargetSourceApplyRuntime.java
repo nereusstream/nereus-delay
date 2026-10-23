@@ -592,6 +592,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protectUnused(
                 java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,long maximumBytes,Runnable originalHeld){
             requireCurrent();
+            if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(entry.mutation().canonicalBody()).inlinePayloadRelease())
+                throw new IllegalArgumentException("unused protection entry cannot select inline capability");
+            return protectReclaim(images,maximumBytes,originalHeld);
+        }
+        public com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protectReclaim(
+                java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,long maximumBytes,Runnable originalHeld){
+            requireCurrent();
             return com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection.collect(this,images,
                     new BoundedReadBudget(runtime.limits.records(),runtime.limits.bytes(),runtime.limits.elapsedNanos(),runtime.monotonicClock),maximumBytes,originalHeld);
         }
@@ -617,6 +624,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnused(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);
                 return Boolean.TRUE;
             });
+        }
+        public void requireClosedInline(com.nereusstream.delay.runtime.TargetResourceReclaimStore.Protection protection){
+            readNative(reader->{com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInline(reader,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),protection);return Boolean.TRUE;});
         }
         private <T> T readNative(java.util.function.Function<TargetStoreBackend.Reader,T> read){
             synchronized(runtime){
@@ -1619,16 +1629,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Page discoverResourceReclaim(BoundedReadBudget reads,
             com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Cursor cursor,int maximumRows,LongSupplier clock){
-        requireResourceReclaimProtocolActive(clock);
-        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock));
+        requireGcOwner(clock);
+        final boolean unused=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
+        final boolean inline=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim(),clock);
+        return reclaimDiscovery.scan(reads,cursor,maximumRows,workerReads(clock),unused,inline);
     }
     synchronized ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
-        requireResourceReclaimProtocolActive(clock);
         if(candidates.isEmpty()||candidates.size()>com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_OPERATIONS)
             throw new IllegalArgumentException("bounded original Native candidates required");
         candidates.forEach(reclaimDiscovery::requireCandidate);
-        final long primaryOwners=candidates.stream().map(c->c.expected().primaryIdentity()).distinct().count();
+        final var tuple=candidates.getFirst().requiredTuple();
+        if(candidates.stream().anyMatch(c->!c.requiredTuple().equals(tuple)))throw new IllegalArgumentException("reclaim preparation cannot mix body generations");
+        requireResourceReclaimProtocolActive(tuple,clock);
+        final long primaryOwners=candidates.stream().map(com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate::primaryIdentity).distinct().count();
         // Source root and each frozen Target owner need their independent tenant mirrors.
         if(2+2*primaryOwners>limits.counters())throw new IllegalArgumentException("candidate group exceeds original Source counter window");
         return new ReclaimPreparationRead(this,java.util.List.copyOf(candidates),clock);
@@ -1659,8 +1673,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         com.nereusstream.delay.protocol.TargetResourceReclaimBody selectBody(byte[] root,long retryUntil,BoundedReadBudget reads,Runnable held){
             requireCurrent();held.run();
-            return catalog().selectNativeReclaimBody(runtime.scope,runtime.lineage,root,retryUntil,
-                    candidates.stream().map(com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate::expected).toList(),reads,()->{requireCurrent();held.run();});
+            return catalog().selectNativeReclaimOperations(runtime.scope,runtime.lineage,root,retryUntil,
+                    candidates.stream().map(com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate::operation).toList(),reads,()->{requireCurrent();held.run();});
         }
         void requireClosedDraft(SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
                 BoundedReadBudget reads,Runnable held){
@@ -1668,7 +1682,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             synchronized(runtime){
                 runtime.requireGcOwner(clock);
                 runtime.backend.guardedRead(reads,reader->{
-                    com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                    if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease())
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInlineDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                    else com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery);
                     return Boolean.TRUE;
                 },runtime.workerReads(clock));
                 runtime.requireGcOwner(clock);
@@ -1708,15 +1724,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireResourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetResourceReclaim(),clock);
     }
     private void requireResourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple tuple,LongSupplier clock){
+        if(!resourceReclaimProtocolActive(tuple,clock))throw new IllegalStateException("reclaim writer requires its exact independently admitted/APPLIED capability "+tuple.bodyVersion());
+    }
+    private boolean resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple tuple,LongSupplier clock){
         requireGcOwner(clock);
         final var compatible=store.controlSnapshot();
-        if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("reclaim writer lacks its independently admitted body tuple "+tuple.bodyVersion());
-        backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+        if(compatible==null||!compatible.protocolTuples().contains(tuple))return false;
+        return backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
             final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
             if(activation==null||!activation.body().payload().descriptor().supportsResourceReclaim()
                     ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetInlinePayloadReclaim())
-                        &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim())
-                throw new IllegalStateException("reclaim writer requires its exact actual APPLIED descriptor capability");
+                        &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim()
+                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
+                        &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim())
+                return Boolean.FALSE;
             return Boolean.TRUE;
         },workerReads(clock));
     }
@@ -1753,6 +1774,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);
         return new TargetQueueSnapshotReader(backend, limits.domains())
                 .readActiveMessages(budget, target, workerReads(clock));
+    }
+    synchronized java.util.Optional<com.nereusstream.delay.runtime.TargetMessageMetadataStore.Snapshot> readMessageMetadata(
+            BoundedReadBudget budget,com.nereusstream.delay.protocol.DelayMessageId id,LongSupplier ownerClock){
+        requireGcOwner(ownerClock);
+        return new com.nereusstream.delay.runtime.TargetMessageMetadataStore(backend,scope,lineage).read(budget,id,workerReads(ownerClock));
     }
 
     synchronized TargetQueueSnapshotReader.Cut readTargetQueueCut(
