@@ -2810,3 +2810,12 @@ Turn 的原资源 lease 仍由其真实退出机制结算。失败 close/cleanup
 terminal/result 的实际删除不能继承本规则。Floor 已含回收决定时，原 mutation stamp
 与新实际 Source 批次分配的 stamp 全值相符才调用 retainAfterCheckpoint，费用变化仍
 由原 first/POSITION/history/primary-mirror-total-aggregate 同批结算，任何不符不部分退费。
+
+
+2026-10-23 TerminalPolicySemantic1/原 Retry publication2 只提供未来 inline release
+所需的冻结语义与原 Source use 内容，静态摘要、deadline 算术或配置值均不减
+RETAINED payload、Message STATE、owner STATE、allocated、SDK/读 buffer/历史费用。
+原 retained Source/time/fence、全部实际引用与 held reader/Pin/恢复安全 cut 未闭合时
+保留原费用。后续 kind2 只能在真实 Source 原子删除 exact primary Message 并转换
+owner RELEASED 后，由原 frozen before/after 同批结算；本步没有该 writer，没有退款。
+旧 binding/checkpoint 中 inline 副本仍保留原历史费用，不由 terminal policy 授新读取权。

@@ -574,7 +574,7 @@ public final class TargetCheckpointSemanticSnapshot {
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target semantic snapshot");
         return result;
     }
-    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7->17;
+    private static int digestField(int version){return switch(version){case 1->12;case 2->13;case 3->14;case 4->15;case 5->16;case 6,7,8->17;
         default->throw new IllegalArgumentException("unknown Target semantic snapshot version");};}
 
     private static void before(BoundedReadBudget budget, Runnable guard) {

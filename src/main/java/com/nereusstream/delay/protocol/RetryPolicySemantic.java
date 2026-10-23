@@ -173,6 +173,7 @@ public final class RetryPolicySemantic {
         return dlqAllowPossibleDuplicate;
     }
 
+    /** Original content hash of TerminalPolicySemantic; a digest without content grants no payload release. */
     public byte[] terminalPolicyDigest() {
         return Bytes.copy(terminalPolicyDigest);
     }

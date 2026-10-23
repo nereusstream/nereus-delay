@@ -1467,3 +1467,23 @@ sequence 在 S/真实分配 stamp 前，不要求预含未来决定；到/越过
 canonical envelope/identity/S/已分配 mutation stamp 的 APPLIED first/POS/history和
 精确后态，不接 caller 预测位置，同排序点 metadata不一致拒绝。仅代码与必要编译，
 无实际环境、Pin解除或删除授权，集中/真实恢复和全部四包义务继续。
+
+
+## 2026-10-23：inline release 先补原 frozen terminal policy 内容
+
+来源：主会话01a13046-4fcd-7e90-8a56-dc2c3828fe23明确裁定。新增内容寻址
+TerminalPolicySemantic1，显式非负有限 minimumPayloadRetentionMs；首个时间基准为
+RETAINED_OWNER_SOURCE_PERSISTENCE、终态 primary read=METADATA_ONLY、replay=DISABLED，
+原 RetryPolicy.dlqExportMode 必须 NOT_CONFIGURED。摘要须精确匹配原冻结
+terminalPolicyDigest，并沿相关全部代 RetryPolicyRef/原 Source/Profile/CONTROL
+历史认证；不引入新策略服务或 signer，不由今天配置补造旧历史。deadline 为原
+RETAINED transition Source persistence timestamp checked加 retention，不是本地 apply
+后墙钟时长；实际到期/fence/迟到窗口、引用/读者/export/replay/Pin无primary依赖与
+恢复安全 cut仍必须独立证明，无法证明就保留。unused reserve旧 Pin宽松规则不用于
+删除；type14 kind2须新body10/tuple10及显式descriptor能力，旧body9/tuple9/descriptor6
+原义不变。首个实际 Source须原子删Message、owner转RELEASED、精确结算并保owner
+STATE/terminal/binding/history；OBJECT不借此分支。
+本步只实现闭合策略值、原不可变publication2与按Message原Source uses的有界内容读取，
+并修既有companion8摘要分派漏项。body10实际生命周期/companion/读者闭合继续实施，
+未因本依赖完成而宣布payload回收或四包完成；单agent非Fast、仅必要编译、集中验证
+后置，没有真实服务/材料/激活/删除/迁退或保护解除授权。

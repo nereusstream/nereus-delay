@@ -24,6 +24,7 @@ import com.nereusstream.delay.runtime.RetryPolicyCatalog;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
 import com.nereusstream.delay.runtime.TargetResultRecord;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +76,27 @@ public final class TargetCheckpointDependencies {
                 throw new IllegalStateException("Target Retry Policy is not visible at its original Source use");
             }
             return semantic;
+        }
+
+        /** Same original Source lookup, with no fallback to today's terminal policy or another publication. */
+        public RetryPolicyCatalog.Publication resolvePublication(RetryPolicyCatalog catalog) {
+            final var value = Objects.requireNonNull(catalog, "catalog").resolvePublication(reference, source);
+            if (value == null || !reference.matches(value.retry())) {
+                throw new IllegalStateException("Target Retry Policy publication is not visible at its original Source use");
+            }
+            return value;
+        }
+    }
+
+    /** Static content and its original use only; not a zero-reference, reader-exit or Source-retention receipt. */
+    public record TerminalPolicyUse(RetryUse use, RetryPolicyCatalog.Publication publication) {
+        public TerminalPolicyUse {
+            Objects.requireNonNull(use, "use");
+            Objects.requireNonNull(publication, "publication");
+            if (!use.reference().matches(publication.retry()) || publication.terminal() == null) {
+                throw new IllegalArgumentException("original retry use lacks matching terminal policy content");
+            }
+            publication.terminal().requireBinding(publication.retry());
         }
     }
 
@@ -337,6 +359,50 @@ public final class TargetCheckpointDependencies {
         }
         protectionGuard.run();
         return List.copyOf(values.values());
+    }
+
+    /**
+     * Complete static policy closure over one Message's actual retained bindings/generations, outside Native locks.
+     * Missing legacy content is unavailable, never an empty successful closure. The provider and held guard
+     * must authenticate the original Source/Profile/CONTROL history, as for resolveRetryPolicies.
+     */
+    public List<TerminalPolicyUse> resolveTerminalPolicies(final com.nereusstream.delay.protocol.DelayMessageId messageId,
+            final RetryPolicyCatalog catalog,
+            final BoundedReadBudget budget, final Runnable protectionGuard) {
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(protectionGuard, "protectionGuard").run();
+        final var values = new ArrayList<TerminalPolicyUse>();
+        final var selected = new TreeMap<String, RetryUse>();
+        Objects.requireNonNull(messageId, "messageId");
+        for (final var binding : bindings) {
+            protectionGuard.run();
+            if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
+            if (messageId.equals(binding.messageId())) {
+                final var use = new RetryUse(binding.intent().retryPolicy(), binding.bindingSource());
+                selected.put(Bytes.hex(use.canonicalBytes()), use);
+            }
+        }
+        if (!admissionImagesComplete || selected.isEmpty()) {
+            throw new IllegalStateException("terminal policy closure requires complete original inputs and retained retry uses");
+        }
+        for (final var use : selected.values()) {
+            protectionGuard.run();
+            if (!budget.beforeRead()) { throw budget.incomplete(); }
+            final var publication = use.resolvePublication(catalog);
+            protectionGuard.run();
+            if (publication.terminal() == null) {
+                throw new IllegalStateException("original Retry Policy has no terminal content; payload must remain retained");
+            }
+            final int bytes = Math.addExact(publication.retry().canonicalBytes().length,
+                    publication.terminal().canonicalBytes().length);
+            if (!budget.tryCharge(use.canonicalBytes().length, bytes) || !budget.beforeTimedWork()) {
+                throw budget.incomplete();
+            }
+            values.add(new TerminalPolicyUse(use, publication));
+        }
+        protectionGuard.run();
+        return List.copyOf(values);
     }
 
     /** Original signed snapshot input; this DTO alone carries no history or authentication rights. */

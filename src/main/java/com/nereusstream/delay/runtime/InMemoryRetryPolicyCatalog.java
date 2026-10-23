@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TerminalPolicySemantic;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -21,13 +22,19 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
     private SourcePosition lastPublicationPosition;
 
     public synchronized void publish(final RetryPolicySemantic semantic, final SourcePosition visibleAt) {
+        publish(semantic, null, visibleAt);
+    }
+
+    public synchronized void publish(final RetryPolicySemantic semantic, final TerminalPolicySemantic terminal,
+            final SourcePosition visibleAt) {
         Objects.requireNonNull(semantic, "semantic");
+        if (terminal != null) { terminal.requireBinding(semantic); }
         Objects.requireNonNull(visibleAt, "visibleAt");
         bindSource(visibleAt);
         for (Publication publication : publications) {
             final int order = compareExact(publication.visibleAt(), visibleAt);
             if (order == 0) {
-                if (publication.semantic().equals(semantic)) {
+                if (publication.semantic().equals(semantic) && Objects.equals(publication.terminal(), terminal)) {
                     return;
                 }
                 throw new IllegalStateException("retry policy catalog position already has another semantic");
@@ -37,19 +44,27 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
             throw new IllegalArgumentException("retry policy publication position regressed");
         }
         for (Publication publication : publications) {
-            if (publication.semantic().ref().equals(semantic.ref())) {
-                if (!publication.semantic().equals(semantic)) {
-                    throw new IllegalStateException("retry policy reference changed semantic bytes");
+            if (publication.semantic().version() == semantic.version()
+                    && java.util.Arrays.equals(publication.semantic().policyId(), semantic.policyId())) {
+                if (!publication.semantic().equals(semantic) || !Objects.equals(publication.terminal(), terminal)) {
+                    throw new IllegalStateException("retry policy reference changed original semantic or terminal content");
                 }
                 return;
             }
         }
-        publications.add(new Publication(semantic, visibleAt));
+        publications.add(new Publication(semantic, terminal, visibleAt));
         lastPublicationPosition = visibleAt;
     }
 
     @Override
     public synchronized RetryPolicySemantic resolve(
+            final RetryPolicyRef reference, final SourcePosition sourcePosition) {
+        final var publication = resolvePublication(reference, sourcePosition);
+        return publication == null ? null : publication.retry();
+    }
+
+    @Override
+    public synchronized RetryPolicyCatalog.Publication resolvePublication(
             final RetryPolicyRef reference, final SourcePosition sourcePosition) {
         Objects.requireNonNull(reference, "reference");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
@@ -73,7 +88,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         } catch (IllegalArgumentException differentSource) {
             return null;
         }
-        return best == null ? null : best.semantic();
+        return best == null ? null : new RetryPolicyCatalog.Publication(best.semantic(), best.terminal());
     }
 
     public synchronized int size() {
@@ -100,7 +115,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         return order;
     }
 
-    private record Publication(RetryPolicySemantic semantic, SourcePosition visibleAt) {
+    private record Publication(RetryPolicySemantic semantic, TerminalPolicySemantic terminal, SourcePosition visibleAt) {
         private Publication {
             Objects.requireNonNull(semantic, "semantic");
             Objects.requireNonNull(visibleAt, "visibleAt");

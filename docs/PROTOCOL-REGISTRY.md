@@ -610,6 +610,21 @@ retryPolicySemanticHash = SHA-256(
 
 Field 18 and `RetryPolicyRef.semantic_hash` must match. `PayloadProofTrustSetSemantic` exact fields are 1 version `uint64`; repeated 2 `PayloadProofVerifierKey` strictly key-version sorted/unique (fields 1 nonzero `uint32 key_version`, 2 Ed25519 public key[32], 3 `int64 verify_not_before`, 4 `int64 verify_not_after`); 3 semantic hash[32]. Its hash is SHA-256 of domain `nereus-delay-payload-trust-set-semantic\0` plus version and canonical repeated key list; `PayloadProofTrustSetRef` must match. Issuance-open/close is source-ordered control state, not mutable inside the historical verifier set.
 
+`TerminalPolicySemantic` schema1 (2026-10-23) is the bounded immutable content of the original
+RetryPolicySemantic field17, at most4096 canonical bytes. All five fields are mandatory, including
+explicit zero duration: 1 uint32 schema=1; 2 int64 minimum_payload_retention_ms in [0,Long.MAX_VALUE);
+3 uint32 terminal_time_basis=1 RETAINED_OWNER_SOURCE_PERSISTENCE; 4 uint32
+post_terminal_primary_payload_read=1 METADATA_ONLY; 5 uint32 replay_mode=1 DISABLED. Unknown
+schema/enums, absent/extra/repeated fields and alternate canonical encodings reject. Its digest is
+SHA256(UTF8(`nereus-delay-terminal-policy-semantic`)+NUL || complete canonical fields1–5), exactly
+equal to the frozen terminalPolicyDigest; no independent signer is introduced. The first planned
+inline-release branch additionally requires the original RetryPolicy.dlqExportMode NOT_CONFIGURED.
+Retention deadline is checked original RETAINED owner-transition Source persistence timestamp plus
+field2, rejecting overflow/nonfinite results. This arithmetic proves neither elapsed retention nor
+dynamic reference/reader/export/replay/Pin closure. Original Source/time/fences, every relevant
+generation's retry/profile/control history and actual held dependencies remain mandatory. Missing
+old content keeps its payload retained; current settings cannot ratify an old digest.
+
 `QuotaGrantRef.grant_semantic_hash` equals SHA-256 of domain `nereus-delay-quota-grant-semantic\0` plus grant ID[32], grant version and canonical `ChargeVector limit`. These formulas, not an Oxia serializer or display JSON, define semantic equality.
 
 `KafkaSourcePosition` exact fields: 1 Route UUID[16]; 2 authenticated cluster ID bytes; 3 native topic UUID[16]; 4 partition `uint32`; 5 offset `uint64`; optional 6 leader epoch `uint32`; 7 broker log-append time `int64`. `PulsarSourcePosition`: 1 Route UUID[16]; 2 Broker resource incarnation bytes; 3 canonical physical-topic UTF-8 bytes; 4 partition `uint32`; 5 ledger ID `uint64`; 6 entry ID `uint64`; 7 normalized batch index `uint32`; 8 batch size `uint32`; 9 entry kind (1 non-batch, 2 batch); 10 broker entry timestamp `int64`. A decoded Source Position must byte-round-trip to the exact input; malformed UTF-8 or any non-canonical alternate encoding is rejected before persistence.
@@ -3350,6 +3365,22 @@ races/uncertain responses; session checks bracket every I/O. Resolve requires ma
 Source identity and position at/after original visibility, rejecting same-position canonical conflicts.
 Publication actor/Source authorization and lifetime/protection are required externally; a stored row is
 not that proof and this provider has no delete/retirement path.
+
+Oxia Retry Policy publication schema2 (2026-10-23) preserves that same key, Source-visibility,
+session/CAS and immutable first-publication contract. Exact fields: 1 schema2; 2 original complete
+RetryPolicySemantic; 3 original first-visible SourcePosition; 4 complete TerminalPolicySemantic1;
+5 SHA256(`nereus-delay-oxia-retry-policy\0` || canonical fields1–4). Complete record remains at most
+1MiB; field4 additionally obeys4096 bytes and its digest must match field2. Legacy publish/resolve
+interfaces and schema1 bytes remain unchanged; an existing row cannot gain/lose terminal content,
+change its Retry Policy or change first visibility. Old schema1 reads return no terminal content.
+resolvePublication and its bounded owned-I/O async variant return the original pair at the exact
+RetryPolicyRef/Source use. Stored bytes are not original CONTROL/Profile/Source authorization.
+Complete Native dependencies can collect all retained binding uses for one Message under an
+external original-history guard and finite read budget; empty/incomplete inputs or missing terminal
+content fail. Other Messages' opaque digests do not enter that selected Message's static closure.
+This step does not add body10/kind2/tuple10, descriptor7 or a new companion format, and grants no
+actual payload deletion. Companion8's existing digest is field17, as for schemas6/7; encoding and
+decoding now dispatch schema8 to that field without changing canonical bytes.
 
 Target checkpoint semantic snapshot v1 (2026-10-09) is a bounded companion representation, not a new
 NV/CF or authenticated control activation. Closed canonical fields: 1 version1; 2 complete StoreMetadata;
