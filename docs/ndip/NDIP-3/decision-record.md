@@ -1521,3 +1521,16 @@ capsule解决历史事实存续，不能证明当前无读者或未来不会复�
 export/Pin准入与read退出仍须真实原held协议。当前生产provider没有该具体实现，新契约
 默认拒绝；已向主会话提出应复用哪条原admission权限链的实际分歧，不记inline功能闭合。
 单agent非Fast、必要编译、集中验证后置和全部四包/29切片目标保持。
+
+
+## 2026-10-23：inline动态保护的原部署集成边界
+
+主会话确认：复用同一个真实deployment authenticator/admission的身份、epoch/失效和
+acquire/close机制，目的独立为PROTECT_NATIVE_INLINE_PAYLOAD_RECLAIM；不继承Catalog
+object生命周期权限、普通Snapshot/reader membership或Source Action3。仓内没有另一条
+可自发发行全域无primary依赖许可的Owner/ReadAuthority/barrier替代路径。三个已有接点
+（GC InputProvider/Held、SourceAuthorityLoader.RECLAIM、ImageAuthority）参数足够时直接
+严格绑定，不再造第四套抽象/服务/日志。仓内负责实际load/使用/失效/关闭与UNKNOWN/失败
+责任链；Source/cold重新取得自己的实际hold，GC-local退出只释放准备loan。外部provider
+及资格材料、真实动态保护验证仍明确OPEN，缺失默认拒绝；该边界不再阻挡继续其它仓内
+缺口，也不能把接口接通升格为生产验收。关闭cut、原全部引用、Action3与冻结账务独立保持。

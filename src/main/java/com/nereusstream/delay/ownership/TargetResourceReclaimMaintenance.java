@@ -56,7 +56,14 @@ public final class TargetResourceReclaimMaintenance {
 
     /** Original deployment admission, never a pair of metadata observations or caller approval booleans. */
     public interface InputProvider {
-        /** Failures must retain/clean any partial hold; the bound is reserved before this method starts. */
+        /**
+         * Acquires this preparation's real original loan outside Store/Worker locks. INLINE uses the separate
+         * PROTECT_NATIVE_INLINE_PAYLOAD_RECLAIM purpose, never Catalog-object rights or Source Action3.
+         * Bind the actual Source/Shard/tenant/lineage, Native Store incarnation/current Owner, exact frozen
+         * candidates and the original publication namespace/images/cut. The held image authority also binds
+         * original policy/SourceFacts and each actual Pin as preparation freezes them. No future Source point
+         * is predicted. Failures retain/clean partial acquisition; the finite bound is already reserved.
+         */
         Held load(List<TargetResourceReclaimDiscovery.Candidate> candidates, long maximumBytes, Runnable operationGuard);
     }
     public interface Held extends AutoCloseable {
@@ -65,7 +72,13 @@ public final class TargetResourceReclaimMaintenance {
         long retainedBytes();
         /** Held future-reader/Pin/image/Source admission checks only; no remote I/O at Source commit. */
         void requireCurrent();
-        /** Actual held primary-read/replay/export/Pin/future-admission protocol for the captured inline candidates. */
+        /**
+         * Only local revalidation of that actual inline loan/owner/epoch. It covers all legal primary
+         * read/replay/export admission, prior read exits or separately charged independent copies, and
+         * old image activation excluded or forced through the real closed safe cut before service.
+         * Unknown readers or uncovered old deployments fail. An identity snapshot/empty inventory is not it.
+         * close() below releases only this preparation's acquisition, retaining a failed close for cleanup.
+         */
         default void requireInlinePayloadIndependent(){throw new IllegalStateException("GC input hold has no real inline reader/admission protection");}
         /**
          * Idempotent release of this preparation's loans/admission acquisition only. Does not remove

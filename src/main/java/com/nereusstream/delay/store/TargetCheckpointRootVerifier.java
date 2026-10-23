@@ -397,6 +397,10 @@ public final class TargetCheckpointRootVerifier {
          * or requires complete replay through the closed safe cut before service. Historical authentication,
          * phase, ancestry alone and a caller's empty inventory do not satisfy this. The image protection must
          * hold these rights and actual read exits through the Native Source commit; this is no new authority.
+         * Consume the original deployment's held PROTECT_NATIVE_INLINE_PAYLOAD_RECLAIM purpose, bound to
+         * this exact manifest/ledger/body/actual Floor and original namespace. It is separate from Catalog
+         * object lifecycle rights and Source Action3. Acquisition/failed-close custody belongs to the original
+         * GC/Source/image owner; this method only validates its actual local epoch/loan and limited image facts.
          */
         default void requireInlinePayloadIndependent(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot,
                 com.nereusstream.delay.protocol.TargetResourceReclaimBody body,RecoveryFloorRef actualFloor,

@@ -39,8 +39,15 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         void requireCurrent();
         /**
          * Actual original read/replay/export and writer/alias admission hold for this private Source context.
+         * The original Provider.load RECLAIM acquisition owns this separately from any GC preparation loan;
+         * bind the exact signed body11/Source point, actual Native Store/current Owner/incarnation, original
+         * publication record/namespace, frozen Message values, policy/SourceFacts/cut and real Pin/images.
+         * Its purpose is PROTECT_NATIVE_INLINE_PAYLOAD_RECLAIM, separate from Action3 or Catalog object rights.
          * Must keep the full qualified Floor closure valid for the exact terminal values through commit;
-         * no untracked dependency may arise after that safe cut. Local held checks only, never remote I/O.
+         * no untracked dependency may arise after that safe cut. Old images must be excluded from service
+         * or actually replay through the closed cut before service; previous read loans must have exited
+         * or be carried by separately charged independent copies. Unknown readers fail acquisition/recheck.
+         * Local actual owner/epoch/loan checks only, never remote I/O. Original close retains failed cleanup.
          */
         default void requireInlinePayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){
             throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source hold has no inline payload reader/admission protection");

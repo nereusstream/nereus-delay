@@ -5421,6 +5421,14 @@ companion/完整image每次均核capsule与原Native first/POSITION/owner/termin
 路径已接入。完整Floor/live fold核全部代际引用；Source同批使用精确owner/primary/terminal/
 原first/POSITION点读和真实held writer/reader准入保护，避免在普通Source预算内重扫全Shard。
 实际Pin/candidate/observed image均全认证并须真实无primary依赖，不借unused祖先宽松规则。
-动态reader/replay/export/Pin准入与实际read退出仍须原provider的真实held协议，新增入口默认
-拒绝，当前没有以空回调补齐的生产实现；该具体装配仍在推进，不记完整inline功能闭合。
+动态reader/replay/export/Pin准入与实际read退出属于原部署admission集成责任，专用目的
+PROTECT_NATIVE_INLINE_PAYLOAD_RECLAIM不得继承Catalog object权利或Action3。原GC load、
+Source RECLAIM load、image held authority三个接点已接精确范围、独立持有、本地失效复核和
+原失败close责任；外部能力未提供时默认拒绝，不以callback/空inventory宣称真实动态链闭合。
 旧body10缺长期原Source保护时不能取得正向资格。编译不是Broker/cold运行或生产验收。
+
+原RETAINED的Message关联也逐项核验：Command须为该Message的原Cancel；EXPIRE_GENERATION
+须带同一MessageId；PUBLISH_OUTCOME/EVIDENCE_RESOLUTION经原实际Attempt的immutable locator
+和resolvedAt关联该Message与原owner stamp。不能拿同Shard其它Message的有效Source事实替代。
+该关联用于签名前完整fold、Source点读、只读账务/metadata和独立ledger/companion；原closure
+TimeFence在各读路径均须实际APPLIED/OK。
