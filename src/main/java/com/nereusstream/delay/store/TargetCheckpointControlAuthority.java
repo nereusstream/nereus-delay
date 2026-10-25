@@ -88,10 +88,18 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
                 ||!Arrays.equals(sample.bindingDigest(),body.bindingDigest())
                 ||!Arrays.equals(input.image().authorIdentity(),generation.policy().service().canonicalBytes())
                 ||input.image().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("checkpoint SLO event lost original frozen writer/binding");
-        generation.policy().requireSource(input.source());body.finalObservation().validateAgainst(sample.observation().start());
-        if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
+        generation.policy().requireSource(input.source());
         final var authority=Objects.requireNonNull(observations,"original checkpoint SLO endpoint/time/history and budget authority");
-        before();authority.requireCurrent();authority.requireAuthorized(generation,sample,input.image(),input.source());authority.requireCurrent();after();
+        final var original=body.isCustody()?body.exportedSample():sample;
+        if(body.isCustody()){
+            body.custody().requireSample(generation,original);
+            before();final var collectorKey=authority.collectorKey(body.custody(),input.source());after();
+            if(collectorKey==null||!body.custody().verifySignature(collectorKey))throw new IllegalStateException("checkpoint custody lacks its original independent collector signature");
+        }else{
+            body.finalObservation().validateAgainst(sample.observation().start());
+            if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
+        }
+        before();authority.requireCurrent();authority.requireAuthorized(generation,original,input.image(),input.source());authority.requireCurrent();after();
         before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());after();
         return key;
     }

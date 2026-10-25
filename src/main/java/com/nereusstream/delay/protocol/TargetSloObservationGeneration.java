@@ -49,9 +49,22 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
         }
     }
 
-    public record Counts(long issued, long outboxRecords, long outboxBytes, long custodied,long eventRecords,long eventBytes) {
-        public static final int MAX_CANONICAL_BYTES = 72;
+    public record Counts(long issued, long outboxRecords, long outboxBytes, long custodied,long eventRecords,long eventBytes,
+            Reservation reservation) {
+        public static final int MAX_CANONICAL_BYTES = 2 + 8 * 11;
+        public record Reservation(long records,long bytes) {
+            public Reservation {
+                if(records<0||bytes<0||(records==0)!=(bytes==0))throw new IllegalArgumentException("invalid SLO completion reservation");
+            }
+            public static Reservation empty(){return new Reservation(0,0);}
+            public Reservation plus(Reservation other){return new Reservation(Math.addExact(records,other.records),Math.addExact(bytes,other.bytes));}
+            public Reservation minus(Reservation other){return new Reservation(Math.subtractExact(records,other.records),Math.subtractExact(bytes,other.bytes));}
+        }
         public Counts(long issued,long records,long bytes,long custodied){this(issued,records,bytes,custodied,0,0);}
+        /** Original schemas carry no reservation proof; null is never an already-reserved zero. */
+        public Counts(long issued,long records,long bytes,long custodied,long events,long eventBytes){
+            this(issued,records,bytes,custodied,events,eventBytes,null);
+        }
         public Counts {
             // Custody does not remove a retained outbox or refund its storage charge.
             if (issued < 0 || outboxRecords < 0 || outboxRecords > issued || outboxBytes < 0
@@ -61,22 +74,26 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
             }
         }
         public static Counts empty() { return new Counts(0, 0, 0, 0); }
+        public static Counts reservedEmpty(){return new Counts(0,0,0,0,0,0,Reservation.empty());}
         public byte[] canonicalBytes() { return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, eventRecords==0?1:2);
+            CanonicalProtobuf.uint32(out, 1, reservation!=null?3:eventRecords==0?1:2);
             CanonicalProtobuf.uint64Bits(out, 2, issued);
             CanonicalProtobuf.uint64Bits(out, 3, outboxRecords);
             CanonicalProtobuf.uint64Bits(out, 4, outboxBytes);
             CanonicalProtobuf.uint64Bits(out, 5, custodied);
-            if(eventRecords!=0){CanonicalProtobuf.uint64Bits(out,6,eventRecords);CanonicalProtobuf.uint64Bits(out,7,eventBytes);}
+            if(eventRecords!=0||reservation!=null){CanonicalProtobuf.uint64Bits(out,6,eventRecords);CanonicalProtobuf.uint64Bits(out,7,eventBytes);}
+            if(reservation!=null){CanonicalProtobuf.uint64Bits(out,8,reservation.records());CanonicalProtobuf.uint64Bits(out,9,reservation.bytes());}
         }); }
         public static Counts decode(byte[] encoded) {
-            final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 7, false, "Target SLO generation counts");
+            final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 9, false, "Target SLO generation counts");
+            if(f.isEmpty())throw new IllegalArgumentException("missing Target SLO counts schema");
             final int version=QueryCodecSupport.uint32(f.getFirst(),1);
-            if(version<1||version>2)throw new IllegalArgumentException("unknown Target SLO counts schema");
-            QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2,3,4,5}:new int[]{1,2,3,4,5,6,7},"Target SLO generation counts");
+            if(version<1||version>3)throw new IllegalArgumentException("unknown Target SLO counts schema");
+            QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2,3,4,5}:version==2?new int[]{1,2,3,4,5,6,7}:new int[]{1,2,3,4,5,6,7,8,9},"Target SLO generation counts");
             final var result = new Counts(QueryCodecSupport.uint64Bits(f.get(1), 2), QueryCodecSupport.uint64Bits(f.get(2), 3),
                     QueryCodecSupport.uint64Bits(f.get(3), 4), QueryCodecSupport.uint64Bits(f.get(4), 5),
-                    version==1?0:QueryCodecSupport.uint64Bits(f.get(5),6),version==1?0:QueryCodecSupport.uint64Bits(f.get(6),7));
+                    version==1?0:QueryCodecSupport.uint64Bits(f.get(5),6),version==1?0:QueryCodecSupport.uint64Bits(f.get(6),7),
+                    version<3?null:new Reservation(QueryCodecSupport.uint64Bits(f.get(7),8),QueryCodecSupport.uint64Bits(f.get(8),9)));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target SLO generation counts");
             return result;
         }
@@ -101,8 +118,9 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
         mutation.requireSourceApplied();
         (stop == null ? enable : stop).appliedAt().requireAtOrBefore(mutation);
         request.policy().requireSource(mutation.source());
-        if (Math.addExact(counts.outboxRecords(),counts.eventRecords()) > request.policy().limits().maximumOutboxRecords()
-                || Math.addExact(counts.outboxBytes(),counts.eventBytes()) > request.policy().limits().maximumOutboxBytes()) throw new IllegalArgumentException("Target SLO generation exceeds its frozen complete observation outbox limits");
+        final var reservation=counts.reservation();
+        if (Math.addExact(Math.addExact(counts.outboxRecords(),counts.eventRecords()),reservation==null?0:reservation.records()) > request.policy().limits().maximumOutboxRecords()
+                || Math.addExact(Math.addExact(counts.outboxBytes(),counts.eventBytes()),reservation==null?0:reservation.bytes()) > request.policy().limits().maximumOutboxBytes()) throw new IllegalArgumentException("Target SLO generation exceeds its frozen complete observation outbox limits");
     }
 
     public static TargetSloObservationGeneration enabled(SystemMutation input, TargetQuotaMutation at) {

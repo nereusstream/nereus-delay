@@ -1486,6 +1486,42 @@ public final class TargetWorkerShardRuntime
         return target.admissionMutationResult(mutation, ownerClock);
     }
 
+    private volatile TargetSloCustodyExportMaintenance sloCustodyExport;
+    public synchronized void configureSloCustodyExport(OwnedSourceSystemWriter writer,java.util.concurrent.ThreadPoolExecutor executor,
+            java.util.function.Supplier<BoundedReadBudget> reads,LongSupplier clock,
+            com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,TargetSloCustodyExportMaintenance.Provider provider,long maximumBytes){
+        requireNewTurnsAdmitted();
+        if(sloCustodyExport!=null||writer.sourceWriterWorker()!=this||writer.resourcesTerminated()||!writer.readyForAppending()
+                ||systemWriterBackends.values().stream().noneMatch(original->original==writer))throw new IllegalArgumentException("SLO custody requires one original admitted Source writer");
+        workClasses.requireTaskServiceable(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,"target-slo-custody-envelope",maximumBytes));
+        final var exporter=new TargetSloCustodyExportMaintenance(this,writer,executor,reads,clock,pageLimits,provider,maximumBytes);
+        target.registerSloCustodyExport(exporter);sloCustodyExport=exporter;
+    }
+    @Override public Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn(){
+        final var exporter=sloCustodyExport;return exporter==null?Optional.empty():exporter.runTurn();
+    }
+    synchronized com.nereusstream.delay.runtime.TargetSloExportPageReader.Page captureSloExportPage(BoundedReadBudget budget,
+            com.nereusstream.delay.runtime.TargetSloExportPageReader.Cursor cursor,com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits limits,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.captureSloExportPage(budget,cursor,limits,clock);
+    }
+    synchronized void submitSloExportAction(WorkClassTask task,Runnable action){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);}
+    synchronized boolean withdrawSloExportAction(WorkClassTask task){return workClasses.withdrawQueued(task);}
+    synchronized boolean sloExportActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
+    synchronized void requireSloExportContext(com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloExportContext(cut,clock);}
+    synchronized void requireSloCustodyWriter(SystemMutation image,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireTargetControlWriter(image,clock);}
+    synchronized Optional<SystemMutationResult> sloCustodyMutationResult(SystemMutation image,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.targetControlMutationResult(image,clock);}
+    synchronized boolean hasSloCustody(com.nereusstream.delay.protocol.TargetSloObservationExport export,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.hasSloCustody(export,clock);}
+    synchronized void requireSloCustodyAppend(SystemMutation image,ShardLogMutationAppender.AppendOutcome appended,
+            com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){requireSloFinalAppend(image,appended,cut,clock);}
+    @Override public Optional<WorkClassTask> settlePendingSloCustodyForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){
+        final var exporter=sloCustodyExport;if(exporter==null)return Optional.empty();
+        exporter.stopNew();exporter.retryCleanup();final var task=exporter.runTurn();
+        if(!exporter.hasPending())return Optional.empty();
+        workClasses.runTurn(workBudget);
+        synchronized(this){if(sourceLoop.pendingEntry().isPresent())sourceLoop.settlePendingEntry(sourceBudget,clock);else sourceLoop.runTurn(sourceBudget,clock);}
+        exporter.runTurn();return exporter.hasPending()?task.or(()->Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,"target-slo-custody-drain/"+shardId,1))):Optional.empty();
+    }
+
     public synchronized void configureSloFinalContinuations(OwnedSourceSystemWriter appender,
             java.util.concurrent.ThreadPoolExecutor originalExecutor,TargetSloFinalContinuation.Provider provider,long maximumBytes){
         requireNewTurnsAdmitted();Objects.requireNonNull(appender);Objects.requireNonNull(originalExecutor);Objects.requireNonNull(provider);
@@ -1971,6 +2007,7 @@ public final class TargetWorkerShardRuntime
         if (sourceLoop.pendingEntry().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
         }
+        final var exporter=sloCustodyExport;if(exporter!=null){exporter.stopNew();if(!exporter.ioExited()||exporter.hasPending())throw new IllegalStateException("Target Worker cannot pause retained SLO custody export");}
         if (hasUnsettledMessageExpiry()) {
             throw new IllegalStateException("Target Worker cannot pause a pending message expiry handoff");
         }

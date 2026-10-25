@@ -36,11 +36,16 @@ public final class TargetSloObservationEventMutationFactory {
         return sign(generation,new TargetSloObservationEventBody(sample.scope(),sample.lineage(),retryUntil,sample.generation(),
                 sample.observation().sampleId(),sample.bindingDigest(),observation,evidence));
     }
+    public Prepared prepareCustody(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
+            TargetSloCustodyReceipt receipt,long retryUntil){
+        Objects.requireNonNull(receipt).requireSample(Objects.requireNonNull(generation),Objects.requireNonNull(sample));
+        return sign(generation,TargetSloObservationEventBody.custody(sample,receipt,retryUntil));
+    }
     private Prepared sign(TargetSloObservationGeneration generation,TargetSloObservationEventBody body){
         final var retryUntil=body.retryUntil();
         final var image=SystemMutation.signed(body.scope().shard(),SystemMutationType.TARGET_SLO_OBSERVATION,retryUntil,
                 body.logicalIdentity(),body.canonicalBytes(),generation.policy().service().canonicalBytes(),generation.policy().keyVersion(),key);
-        if(image.encodeFrame().length>maximumFrameBytes||image.canonicalEnvelope().length>TargetSloObservationEventRecord.MAX_INPUT_BYTES)
+        if(image.encodeFrame().length>maximumFrameBytes||image.canonicalEnvelope().length>(body.isCustody()?TargetSloCustodyRecord.MAX_INPUT_BYTES:TargetSloObservationEventRecord.MAX_INPUT_BYTES))
             throw new IllegalArgumentException("SLO event exceeds original Source frame budget");
         return Prepared.restore(image);
     }
@@ -54,7 +59,7 @@ public final class TargetSloObservationEventMutationFactory {
             if(image.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!image.shardId().equals(body.scope().shard())
                     ||image.retryUntilEpochMs()!=body.retryUntil()||!Arrays.equals(image.logicalOperationIdentity(),body.logicalIdentity())
                     ||AuthorIdentity.decode(image.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE
-                    ||image.canonicalEnvelope().length>TargetSloObservationEventRecord.MAX_INPUT_BYTES)
+                    ||image.canonicalEnvelope().length>(body.isCustody()?TargetSloCustodyRecord.MAX_INPUT_BYTES:TargetSloObservationEventRecord.MAX_INPUT_BYTES))
                 throw new IllegalArgumentException("recovered SLO event changed exact original image");
             return new Prepared(image);
         }

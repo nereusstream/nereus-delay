@@ -16,6 +16,10 @@ public final class TargetSloObservationEventStore {
         void requireAuthorized(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
                 SystemMutation input,SourcePosition source);
         void requireCurrent();
+        /** Held independent collector contract/key at this exact Source; resolve remotely during preparation only. */
+        default PublicKey collectorKey(TargetSloCustodyReceipt receipt,SourcePosition source){
+            throw new IllegalStateException("original independent collector custody key/contract unavailable");
+        }
     }
     public record Authority(Keys keys,ObservationAuthority observation){
         public Authority{Objects.requireNonNull(keys);Objects.requireNonNull(observation);}
@@ -51,23 +55,37 @@ public final class TargetSloObservationEventStore {
             final var sample=sampleRaw==null?null:TargetSloObservationSample.decodeForStore(sampleKey,TargetValueEnvelope.decode(sampleRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
             final StableCode rejection=verify(reader,body,input,source,generation,sample,authority);
             if(rejection==null){
-                final var merged=sample.observation().mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
-                final var next=new TargetSloObservationSample(scope,lineage,sample.generation(),sample.enableId(),sample.enabledAt(),sample.policyDigest(),
-                        sample.declaration(),sample.first(),merged,stamp,sample.admission(),sample.eligibility());
-                final var event=new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged);
                 final var before=generation.counts();
-                final var counts=new TargetSloObservationGeneration.Counts(before.issued(),before.outboxRecords(),
-                        Math.addExact(before.outboxBytes(),Math.subtractExact(next.storedBytes(),sample.storedBytes())),before.custodied(),
-                        Math.addExact(before.eventRecords(),1),Math.addExact(before.eventBytes(),event.storedBytes()));
-                // Complete evidence stream cap includes retained immutable Source merge edges.
-                if(Math.addExact(counts.outboxRecords(),counts.eventRecords())>generation.policy().limits().maximumOutboxRecords()
-                        ||Math.addExact(counts.outboxBytes(),counts.eventBytes())>generation.policy().limits().maximumOutboxBytes())
-                    throw new IllegalStateException("required SLO Source history exceeds its frozen observation budget");
-                final var maximumRecord=generation.policy().limits().maximumRecordBytes();
-                if(next.keys().stream().anyMatch(k->k.length+(long)TargetValueEnvelope.encode(TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()).length>maximumRecord)
-                        ||event.storedBytes()>maximumRecord)throw new IllegalStateException("SLO event record exceeds original complete record budget");
-                for(var key:next.keys())edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()));
-                absent(reader,ColumnFamily.META,event.key());edits.add(reader.replace(ColumnFamily.META,event.key(),TargetSloObservationEventRecord.VALUE_TYPE,event.canonicalBytes()));
+                final var reserved=TargetSloObservationReservations.requireReserved(generation);
+                final boolean wasCustodied=TargetSloObservationReservations.currentCustodied(reader,List.of(),scope,lineage,sample);
+                final TargetSloObservationGeneration.Counts counts;
+                if(body.isCustody()){
+                    final var record=new TargetSloCustodyRecord(input,stamp);
+                    final boolean nowCustodied=wasCustodied||Arrays.equals(body.exportedSample().digest(),sample.digest());
+                    final var afterReserve=reserved.minus(TargetSloObservationReservations.forSample(generation,sample,wasCustodied))
+                            .plus(TargetSloObservationReservations.forSample(generation,sample,nowCustodied));
+                    counts=new TargetSloObservationGeneration.Counts(before.issued(),before.outboxRecords(),before.outboxBytes(),
+                            Math.addExact(before.custodied(),nowCustodied&&!wasCustodied?1:0),Math.addExact(before.eventRecords(),1),
+                            Math.addExact(before.eventBytes(),record.storedBytes()),afterReserve);
+                    if(record.storedBytes()>generation.policy().limits().maximumRecordBytes())throw new IllegalStateException("custody record exceeds frozen single-record cap");
+                    absent(reader,ColumnFamily.META,record.key());edits.add(reader.replace(ColumnFamily.META,record.key(),TargetSloCustodyRecord.VALUE_TYPE,record.canonicalBytes()));
+                }else{
+                    final var merged=sample.observation().mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
+                    final var next=new TargetSloObservationSample(scope,lineage,sample.generation(),sample.enableId(),sample.enabledAt(),sample.policyDigest(),
+                            sample.declaration(),sample.first(),merged,stamp,sample.admission(),sample.eligibility());
+                    final var event=new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged);
+                    final var afterReserve=reserved.minus(TargetSloObservationReservations.forSample(generation,sample,wasCustodied))
+                            .plus(TargetSloObservationReservations.forSample(generation,next,false));
+                    counts=new TargetSloObservationGeneration.Counts(before.issued(),before.outboxRecords(),
+                            Math.addExact(before.outboxBytes(),Math.subtractExact(next.storedBytes(),sample.storedBytes())),
+                            Math.subtractExact(before.custodied(),wasCustodied?1:0),Math.addExact(before.eventRecords(),1),
+                            Math.addExact(before.eventBytes(),event.storedBytes()),afterReserve);
+                    final var maximumRecord=generation.policy().limits().maximumRecordBytes();
+                    if(next.keys().stream().anyMatch(k->k.length+(long)TargetValueEnvelope.encode(TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()).length>maximumRecord)
+                            ||event.storedBytes()>maximumRecord)throw new IllegalStateException("SLO event record exceeds original complete record budget");
+                    for(var key:next.keys())edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()));
+                    absent(reader,ColumnFamily.META,event.key());edits.add(reader.replace(ColumnFamily.META,event.key(),TargetSloObservationEventRecord.VALUE_TYPE,event.canonicalBytes()));
+                }
                 final var after=generation.withCounts(counts,stamp);edits.add(reader.replace(ColumnFamily.META,after.key(),TargetSloObservationGeneration.VALUE_TYPE,after.canonicalBytes()));
                 authority.observation().requireCurrent();applied[0]=true;
             }
@@ -97,9 +115,17 @@ public final class TargetSloObservationEventStore {
         if(!Arrays.equals(input.authorIdentity(),generation.policy().service().canonicalBytes())||input.signingKeyVersion()!=generation.policy().keyVersion())return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
         final var key=authority.keys().resolve(Integer.toUnsignedLong(input.signingKeyVersion()),source);
         if(key==null||!input.verifySignature(key))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
-        body.finalObservation().validateAgainst(sample.observation().start());
-        requireEvidenceOrigin(reader,List.of(),scope,lineage,sample,body,reader.aggregate().mutation());
-        authority.observation().requireCurrent();authority.observation().requireAuthorized(generation,sample,input,source);authority.observation().requireCurrent();
+        if(body.isCustody()){
+            body.custody().requireSample(generation,body.exportedSample());
+            requireStoredVersion(reader,List.of(),scope,lineage,sample,body.exportedSample(),reader.aggregate().mutation());
+            final var collectorKey=authority.observation().collectorKey(body.custody(),source);
+            if(collectorKey==null||!body.custody().verifySignature(collectorKey))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+            if(reader.get(ColumnFamily.META,TargetSloCustodyRecord.key(body.sampleId(),body.exportedSample().digest()))!=null)return StableCode.STALE_SYSTEM_MUTATION;
+        }else{
+            body.finalObservation().validateAgainst(sample.observation().start());
+            requireEvidenceOrigin(reader,List.of(),scope,lineage,sample,body,reader.aggregate().mutation());
+        }
+        authority.observation().requireCurrent();authority.observation().requireAuthorized(generation,body.isCustody()?body.exportedSample():sample,input,source);authority.observation().requireCurrent();
         return null;
     }
     public SystemMutationResult commit(Prepared prepared,TargetStoreBackend.CommitAuthority original){
@@ -146,6 +172,49 @@ public final class TargetSloObservationEventStore {
         event.body().finalObservation().validateAgainst(sample.observation().start());
         requireEvidenceOrigin(view,overlay,scope,lineage,sample,event.body(),event.appliedAt());
     }
+    /** Validates an older exact export without mistaking it for today's mutable projection. */
+    public static void requireStoredVersion(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample current,TargetSloObservationSample exported,TargetQuotaMutation frontier){
+        if(!Arrays.equals(current.bindingDigest(),exported.bindingDigest())||!scope.equals(exported.scope())||!Arrays.equals(lineage,exported.lineage()))
+            throw new IllegalStateException("custody export changed immutable original binding");
+        exported.mutation().requireAtOrBefore(current.mutation());exported.mutation().requireAtOrBefore(frontier);
+        if(exported.observation().finalObservation()==null){
+            if(!exported.mutation().equals(exported.first().mutation())
+                    ||!Arrays.equals(exported.observation().canonicalBytes(),SloObservationOutbox.open(current.observation().start()).canonicalBytes()))
+                throw new IllegalStateException("custody invented an original open-Start version");
+        }else{
+            final var key=TargetSloObservationEventRecord.key(exported.observation().sampleId(),exported.mutation().sequence());
+            final var event=TargetSloObservationEventRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetSloObservationEventRecord.VALUE_TYPE),scope,lineage);
+            requireOrigin(view,overlay,scope,lineage,current.first().primaryIdentity(),event,frontier);
+            if(!event.appliedAt().equals(exported.mutation())||!Arrays.equals(event.after().canonicalBytes(),exported.observation().canonicalBytes()))
+                throw new IllegalStateException("custody export lost its exact original Final Source version");
+        }
+    }
+    public static void requireCustodyOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity root,TargetSloCustodyRecord record,TargetQuotaMutation frontier){
+        record.appliedAt().requireAtOrBefore(frontier);final var body=record.body();
+        final var activationKey=TargetProtocolActivationRecord.key(body.tuple());
+        final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,
+                payload(view,overlay,ColumnFamily.META,activationKey,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
+        if(activation.body().payload().descriptor().schemaVersion()<15||activation.appliedAt().source().compareTo(record.appliedAt().source())>=0)
+            throw new IllegalStateException("custody lacks prior independent reader activation");
+        TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,root,activation,frontier);
+        final var first=result(view,overlay,TargetSloObservationStore.firstKey(record.input().systemMutationId()));
+        if(!first.appliedFirst()||first.kind()!=TargetResultRecord.Kind.SYSTEM||!root.equals(first.primaryIdentity())
+                ||!Arrays.equals(first.tenantScope(),scope.tenantScope())||!Arrays.equals(first.recoveryLineage(),lineage)||!first.mutation().equals(record.appliedAt())
+                ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(record.input(),ApplyStatus.APPLIED,StableCode.OK,record.appliedAt().source().canonicalBytes()).encode()))
+            throw new IllegalStateException("custody lost actual original APPLIED first");
+        result(view,overlay,TargetSloObservationStore.positionKey(record.appliedAt().source())).requireFirst(first);
+        final var sampleKey=TargetSloObservationSample.key(body.sampleId());
+        final var current=TargetSloObservationSample.decodeForStore(sampleKey,payload(view,overlay,ColumnFamily.META,sampleKey,TargetSloObservationSample.VALUE_TYPE),scope,lineage);
+        requireStoredVersion(view,overlay,scope,lineage,current,record.sample(),record.appliedAt());
+        final var generationKey=TargetSloObservationGeneration.key(scope,body.generation());
+        final var generation=TargetSloObservationGeneration.decodeForStore(generationKey,payload(view,overlay,ColumnFamily.META,generationKey,TargetSloObservationGeneration.VALUE_TYPE),scope,lineage);
+        record.receipt().requireSample(generation,record.sample());
+        if(!Arrays.equals(record.input().authorIdentity(),generation.policy().service().canonicalBytes())
+                ||record.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("custody changed original frozen SERVICE writer");
+    }
+
     private static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample,TargetSloObservationEventBody body,TargetQuotaMutation frontier){
         final var evidence=body.evidence();if(evidence==null)return;

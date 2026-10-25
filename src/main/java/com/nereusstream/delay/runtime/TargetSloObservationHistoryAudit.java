@@ -74,36 +74,60 @@ public final class TargetSloObservationHistoryAudit {
         if (values.putIfAbsent(Bytes.hex(control.input().systemMutationId()), control) != null) throw new IllegalStateException("duplicate Target SLO generation Control endpoint");
     }
 
-    /** Actual retained firsts positively enumerate required Command Starts; counts are independently rebuilt. */
+    /** Actual firsts, complete immutable history and exact current custody independently reconstruct every duty. */
     public static void requireSamples(List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts) {
-        requireSamples(generations,samples,firsts,List.of());
+        requireSamples(generations,samples,firsts,List.of(),List.of());
     }
     public static void requireSamples(List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events) {
-        requireEventHistory(generations,samples,firsts,events);
+        requireSamples(generations,samples,firsts,events,List.of());
+    }
+    public static void requireSamples(List<TargetSloObservationGeneration> generations,
+            List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events,
+            List<TargetSloCustodyRecord> custodies) {
+        requireEventHistory(generations,samples,firsts,events,custodies);
         final var controls=new TreeMap<SourcePosition,TargetSloObservationGeneration>();
+        final var byGeneration=new HashMap<Long,TargetSloObservationGeneration>();
         final var counts=new HashMap<Long,long[]>();
         final var latest=new HashMap<Long,TargetQuotaMutation>();
         final var pending=new HashMap<String,TargetSloObservationSample>();
         final var dueFirsts=new HashMap<String,TargetSloObservationSample>();
         final var eligibilityFirsts=new HashMap<String,TargetSloObservationSample>();
+        final var custodyByKey=new HashMap<String,TargetSloCustodyRecord>();
+        for(var custody:custodies)if(custodyByKey.putIfAbsent(Bytes.hex(custody.key()),custody)!=null)throw new IllegalStateException("duplicate SLO custody row");
         for(var generation:generations){
-            controls.put(generation.enable().appliedAt().source(),generation);
-            counts.put(generation.generation(),new long[4]); latest.put(generation.generation(),generation.control().appliedAt());
+            controls.put(generation.enable().appliedAt().source(),generation);byGeneration.put(generation.generation(),generation);
+            counts.put(generation.generation(),new long[7]);latest.put(generation.generation(),generation.control().appliedAt());
         }
         for(var sample:samples){
-            final var usage=Objects.requireNonNull(counts.get(sample.generation()),"Target SLO sample lost original generation");
+            final var generation=Objects.requireNonNull(byGeneration.get(sample.generation()),"Target SLO sample lost original generation");
+            final var usage=counts.get(sample.generation());
             if(pending.putIfAbsent(Bytes.hex(sample.key()),sample)!=null)throw new IllegalStateException("duplicate Target SLO sample identity");
             if(sample.admission()!=null&&dueFirsts.putIfAbsent(Bytes.hex(sample.first().key()),sample)!=null)throw new IllegalStateException("Admission event was bound more than once");
             if(sample.eligibility()!=null&&eligibilityFirsts.putIfAbsent(Bytes.hex(sample.first().key()),sample)!=null)throw new IllegalStateException("Message birth eligibility was bound more than once");
             usage[0]=Math.addExact(usage[0],1);usage[1]=Math.addExact(usage[1],sample.storedBytes());
-            final var at=latest.get(sample.generation());
-            if(Long.compareUnsigned(sample.mutation().sequence(),at.sequence())>0)latest.put(sample.generation(),sample.mutation());
+            final var custody=custodyByKey.get(Bytes.hex(TargetSloCustodyRecord.key(sample.observation().sampleId(),sample.digest())));
+            final boolean currentCustodied=custody!=null;
+            if(currentCustodied){
+                if(!Arrays.equals(custody.sample().canonicalBytes(),sample.canonicalBytes()))throw new IllegalStateException("SLO custody changed exact current sample bytes");
+                usage[4]=Math.addExact(usage[4],1);
+            }
+            if(generation.counts().reservation()!=null){
+                final var reservation=TargetSloObservationReservations.forSample(generation,sample,currentCustodied);
+                usage[5]=Math.addExact(usage[5],reservation.records());usage[6]=Math.addExact(usage[6],reservation.bytes());
+            }else if(currentCustodied)throw new IllegalStateException("legacy SLO generation cannot pretend to have reserved custody");
+            latest(latest,sample.generation(),sample.mutation());
         }
         for(var event:events){
             final var usage=Objects.requireNonNull(counts.get(event.body().generation()),"SLO event lost original generation");
             usage[2]=Math.addExact(usage[2],1);usage[3]=Math.addExact(usage[3],event.storedBytes());
+            latest(latest,event.body().generation(),event.appliedAt());
+        }
+        for(var custody:custodies){
+            final var usage=Objects.requireNonNull(counts.get(custody.sample().generation()),"SLO custody lost original generation");
+            usage[2]=Math.addExact(usage[2],1);usage[3]=Math.addExact(usage[3],custody.storedBytes());
+            latest(latest,custody.sample().generation(),custody.appliedAt());
         }
         for(var first:firsts){
             if(first.kind()==TargetResultRecord.Kind.SYSTEM){
@@ -139,58 +163,89 @@ public final class TargetSloObservationHistoryAudit {
         if(!pending.isEmpty()||!dueFirsts.isEmpty()||!eligibilityFirsts.isEmpty())throw new IllegalStateException("Target SLO sample has no eligible original business first");
         for(var generation:generations){
             final var usage=counts.get(generation.generation());
-            final var expected=new TargetSloObservationGeneration.Counts(usage[0],usage[0],usage[1],0,usage[2],usage[3]);
-            if(!expected.equals(generation.counts())||!latest.get(generation.generation()).equals(generation.mutation())) {
-                throw new IllegalStateException("Target SLO generation disagrees with complete actual retained sample fold");
-            }
+            final var reservation=generation.counts().reservation()==null?null:new TargetSloObservationGeneration.Counts.Reservation(usage[5],usage[6]);
+            final var expected=new TargetSloObservationGeneration.Counts(usage[0],usage[0],usage[1],usage[4],usage[2],usage[3],reservation);
+            if(!expected.equals(generation.counts())||!latest.get(generation.generation()).equals(generation.mutation()))
+                throw new IllegalStateException("Target SLO generation disagrees with complete actual/reserved sample/event/custody fold");
         }
     }
+    private static void latest(HashMap<Long,TargetQuotaMutation> values,long generation,TargetQuotaMutation at){
+        final var before=Objects.requireNonNull(values.get(generation),"SLO event lost original generation");
+        if(Long.compareUnsigned(at.sequence(),before.sequence())>0)values.put(generation,at);
+        else if(at.sequence()==before.sequence()&&!at.equals(before))throw new IllegalStateException("SLO history changed one actual Source mutation");
+    }
 
-    /** Positively enumerate every APPLIED event first and replay each immutable merge edge from its original Start. */
+    private record HistoryEntry(SystemMutation input,TargetQuotaMutation appliedAt,
+            TargetSloObservationEventRecord finalEvent,TargetSloCustodyRecord custody) {}
+
+    /** Every APPLIED type15 first must name exactly one immutable Final or custody event. */
     private static void requireEventHistory(List<TargetSloObservationGeneration> generations,
-            List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events){
+            List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events,
+            List<TargetSloCustodyRecord> custodies){
         final var bySample=new HashMap<String,TargetSloObservationSample>();
         final var byGeneration=new HashMap<Long,TargetSloObservationGeneration>();
-        final var histories=new HashMap<String,TreeMap<Long,TargetSloObservationEventRecord>>();
-        final var pending=new HashMap<String,TargetSloObservationEventRecord>();
+        final var histories=new HashMap<String,TreeMap<Long,HistoryEntry>>();
+        final var pending=new HashMap<String,HistoryEntry>();
         for(var generation:generations)byGeneration.put(generation.generation(),generation);
         for(var sample:samples)bySample.put(Bytes.hex(sample.observation().sampleId()),sample);
-        for(var event:events){
-            final var sample=Objects.requireNonNull(bySample.get(Bytes.hex(event.body().sampleId())),"orphaned SLO Source event");
+        final var rows=new java.util.ArrayList<HistoryEntry>();
+        for(var event:events)rows.add(new HistoryEntry(event.input(),event.appliedAt(),event,null));
+        for(var custody:custodies)rows.add(new HistoryEntry(custody.input(),custody.appliedAt(),null,custody));
+        for(var row:rows){
+            final var sampleId=row.finalEvent()!=null?row.finalEvent().body().sampleId():row.custody().sample().observation().sampleId();
+            final var sample=Objects.requireNonNull(bySample.get(Bytes.hex(sampleId)),"orphaned SLO Source event/custody");
             final var generation=Objects.requireNonNull(byGeneration.get(sample.generation()),"SLO event original generation");
-            if(event.body().generation()!=sample.generation()||!Arrays.equals(event.body().bindingDigest(),sample.bindingDigest())
-                    ||!Arrays.equals(event.input().authorIdentity(),generation.policy().service().canonicalBytes())
-                    ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO Source event changed frozen binding or writer");
-            generation.policy().requireSource(event.appliedAt().source());event.appliedAt().requireAfter(sample.first().mutation());
-            event.appliedAt().requireAtOrBefore(sample.mutation());
-            if(event.body().evidence()!=null)event.body().evidence().requireObservation(sample,event.body().finalObservation());
-            if(pending.putIfAbsent(Bytes.hex(event.input().systemMutationId()),event)!=null
-                    ||histories.computeIfAbsent(Bytes.hex(event.body().sampleId()),ignored->new TreeMap<>(Long::compareUnsigned))
-                        .putIfAbsent(event.appliedAt().sequence(),event)!=null)throw new IllegalStateException("duplicate SLO Source merge edge");
+            if(!Arrays.equals(row.input().authorIdentity(),generation.policy().service().canonicalBytes())
+                    ||row.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO Source event changed frozen writer");
+            generation.policy().requireSource(row.appliedAt().source());row.appliedAt().requireAfter(sample.first().mutation());
+            if(row.finalEvent()!=null){
+                final var event=row.finalEvent();
+                if(event.body().generation()!=sample.generation()||!Arrays.equals(event.body().bindingDigest(),sample.bindingDigest()))throw new IllegalStateException("SLO Final changed original sample binding");
+                event.appliedAt().requireAtOrBefore(sample.mutation());
+                if(event.body().evidence()!=null)event.body().evidence().requireObservation(sample,event.body().finalObservation());
+            }else if(row.custody().sample().generation()!=sample.generation()
+                    ||!Arrays.equals(row.custody().sample().bindingDigest(),sample.bindingDigest()))throw new IllegalStateException("SLO custody changed original sample binding");
+            if(pending.putIfAbsent(Bytes.hex(row.input().systemMutationId()),row)!=null
+                    ||histories.computeIfAbsent(Bytes.hex(sampleId),ignored->new TreeMap<>(Long::compareUnsigned))
+                        .putIfAbsent(row.appliedAt().sequence(),row)!=null)throw new IllegalStateException("duplicate SLO Source history edge");
         }
         for(var first:firsts){
             if(first.kind()!=TargetResultRecord.Kind.SYSTEM)continue;
             final var result=SystemMutationResult.decode(first.typedPayload());
             if(result.mutationType()!=SystemMutationType.TARGET_SLO_OBSERVATION)continue;
-            final var event=pending.remove(Bytes.hex(result.mutationId()));
+            final var row=pending.remove(Bytes.hex(result.mutationId()));
             if(first.appliedFirst()){
-                if(event==null||!first.mutation().equals(event.appliedAt())
-                        ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(event.input(),ApplyStatus.APPLIED,StableCode.OK,event.appliedAt().source().canonicalBytes()).encode()))
-                    throw new IllegalStateException("APPLIED SLO Source first lost its exact immutable event");
-            }else if(event!=null)throw new IllegalStateException("rejected SLO event has an applied merge edge");
+                if(row==null||!first.mutation().equals(row.appliedAt())
+                        ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(row.input(),ApplyStatus.APPLIED,StableCode.OK,row.appliedAt().source().canonicalBytes()).encode()))
+                    throw new IllegalStateException("APPLIED SLO Source first lost its exact immutable Final/custody event");
+            }else if(row!=null)throw new IllegalStateException("rejected SLO event has an applied history edge");
         }
         if(!pending.isEmpty())throw new IllegalStateException("SLO event lost original first result");
         for(var sample:samples){
             var folded=SloObservationOutbox.open(sample.observation().start());var latest=sample.first().mutation();
+            var version=new TargetSloObservationSample(sample.scope(),sample.lineage(),sample.generation(),sample.enableId(),sample.enabledAt(),
+                    sample.policyDigest(),sample.declaration(),sample.first(),folded,latest,sample.admission(),sample.eligibility());
+            final var versions=new HashMap<String,TargetSloObservationSample>();versions.put(Bytes.hex(version.digest()),version);
             final var history=histories.get(Bytes.hex(sample.observation().sampleId()));
-            if(history!=null)for(var event:history.values()){
-                if(!Arrays.equals(folded.recordDigest(),event.beforeDigest()))throw new IllegalStateException("SLO Source merge history has a missing predecessor");
-                event.appliedAt().requireAfter(latest);
-                folded=folded.mergeFinal(event.body().finalObservation(),sample.declaration().objective().direction());
-                if(!Arrays.equals(folded.canonicalBytes(),event.after().canonicalBytes()))throw new IllegalStateException("SLO Source merge edge changes conservative v1 semantics");
-                latest=event.appliedAt();
+            if(history!=null)for(var row:history.values()){
+                if(row.finalEvent()!=null){
+                    final var event=row.finalEvent();
+                    if(!Arrays.equals(folded.recordDigest(),event.beforeDigest()))throw new IllegalStateException("SLO Source merge history has a missing predecessor");
+                    event.appliedAt().requireAfter(latest);
+                    folded=folded.mergeFinal(event.body().finalObservation(),sample.declaration().objective().direction());
+                    if(!Arrays.equals(folded.canonicalBytes(),event.after().canonicalBytes()))throw new IllegalStateException("SLO Source merge edge changes conservative v1 semantics");
+                    latest=event.appliedAt();
+                    version=new TargetSloObservationSample(sample.scope(),sample.lineage(),sample.generation(),sample.enableId(),sample.enabledAt(),
+                            sample.policyDigest(),sample.declaration(),sample.first(),folded,latest,sample.admission(),sample.eligibility());
+                    if(versions.putIfAbsent(Bytes.hex(version.digest()),version)!=null)throw new IllegalStateException("SLO Source merge repeated one full sample version");
+                }else{
+                    final var exported=row.custody().sample();
+                    final var known=versions.get(Bytes.hex(exported.digest()));
+                    if(known==null||!Arrays.equals(known.canonicalBytes(),exported.canonicalBytes()))throw new IllegalStateException("SLO custody lacks its exact earlier exported sample version");
+                    exported.mutation().requireAtOrBefore(row.appliedAt());
+                }
             }
-            if(!latest.equals(sample.mutation())||!Arrays.equals(folded.canonicalBytes(),sample.observation().canonicalBytes()))
+            if(!latest.equals(sample.mutation())||!Arrays.equals(version.canonicalBytes(),sample.canonicalBytes()))
                 throw new IllegalStateException("SLO sample lost complete original Source event history");
         }
     }

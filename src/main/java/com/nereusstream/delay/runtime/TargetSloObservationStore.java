@@ -67,7 +67,7 @@ public final class TargetSloObservationStore {
             if (rejection == null) {
                 final var selected = Objects.requireNonNull(change, "original Target SLO Control transition");
                 final var generation = selected.body().request().operationKind() == ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
-                        ? TargetSloObservationGeneration.enabled(input, stamp)
+                        ? new TargetSloObservationGeneration(new TargetSloObservationGeneration.Control(input,stamp),null,TargetSloObservationGeneration.Counts.reservedEmpty(),stamp)
                         : Objects.requireNonNull(selected.retained()).stopped(input, stamp);
                 if (generation.active()) absent(reader, ColumnFamily.META, generation.key());
                 final var state = TargetSloObservationState.from(generation);

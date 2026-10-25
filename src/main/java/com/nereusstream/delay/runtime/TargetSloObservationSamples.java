@@ -133,16 +133,19 @@ public final class TargetSloObservationSamples {
     private static Plan append(TargetStoreBackend.Reader reader,TargetSloObservationGeneration generation,
             List<TargetSloObservationSample> samples,TargetQuotaMutation stamp,Authority authority){
         if(samples.isEmpty())return new Plan(List.of(),()->{});
-        final var limits=generation.policy().limits();final var before=generation.counts();
-        long actual=0,maximum=0;
+        final var before=generation.counts();
+        var reservation=TargetSloObservationReservations.requireReserved(generation);
+        long actual=0;
         for(var sample:samples){
-            if(sample.maximumRecordBytes()>limits.maximumRecordBytes())throw new IllegalStateException("certification cannot retain required Final growth");
-            actual=Math.addExact(actual,sample.storedBytes());maximum=Math.addExact(maximum,sample.maximumStoredBytes());
+            actual=Math.addExact(actual,sample.storedBytes());
+            reservation=reservation.plus(TargetSloObservationReservations.forSample(generation,sample,false));
         }
-        final long reserved=Math.addExact(before.outboxBytes(),Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.maximumFutureStoredGrowth(generation.policy())));
-        if(Math.addExact(Math.addExact(before.outboxRecords(),before.eventRecords()),samples.size())>limits.maximumOutboxRecords()
-                ||Math.addExact(Math.addExact(reserved,before.eventBytes()),maximum)>limits.maximumOutboxBytes())
-            throw new IllegalStateException("certification lacks the original complete business-mutation sample reservation");
+        final var counts=new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),samples.size()),
+                Math.addExact(before.outboxRecords(),samples.size()),Math.addExact(before.outboxBytes(),actual),
+                before.custodied(),before.eventRecords(),before.eventBytes(),reservation);
+        // Actual rows and every remaining mandatory Final/custody share the original frozen finite caps.
+        final var next=generation.withCounts(counts,stamp);
+        final long maximum=Math.addExact(actual,Math.subtractExact(reservation.bytes(),before.reservation().bytes()));
         final var held=Objects.requireNonNull(authority);held.requireCurrent();
         final var edits=new ArrayList<TargetStoreBackend.Edit>();
         for(var sample:samples){
@@ -152,8 +155,6 @@ public final class TargetSloObservationSamples {
                 edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,sample.canonicalBytes()));
             }
         }
-        final var counts=new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),samples.size()),Math.addExact(before.outboxRecords(),samples.size()),Math.addExact(before.outboxBytes(),actual),before.custodied(),before.eventRecords(),before.eventBytes());
-        final var next=generation.withCounts(counts,stamp);
         edits.add(reader.replace(ColumnFamily.META,next.key(),TargetSloObservationGeneration.VALUE_TYPE,next.canonicalBytes()));
         return new Plan(edits,held::requireCurrent);
     }
@@ -227,17 +228,19 @@ public final class TargetSloObservationSamples {
         }
     }
 
-    /** Hot delta derived from actual sample edits, never from caller-supplied generation totals. */
+    /** Derives actual and remaining mandatory duties from exact before/after rows, including old-version custody. */
     public static void requireGenerationDelta(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetSloObservationGeneration generation,TargetQuotaMutation frontier) {
-        if(overlay.isEmpty()) return; // The complete cold fold independently derives totals below.
+        if(overlay.isEmpty())return; // The full cold fold independently reconstructs every actual and reserved duty.
         final var changed=overlay.stream().filter(e->e.family()==ColumnFamily.META&&Arrays.equals(e.key(),generation.key())).findFirst().orElse(null);
-        if(changed==null) return;
+        if(changed==null)return;
         final byte[] priorRaw=view.projected(ColumnFamily.META,generation.key(),List.of());
         final var prior=priorRaw==null?null:TargetSloObservationGeneration.decodeForStore(generation.key(),TargetValueEnvelope.decode(priorRaw,TargetSloObservationGeneration.VALUE_TYPE).payload(),scope,lineage);
         final var base=prior==null?TargetSloObservationGeneration.Counts.empty():prior.counts();
-        long added=0,bytes=0,eventRecords=0,eventBytes=0;
-        boolean sampleChanged=false;
+        final boolean reserved=generation.counts().reservation()!=null;
+        if(prior!=null&&(base.reservation()!=null)!=reserved)throw new IllegalStateException("SLO Source mutation cannot upgrade or discard an original completion reservation");
+        long added=0,bytes=0,eventRecords=0,eventBytes=0,custodied=0;
+        final var touched=new java.util.LinkedHashMap<String,byte[]>();
         for(var edit:overlay){
             if(edit.family()!=ColumnFamily.META)continue;
             if(edit.key()[0]==TargetKeyCodec.SLO_SAMPLE_TAG){
@@ -245,7 +248,7 @@ public final class TargetSloObservationSamples {
                 final var sample=TargetSloObservationSample.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
                 if(sample.generation()!=generation.generation())continue;
                 if(!sample.mutation().equals(frontier))throw new IllegalStateException("SLO sample edit changed actual Source mutation");
-                sampleChanged=true;bytes=Math.addExact(bytes,sample.storedBytes());
+                touched.put(Bytes.hex(sample.key()),sample.key());bytes=Math.addExact(bytes,sample.storedBytes());
                 if(edit.before()==null)added=Math.addExact(added,1);
                 else bytes=Math.subtractExact(bytes,TargetSloObservationSample.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.before(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage).storedBytes());
             }else if(edit.key()[0]==TargetKeyCodec.SLO_EVENT_TAG){
@@ -254,13 +257,38 @@ public final class TargetSloObservationSamples {
                 if(event.body().generation()!=generation.generation())continue;
                 if(!event.appliedAt().equals(frontier))throw new IllegalStateException("SLO event changed Source stamp");
                 eventRecords=Math.addExact(eventRecords,1);eventBytes=Math.addExact(eventBytes,event.storedBytes());
+            }else if(edit.key()[0]==TargetKeyCodec.SLO_CUSTODY_TAG){
+                if(edit.before()!=null||edit.after()==null)throw new IllegalStateException("original SLO custody history is immutable");
+                final var receipt=TargetSloCustodyRecord.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetSloCustodyRecord.VALUE_TYPE).payload(),scope,lineage);
+                if(receipt.sample().generation()!=generation.generation())continue;
+                if(!receipt.appliedAt().equals(frontier))throw new IllegalStateException("SLO custody changed Source stamp");
+                touched.put(Bytes.hex(receipt.sample().key()),receipt.sample().key());
+                eventRecords=Math.addExact(eventRecords,1);eventBytes=Math.addExact(eventBytes,receipt.storedBytes());
             }
         }
+        var beforeDuties=TargetSloObservationGeneration.Counts.Reservation.empty();
+        var afterDuties=TargetSloObservationGeneration.Counts.Reservation.empty();
+        for(var key:touched.values()){
+            final var oldRaw=view.projected(ColumnFamily.META,key,List.of());
+            final var newRaw=Objects.requireNonNull(view.projected(ColumnFamily.META,key,overlay),"SLO event requires retained current sample");
+            final var next=TargetSloObservationSample.decodeForStore(key,TargetValueEnvelope.decode(newRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+            final boolean afterCustody=TargetSloObservationReservations.currentCustodied(view,overlay,scope,lineage,next);
+            if(afterCustody)custodied=Math.addExact(custodied,1);
+            if(reserved)afterDuties=afterDuties.plus(TargetSloObservationReservations.forSample(generation,next,afterCustody));
+            if(oldRaw!=null){
+                final var old=TargetSloObservationSample.decodeForStore(key,TargetValueEnvelope.decode(oldRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                final boolean beforeCustody=TargetSloObservationReservations.currentCustodied(view,List.of(),scope,lineage,old);
+                if(beforeCustody)custodied=Math.subtractExact(custodied,1);
+                if(reserved)beforeDuties=beforeDuties.plus(TargetSloObservationReservations.forSample(Objects.requireNonNull(prior),old,beforeCustody));
+            }
+        }
+        if(!reserved&&!touched.isEmpty())throw new IllegalStateException("legacy SLO generation has no persistent completion reservation for new sample/event/custody writes");
+        final var reservation=reserved?(prior==null?TargetSloObservationGeneration.Counts.Reservation.empty():base.reservation()).minus(beforeDuties).plus(afterDuties):null;
         final var expected=new TargetSloObservationGeneration.Counts(Math.addExact(base.issued(),added),Math.addExact(base.outboxRecords(),added),
-                Math.addExact(base.outboxBytes(),bytes),base.custodied(),Math.addExact(base.eventRecords(),eventRecords),Math.addExact(base.eventBytes(),eventBytes));
+                Math.addExact(base.outboxBytes(),bytes),Math.addExact(base.custodied(),custodied),Math.addExact(base.eventRecords(),eventRecords),Math.addExact(base.eventBytes(),eventBytes),reservation);
         if(!expected.equals(generation.counts())||!generation.mutation().equals(frontier)
-                ||!sampleChanged&&!generation.mutation().equals(generation.control().appliedAt())||eventRecords!=0&&!sampleChanged)
-            throw new IllegalStateException("SLO generation totals do not match complete original sample/Source event edits");
+                ||touched.isEmpty()&&!generation.mutation().equals(generation.control().appliedAt())||eventRecords!=0&&touched.isEmpty())
+            throw new IllegalStateException("SLO generation totals/reservations do not match complete original sample/event/custody edits");
     }
 
     /** Any retained sample keeps its original first/POS protected, independently of collector acknowledgement. */

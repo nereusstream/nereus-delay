@@ -819,12 +819,44 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         try(var held=reads(entry,clock).acquire(store.metadata(),scope)){held.requireCurrent();}
     }
 
+    private volatile TargetSloCustodyExportMaintenance sloCustodyExport;
+    synchronized void registerSloCustodyExport(TargetSloCustodyExportMaintenance exporter){
+        if(sloCustodyExport!=null)throw new IllegalStateException("Target SLO custody exporter already configured");
+        sloCustodyExport=Objects.requireNonNull(exporter);
+    }
+    synchronized com.nereusstream.delay.runtime.TargetSloExportPageReader.Page captureSloExportPage(BoundedReadBudget budget,
+            com.nereusstream.delay.runtime.TargetSloExportPageReader.Cursor cursor,
+            com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,LongSupplier clock){
+        requireGcOwner(clock);
+        final var page=backend.guardedRead(budget,reader->com.nereusstream.delay.runtime.TargetSloExportPageReader.read(reader,scope,lineage,cursor,pageLimits),workerReads(clock));
+        requireGcOwner(clock);return page;
+    }
+    synchronized void requireSloExportContext(com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){
+        requireGcOwner(clock);
+        if(cut!=null)backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            cut.requireAtOrBefore(reader.aggregate().mutation());
+            if(!cut.source().sameSourceIdentity(reader.source()))throw new IllegalStateException("SLO export cut changed physical Source");return Boolean.TRUE;
+        },workerReads(clock));
+        requireGcOwner(clock);
+    }
+    synchronized boolean hasSloCustody(com.nereusstream.delay.protocol.TargetSloObservationExport export,LongSupplier clock){
+        requireGcOwner(clock);
+        if(!scope.equals(export.sample().scope())||!Arrays.equals(lineage,export.sample().lineage()))throw new IllegalArgumentException("SLO custody lookup changed scope/lineage");
+        return backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            final var key=com.nereusstream.delay.protocol.TargetSloCustodyRecord.key(export.sample().observation().sampleId(),export.sample().digest());
+            final var raw=reader.get(ColumnFamily.META,key);if(raw==null)return false;
+            final var custody=com.nereusstream.delay.protocol.TargetSloCustodyRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetSloCustodyRecord.VALUE_TYPE).payload(),scope,lineage);
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.requireCustodyOrigin(reader,java.util.List.of(),scope,lineage,export.sample().first().primaryIdentity(),custody,reader.aggregate().mutation());
+            return true;
+        },workerReads(clock));
+    }
+
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }
 
-    void stopAuthorityPreparation() { final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
-    void retryAuthorityCleanup() { final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
-    boolean authorityIoExited() { final var selected = authorityPreparation; return (selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited()); }
-    Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();return failure!=null?failure:activeSloFinal==null?null:activeSloFinal.pendingIoFailure(); }
+    void stopAuthorityPreparation() { final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
+    void retryAuthorityCleanup() { final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
+    boolean authorityIoExited() { final var selected = authorityPreparation; return (selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited()); }
+    Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();final var finals=activeSloFinal==null?null:activeSloFinal.pendingIoFailure();return failure!=null?failure:finals!=null?finals:sloCustodyExport==null?null:sloCustodyExport.pendingIoFailure(); }
 
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
         final var selected = authorityPreparation;
@@ -1748,7 +1780,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 if(sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest())
                         ||!Arrays.equals(mutation.authorIdentity(),generation.policy().service().canonicalBytes())
                         ||mutation.signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed original frozen binding/writer");
-                body.finalObservation().validateAgainst(sample.observation().start());return Boolean.TRUE;
+                final long maximumRecord=body.isCustody()
+                        ?com.nereusstream.delay.protocol.TargetSloCustodyRecord.maximumStoredBytes(mutation,reader.source())
+                        :com.nereusstream.delay.protocol.TargetSloObservationEventRecord.maximumStoredBytes(mutation,sample,reader.source());
+                if(maximumRecord>generation.policy().limits().maximumRecordBytes())throw new IllegalStateException("exact SLO Source frame cannot fit frozen Native record cap");
+                if(body.isCustody()){
+                    body.custody().requireSample(generation,body.exportedSample());
+                    com.nereusstream.delay.runtime.TargetSloObservationEventStore.requireStoredVersion(reader,java.util.List.of(),scope,lineage,sample,body.exportedSample(),reader.aggregate().mutation());
+                }else body.finalObservation().validateAgainst(sample.observation().start());
+                return Boolean.TRUE;
             },workerReads(clock));
             requireGcOwner(clock);return;
         }
@@ -1760,7 +1800,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (isSloObservationControl(mutation)) {
             final var body = com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.canonicalBody());
             if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
-                    &&sloFinalContinuations==null)throw new IllegalStateException("certification writer lacks original post-sync Final continuation");
+                    &&(sloFinalContinuations==null||sloCustodyExport==null))throw new IllegalStateException("certification writer lacks original Final/custody Source continuation");
             if (!scope.equals(body.request().scope()) || !Arrays.equals(lineage, body.request().lineage())) {
                 throw new IllegalArgumentException("Target certification writer changed its frozen scope/lineage");
             }
@@ -2493,7 +2533,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } else if (isSloObservationControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.sloObservations().resolve(mutation), "original Target SLO Control inputs");
                 if(com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
-                        ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION&&sloFinalContinuations==null)
+                        ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION&&(sloFinalContinuations==null||sloCustodyExport==null))
                     throw new TargetSourceAuthorityPreparation.InputUnavailable("certification ENABLE lacks actual post-sync Final Source continuation");
                 final var mode = new com.nereusstream.delay.runtime.TargetSloObservationStore(backend, scope, lineage, limits.counters(), limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloObservationStore.Prepared first;

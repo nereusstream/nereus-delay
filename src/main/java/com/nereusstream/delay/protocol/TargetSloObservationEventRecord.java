@@ -8,7 +8,7 @@ import java.util.Objects;
 /** Immutable original Source observation and actual conservative merge edge; not collector custody. */
 public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMutation appliedAt,byte[] beforeDigest,SloObservationOutbox after) {
     public static final int VALUE_TYPE=60;
-    public static final int MAX_INPUT_BYTES=TargetSloObservationEventBody.MAX_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
+    public static final int MAX_INPUT_BYTES=TargetSloObservationEventBody.MAX_FINAL_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
     public static final int MAX_CANONICAL_BYTES=MAX_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             +TargetSloObservationSample.MAX_START_BYTES+TargetSloObservationSample.MAX_FINAL_BYTES+192;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-slo-observation-source-record\0");
@@ -16,7 +16,7 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
         Objects.requireNonNull(input);Objects.requireNonNull(appliedAt).requireSourceApplied();Objects.requireNonNull(after);
         beforeDigest=TargetCompatibilityCodec.assigned(beforeDigest,32,"actual original outbox digest");
         final var body=TargetSloObservationEventBody.decode(input.canonicalBody());
-        if(input.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!input.shardId().equals(body.scope().shard())||!input.shardId().equals(appliedAt.source().shardId())
+        if(body.isCustody()||input.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!input.shardId().equals(body.scope().shard())||!input.shardId().equals(appliedAt.source().shardId())
                 ||input.retryUntilEpochMs()!=body.retryUntil()||!Arrays.equals(input.logicalOperationIdentity(),body.logicalIdentity())
                 ||input.canonicalEnvelope().length>MAX_INPUT_BYTES||!Arrays.equals(appliedAt.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
                 ||!Arrays.equals(body.sampleId(),after.sampleId())||after.finalObservation()==null||appliedAt.source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())
@@ -39,6 +39,14 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
         if(bytes.length>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("SLO event history exceeds finite bound");return bytes;
     }
     public long storedBytes(){return Math.addExact((long)key().length,TargetValueEnvelope.encode(VALUE_TYPE,canonicalBytes()).length);}
+    public static long maximumStoredBytes(SystemMutation input,TargetSloObservationSample sample,SourcePosition sourceAnchor){
+        final var body=TargetSloObservationEventBody.decode(input.canonicalBody());
+        if(body.isCustody())throw new IllegalArgumentException("Final size requested for custody");
+        final var merged=sample.observation().mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
+        final long stamp=11+delimited(sourceAnchor.canonicalBytes().length)+34;
+        return 42+12+2+delimited(input.canonicalEnvelope().length)+delimited(stamp)+34+delimited(merged.canonicalBytes().length)+34;
+    }
+    private static long delimited(long bytes){long value=bytes;int width=1;while((value>>>=7)!=0)width++;return 1L+width+bytes;}
     public static TargetSloObservationEventRecord decode(byte[] encoded){
         final var f=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,6,false,"Target original SLO Source event");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6},"Target original SLO Source event");

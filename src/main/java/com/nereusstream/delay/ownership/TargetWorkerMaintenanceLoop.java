@@ -184,6 +184,7 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                 if (!(failure instanceof Error)) {
                     try {
                         fleet.runNextMessageExpiryTurnIfPresent();
+                        fleet.runNextSloCustodyTurnIfPresent();
                     } catch (RuntimeException | Error caught) {
                         firstFailure.compareAndSet(null, caught);
                         failure = combineFailures(failure, caught);

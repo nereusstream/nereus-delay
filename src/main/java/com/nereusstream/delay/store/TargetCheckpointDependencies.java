@@ -139,6 +139,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents;
+    private final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -182,6 +183,7 @@ public final class TargetCheckpointDependencies {
         sloGenerations=List.copyOf(builder.sloGenerations.values());
         sloSamples=List.copyOf(builder.sloSamples.values());
         sloEvents=List.copyOf(builder.sloEvents.values());
+        sloCustodies=List.copyOf(builder.sloCustodies.values());
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -272,6 +274,7 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations(){return sloGenerations;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples(){return sloSamples;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents(){return sloEvents;}
+    public List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies(){return sloCustodies;}
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -935,6 +938,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents=new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -978,6 +982,7 @@ public final class TargetCheckpointDependencies {
             prior.sloGenerations.forEach(this::sloGeneration);
             prior.sloSamples.forEach(this::sloSample);
             prior.sloEvents.forEach(this::sloEvent);
+            prior.sloCustodies.forEach(this::sloCustody);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1049,6 +1054,9 @@ public final class TargetCheckpointDependencies {
         }
         void sloGeneration(com.nereusstream.delay.protocol.TargetSloObservationGeneration record) {
             if(sloGenerations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO generation");
+        }
+        void sloCustody(com.nereusstream.delay.protocol.TargetSloCustodyRecord record){
+            if(sloCustodies.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate exact Target custody version");
         }
         void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
             if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");

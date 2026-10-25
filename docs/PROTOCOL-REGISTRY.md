@@ -6100,3 +6100,56 @@ logical COMMAND/QUERY, Message or eligibility is created. Its first and POSITION
 so there are exactly two actual Native59 projections (primary plus one original POSITION ref).
 Source/cold enumeration includes this physical stable rejection, while replay never rebinds it.
 Schema1–3 bytes/identity are unchanged. Descriptor15/Native60/body2 certification remains closed.
+
+
+2026-10-25 Target exact collector custody and persistent observation reservation (activation closed).
+
+Counts3 keeps Native58 fields2–7 and explicitly adds8 reservedRecords,9 reservedBytes (including0).
+Old Counts1/2 retain byte-identical null-reservation semantics; null is not reserved zero. New Source
+ENABLE uses explicit reservedEmpty, without changing the old component enabled/empty factories.
+For sample s: O=no Final; U=no Native61 for its exact current sample.digest. Remaining records are
+`2*O+U`; remaining bytes are `O*(absoluteSmax-currentBytes+Fmax+Cmax)+U*Cmax`. Smax is derived from
+immutable open baseline and real distinct projections; Fmax/Cmax use the original declared maximum
+record cap as a conservative allowed-record bound. Actual+reserved records/bytes must fit the same
+frozen caps on Start, Final and custody. An extra revision cannot consume other samples' reserve;
+STOP preserves duties. These are observation-row bounds, not complete future Root/tenant/physical
+or Source retention qualification. Old generations are not silently upgraded or retrospectively qualified.
+
+Body3 tuple `(1,1,SYSTEM_MUTATION,15,3)` is kind2 CUSTODY: common fields1–3 and10 version3,
+11 kind2,12 scope,13 lineage,14 original generation,15 sampleId,16 bindingDigest,19 full signed
+TargetSloCustodyReceipt,20 exact exported Native59 image. Fields17/18 are absent. Logical identity
+is SHA256(domain `nereus-delay-target-slo-custody-source-event` plus NUL || scope || lineage ||
+u64be(gen) || sampleId || bindingDigest || receiptDigest || exportedSample.digest).
+
+Receipt1 fields:1 version1,2 scope,3 lineage16,4 gen,5 frozen collectorContractDigest32,6 sampleId32,
+7 bindingDigest32,8 exact sampleDigest32,9 exact v1 outboxDigest32,10 observationRevision (0=open),
+11 full exportDigest32,12 original collector SERVICE AuthorIdentity,13 signingKeyVersion,14 complete
+bounded TrustedUtcIntervalEvidence,15 retainedUntil,16 receiptDigest32,17 Ed25519 signature64.
+Digest is SHA256(domain `nereus-delay-target-slo-custody-receipt` plus NUL || fields1–15); signature
+covers that digest. Retention is at least storedAt.latest plus original policy retentionMs. The original
+independent collector contract/key/retention/material qualification is required, never inferred from
+checksum, public hashes or a Source SERVICE signature. Legacy v1-only delivery has no Target authority.
+
+Native61 schema1 at META55, key `37 01 || sampleId32 || exactSampleDigest32`: fields1 version1,
+2 complete original signed type15/body3 input,3 actual applied Source stamp,4 SHA256(domain
+`nereus-delay-target-slo-custody-source-record` plus NUL || fields1–3). Exactly one immutable row
+per sample content; actual first/POS, Root STATE/tenant mirror and generation counts are one Source
+batch. Old-version ACK preserves true history without acknowledging a newer version. Custody does
+not alter Native59 outbox/latest stamp, delete data or refund; no ACK/export feedback loop.
+Native60 and61 jointly supply actual event rows/bytes, Source latest and the independent cold fold;
+Counts.custodied counts only exact current Native59 contents, never coverage completeness.
+
+Target export1 stores complete generation, exact sample, protected Source cut and complete Native60
+chain. The existing NSOC file format2 atomically retains legacy conservative projection, exact Target
+exports and stable signed receipts with the original file-force/atomic-rename/directory-force kernel.
+No Target keeps format1 bytes. Explicit Target entry/byte/history limits and independent reauthentication
+are mandatory. Duplicate sample.digest reuses the first complete wrapper/receipt even when later cut or
+generation counters differ, and repeats durability publication before returning. A completed census,
+empty page, ACK count or checksum never establishes source-population/coverage COMPLETE.
+
+Source preparation freezes the independent receipt key outside Store locks; source/cold authenticate
+full original binding, historical image, first/POS/activation and collector signature. Background export
+uses existing maintenance rotation, OUTCOME_AND_CONTROL, original process Owned I/O and admitted
+Source writer; UNKNOWN retains exact receipt/frame. Startup/stop/drain/quarantine preserve real I/O and
+cleanup handles. New ENABLE requires actual Final and custody components. Descriptor remains maximum14,
+advertised Native capability56; certification is unavailable pending the complete implementation/validation.

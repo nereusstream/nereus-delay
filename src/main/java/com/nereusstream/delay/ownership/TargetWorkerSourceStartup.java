@@ -1286,6 +1286,16 @@ public final class TargetWorkerSourceStartup {
         } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
+    /** Uses the original process pool/Source writer; collector custody is independent of business Source ACK. */
+    public void configureSloCustodyExport(OwnedSourceSystemWriter writer,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,
+            TargetSloCustodyExportMaintenance.Provider provider,long maximumBytes){
+        try(var construction=beginWorkerResourceConstruction(worker)){
+            construction.requireCurrent();worker.configureSloCustodyExport(writer,graph.io(),reads,owner.clock(),pageLimits,provider,maximumBytes);construction.requireCurrent();
+        }catch(RuntimeException|Error failure){failResourceStartup(failure);throw failure;}
+    }
+
     /** Original process I/O and already admitted Source writer; deployment supplies held UTC/signer/budget material. */
     public void configureSloFinalContinuations(OwnedSourceSystemWriter writer,
             TargetSloFinalContinuation.Provider provider,long maximumBytes){

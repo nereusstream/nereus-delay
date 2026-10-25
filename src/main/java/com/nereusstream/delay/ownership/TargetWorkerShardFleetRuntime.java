@@ -43,6 +43,7 @@ public final class TargetWorkerShardFleetRuntime {
         }
         default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() { return Optional.empty(); }
         default Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() { return Optional.empty(); }
+        default Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn(){return Optional.empty();}
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -102,6 +103,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int journalSettlementCursor;
     private int publicationResourceCursor;
     private int resourceReclaimCursor;
+    private int sloCustodyCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -277,6 +279,17 @@ public final class TargetWorkerShardFleetRuntime {
         if (activeTurnThread == Thread.currentThread()) {
             throw new IllegalStateException("cannot reenter Target fleet dispatch from its selected turn");
         }
+    }
+
+    synchronized Optional<WorkClassTask> runNextSloCustodyTurnIfPresent(){
+        requireNotInSelectedTurn();if(shards.isEmpty())return Optional.empty();
+        final int index=sloCustodyCursor>=shards.size()?0:sloCustodyCursor;
+        final var selected=shards.get(index);sloCustodyCursor=index==shards.size()-1?0:index+1;
+        if(selected.pendingCheckpointTask().isPresent())return Optional.empty();
+        activeTurnThread=Thread.currentThread();
+        try{return selected.runSloCustodyExportMaintenanceTurn();}
+        catch(RuntimeException failure){throw new MaintenanceDispatchFailure(selected.shardId(),failure);}
+        finally{activeTurnThread=null;}
     }
 
     synchronized Optional<TargetResourceReclaimMaintenance.Turn> runNextResourceReclaimTurnIfPresent() {

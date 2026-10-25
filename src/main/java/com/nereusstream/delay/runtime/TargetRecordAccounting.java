@@ -732,6 +732,13 @@ public final class TargetRecordAccounting {
                 final var owner=descriptor(root.owner());
                 result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
             }
+            case com.nereusstream.delay.protocol.TargetSloCustodyRecord.VALUE_TYPE -> {
+                requireFamily(family,ColumnFamily.META);
+                final var custody=com.nereusstream.delay.protocol.TargetSloCustodyRecord.decodeForStore(key,payload,scope,lineage);
+                TargetSloObservationEventStore.requireCustodyOrigin(reader,overlay,scope,lineage,root.owner(),custody,operation);
+                final var owner=descriptor(root.owner());
+                result=new Charge(owner,resources(owner.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key.length,payload.length)));
+            }
             case com.nereusstream.delay.protocol.TargetSloObservationState.VALUE_TYPE -> {
                 requireFamily(family, ColumnFamily.META);
                 final var state = com.nereusstream.delay.protocol.TargetSloObservationState.decodeForStore(key, payload, scope, lineage);

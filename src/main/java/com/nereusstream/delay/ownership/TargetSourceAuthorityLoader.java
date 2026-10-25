@@ -262,14 +262,21 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 final var a = value.authority();
                 final long version = Integer.toUnsignedLong(original.signingKeyVersion());
                 final var key = copyKey(a.keys().resolve(version, entry.position()));
+                final var body=TargetSloObservationEventBody.decode(original.canonicalBody());
+                final var collectorKey=body.isCustody()?copyKey(a.observation().collectorKey(body.custody(),entry.position())):null;
                 guard.run(); held.requireCurrent();
-                held.bytes = Math.addExact(held.bytes, key == null ? 0 : key.getEncoded().length);
+                held.bytes = Math.addExact(held.bytes, Math.addExact(key == null ? 0 : key.getEncoded().length,collectorKey==null?0:collectorKey.getEncoded().length));
                 final var observation = new com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority() {
                     public void requireAuthorized(TargetSloObservationGeneration generation, TargetSloObservationSample sample,
                             SystemMutation input, SourcePosition source) {
                         requireCurrent(); requireSource(entry, source);
                         if (!Arrays.equals(input.canonicalEnvelope(), original.canonicalEnvelope())) throw new IllegalStateException("SLO event snapshot changed exact original frame");
                         a.observation().requireAuthorized(generation, sample, input, source); requireCurrent();
+                    }
+                    public PublicKey collectorKey(TargetSloCustodyReceipt receipt,SourcePosition source){
+                        requireCurrent();requireSource(entry,source);
+                        if(!body.isCustody()||!Arrays.equals(receipt.canonicalBytes(),body.custody().canonicalBytes()))throw new IllegalStateException("collector key changed exact original receipt");
+                        return collectorKey;
                     }
                     public void requireCurrent() { held.requireCurrent(); a.observation().requireCurrent(); held.requireCurrent(); }
                 };

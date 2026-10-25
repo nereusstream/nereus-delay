@@ -135,11 +135,15 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
     /** Reserves bounded v1 Final growth before accepting a Start; no declaration cap is raised. */
     public long maximumStoredBytes() {
         final long growth = maximumGrowth();
-        return Math.addExact(storedBytes(), Math.multiplyExact((long)keys().size(), growth));
+        return Math.addExact(openBaseline().storedBytes(), Math.multiplyExact((long)keys().size(), growth));
     }
     public long maximumRecordBytes() {
-        return Math.addExact((long) TargetValueEnvelope.encode(VALUE_TYPE, canonicalBytes()).length,
+        return Math.addExact((long) TargetValueEnvelope.encode(VALUE_TYPE, openBaseline().canonicalBytes()).length,
                 Math.addExact(maximumGrowth(), keys().stream().mapToInt(k -> k.length).max().orElseThrow()));
+    }
+    private TargetSloObservationSample openBaseline(){
+        return new TargetSloObservationSample(scope,lineage,generation,enableId,enabledAt,policyDigest,declaration,first,
+                SloObservationOutbox.open(observation.start()),first.mutation(),admission,eligibility);
     }
     private long maximumGrowth() {
         return MAX_FINAL_BYTES + 6L + 9L;
@@ -180,7 +184,7 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(5),6)), QueryCodecSupport.fixed(f.get(6),7,32),
                 TargetSloObservationPolicy.Declaration.decode(QueryCodecSupport.bytes(f.get(7),8)),
                 TargetResultRecord.decode(QueryCodecSupport.bytes(f.get(8),9)), SloObservationOutbox.decode(QueryCodecSupport.bytes(f.get(9),10)),
-                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10),11)),version==2?SystemMutation.decodeTargetEnvelope(QueryCodecSupport.bytes(f.get(13),14)):null,
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10),11)),version==2?SystemMutation.decodeTargetEnvelope(QueryCodecSupport.bytes(f.get(13),14),SystemMutationType.TARGET_PUBLISH_ADMISSION):null,
                 version==3?TargetSloMessageEligibility.decode(QueryCodecSupport.bytes(f.get(13),15)):null);
         if(result.schemaVersion()!=version)throw new IllegalArgumentException("Target SLO sample schema changed its original event kind");
         if (!Arrays.equals(result.bindingDigest(), QueryCodecSupport.fixed(f.get(11),12,32))
