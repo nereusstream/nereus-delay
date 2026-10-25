@@ -12,6 +12,7 @@ import java.util.Objects;
 public final class TargetSloObservationEventStore {
     @FunctionalInterface public interface Keys { PublicKey resolve(long version,SourcePosition source); }
     public interface ObservationAuthority {
+        default TargetScopeFeeAuthority scopeFees(){return TargetScopeFeeAuthority.UNAVAILABLE;}
         /** Original semantic endpoint/time/history and real retained budget qualification; already-held local checks. */
         void requireAuthorized(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
                 SystemMutation input,SourcePosition source);
@@ -111,7 +112,8 @@ public final class TargetSloObservationEventStore {
             };
             final var first=TargetResultRecord.system(root,result[0],stamp,null,results);final var position=TargetResultRecord.position(root,first,stamp,results);
             for(var record:List.of(first,position))edits.add(reader.replace(ColumnFamily.DEDUPE,record.key(),TargetResultRecord.VALUE_TYPE,record.canonicalBytes()));
-            return new TargetSourceAccounting(scope,lineage,source,stamp.mutationDigest(),counters,1,domains).assemble(reader,edits);
+            return new TargetSourceAccounting(scope,lineage,source,stamp.mutationDigest(),counters,1,domains)
+                    .withScopeSource(input,authority.observation().scopeFees()).assemble(reader,edits);
         });
         return new Prepared(this,batch,result[0],applied[0]?authority.observation()::requireCurrent:()->{});
     }

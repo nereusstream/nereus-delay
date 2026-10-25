@@ -136,14 +136,16 @@ public final class TargetCommandReplayStore {
                     ? TargetResultRecord.expiredCommandPosition(root, mutation, stamp, authority)
                     : TargetResultRecord.position(root, actual.first(), stamp, authority);
             final var edits=new ArrayList<TargetStoreBackend.Edit>();
+            TargetScopeFeeAuthority scopeFees=TargetScopeFeeAuthority.UNAVAILABLE;
             edits.add(reader.replace(ColumnFamily.DEDUPE,position.key(),TargetResultRecord.VALUE_TYPE,position.canonicalBytes()));
             if(actual.first()==null){
                 final var observation=TargetSloObservationSamples.expiredCommand(reader,scope,lineage,mutation,stamp,position,samples);
                 edits.addAll(observation.edits());qualification[0]=observation.qualification();
+                scopeFees=observation.scopeFees();
             }
             final var accounted = new TargetSourceAccounting(
                             scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
-                    .assemble(reader,edits);
+                    .withScopeFees(scopeFees).assemble(reader,edits);
             result[0] = actual.result();
             return accounted;
         });

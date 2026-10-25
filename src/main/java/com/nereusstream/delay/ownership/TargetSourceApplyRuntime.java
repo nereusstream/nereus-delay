@@ -59,6 +59,7 @@ import com.nereusstream.delay.runtime.TargetReservationControls;
 import com.nereusstream.delay.runtime.TargetReservationExpiryStore;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.runtime.TargetSystemReplayStore;
+import com.nereusstream.delay.runtime.TargetScopeFeeAuthority;
 import com.nereusstream.delay.runtime.TargetTimeFenceStore;
 import com.nereusstream.delay.runtime.TargetTimeFenceVerifier;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -274,6 +275,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public ScopeObligationControl{Objects.requireNonNull(prepared);Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
     }
     @FunctionalInterface public interface ScopeObligations{ScopeObligationControl resolve(SourceReplayMutation entry);}
+    public record ScopeFeeControl(TargetScopeFeeAuthority fees) {
+        public ScopeFeeControl { Objects.requireNonNull(fees); }
+    }
+    @FunctionalInterface public interface ScopeFees { TargetScopeFeeAuthority resolve(SourceReplayMutation entry); }
 
     public record ChannelControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
@@ -336,7 +341,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetOutcomes outcomes,
             ChannelControls channelControls,
             TargetRetirements retirements,ProtocolActivations protocolActivations,TargetReclaims reclaims,
-            SloObservationControls sloObservations, SloEvents sloEvents,SloWriters sloWriters,ParentCredits parentCredits,ScopeObligations scopeObligations) {
+            SloObservationControls sloObservations, SloEvents sloEvents,SloWriters sloWriters,ParentCredits parentCredits,ScopeObligations scopeObligations,ScopeFees scopeFees) {
+        public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,
+                Fences fences,ExpiryControls expiries,Closes closes,MembershipControls memberships,
+                TargetStoreBackend.CommitAuthority writes,TargetStoreBackend.ReadAuthority reads,Commands commands,
+                NativePolicyControls nativePolicies,TargetAdmissions admissions,TargetOutcomes outcomes,ChannelControls channels,
+                TargetRetirements retirements,ProtocolActivations activations,TargetReclaims reclaims,
+                SloObservationControls sloObservations,SloEvents sloEvents,SloWriters sloWriters,ParentCredits parentCredits,
+                ScopeObligations scopeObligations){
+            this(leases,successor,grants,fences,expiries,closes,memberships,writes,reads,commands,nativePolicies,admissions,outcomes,
+                    channels,retirements,activations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,
+                    entry->{throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES);});
+        }
         public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,
                 Fences fences,ExpiryControls expiries,Closes closes,MembershipControls memberships,
                 TargetStoreBackend.CommitAuthority writes,TargetStoreBackend.ReadAuthority reads,Commands commands,
@@ -424,48 +440,53 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations);
+                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,scopeFees);
         }
 
         public Authorities withRetirements(final TargetRetirements selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations);
+                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,scopeFees);
         }
         public Authorities withProtocolActivations(ProtocolActivations selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,commands,
-                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations);
+                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,scopeFees);
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations);
+                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,scopeFees);
         }
         public Authorities withSloObservations(SloObservationControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
-                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected), sloEvents,sloWriters,parentCredits,scopeObligations);
+                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected), sloEvents,sloWriters,parentCredits,scopeObligations,scopeFees);
         }
         public Authorities withSloEvents(SloEvents selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
-                    retirements, protocolActivations, reclaims, sloObservations, Objects.requireNonNull(selected),sloWriters,parentCredits,scopeObligations);
+                    retirements, protocolActivations, reclaims, sloObservations, Objects.requireNonNull(selected),sloWriters,parentCredits,scopeObligations,scopeFees);
         }
         public Authorities withSloWriters(SloWriters selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
                     commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
-                    sloObservations,sloEvents,Objects.requireNonNull(selected),parentCredits,scopeObligations);
+                    sloObservations,sloEvents,Objects.requireNonNull(selected),parentCredits,scopeObligations,scopeFees);
         }
         public Authorities withParentCredits(ParentCredits selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
                     commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
-                    sloObservations,sloEvents,sloWriters,Objects.requireNonNull(selected),scopeObligations);
+                    sloObservations,sloEvents,sloWriters,Objects.requireNonNull(selected),scopeObligations,scopeFees);
         }
         public Authorities withScopeObligations(ScopeObligations selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
                     commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
-                    sloObservations,sloEvents,sloWriters,parentCredits,Objects.requireNonNull(selected));
+                    sloObservations,sloEvents,sloWriters,parentCredits,Objects.requireNonNull(selected),scopeFees);
+        }
+        public Authorities withScopeFees(ScopeFees selected){
+            return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
+                    commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
+                    sloObservations,sloEvents,sloWriters,parentCredits,scopeObligations,Objects.requireNonNull(selected));
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -587,6 +608,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(sloWriters,"sloWriters");
             Objects.requireNonNull(parentCredits,"parentCredits");
             Objects.requireNonNull(scopeObligations,"scopeObligations");
+            Objects.requireNonNull(scopeFees,"scopeFees");
         }
     }
 
@@ -635,6 +657,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private long lastOwnerTime = -1;
     private volatile TargetSourceAuthorityPreparation authorityPreparation;
     private boolean authorityRefresh;
+    private TargetSourceAuthorityPreparation.Family authorityRefreshFamily;
     private SourceReplaySuccessor activeSourceSuccessor;
     private boolean sourceSubmissionStarted;
     private TargetWorkerRecoverySource recoveryReader;
@@ -1089,8 +1112,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (selected == null && (sloInitialization != null || recoveryOnly)) return true;
         requireSubmission(entry, recovery); requireOwner(clock);
         if (authorityRefresh) {
-            if (selected != null && !selected.complete(entry)) return false;
-            authorityRefresh = false;
+            if(selected!=null&&!(authorityRefreshFamily==null?selected.complete(entry):selected.refresh(entry,authorityRefreshFamily)))return false;
+            authorityRefresh = false; authorityRefreshFamily = null;
         }
         final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
         try {
@@ -1099,7 +1122,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         () -> { throw new TargetSourceAuthorityPreparation.Required(); }).isPresent()) return true;
             } else {
                 final var mutation = ((SourceReplayMutation) entry).mutation();
-                if (replay.prepareIfPresent(budget, mutation, entry.position()).isPresent()) return true;
+                if (prepareSystemReplay(budget,(SourceReplayMutation) entry).isPresent()) return true;
                 if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
                         &&!new com.nereusstream.delay.runtime.TargetResourceReclaimStore(backend,scope,lineage,limits.counters(),limits.domains())
                                 .requiresInputs(budget,mutation,entry.position()))return true;
@@ -1110,6 +1133,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             }
         } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
         catch (TargetSourceAuthorityPreparation.Required required) {
+            if(required.family()!=null){
+                if(required.getCause()!=null){
+                    authorityRefresh=true;authorityRefreshFamily=required.family();
+                    if(selected!=null&&!selected.refresh(entry,required.family()))return false;
+                    authorityRefresh=false;authorityRefreshFamily=null;
+                }
+                return selected==null||selected.prepare(entry,required.family());
+            }
             if (sloFirstRequiresQualification(entry, budget) && !sloScopeQualified()) return false;
             return selected == null || selected.prepare(entry, contentFamily(entry));
         }
@@ -1164,7 +1195,71 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 requireIncomingSloScopeQualified();
                 original.requireCurrent();
             }
+            public TargetScopeFeeAuthority scopeFees() { return original.scopeFees(); }
         };
+    }
+
+    private static boolean needsScopeFees(SystemMutation input) {
+        if(isSloWriterControl(input))return com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(input.canonicalBody()).admissionScope()!=null;
+        if(isSloObservationControl(input))return com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(input.canonicalBody()).admissionScope()!=null;
+        return input.type()==SystemMutationType.TARGET_SLO_OBSERVATION
+                &&com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(input.canonicalBody()).writerEpoch()!=null;
+    }
+
+    /** Resolution stays lazy: absent firsts and same-position read-only replay acquire no fee-only material. */
+    private ScopeFeeUse scopeFees(SourceReplayMutation entry) {
+        return needsScopeFees(entry.mutation())?new ScopeFeeUse(entry):null;
+    }
+
+    private final class ScopeFeeUse implements TargetScopeFeeAuthority {
+        private final SourceReplayMutation entry;
+        private boolean used;
+        private ScopeFeeUse(SourceReplayMutation entry){this.entry=entry;}
+        private TargetScopeFeeAuthority selected(){used=true;return Objects.requireNonNull(authorities.scopeFees().resolve(entry));}
+        private TargetStoreBackend.CommitAuthority protect(TargetStoreBackend.CommitAuthority physical){
+            try{
+                final var preparation=authorityPreparation;
+                return preparation==null?physical:preparation.protectScopeFees(entry,physical);
+            }catch(com.nereusstream.delay.runtime.TargetScopeNativeSettlement.Unavailable unavailable){
+                throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            }catch(TargetSourceAuthorityPreparation.InputUnavailable unavailable){
+                throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            }
+        }
+        public SystemMutation occurrenceInput(SystemMutation firstInput,com.nereusstream.delay.runtime.TargetResultRecord first,
+                com.nereusstream.delay.runtime.TargetResultRecord position){
+            final var held=selected();held.requireCurrent();
+            final var actual=Objects.requireNonNull(held.occurrenceInput(firstInput,first,position));held.requireCurrent();return actual;
+        }
+        public void requireScope(com.nereusstream.delay.protocol.TargetScopeControlObligation scope){
+            final var held=selected();held.requireCurrent();held.requireScope(scope);held.requireCurrent();
+        }
+        public Payment requireOccurrence(Occurrence occurrence){
+            final var held=selected();held.requireCurrent();
+            final var payment=Objects.requireNonNull(held.requireOccurrence(occurrence));held.requireCurrent();return payment;
+        }
+        public void requireCurrent(){
+            try{selected().requireCurrent();}
+            catch(com.nereusstream.delay.runtime.TargetScopeNativeSettlement.Unavailable unavailable){
+                throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            }catch(TargetSourceAuthorityPreparation.InputUnavailable unavailable){
+                throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            }
+        }
+    }
+
+    private Optional<TargetSystemReplayStore.Prepared> prepareSystemReplay(BoundedReadBudget budget,SourceReplayMutation entry){
+        return prepareSystemReplay(budget,entry,scopeFees(entry));
+    }
+    private Optional<TargetSystemReplayStore.Prepared> prepareSystemReplay(BoundedReadBudget budget,SourceReplayMutation entry,ScopeFeeUse fees){
+        try{return replay.prepareIfPresent(budget,entry.mutation(),entry.position(),fees==null?TargetScopeFeeAuthority.UNAVAILABLE:fees);}
+        catch(com.nereusstream.delay.runtime.TargetScopeNativeSettlement.Unavailable unavailable){
+            if(needsScopeFees(entry.mutation()))throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            throw unavailable;
+        }catch(TargetSourceAuthorityPreparation.InputUnavailable unavailable){
+            if(needsScopeFees(entry.mutation()))throw new TargetSourceAuthorityPreparation.Required(TargetSourceAuthorityPreparation.Family.SCOPE_FEES,unavailable);
+            throw unavailable;
+        }
     }
 
     private static boolean isSloMutation(SystemMutation mutation) {
@@ -2174,6 +2269,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
                 final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
                 if(activation==null||activation.body().payload().descriptor().schemaVersion()<15)throw new IllegalStateException("SLO writer Control lacks original APPLIED activation");
+                if(body.admissionScope()!=null)com.nereusstream.delay.runtime.TargetScopeControlObligationStore.requirePaidScope(reader,scope,lineage,body.admissionScope());
                 return Boolean.TRUE;
             },workerReads(clock));
         }else if (isSloObservationControl(mutation)) {
@@ -2193,6 +2289,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 if (activation == null || activation.body().payload().descriptor().schemaVersion() < 15) {
                     throw new IllegalStateException("Target certification writer lacks its original APPLIED activation");
                 }
+                if(body.admissionScope()!=null)com.nereusstream.delay.runtime.TargetScopeControlObligationStore.requirePaidScope(reader,scope,lineage,body.admissionScope());
                 return Boolean.TRUE;
             }, workerReads(clock));
         } else if (isChannelControl(mutation)) {
@@ -2796,9 +2893,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final var budget =
                     new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
             final TargetSystemReplayStore.Prepared duplicate;
+            final var replayFees=scopeFees(mutation);
             // Only backend preparation yields are retryable. External resolution and commit failures must fence.
             try {
-                duplicate = replay.prepareIfPresent(budget, mutation.mutation(), entry.position())
+                duplicate = prepareSystemReplay(budget,mutation,replayFees)
                         .orElse(null);
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
@@ -2808,7 +2906,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final SystemMutationResult result;
             if (duplicate != null) {
                 result = replay.commit(
-                        duplicate, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
+                        duplicate, writes(replayFees!=null&&replayFees.used
+                                        ?replayFees.protect(authorities.duplicateWrites()):authorities.duplicateWrites(), entry, clock,false,
+                                replayFees!=null&&replayFees.used?replayFees:null), reads(entry, clock));
             } else if (mutation.mutation().type() == SystemMutationType.TIME_FENCE) {
                 final var control = Objects.requireNonNull(authorities.fences().resolve(mutation), "fence control");
                 final TargetTimeFenceStore.Prepared first;
@@ -3028,7 +3128,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw incomplete;
         } catch (TargetSourceAuthorityPreparation.Required | com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot.ViewChanged refresh) {
             authorityRefresh = true;
+            authorityRefreshFamily=refresh instanceof TargetSourceAuthorityPreparation.Required required?required.family():null;
             throw refresh;
+        } catch(com.nereusstream.delay.runtime.TargetScopeNativeSettlement.Unavailable unavailable){
+            authorityRefresh=true;authorityRefreshFamily=contentFamily(entry);
+            throw new TargetSourceAuthorityPreparation.Required(authorityRefreshFamily,unavailable);
+        } catch(TargetSourceAuthorityPreparation.InputUnavailable unavailable){
+            if(entry instanceof SourceReplayMutation scoped&&needsScopeFees(scoped.mutation())){
+                authorityRefresh=true;authorityRefreshFamily=contentFamily(entry);
+                throw new TargetSourceAuthorityPreparation.Required(authorityRefreshFamily,unavailable);
+            }
+            fence();throw unavailable;
         } catch (RuntimeException | Error failure) {
             fence();
             throw failure;
@@ -3109,6 +3219,11 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final SourceReplayEntry entry,
             final LongSupplier clock,
             final boolean requiresSloQualification) {
+        return writes(external,entry,clock,requiresSloQualification,null);
+    }
+
+    private TargetStoreBackend.CommitAuthority writes(TargetStoreBackend.CommitAuthority external,
+            SourceReplayEntry entry,LongSupplier clock,boolean requiresSloQualification,TargetScopeFeeAuthority fees) {
         return (actual, actualScope, mutation) -> {
             final var stamp = mutation.quota().counters().mutation();
             if (stamp.isLocalMutation()
@@ -3119,13 +3234,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             }
             requireOwner(clock);
             if (requiresSloQualification) requireIncomingSloScopeQualified();
+            if(fees!=null)fees.requireCurrent();
             final var held = guard(external.acquire(actual, actualScope, mutation), actual, actualScope, entry, clock);
-            if (!requiresSloQualification) return held;
+            if (!requiresSloQualification&&fees==null) return held;
             return new TargetStoreBackend.CommitGuard() {
                 public void requireCurrent() {
-                    requireIncomingSloScopeQualified();
+                    if(requiresSloQualification)requireIncomingSloScopeQualified();
+                    if(fees!=null)fees.requireCurrent();
                     held.requireCurrent();
-                    requireIncomingSloScopeQualified();
+                    if(fees!=null)fees.requireCurrent();
+                    if(requiresSloQualification)requireIncomingSloScopeQualified();
                 }
                 public void close() { held.close(); }
             };

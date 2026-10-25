@@ -24,6 +24,7 @@ public final class TargetScopeControlObligationMutationFactory {
         final var author=new ControlAuthor(actor.actorIdHash(),actor.roleSet().digest(),actor.tenantResourceScopeHash());
         final var operationRequest=exact.operationRequest();
         final var ref=new ControlRef(operationId,PreparedControlOperation.requestHash(exact.operationKind(),operationRequest),0);
+        // The immutable request plan selects the original body schema/tuple before signing either envelope.
         final var body=new TargetScopeControlObligationBody(exact.scope().shard(),sourceRetryUntil,ref,exact,1);
         final var image=SystemMutation.signed(body.shard(),SystemMutationType.APPLY_SHARD_CONTROL,sourceRetryUntil,body.logicalIdentity(),body.canonicalBytes(),
                 AuthorIdentity.control(author.operationActorIdHash(),author.authenticatedRoleSetHash(),author.tenantResourceScopeHash()).canonicalBytes(),keyVersion,key);
@@ -40,7 +41,7 @@ public final class TargetScopeControlObligationMutationFactory {
     private static void requireFiniteRetry(long retryUntil){
         if(retryUntil<0||retryUntil==Long.MAX_VALUE)throw new IllegalArgumentException("Scope Control obligation requires finite independent retry deadlines");
     }
-    /** Original immutable registration and exact signed Source bytes, retained unchanged across UNKNOWN. */
+    /** Original plan schema, immutable registration and exact signed Source bytes, retained unchanged across UNKNOWN. */
     public static final class Prepared {
         private final PreparedControlOperation control;
         private final SystemMutation mutation;

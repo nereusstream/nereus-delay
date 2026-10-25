@@ -65,6 +65,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     private final com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers;
     private final TargetParentControlCreditVerifier.CapacityAuthority parentCredits;
     private final TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations;
+    private final com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFees;
 
     /** All external I/O must have finite provider deadlines; use outside Store locks with a held protection set. */
     public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
@@ -104,6 +105,17 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers,
             TargetParentControlCreditVerifier.CapacityAuthority parentCredits,
             TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations) {
+        this(registrations,keys,history,source,budget,protection,observations,writers,parentCredits,scopeObligations,null);
+    }
+
+    public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
+            TargetQuotaGrantControlVerifier.KeyAuthority keys,HistoryAuthority history,SourceAuthority source,
+            BoundedReadBudget budget,Runnable protection,
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations,
+            com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers,
+            TargetParentControlCreditVerifier.CapacityAuthority parentCredits,
+            TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations,
+            com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFees) {
         this.registrations = Objects.requireNonNull(registrations, "registrations");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.history = Objects.requireNonNull(history, "history");
@@ -114,7 +126,11 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         this.writers = writers;
         this.parentCredits = parentCredits;
         this.scopeObligations = scopeObligations;
+        this.scopeFees = scopeFees;
     }
+
+    @Override
+    public com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFeeAuthority(){return scopeFees;}
 
     @Override
     public PublicKey authenticateObservation(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
@@ -399,6 +415,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         if (!initialAuthenticated) {
             throw new IllegalArgumentException("initial reader snapshot has no authenticated original Control");
         }
+        TargetScopeNativeUsageAudit.require(dependencies,snapshot.controls(),scopeFees,budget,protection);
         after();
     }
 

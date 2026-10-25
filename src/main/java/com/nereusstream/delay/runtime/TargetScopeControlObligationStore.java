@@ -1,5 +1,6 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation;
 import com.nereusstream.delay.protocol.*;
 import com.nereusstream.delay.store.*;
 import java.util.ArrayList;
@@ -97,6 +98,49 @@ public final class TargetScopeControlObligationStore {
                 public void close(){held.close();}};
         });return prepared.result;
     }
+    /** Guarded original Source payment only; no Scope birth, exposure or physical resource qualification. */
+    public static TargetScopeControlObligation requirePaidScope(TargetStoreBackend.Reader reader,TargetQuotaScope scope,
+            byte[] lineage,TargetSloControlScopeHeader.Reference reference){
+        Objects.requireNonNull(reader);Objects.requireNonNull(scope);Objects.requireNonNull(reference);
+        Bytes.requireLength(lineage,16,"paid Scope lineage");
+        if(scope.target()!=null||!scope.shard().equals(reader.shardId()))
+            throw new IllegalArgumentException("paid Scope requires its actual SHARD Store");
+        reader.requireWithinElapsedBudget();
+        final var aggregate=reader.aggregate();final var cut=aggregate.mutation();
+        if(cut==null||reader.source()==null)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("paid Scope lacks its actual Source accounting cut");
+        if(cut.sequence()!=reader.sourceSequence()||!Arrays.equals(cut.source().canonicalBytes(),reader.source().canonicalBytes()))
+            throw new IllegalStateException("paid Scope aggregate differs from the actual Source frontier");
+        // Every causal dependency is read from this guard; absent retained evidence cannot become a known denial.
+        final TargetRecordAccounting.View evidence=new TargetRecordAccounting.View(){
+            public ShardId shardId(){return reader.shardId();}
+            public byte[] projected(ColumnFamily family,byte[] key,List<TargetStoreBackend.Edit> overlay){
+                final var raw=reader.projected(family,key,overlay);
+                if(raw==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("paid Scope lacks an actual retained Source payment dependency");
+                return raw;
+            }
+            public ShardStore.KeyValue first(ColumnFamily family,byte[] lower,byte[] upper,List<TargetStoreBackend.Edit> overlay){
+                return reader.first(family,lower,upper,overlay);
+            }
+        };
+        final var key=Bytes.concat(new byte[]{TargetScopeControlObligation.KEY_TAG,TargetKeyCodec.KEY_FORMAT},reference.scopeId());
+        final var obligation=TargetScopeControlObligation.decodeForStore(key,
+                payload(evidence,List.of(),ColumnFamily.META,key,TargetScopeControlObligation.VALUE_TYPE),scope,lineage);
+        obligation.requireReference(reference);
+        final var owner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),aggregate.accountingIncarnation(),null,null);
+        final byte[] rootKey=owner.key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var root=TargetQuotaIncarnation.decodeForStore(rootKey,
+                payload(evidence,List.of(),ColumnFamily.META,rootKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
+        final var bookkeeping=TargetQuotaBookkeeping.decodeForStore(TargetQuotaBookkeeping.keyFor(scope.shard()),
+                payload(evidence,List.of(),ColumnFamily.META,TargetQuotaBookkeeping.keyFor(scope.shard()),TargetQuotaBookkeeping.VALUE_TYPE),owner,scope.tenantScope());
+        if(!root.identity().equals(owner)||!root.scope().equals(scope)||!Arrays.equals(root.recoveryLineage(),lineage)
+                ||!Arrays.equals(root.accounting().canonicalBytes(),bookkeeping.accounting().canonicalBytes()))
+            throw new IllegalStateException("paid Scope changed actual Root/bookkeeping tenant/accounting/lineage");
+        root.latestMutation().requireAtOrBefore(cut);bookkeeping.requireRoot(aggregate);
+        obligation.requireRoot(root);obligation.requireSource(cut.source());
+        requireOrigin(evidence,List.of(),scope,lineage,root,obligation,cut);
+        reader.requireWithinElapsedBudget();return obligation;
+    }
     public static void requireOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,
             byte[] lineage,TargetQuotaIncarnation owner,TargetScopeControlObligation obligation,TargetQuotaMutation frontier){
         requireLocalOrigin(view,overlay,scope,lineage,owner,obligation,frontier);
@@ -121,7 +165,7 @@ public final class TargetScopeControlObligationStore {
         if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(obligation.fundedAt())
                 ||!obligation.bootstrapResultsCharge().equals(first.recordCharge().add(position.recordCharge())))
             throw new IllegalStateException("Scope obligation changed its original POSITION/bootstrap payment");
-        final var key=TargetProtocolActivationRecord.key(ProtocolTuple.targetScopeControlObligation());
+        final var key=TargetProtocolActivationRecord.key(obligation.funding().body().tuple());
         final var activation=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
         TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,owner.identity(),activation,frontier);
         obligation.fundedAt().requireAfter(activation.appliedAt());

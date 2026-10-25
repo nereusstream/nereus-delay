@@ -18,6 +18,7 @@ public final class TargetSloWriterEpochVerifier {
 
     /** Already-held qualifications; missing resource or independent Fence authority fails closed. */
     public interface MaterializationAuthority {
+        default TargetScopeFeeAuthority scopeFees(){return TargetScopeFeeAuthority.UNAVAILABLE;}
         default void requireAuthorized(TargetSloWriterControlRequest request, TargetSloWriterEpoch retained,
                 SourcePosition source) {
             throw new IllegalStateException("original SLO writer resource qualification is not configured");
@@ -77,7 +78,16 @@ public final class TargetSloWriterEpochVerifier {
             throw denied("SLO writer Control lacks its exact original registration");
         }
         authority.registrations().validateMutation(prepared, prepared.targets().getFirst(), input);
-        if(body.admissionScope()!=null)authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
+        if(body.admissionScope()!=null){
+            authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
+            final var paid=TargetScopeControlObligationStore.requirePaidScope(reader,scope,lineage,body.admissionScope());
+            paid.requireSource(source);
+            if(paid.fundedAt().source().compareTo(source)>=0)
+                throw stale("SLO writer Control requires its strictly prior Source-paid Scope");
+            // Frozen logical frame cap only; no Source occurrence or Native settlement is performed here.
+            if(input.encodeFrame().length>paid.definition().plan().maximumSourceFrameBytes())
+                throw new CommandResolutionException(StableCode.HARD_QUOTA_EXCEEDED,"SLO writer Control exceeds its paid Scope logical Source frame cap");
+        }
 
         final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage,
                 body.tuple());

@@ -135,7 +135,7 @@ public final class TargetSloWriterEpochStore {
             edits.add(reader.replace(ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
             if (applied[0]) authority.materialization().requireCurrent();
             return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1,
-                    maximumDomains).assemble(reader, edits);
+                    maximumDomains).withScopeSource(input,authority.materialization().scopeFees()).assemble(reader, edits);
         });
         return new Prepared(this, batch, outcome[0], applied[0] ? authority.materialization()::requireCurrent : () -> {});
     }

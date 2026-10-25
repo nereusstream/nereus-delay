@@ -145,6 +145,7 @@ public final class TargetCheckpointDependencies {
     private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
+    private final List<TargetScopeNativeUsageAudit.Row> scopeNativeRows;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples;
@@ -193,6 +194,7 @@ public final class TargetCheckpointDependencies {
         retirements = List.copyOf(builder.retirements.values());
         evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
         protocolActivations=List.copyOf(builder.protocolActivations.values());
+        scopeNativeRows=List.copyOf(builder.scopeNativeRows.values());
         sloStates=List.copyOf(builder.sloStates.values());
         sloGenerations=List.copyOf(builder.sloGenerations.values());
         sloSamples=List.copyOf(builder.sloSamples.values());
@@ -235,6 +237,9 @@ public final class TargetCheckpointDependencies {
     /** Counted from every actual business row in the complete independent fold, including zero-valued charges. */
     public long ownerRecordCount(com.nereusstream.delay.protocol.TargetQuotaIdentity id){return ownerRecordCounts.getOrDefault(id,0L);}
     public TargetResultRecord resultRecord(byte[] key){return resultRecords.get(Bytes.hex(key));}
+    /** Complete retained physical positions and logical firsts, after the bounded Native image fold. */
+    public List<TargetResultRecord> resultRecords(){return resultRecords.values().stream()
+            .sorted((a,b)->Arrays.compareUnsigned(a.key(),b.key())).toList();}
     /** Exact original Source first/POSITION for RETAINED, not a later physical duplicate or a caller timestamp. */
     public TargetResultRecord requireRetentionDecision(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner retained){
         final String token=retentionToken(retained.mutation());
@@ -291,6 +296,8 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements() { return retirements; }
     public List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations() { return evidenceConfirmations; }
     public List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations(){return protocolActivations;}
+    /** Exact physical Native57..62 facts captured by the complete bounded image fold. */
+    public List<TargetScopeNativeUsageAudit.Row> scopeNativeRows(){return scopeNativeRows;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates(){return sloStates;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations(){return sloGenerations;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples(){return sloSamples;}
@@ -710,6 +717,8 @@ public final class TargetCheckpointDependencies {
      */
     @FunctionalInterface
     public interface ControlImageAuthority {
+        /** Already-held original occurrence/Scope fee protection; settlement-v2 images require it. */
+        default com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFeeAuthority(){return null;}
         java.security.PublicKey authenticate(ControlImage input, TargetResultRecord first);
         /** Original SERVICE event history, endpoint/time and retained budget; APPLIED uses its frozen sample. */
         default java.security.PublicKey authenticateObservation(ControlImage input,TargetResultRecord first,
@@ -775,6 +784,7 @@ public final class TargetCheckpointDependencies {
             protectionGuard.run();
             if (!budget.beforeTimedWork()) { throw budget.incomplete(); }
         }
+        TargetScopeNativeUsageAudit.require(this,correlated,authority.scopeFeeAuthority(),budget,protectionGuard);
         protectionGuard.run();
         return correlated;
     }
@@ -1172,6 +1182,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
+        private final Map<String,TargetScopeNativeUsageAudit.Row> scopeNativeRows=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples=new TreeMap<>();
@@ -1220,6 +1231,7 @@ public final class TargetCheckpointDependencies {
             prior.retirements.forEach(this::retirement);
             prior.evidenceConfirmations.forEach(this::evidenceConfirmation);
             prior.protocolActivations.forEach(this::protocolActivation);
+            prior.scopeNativeRows.forEach(this::scopeNativeRow);
             prior.sloStates.forEach(this::sloState);
             prior.sloGenerations.forEach(this::sloGeneration);
             prior.sloSamples.forEach(this::sloSample);
@@ -1293,6 +1305,10 @@ public final class TargetCheckpointDependencies {
         }
         void sourceHistory(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord record){
             if(sourceHistories.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate retirement Source history");
+        }
+        void scopeNativeRow(TargetScopeNativeUsageAudit.Row row){
+            if(scopeNativeRows.putIfAbsent(Bytes.hex(row.key()),row)!=null)
+                throw new IllegalStateException("duplicate actual Scope Native row");
         }
         void sloState(com.nereusstream.delay.protocol.TargetSloObservationState record) {
             if(sloStates.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO current state");

@@ -32,6 +32,12 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         Inputs inputs();
         long retainedBytes();
         /**
+         * Original registry/exposure/Native allocation/accounting/retention material acquired by this load.
+         * All receipt/frame payload bytes are included in retainedBytes; methods consume local held data only.
+         * requireCurrent keeps these protections valid through the same Source commit.
+         */
+        default TargetScopeFeeAuthority scopeFees() { return TargetScopeFeeAuthority.UNAVAILABLE; }
+        /**
          * Local held checks only. RECLAIM must retain the original Source/Worker/Store and complete
          * Catalog/Floor/Pin/image/future-reader admission protections through the Native commit.
          * Two observations, an empty caller inventory, or signatures alone are not that held protocol.
@@ -90,7 +96,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation, ScopeFees {}
+    /** Payment of this exact Source occurrence only; it grants no current business role or write authority. */
+    public record ScopeFees(TargetScopeFeeAuthority fees) implements Inputs {
+        public ScopeFees { Objects.requireNonNull(fees); }
+    }
     public record ParentCredit(PreparedControlOperation prepared, TargetParentControlCreditVerifier.Authority authority,
             TargetStoreBackend.CommitAuthority commit) implements Inputs {
         public ParentCredit { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
@@ -188,6 +198,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             }
             final Inputs inputs = Objects.requireNonNull(original.inputs(), "typed original content");
             if (family(inputs) != family) throw new IllegalStateException("original Source content family differs");
+            held.scopeFees = scopeFeeHold(inputs instanceof ScopeFees fees ? fees.fees() : original.scopeFees(), held);
             held.control = collect(entry, inputs, held, guard,reclaim);
             original.requireCurrent(); guard.run();
             if (held.bytes > maximumBytes) throw new IllegalStateException("complete content snapshot exceeds byte bound");
@@ -214,6 +225,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Expiry value -> new TargetSourceApplyRuntime.ExpiryControl(value.authority(), commit);
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(),sampleHold(value.samples(),held),commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
+            case ScopeFees value -> new TargetSourceApplyRuntime.ScopeFeeControl(held.scopeFees());
             case Retirement value -> retirement(entry, value, held, commit, guard);
             case Confirmation value -> confirmation(entry,value,held,commit,guard);
             case Reclaim value -> reclaim(entry,value,held,commit,guard,reclaim);
@@ -299,6 +311,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         return collectorKey;
                     }
                     public void requireCurrent() { held.requireCurrent(); a.observation().requireCurrent(); held.requireCurrent(); }
+                    public TargetScopeFeeAuthority scopeFees() { return held.scopeFees(); }
                 };
                 yield new TargetSourceApplyRuntime.SloEventControl(
                         new com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority((actual, source) -> {
@@ -319,6 +332,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         requireCurrent();a.materialization().requireFenceAuthorized(originalInput,fenceAt);requireCurrent();
                     }
                     public void requireCurrent(){held.requireCurrent();a.materialization().requireCurrent();held.requireCurrent();}
+                    public TargetScopeFeeAuthority scopeFees(){return held.scopeFees();}
                 };
                 yield new TargetSourceApplyRuntime.SloWriterControl(value.prepared(),
                         new com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority(frozen,
@@ -372,6 +386,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         requireCurrent(); a.materialization().requireAuthorized(request, prior, retained, source); requireCurrent();
                     }
                     public void requireCurrent() { held.requireCurrent(); a.materialization().requireCurrent(); held.requireCurrent(); }
+                    public TargetScopeFeeAuthority scopeFees() { return held.scopeFees(); }
                 };
                 yield new TargetSourceApplyRuntime.SloObservationControl(value.prepared(),
                         new TargetSloObservationVerifier.Authority(frozen, (version, source) -> frozen.key(version, source),
@@ -384,6 +399,30 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         return new TargetSloObservationSamples.Authority(){
             public void requireSample(TargetSloObservationGeneration generation,TargetSloObservationSample sample,long bytes){
                 requireCurrent();original.requireSample(generation,sample,bytes);requireCurrent();
+            }
+            public void requireCurrent(){held.requireCurrent();original.requireCurrent();held.requireCurrent();}
+            public TargetScopeFeeAuthority scopeFees(){return held.scopeFees();}
+        };
+    }
+
+    private static TargetScopeFeeAuthority scopeFeeHold(TargetScopeFeeAuthority original,Held held){
+        Objects.requireNonNull(original,"original Scope fee authority");
+        return new TargetScopeFeeAuthority(){
+            public SystemMutation occurrenceInput(SystemMutation firstInput,TargetResultRecord first,TargetResultRecord position){
+                requireCurrent();
+                requireSource(held.entry,position.mutation().source());
+                final var actual=Objects.requireNonNull(original.occurrenceInput(firstInput,first,position),"original occurrence frame");
+                requireCurrent();return actual;
+            }
+            public void requireScope(TargetScopeControlObligation scope){
+                requireCurrent();original.requireScope(scope);requireCurrent();
+            }
+            public Payment requireOccurrence(Occurrence occurrence){
+                requireCurrent();requireSource(held.entry,occurrence.position().mutation().source());
+                if(!Arrays.equals(held.digest,occurrence.position().mutation().mutationDigest()))
+                    throw new IllegalStateException("Scope fee hold changes its exact original Source frame");
+                final var payment=Objects.requireNonNull(original.requireOccurrence(occurrence));
+                requireCurrent();return payment;
             }
             public void requireCurrent(){held.requireCurrent();original.requireCurrent();held.requireCurrent();}
         };
@@ -406,6 +445,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case SloWriter ignored -> TargetSourceAuthorityPreparation.Family.SLO_WRITER;
             case ParentCredit ignored -> TargetSourceAuthorityPreparation.Family.PARENT_CONTROL_CREDIT;
             case ScopeObligation ignored -> TargetSourceAuthorityPreparation.Family.SCOPE_OBLIGATION;
+            case ScopeFees ignored -> TargetSourceAuthorityPreparation.Family.SCOPE_FEES;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;
@@ -689,6 +729,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         private Object control;
         private TargetQuotaCapacitySnapshot.Verified capacity;
         private CheckpointInputFuture.Cleanup pendingCapacityCleanup;
+        private TargetScopeFeeAuthority scopeFees=TargetScopeFeeAuthority.UNAVAILABLE;
         private TargetSloControlScopeAuthority.MemberHold scopedControl;
         private boolean scopedControlClosed;
         private long bytes;
@@ -702,6 +743,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override public SourceReplayEntry entry() { return entry; }
         @Override public Object control() { return control; }
         @Override public long retainedBytes() { return bytes; }
+        @Override public TargetScopeFeeAuthority scopeFees() { requireCurrent(); return scopeFees; }
+        @Override public TargetStoreBackend.CommitAuthority protectScopeFees(TargetStoreBackend.CommitAuthority physical) {
+            return commit(physical);
+        }
         @Override public synchronized void requireCurrent() {
             if (originalClosed || capacityClosed) throw new IllegalStateException("original content hold is closing");
             original.requireCurrent();

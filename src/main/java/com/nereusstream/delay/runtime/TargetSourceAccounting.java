@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
 import com.nereusstream.delay.protocol.TargetQuotaBookkeeping;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
@@ -33,6 +34,8 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
     private final int maximumCounters;
     private final int maximumTargets;
     private final int maximumDomains;
+    private final SystemMutation scopeSource;
+    private final TargetScopeFeeAuthority scopeFees;
 
     public TargetSourceAccounting(
             final TargetQuotaScope scope,
@@ -42,6 +45,20 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final int maximumCounters,
             final int maximumTargets,
             final int maximumDomains) {
+        this(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets, maximumDomains,
+                null, TargetScopeFeeAuthority.UNAVAILABLE);
+    }
+
+    private TargetSourceAccounting(
+            final TargetQuotaScope scope,
+            final byte[] lineage,
+            final SourcePosition source,
+            final byte[] mutationDigest,
+            final int maximumCounters,
+            final int maximumTargets,
+            final int maximumDomains,
+            final SystemMutation scopeSource,
+            final TargetScopeFeeAuthority scopeFees) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.source = TargetSourcePosition.requireBounded(source);
         Bytes.requireLength(lineage, 16, "lineage");
@@ -59,6 +76,20 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         this.maximumCounters = maximumCounters;
         this.maximumTargets = maximumTargets;
         this.maximumDomains = maximumDomains;
+        this.scopeSource = scopeSource;
+        this.scopeFees = Objects.requireNonNull(scopeFees, "original Scope fee authority");
+    }
+
+    /** The complete actual frame is retained separately from business authorization and the logical first. */
+    public TargetSourceAccounting withScopeSource(final SystemMutation input, final TargetScopeFeeAuthority fees) {
+        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
+                maximumDomains, Objects.requireNonNull(input), Objects.requireNonNull(fees));
+    }
+
+    /** Commands and ordinary business inputs only settle their additional scoped Native effects. */
+    public TargetSourceAccounting withScopeFees(final TargetScopeFeeAuthority fees) {
+        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
+                maximumDomains, scopeSource, Objects.requireNonNull(fees));
     }
 
     @Override
@@ -77,10 +108,10 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
 
     public TargetStoreBackend.Mutation assemble(
             final TargetStoreBackend.Reader reader,
-            final List<TargetStoreBackend.Edit> business,
+            final List<TargetStoreBackend.Edit> inputBusiness,
             final TargetStoreBackend.IngressFenceChange fence,
             final TargetStoreBackend.EvidenceCursorChange cursors) {
-        if (business.size() > reader.maximumWriteRecords() || !scope.shard().equals(reader.shardId())) {
+        if (inputBusiness.size() > reader.maximumWriteRecords() || !scope.shard().equals(reader.shardId())) {
             throw new IllegalArgumentException("source accounting record/scope limit mismatch");
         }
         final var aggregate = reader.aggregate();
@@ -93,7 +124,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         final var descriptor = TargetQuotaIncarnation.decodeForStore(
                 descriptorKey,
                 payload(
-                        reader.projected(ColumnFamily.META, descriptorKey, business),
+                        reader.projected(ColumnFamily.META, descriptorKey, inputBusiness),
                         TargetQuotaIncarnation.VALUE_TYPE),
                 scope.shard(),
                 scope.tenantScope());
@@ -127,6 +158,8 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                         1,
                         stamp)
                 : priorRoot;
+        final var business = TargetScopeNativeSettlement.append(reader, inputBusiness, scope, lineage, stamp, seed,
+                maximumDomains, scopeSource, scopeFees);
         final var beforeView =
                 new TargetRecordAccounting(reader, List.of(), scope, lineage, stamp, seed, maximumDomains);
         final var afterView = new TargetRecordAccounting(reader, business, scope, lineage, stamp, seed, maximumDomains);

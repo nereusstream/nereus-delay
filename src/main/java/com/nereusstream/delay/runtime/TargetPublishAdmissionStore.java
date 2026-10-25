@@ -492,7 +492,7 @@ public final class TargetPublishAdmissionStore {
                             stamp(reader,source,mutation),business,Objects.requireNonNull(applied[0]),samples);
                     sampleQualification[0]=sample.qualification();
                     final var observed=new ArrayList<>(business);observed.addAll(sample.edits());
-                    final var mutationPlan = sourceAccounting.assemble(reader, observed);
+                    final var mutationPlan = sourceAccounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
                     if (applied[0].applyStatus() == ApplyStatus.APPLIED
                             && mutationPlan.quota().changes().isEmpty()) {
                         throw new IllegalStateException("accepted Target Admission has no Target accounting change");

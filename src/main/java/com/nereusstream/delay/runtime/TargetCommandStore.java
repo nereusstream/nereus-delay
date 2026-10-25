@@ -399,7 +399,7 @@ public final class TargetCommandStore {
                     if (sample.edits().isEmpty()) return baseline;
                     final var observed = new ArrayList<>(business);
                     observed.addAll(sample.edits());
-                    final var assembled = accounting.assemble(reader, observed);
+                    final var assembled = accounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
                     try { gate.check(reader, assembled, operation, ingress[0]); }
                     catch (TargetQuotaStoreGate.Rejected capacity) {
                         throw new IllegalStateException("required Target certification evidence cannot downgrade the original business decision", capacity);

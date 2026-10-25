@@ -1,6 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot;
+import com.nereusstream.delay.runtime.TargetScopeFeeAuthority;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -18,7 +19,7 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
     }
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION, SCOPE_FEES }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
@@ -34,6 +35,11 @@ public final class TargetSourceAuthorityPreparation {
         SourceReplayEntry entry();
         Object control();
         long retainedBytes();
+        default TargetScopeFeeAuthority scopeFees() { return TargetScopeFeeAuthority.UNAVAILABLE; }
+        /** Keeps this fee-only read hold alive through the original physical Source commit. */
+        default TargetStoreBackend.CommitAuthority protectScopeFees(TargetStoreBackend.CommitAuthority physical) {
+            throw new InputUnavailable("original Scope fee hold has no Source commit protection");
+        }
         /** Rechecks only held local versions/pins; verifiers may not perform remote I/O through this snapshot. */
         void requireCurrent();
         /** Releases this operation's read protection, not the authoritative active grant/physical reservation. */
@@ -97,7 +103,8 @@ public final class TargetSourceAuthorityPreparation {
                 value -> require(value, TargetSourceApplyRuntime.SloEventControl.class),
                 value -> require(value, TargetSourceApplyRuntime.SloWriterControl.class),
                 value -> require(value, TargetSourceApplyRuntime.ParentCreditControl.class),
-                value -> require(value, TargetSourceApplyRuntime.ScopeObligationControl.class));
+                value -> require(value, TargetSourceApplyRuntime.ScopeObligationControl.class),
+                this::requireScopeFees);
         return authorities;
     }
 
@@ -171,11 +178,36 @@ public final class TargetSourceAuthorityPreparation {
         return type.cast(held.control());
     }
 
+    /** A normal typed hold already owns its fees; an unprepared replay acquires payment material only. */
+    private synchronized TargetScopeFeeAuthority requireScopeFees(SourceReplayMutation expected) {
+        if (entry == null || held == null) throw new Required(Family.SCOPE_FEES);
+        if (stopping || entry != expected || closing != null) {
+            throw new IllegalStateException("Scope fee hold does not belong to this original Source action");
+        }
+        held.requireCurrent(); localOwnerAndSource.run();
+        return Objects.requireNonNull(held.scopeFees());
+    }
+
+    synchronized TargetStoreBackend.CommitAuthority protectScopeFees(SourceReplayMutation expected,
+            TargetStoreBackend.CommitAuthority physical) {
+        requireScopeFees(expected);
+        return Objects.requireNonNull(held.protectScopeFees(physical));
+    }
+
     synchronized boolean complete(SourceReplayEntry expected) {
         if (entry == null) return true;
         if (entry != expected) throw new IllegalStateException("Source authority completion changes its entry");
         if (!closeHeld()) return false;
         entry = null; family = null; opening = null; closing = null; held = null;
+        return true;
+    }
+
+    /** Retry this occurrence's Scope material without renewing its original admission deadline. */
+    synchronized boolean refresh(SourceReplayEntry expected,Family expectedFamily) {
+        if(entry==null)return true;
+        if(entry!=expected)throw new IllegalStateException("Source authority refresh changes its original entry");
+        if(!closeHeld())return false;
+        family=Objects.requireNonNull(expectedFamily);opening=null;closing=null;held=null;
         return true;
     }
 
@@ -232,8 +264,15 @@ public final class TargetSourceAuthorityPreparation {
         }
     }
 
-    /** Only a missing first-application snapshot after a local replay precheck may request fresh preparation. */
-    static final class Required extends RuntimeException { private static final long serialVersionUID = 1L; }
+    /** Selects the original bounded content family; replay payment never reloads current business authorization. */
+    static final class Required extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final Family family;
+        Required(){this(null);}
+        Required(Family family){this(family,null);}
+        Required(Family family,Throwable cause){super(cause);this.family=family;}
+        Family family(){return family;}
+    }
 
     private static Family familyOf(Object control) {
         if (control instanceof TargetSourceApplyRuntime.CommandControl) return Family.COMMAND;
@@ -254,6 +293,7 @@ public final class TargetSourceAuthorityPreparation {
         if(control instanceof TargetSourceApplyRuntime.SloWriterControl)return Family.SLO_WRITER;
         if(control instanceof TargetSourceApplyRuntime.ParentCreditControl)return Family.PARENT_CONTROL_CREDIT;
         if(control instanceof TargetSourceApplyRuntime.ScopeObligationControl)return Family.SCOPE_OBLIGATION;
+        if(control instanceof TargetSourceApplyRuntime.ScopeFeeControl)return Family.SCOPE_FEES;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }
 

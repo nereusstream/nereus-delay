@@ -17,6 +17,7 @@ public final class TargetSloObservationVerifier {
 
     /** Already-held actual ingress/load, old-generation, reader, collector and reservation qualifications. */
     public interface MaterializationAuthority {
+        default TargetScopeFeeAuthority scopeFees(){return TargetScopeFeeAuthority.UNAVAILABLE;}
         void requireAuthorized(TargetSloObservationControlRequest request, TargetSloObservationState prior,
                 TargetSloObservationGeneration retained, SourcePosition source);
         void requireCurrent();
@@ -64,7 +65,16 @@ public final class TargetSloObservationVerifier {
         final var registered = authority.registrations().find(prepared.operationId()).orElse(null);
         if (registered == null || !Arrays.equals(prepared.canonicalBytes(), registered.canonicalBytes())) throw denied("Target SLO Control lacks its exact original registration");
         authority.registrations().validateMutation(prepared, prepared.targets().getFirst(), input);
-        if(body.admissionScope()!=null)authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
+        if(body.admissionScope()!=null){
+            authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
+            final var paid=TargetScopeControlObligationStore.requirePaidScope(reader,scope,lineage,body.admissionScope());
+            paid.requireSource(source);
+            if(paid.fundedAt().source().compareTo(source)>=0)
+                throw stale("Target SLO Control requires its strictly prior Source-paid Scope");
+            // Frozen logical frame cap only; no Source occurrence or Native settlement is performed here.
+            if(input.encodeFrame().length>paid.definition().plan().maximumSourceFrameBytes())
+                throw new CommandResolutionException(StableCode.HARD_QUOTA_EXCEEDED,"Target SLO Control exceeds its paid Scope logical Source frame cap");
+        }
 
         final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage, body.tuple());
         if (activation == null || activation.body().payload().descriptor().schemaVersion() < 15

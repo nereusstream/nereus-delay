@@ -115,6 +115,10 @@ public final class TargetSystemReplayStore {
     /** Retained first results take precedence; closed publication/retirement windows need no external blob. */
     public Optional<Prepared> prepareIfPresent(
             final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
+        return prepareIfPresent(budget,mutation,source,TargetScopeFeeAuthority.UNAVAILABLE);
+    }
+    public Optional<Prepared> prepareIfPresent(
+            final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source,final TargetScopeFeeAuthority scopeFees) {
         Objects.requireNonNull(mutation, "mutation");
         TargetSourcePosition.requireBounded(source);
         if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())) {
@@ -160,6 +164,7 @@ public final class TargetSystemReplayStore {
             });
             final var accounted = new TargetSourceAccounting(
                             scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
+                    .withScopeSource(mutation,scopeFees)
                     .assemble(
                             reader,
                             List.of(reader.replace(

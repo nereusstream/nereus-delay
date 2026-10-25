@@ -13,6 +13,7 @@ public final class TargetSloObservationSamples {
 
     /** Already-held original budget/load/reservation/collector protections, acquired outside Store locks. */
     public interface Authority {
+        default TargetScopeFeeAuthority scopeFees(){return TargetScopeFeeAuthority.UNAVAILABLE;}
         void requireSample(TargetSloObservationGeneration generation, TargetSloObservationSample sample,
                 long maximumRetainedBytes);
         void requireCurrent();
@@ -23,8 +24,9 @@ public final class TargetSloObservationSamples {
         }
         public void requireCurrent() { throw new IllegalStateException("original Target certification sample hold unavailable"); }
     };
-    public record Plan(List<TargetStoreBackend.Edit> edits, Runnable qualification) {
-        public Plan { edits = List.copyOf(edits); Objects.requireNonNull(qualification); }
+    public record Plan(List<TargetStoreBackend.Edit> edits, Runnable qualification,TargetScopeFeeAuthority scopeFees) {
+        public Plan(List<TargetStoreBackend.Edit> edits,Runnable qualification){this(edits,qualification,TargetScopeFeeAuthority.UNAVAILABLE);}
+        public Plan { edits = List.copyOf(edits); Objects.requireNonNull(qualification); Objects.requireNonNull(scopeFees); }
     }
 
     /** A new expired physical POSITION has a completed Command sync, without resurrecting a logical first. */
@@ -133,6 +135,15 @@ public final class TargetSloObservationSamples {
     private static Plan append(TargetStoreBackend.Reader reader,TargetSloObservationGeneration generation,
             List<TargetSloObservationSample> samples,TargetQuotaMutation stamp,Authority authority){
         if(samples.isEmpty())return new Plan(List.of(),()->{});
+        final var admissionScope=generation.enable().body().admissionScope();
+        if(admissionScope!=null){
+            try{
+                final var paid=TargetScopeControlObligationStore.requirePaidScope(reader,generation.policy().scope(),generation.policy().lineage(),admissionScope);
+                paid.requireSource(stamp.source());stamp.requireAfter(paid.fundedAt());stamp.requireAfter(reader.aggregate().mutation());
+            }catch(com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable missing){
+                throw new TargetScopeNativeSettlement.Unavailable("original sample Scope payment material is unavailable",missing);
+            }
+        }
         final var before=generation.counts();
         var reservation=TargetSloObservationReservations.requireReserved(generation);
         long actual=0;
@@ -156,7 +167,8 @@ public final class TargetSloObservationSamples {
             }
         }
         edits.add(reader.replace(ColumnFamily.META,next.key(),TargetSloObservationGeneration.VALUE_TYPE,next.canonicalBytes()));
-        return new Plan(edits,held::requireCurrent);
+        final var fees=Objects.requireNonNull(held.scopeFees());
+        return new Plan(edits,()->{held.requireCurrent();if(admissionScope!=null)fees.requireCurrent();},fees);
     }
 
     /** Independent causal joins for every actual primary/reference value, including full cold ledger charging. */

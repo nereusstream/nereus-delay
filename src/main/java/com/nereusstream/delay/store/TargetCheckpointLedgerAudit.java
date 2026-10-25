@@ -234,27 +234,33 @@ final class TargetCheckpointLedgerAudit {
                         final var state = com.nereusstream.delay.protocol.TargetSloObservationState.decodeForStore(key, payload,
                                 new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
                         sloStates.add(state); dependencies.sloState(state);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.head(key,payload.length,state));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationGeneration.VALUE_TYPE) {
                         final var generation = com.nereusstream.delay.protocol.TargetSloObservationGeneration.decodeForStore(key, payload,
                                 new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
                         sloGenerations.add(generation); dependencies.sloGeneration(generation);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.generation(key,payload.length,generation));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE) {
                         final var sample = com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(key,payload,
                                 new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
                         if(sample.primary(key)){sloSamples.add(sample);dependencies.sloSample(sample);}
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.sample(key,payload.length,sample));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationEventRecord.VALUE_TYPE) {
                         final var event = com.nereusstream.delay.protocol.TargetSloObservationEventRecord.decodeForStore(key,payload,
                                 new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
                         sloEvents.add(event); dependencies.sloEvent(event);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.event(key,payload.length,event));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloCustodyRecord.VALUE_TYPE) {
                         final var custody=com.nereusstream.delay.protocol.TargetSloCustodyRecord.decodeForStore(key,payload,
                                 new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
                         sloCustodies.add(custody);dependencies.sloCustody(custody);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.custody(key,payload.length,custody));
                     } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetSloWriterEpoch.VALUE_TYPE){
                         final var writer=com.nereusstream.delay.protocol.TargetSloWriterEpoch.decodeForStore(key,payload,
                                 proof.root().scope(),proof.root().recoveryLineage());
                         writer.mutation().requireAtOrBefore(proof.aggregate().mutation());
                         sloWriterEpochs.add(writer);dependencies.sloWriterEpoch(writer);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.writer(key,payload.length,writer));
                     } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetParentControlCredit.VALUE_TYPE){
                         final var credit=com.nereusstream.delay.protocol.TargetParentControlCredit.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
                         credit.mutation().requireAtOrBefore(proof.aggregate().mutation());
