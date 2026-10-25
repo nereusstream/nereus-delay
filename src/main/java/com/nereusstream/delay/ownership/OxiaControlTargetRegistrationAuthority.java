@@ -18,9 +18,36 @@ import java.util.Optional;
  */
 public final class OxiaControlTargetRegistrationAuthority implements ControlTargetRegistrationAuthority {
     private final CasBackend backend;
+    private final TargetSloControlScopeAuthority scoped;
+    private final long scopedBytes;
 
     public OxiaControlTargetRegistrationAuthority(final CasBackend backend) {
-        this.backend = Objects.requireNonNull(backend, "backend");
+        this(backend,null,0);
+    }
+    private OxiaControlTargetRegistrationAuthority(CasBackend backend,TargetSloControlScopeAuthority scoped,long scopedBytes){
+        this.backend=Objects.requireNonNull(backend);this.scoped=scoped;this.scopedBytes=scopedBytes;
+    }
+    /** Original managed backend and explicitly held namespace/history/resource material; no global mutable mode. */
+    public OxiaControlTargetRegistrationAuthority withSloScopes(TargetSloControlScopeAuthority.Protections protections,
+            long maximumRetainedBytes){
+        if(maximumRetainedBytes<1||maximumRetainedBytes==Long.MAX_VALUE)throw new IllegalArgumentException("finite Scope acquisition bound required");
+        return new OxiaControlTargetRegistrationAuthority(backend,backend.scopeAuthority(Objects.requireNonNull(protections)),maximumRetainedBytes);
+    }
+    public TargetSloControlScopeAuthority sloScopes(){
+        if(scoped==null)throw new IllegalStateException("original managed Scope authority is not configured");
+        return scoped;
+    }
+    @Override public long scopedMutationReservationBytes(){return scopedBytes;}
+    @Override public TargetSloControlScopeAuthority.MemberHold admitScopedMutation(PreparedControlOperation prepared,
+            ControlTargetRef target,SystemMutation mutation,long maximumRetainedBytes,Runnable guard){
+        ControlTargetMutationBinding.validate(prepared,target,mutation);
+        return sloScopes().admit(TargetSloControlScopeAuthority.reference(mutation).orElseThrow(),prepared,mutation,
+                Math.min(maximumRetainedBytes,scopedBytes),guard);
+    }
+    @Override public TargetSloControlScopeAuthority.MemberHold captureScopedMutation(PreparedControlOperation prepared,
+            ControlTargetRef target,SystemMutation mutation,long maximumRetainedBytes,Runnable guard){
+        return sloScopes().captureMember(TargetSloControlScopeAuthority.reference(mutation).orElseThrow(),prepared,target,mutation,
+                Math.min(maximumRetainedBytes,scopedBytes),guard);
     }
 
     /** Uses the deterministic in-memory authority as an embedded adapter. */
@@ -82,6 +109,9 @@ public final class OxiaControlTargetRegistrationAuthority implements ControlTarg
 
     /** Minimal immutable-registration/CAS surface implemented by the Oxia client. */
     public interface CasBackend {
+        default TargetSloControlScopeAuthority scopeAuthority(TargetSloControlScopeAuthority.Protections protections){
+            throw new IllegalStateException("original managed registry Scope storage is unavailable");
+        }
         RegistrationResult register(PreparedControlOperation prepared);
 
         Optional<PreparedControlOperation> find(byte[] operationId);

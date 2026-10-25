@@ -224,6 +224,13 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
                 .filter(value -> value.targetIndex() == ref.targetIndex())
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("Control target absent from registration"));
         ControlTargetMutationBinding.validate(registered, target, decoded);
+        if(com.nereusstream.delay.ownership.TargetSloControlScopeAuthority.reference(decoded).isPresent()){
+            before();
+            try(var member=registrations.captureScopedMutation(registered,target,decoded,budget.maxBytes()-budget.chargedBytes(),this::after)){
+                if(member.retainedBytes()>Integer.MAX_VALUE||!budget.tryCharge(ref.operationId().length,(int)member.retainedBytes()))throw budget.incomplete();
+                member.validate(registered,target,decoded);after();
+            }
+        }
         before();
         final var preparedKey = keys.resolve((int) registered.signingKeyVersion(), input.source());
         final var imageKey = keys.resolve(decoded.signingKeyVersion(), input.source());

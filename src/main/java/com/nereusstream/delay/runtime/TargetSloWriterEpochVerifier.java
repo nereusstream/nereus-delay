@@ -77,9 +77,10 @@ public final class TargetSloWriterEpochVerifier {
             throw denied("SLO writer Control lacks its exact original registration");
         }
         authority.registrations().validateMutation(prepared, prepared.targets().getFirst(), input);
+        if(body.admissionScope()!=null)authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
 
         final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage,
-                ProtocolTuple.targetSloWriterEpoch());
+                body.tuple());
         if (activation == null || activation.appliedAt().source().compareTo(source) >= 0) {
             throw new CommandResolutionException(StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION,
                     "SLO writer epoch requires its independent prior activation");

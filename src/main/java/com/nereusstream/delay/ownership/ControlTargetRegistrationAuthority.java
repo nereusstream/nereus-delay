@@ -17,6 +17,21 @@ public interface ControlTargetRegistrationAuthority {
 
     void validateMutation(PreparedControlOperation prepared, ControlTargetRef target, SystemMutation mutation);
 
+    default long scopedMutationReservationBytes(){return 0;}
+    default TargetSloControlScopeAuthority.MemberHold admitScopedMutation(PreparedControlOperation prepared,
+            ControlTargetRef target,SystemMutation mutation,long maximumRetainedBytes,Runnable guard){
+        throw new IllegalStateException("original E4 Scope admission is not configured");
+    }
+    /** Acquire outside Store locks; partial failures must retain their original Cleanup handle. */
+    default TargetSloControlScopeAuthority.MemberHold captureScopedMutation(PreparedControlOperation prepared,
+            ControlTargetRef target,SystemMutation mutation,long maximumRetainedBytes,Runnable guard){
+        throw new IllegalStateException("original E4 Scope membership is not available");
+    }
+    /** Local frozen MEMBER proof only. An ordinary point lookup never satisfies this method. */
+    default void validateScopedMutation(PreparedControlOperation prepared,ControlTargetRef target,SystemMutation mutation){
+        throw new IllegalStateException("original E4 Scope membership was not frozen for Source use");
+    }
+
     enum RegistrationResult {
         RECORDED,
         ALREADY_RECORDED

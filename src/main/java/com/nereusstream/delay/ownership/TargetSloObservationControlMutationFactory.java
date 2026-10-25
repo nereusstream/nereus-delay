@@ -26,13 +26,18 @@ public final class TargetSloObservationControlMutationFactory {
     public Prepared prepare(byte[] operationId, TargetSloObservationControlRequest request,
             ControlAuthorizationContext authenticated, ControlOperationAuthorization.TargetScopeProof scope,
             long registrationRetryUntil, long sourceRetryUntil) {
+        return prepare(operationId,request,authenticated,scope,null,registrationRetryUntil,sourceRetryUntil);
+    }
+    public Prepared prepare(byte[] operationId,TargetSloObservationControlRequest request,
+            ControlAuthorizationContext authenticated,ControlOperationAuthorization.TargetScopeProof scope,
+            TargetSloControlScopeHeader.Reference admissionScope,long registrationRetryUntil,long sourceRetryUntil){
         final var exact = Objects.requireNonNull(request);
         final var actor = Objects.requireNonNull(authenticated);
         final var author = new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash());
         final var operationRequest = exact.operationRequest();
         final var ref = new ControlRef(operationId, PreparedControlOperation.requestHash(exact.operationKind(), operationRequest), 0);
         final var body = new TargetSloObservationControlBody(exact.scope().shard(), sourceRetryUntil,
-                ref, exact, exact.expectedPriorDigest() == null ? 1 : 0);
+                ref, exact, exact.expectedPriorDigest() == null ? 1 : 0,admissionScope);
         final var image = SystemMutation.signed(body.shard(), SystemMutationType.APPLY_SHARD_CONTROL,
                 sourceRetryUntil, body.logicalIdentity(), body.canonicalBytes(),
                 AuthorIdentity.control(author.operationActorIdHash(), author.authenticatedRoleSetHash(),

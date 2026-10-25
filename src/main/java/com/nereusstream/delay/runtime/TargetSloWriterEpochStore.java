@@ -187,11 +187,6 @@ public final class TargetSloWriterEpochStore {
         Objects.requireNonNull(epoch); Objects.requireNonNull(frontier);
         final var owner = root(view, overlay, scope, lineage, root, frontier);
         requireFrontier(view, overlay, owner, frontier);
-        final var activationKey = TargetProtocolActivationRecord.key(ProtocolTuple.targetSloWriterEpoch());
-        final var activation = TargetProtocolActivationRecord.decodeForStore(activationKey,
-                payload(view, overlay, ColumnFamily.META, activationKey, TargetProtocolActivationRecord.VALUE_TYPE),
-                scope, lineage);
-        TargetProtocolActivationStore.requireApplied(view, overlay, scope, lineage, root, activation, frontier);
         TargetSloWriterEpoch current = epoch;
         while (true) {
             final var actual = TargetSloWriterEpoch.decodeForStore(current.key(),
@@ -207,9 +202,10 @@ public final class TargetSloWriterEpochStore {
                     || current.register().appliedAt().source().compareTo(contract.sourceAnchor()) <= 0) {
                 throw new IllegalStateException("SLO writer epoch changed its original scope/lineage/Source anchor");
             }
-            current.register().appliedAt().requireAfter(activation.appliedAt());
+            requireControlActivation(view,overlay,scope,lineage,root,current.register(),frontier);
             requireSystemOrigin(view, overlay, owner, current.register().input(), current.register().appliedAt(), frontier);
             if (current.closed()) {
+                requireControlActivation(view,overlay,scope,lineage,root,current.close(),frontier);
                 requireSystemOrigin(view, overlay, owner, current.close().input(), current.close().appliedAt(), frontier);
                 final var close = current.close().body().request();
                 requireCloseFence(view, overlay, scope, lineage, root, current, close.fence(), close.fenceAt(),
@@ -234,6 +230,16 @@ public final class TargetSloWriterEpochStore {
             current.register().appliedAt().requireAfter(prior.register().appliedAt());
             current = prior;
         }
+    }
+
+    private static void requireControlActivation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity root,TargetSloWriterEpoch.Control control,
+            TargetQuotaMutation frontier){
+        final var key=TargetProtocolActivationRecord.key(control.body().tuple());
+        final var activation=TargetProtocolActivationRecord.decodeForStore(key,
+                payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
+        TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,root,activation,frontier);
+        control.appliedAt().requireAfter(activation.appliedAt());
     }
 
     static void requireCloseFence(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,

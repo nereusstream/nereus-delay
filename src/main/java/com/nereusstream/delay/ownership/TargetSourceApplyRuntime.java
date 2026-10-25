@@ -2106,7 +2106,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH
                     &&!sloServiceConfigured())throw new IllegalStateException("certification writer REGISTER lacks original Final/timeout/custody maintenance");
             if(!scope.equals(body.request().scope())||!Arrays.equals(lineage,body.request().lineage()))throw new IllegalArgumentException("SLO writer Control changed original Scope/lineage");
-            final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetSloWriterEpoch();
+            final var tuple=body.tuple();
             if(store.controlSnapshot()==null||!store.controlSnapshot().protocolTuples().contains(tuple))throw new IllegalStateException("SLO writer Control lacks independent readers");
             backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
                 final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);

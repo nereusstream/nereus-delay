@@ -560,10 +560,20 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             if (bound) registrations.validateMutation(prepared, prepared.targets().getFirst(), mutation);
         }
         guard.run(); held.requireCurrent();
-        held.bytes = Math.addExact(held.bytes, (long) prepared.canonicalBytes().length
+        final long frozenBytes=(long) prepared.canonicalBytes().length
                 + (registered == null ? 0 : registered.canonicalBytes().length)
                 + (preparedKey == null ? 0 : preparedKey.getEncoded().length)
-                + (mutationKey == null ? 0 : mutationKey.getEncoded().length));
+                + (mutationKey == null ? 0 : mutationKey.getEncoded().length);
+        if(frozenBytes>maximumBytes-held.bytes)throw new IllegalStateException("original Control keys/registration exceed the content reservation");
+        held.bytes=Math.addExact(held.bytes,frozenBytes);
+        if(bound&&TargetSloControlScopeAuthority.reference(mutation).isPresent()){
+            final var scoped=Objects.requireNonNull(registrations.captureScopedMutation(prepared,prepared.targets().getFirst(),mutation,
+                    maximumBytes-held.bytes,guard),"original Scope membership hold");
+            held.scopedControl=scoped;
+            if(scoped.retainedBytes()>maximumBytes-held.bytes)throw new IllegalStateException("original Scope membership exceeds the content reservation");
+            held.bytes=Math.addExact(held.bytes,scoped.retainedBytes());
+            guard.run();held.requireCurrent();
+        }
         return new FrozenControl(held, prepared, registered, preparedKey, mutationKey, mutation, bound);
     }
 
@@ -606,6 +616,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             }
             ControlTargetMutationBinding.validate(value, target, actual);
         }
+        @Override public void validateScopedMutation(PreparedControlOperation value,ControlTargetRef target,SystemMutation actual){
+            validateMutation(value,target,actual);
+            if(held.scopedControl==null)throw new IllegalStateException("original Scope membership was not collected");
+            held.scopedControl.validate(value,target,actual);
+        }
     }
 
     private static void requireSource(SourceReplayEntry entry, SourcePosition source) {
@@ -621,6 +636,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         private Object control;
         private TargetQuotaCapacitySnapshot.Verified capacity;
         private CheckpointInputFuture.Cleanup pendingCapacityCleanup;
+        private TargetSloControlScopeAuthority.MemberHold scopedControl;
+        private boolean scopedControlClosed;
         private long bytes;
         private int commits;
         private boolean originalClosed, capacityClosed;
@@ -635,6 +652,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override public synchronized void requireCurrent() {
             if (originalClosed || capacityClosed) throw new IllegalStateException("original content hold is closing");
             original.requireCurrent();
+            if(scopedControl!=null&&!scopedControlClosed)scopedControl.requireCurrent();
         }
         TargetStoreBackend.CommitAuthority commit(TargetStoreBackend.CommitAuthority physical) {
             return (store, scope, mutation) -> {
@@ -663,6 +681,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
         @Override public synchronized void close() {
             if (commits != 0) throw new IllegalStateException("original content still protects a commit");
+            if(scopedControl!=null&&!scopedControlClosed){scopedControl.close();scopedControlClosed=true;}
             Throwable failure = null;
             if (!capacityClosed) {
                 try {

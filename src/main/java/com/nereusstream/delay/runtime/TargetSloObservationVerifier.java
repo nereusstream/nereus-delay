@@ -64,6 +64,7 @@ public final class TargetSloObservationVerifier {
         final var registered = authority.registrations().find(prepared.operationId()).orElse(null);
         if (registered == null || !Arrays.equals(prepared.canonicalBytes(), registered.canonicalBytes())) throw denied("Target SLO Control lacks its exact original registration");
         authority.registrations().validateMutation(prepared, prepared.targets().getFirst(), input);
+        if(body.admissionScope()!=null)authority.registrations().validateScopedMutation(prepared,prepared.targets().getFirst(),input);
 
         final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage, body.tuple());
         if (activation == null || activation.body().payload().descriptor().schemaVersion() < 15

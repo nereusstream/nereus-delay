@@ -85,6 +85,8 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetSloObservation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,18);}
     public static ProtocolTuple targetSloWriterEpoch() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,19);}
     public static ProtocolTuple targetSloObservationEpochPolicy() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,20);}
+    public static ProtocolTuple targetSloScopedWriterEpoch() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,21);}
+    public static ProtocolTuple targetSloScopedObservation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,22);}
     public static ProtocolTuple targetSloObservationEpochEvent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,5);}
     public static ProtocolTuple targetSloObservationCustody() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,3);}
     public static ProtocolTuple targetSloObservationEventAssigned() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,4);}

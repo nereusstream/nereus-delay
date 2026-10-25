@@ -1612,6 +1612,10 @@ public final class TargetWorkerShardRuntime
         target.requireTargetControlWriter(mutation, clock);
         workClasses.submit(task, action);
     }
+    synchronized boolean targetControlActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
+    synchronized void submitTargetControlCleanupAction(WorkClassTask task,Runnable action){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);
+    }
 
     synchronized SourceMutationAppend appendTargetControl(final SystemMutation mutation,
             final ShardLogMutationAppender appender, final LongSupplier clock) {

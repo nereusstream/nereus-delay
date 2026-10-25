@@ -20,12 +20,17 @@ public final class TargetSloWriterControlMutationFactory {
     /** Signing neither applies a writer registration nor qualifies its Scope resource or TIME_FENCE authority. */
     public Prepared prepare(byte[] operationId,TargetSloWriterControlRequest request,ControlAuthorizationContext authenticated,
             ControlOperationAuthorization.TargetScopeProof scope,long registrationRetryUntil,long sourceRetryUntil){
+        return prepare(operationId,request,authenticated,scope,null,registrationRetryUntil,sourceRetryUntil);
+    }
+    public Prepared prepare(byte[] operationId,TargetSloWriterControlRequest request,ControlAuthorizationContext authenticated,
+            ControlOperationAuthorization.TargetScopeProof scope,TargetSloControlScopeHeader.Reference admissionScope,
+            long registrationRetryUntil,long sourceRetryUntil){
         final var exact=Objects.requireNonNull(request);final var actor=Objects.requireNonNull(authenticated);
         final var author=new ControlAuthor(actor.actorIdHash(),actor.roleSet().digest(),actor.tenantResourceScopeHash());
         final var operationRequest=exact.operationRequest();
         final var ref=new ControlRef(operationId,PreparedControlOperation.requestHash(exact.operationKind(),operationRequest),0);
         final var body=new TargetSloWriterControlBody(exact.scope().shard(),sourceRetryUntil,ref,exact,
-                exact.operationKind()==ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH?1:0);
+                exact.operationKind()==ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH?1:0,admissionScope);
         final var image=SystemMutation.signed(body.shard(),SystemMutationType.APPLY_SHARD_CONTROL,sourceRetryUntil,
                 body.logicalIdentity(),body.canonicalBytes(),AuthorIdentity.control(author.operationActorIdHash(),author.authenticatedRoleSetHash(),
                         author.tenantResourceScopeHash()).canonicalBytes(),keyVersion,key);

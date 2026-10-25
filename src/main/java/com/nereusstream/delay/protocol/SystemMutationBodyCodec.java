@@ -18,6 +18,16 @@ public final class SystemMutationBodyCodec {
         if(type==SystemMutationType.TARGET_SLO_OBSERVATION){TargetSloObservationEventBody.decode(canonicalBody);return;}
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
+        if(type==SystemMutationType.APPLY_SHARD_CONTROL&&fields.size()==10&&fields.get(4).number()==11
+                &&fields.getLast().number()==16){
+            final long kind=fields.get(4).unsignedValue();
+            if(kind==TargetSloWriterControlRequest.REGISTER_CONTROL_KIND||kind==TargetSloWriterControlRequest.CLOSE_CONTROL_KIND){
+                TargetSloWriterControlBody.decode(canonicalBody);return;
+            }
+            if(kind==TargetSloObservationControlRequest.ENABLE_CONTROL_KIND||kind==TargetSloObservationControlRequest.STOP_CONTROL_KIND){
+                TargetSloObservationControlBody.decode(canonicalBody);return;
+            }
+        }
         Spec[] specs = specs(type);
         final boolean targetRetirement = (type == SystemMutationType.RESOURCE_RETIRE_INTENT
                 || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED)
