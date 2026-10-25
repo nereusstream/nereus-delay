@@ -13,10 +13,13 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
+import com.nereusstream.delay.protocol.TargetParentControlCredit;
+import com.nereusstream.delay.protocol.TargetParentControlCreditBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetQuotaGrantControlVerifier;
+import com.nereusstream.delay.runtime.TargetParentControlCreditVerifier;
 import com.nereusstream.delay.runtime.TargetResultRecord;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import java.security.PublicKey;
@@ -57,6 +60,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     private final Runnable protection;
     private final com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations;
     private final com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers;
+    private final TargetParentControlCreditVerifier.CapacityAuthority parentCredits;
 
     /** All external I/O must have finite provider deadlines; use outside Store locks with a held protection set. */
     public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
@@ -77,6 +81,15 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             BoundedReadBudget budget,Runnable protection,
             com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations,
             com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers) {
+        this(registrations,keys,history,source,budget,protection,observations,writers,null);
+    }
+
+    public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
+            TargetQuotaGrantControlVerifier.KeyAuthority keys,HistoryAuthority history,SourceAuthority source,
+            BoundedReadBudget budget,Runnable protection,
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations,
+            com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers,
+            TargetParentControlCreditVerifier.CapacityAuthority parentCredits) {
         this.registrations = Objects.requireNonNull(registrations, "registrations");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.history = Objects.requireNonNull(history, "history");
@@ -85,6 +98,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         this.protection = Objects.requireNonNull(protection, "protection");
         this.observations = observations;
         this.writers = writers;
+        this.parentCredits = parentCredits;
     }
 
     @Override
@@ -151,8 +165,29 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     public PublicKey authenticate(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first) {
         if(first.appliedFirst()&&com.nereusstream.delay.protocol.TargetSloWriterControlBody.isControl(input.image()))
             throw new IllegalStateException("checkpoint writer Control requires its retained Native62 and independent materialization authority");
+        if(first.appliedFirst()&&TargetParentControlCreditBody.isControl(input.image()))
+            throw new IllegalStateException("checkpoint parent Control credit requires its retained Native63 and original historical funding authority");
         final var verified = authenticateControl(input, first);
         return verified == null ? null : verified.key();
+    }
+
+    @Override
+    public PublicKey authenticateParentCredit(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+            TargetParentControlCredit credit){
+        final var authenticated=authenticateControl(input,first);
+        if(authenticated==null)return null;
+        final var actual=Objects.requireNonNull(credit,"APPLIED parent Control lacks its complete retained Native63");
+        final var body=TargetParentControlCreditBody.decode(input.image().canonicalBody());
+        final var funding=actual.funding();
+        if(!body.request().definition().equals(actual.definition())
+                ||!Arrays.equals(funding.input().canonicalEnvelope(),input.image().canonicalEnvelope())
+                ||!funding.appliedAt().equals(first.mutation())
+                ||!Arrays.equals(input.source().canonicalBytes(),funding.appliedAt().source().canonicalBytes()))
+            throw new IllegalStateException("checkpoint parent credit changed its actual original funding Control/first/Source");
+        if(parentCredits==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                "original checkpoint parent Control credit funding authority is unavailable");
+        before();parentCredits.requireCurrent();parentCredits.requireHistoricalAuthorized(actual);parentCredits.requireCurrent();after();
+        return authenticated.key();
     }
 
     @Override

@@ -35,6 +35,9 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
          * Local held checks only. RECLAIM must retain the original Source/Worker/Store and complete
          * Catalog/Floor/Pin/image/future-reader admission protections through the Native commit.
          * Two observations, an empty caller inventory, or signatures alone are not that held protocol.
+         * PARENT_CONTROL_CREDIT independently retains the original tenant, placement, physical Source,
+         * exclusive funding slice and DataDefinition/Native grant protections acquired during Provider.load;
+         * its capacity callbacks use only those bounded held snapshots, never Scope membership or remote I/O.
          */
         void requireCurrent();
         /**
@@ -85,7 +88,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit {}
+    public record ParentCredit(PreparedControlOperation prepared, TargetParentControlCreditVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) implements Inputs {
+        public ParentCredit { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
     public record SloWriter(PreparedControlOperation prepared,com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority authority) implements Inputs {}
     public record SloEvent(com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority authority) implements Inputs {}
     public record SloMode(PreparedControlOperation prepared, TargetSloObservationVerifier.Authority authority) implements Inputs {}
@@ -311,6 +318,25 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         new com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority(frozen,
                                 (version,source)->frozen.key(version,source),a.actor(),a.scopeProof(),material),commit);
             }
+            case ParentCredit value -> {
+                final var a = value.authority();
+                final var frozen = freeze(value.prepared(), entry, a.registrations(),
+                        version -> a.keys().resolve(version, entry.position()), held, guard);
+                final var capacity = new TargetParentControlCreditVerifier.CapacityAuthority() {
+                    public void requireAuthorized(TargetParentControlCredit.Definition definition,
+                            TargetParentControlCreditVerifier.View actual, SourcePosition source,
+                            TargetStoreBackend.Mutation fullPlan) {
+                        requireCurrent(); requireSource(entry, source);
+                        a.capacity().requireAuthorized(definition, actual, source, fullPlan);
+                        requireCurrent();
+                    }
+                    public void requireCurrent() { held.requireCurrent(); a.capacity().requireCurrent(); held.requireCurrent(); }
+                };
+                yield new TargetSourceApplyRuntime.ParentCreditControl(value.prepared(),
+                        new TargetParentControlCreditVerifier.Authority(frozen,
+                                (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), capacity),
+                        held.commit(value.commit()));
+            }
             case SloMode value -> {
                 final var a = value.authority();
                 final var frozen = freeze(value.prepared(), entry, a.registrations(),
@@ -353,6 +379,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case SloMode ignored -> TargetSourceAuthorityPreparation.Family.SLO_MODE;
             case SloEvent ignored -> TargetSourceAuthorityPreparation.Family.SLO_EVENT;
             case SloWriter ignored -> TargetSourceAuthorityPreparation.Family.SLO_WRITER;
+            case ParentCredit ignored -> TargetSourceAuthorityPreparation.Family.PARENT_CONTROL_CREDIT;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;

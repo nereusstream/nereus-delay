@@ -276,6 +276,13 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case ALLOCATE_PARENT_CONTROL_CREDIT -> {
+                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
+                requireMutationPresence(values,ControlTargetKind.SHARD,true);
+                final var credit=branch(request,TargetParentControlCreditRequest.class);
+                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(credit.scope().shard()))
+                    throw new IllegalArgumentException("parent Control credit must select its original Source Shard at index zero");
+            }
             case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH -> {
                 requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
                 requireMutationPresence(values,ControlTargetKind.SHARD,true);

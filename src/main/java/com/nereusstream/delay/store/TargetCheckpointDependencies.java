@@ -17,6 +17,10 @@ import com.nereusstream.delay.protocol.TargetMembershipGrant;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
 import com.nereusstream.delay.protocol.TargetNativePolicyScope;
 import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
+import com.nereusstream.delay.protocol.TargetParentControlCredit;
+import com.nereusstream.delay.protocol.TargetParentControlCreditBody;
+import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
+import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
@@ -144,6 +148,8 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents;
     private final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies;
     private final Map<String,TargetSloWriterEpoch> sloWriterEpochs;
+    private final Map<String,TargetParentControlCredit> parentCredits;
+    private final Map<String,TargetQuotaGrantActivation> parentCreditGrants;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -189,6 +195,7 @@ public final class TargetCheckpointDependencies {
         sloEvents=List.copyOf(builder.sloEvents.values());
         sloCustodies=List.copyOf(builder.sloCustodies.values());
         sloWriterEpochs=Map.copyOf(builder.sloWriterEpochs);
+        parentCredits=Map.copyOf(builder.parentCredits);parentCreditGrants=Map.copyOf(builder.parentCreditGrants);
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -281,6 +288,15 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents(){return sloEvents;}
     public List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies(){return sloCustodies;}
     public List<TargetSloWriterEpoch> sloWriterEpochs(){return sloWriterEpochs.values().stream().sorted((a,b)->Arrays.compareUnsigned(a.key(),b.key())).toList();}
+    public List<TargetParentControlCredit> parentCredits(){return parentCredits.values().stream().sorted((a,b)->Arrays.compareUnsigned(a.key(),b.key())).toList();}
+    public TargetParentControlCredit parentCredit(TargetParentControlCredit.Reference reference){
+        final var credit=parentCredits.get(Bytes.hex(Objects.requireNonNull(reference).key()));
+        if(credit!=null&&!credit.reference().equals(reference))throw new IllegalStateException("parent credit reference changed its original paid definition");
+        return credit;
+    }
+    /** Creation-time activations are retained facts, never replacements for today's Native SHARD grant. */
+    public List<TargetQuotaGrantActivation> parentCreditGrants(){return parentCreditGrants.values().stream()
+            .sorted((a,b)->Arrays.compareUnsigned(a.systemMutationId(),b.systemMutationId())).toList();}
     /** Exact retained applied registration; an absent or substituted epoch never falls back to the generation signer. */
     public TargetSloWriterEpoch sloWriterEpoch(TargetSloWriterContract.Reference reference){
         final var writer=sloWriterEpochs.get(Bytes.hex(Objects.requireNonNull(reference).key(root.root().scope())));
@@ -697,6 +713,11 @@ public final class TargetCheckpointDependencies {
             if(first.appliedFirst())throw new IllegalStateException("checkpoint authority lacks original writer Control/Fence authentication");
             return authenticate(input,first);
         }
+        /** Original paid Native63 creation, including historical exclusive funding-slice authority. */
+        default java.security.PublicKey authenticateParentCredit(ControlImage input,TargetResultRecord first,TargetParentControlCredit credit){
+            if(first.appliedFirst())throw new IllegalStateException("checkpoint authority lacks original paid parent Control credit authentication");
+            return authenticate(input,first);
+        }
     }
 
     /**
@@ -737,6 +758,10 @@ public final class TargetCheckpointDependencies {
 
     java.security.PublicKey authenticateInput(ControlImage input,TargetResultRecord first,ControlImageAuthority authority){
         final var image=input.image();
+        if(TargetParentControlCreditBody.isControl(image)){
+            final var definition=TargetParentControlCreditBody.decode(image.canonicalBody()).request().definition();
+            return authority.authenticateParentCredit(input,first,first.appliedFirst()?parentCredit(definition.reference()):null);
+        }
         if(image.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
             final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(image.canonicalBody());
             final var sample=sloSamples.stream().filter(v->Arrays.equals(v.observation().sampleId(),body.sampleId())).findFirst().orElse(null);
@@ -783,7 +808,54 @@ public final class TargetCheckpointDependencies {
         final var correlated = List.copyOf(complete.values());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireControlInputs(sloGenerations, correlated, controlResults);
         requireWriterControlInputs(complete);
+        requireParentCreditControlInputs(complete);
         return correlated;
+    }
+
+    private void requireParentCreditControlInputs(Map<String,ControlImage> inputs){
+        final var firsts=new TreeMap<String,TargetResultRecord>();
+        for(var first:controlResults)firsts.put(Bytes.hex(first.logicalId()),first);
+        for(var credit:parentCredits.values()){
+            final var funding=credit.funding();final var image=requireParentCreditInput(inputs,firsts,funding.input(),funding.appliedAt());
+            if(!TargetParentControlCreditBody.isControl(image.image())
+                    ||!TargetParentControlCreditBody.decode(image.image().canonicalBody()).request().definition().equals(credit.definition()))
+                throw new IllegalStateException("Native63 changed its original parent Control definition");
+            final var grant=credit.actualPayerGrant();
+            final var original=Objects.requireNonNull(inputs.get(Bytes.hex(grant.systemMutationId())),"Native63 lost its creation-time Native SHARD grant Control");
+            final var first=Objects.requireNonNull(firsts.get(Bytes.hex(grant.systemMutationId())),"Native63 lost its creation-time grant first");
+            requireParentCreditInput(inputs,firsts,original.image(),grant.mutation());
+            final var body=TargetQuotaGrantControlBody.decode(original.image().canonicalBody());
+            if(!first.appliedFirst()||!first.mutation().equals(grant.mutation())
+                    ||!Arrays.equals(original.source().canonicalBytes(),grant.mutation().source().canonicalBytes())
+                    ||!Arrays.equals(original.image().mutationHash(),grant.systemMutationHash())
+                    ||!body.controlRef().equals(grant.controlRef())
+                    ||!Arrays.equals(body.request().canonicalBytes(),grant.request().canonicalBytes()))
+                throw new IllegalStateException("Native63 changed its original applied payer-grant Control/first/Source");
+        }
+        for(var input:inputs.values()){
+            if(!TargetParentControlCreditBody.isControl(input.image()))continue;
+            final var first=Objects.requireNonNull(firsts.get(Bytes.hex(input.image().systemMutationId())));
+            if(!first.appliedFirst())continue;
+            final var body=TargetParentControlCreditBody.decode(input.image().canonicalBody());
+            final var credit=Objects.requireNonNull(parentCredit(body.request().definition().reference()),"APPLIED parent Control lacks its complete retained Native63");
+            requireParentCreditInput(inputs,firsts,credit.funding().input(),credit.funding().appliedAt());
+            if(!Arrays.equals(credit.funding().input().canonicalEnvelope(),input.image().canonicalEnvelope())
+                    ||!credit.fundedAt().equals(first.mutation()))
+                throw new IllegalStateException("APPLIED parent Control differs from its retained Native63 input/stamp");
+        }
+    }
+    private ControlImage requireParentCreditInput(Map<String,ControlImage> inputs,Map<String,TargetResultRecord> firsts,
+            SystemMutation original,com.nereusstream.delay.protocol.TargetQuotaMutation appliedAt){
+        final String id=Bytes.hex(original.systemMutationId());
+        final var input=Objects.requireNonNull(inputs.get(id),"Native63 lost its complete original parent Control input");
+        final var first=Objects.requireNonNull(firsts.get(id),"Native63 lost its actual original parent Control first");
+        if(!first.appliedFirst()||!first.mutation().equals(appliedAt)
+                ||!Arrays.equals(input.image().canonicalEnvelope(),original.canonicalEnvelope())
+                ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(original,com.nereusstream.delay.runtime.ApplyStatus.APPLIED,
+                        com.nereusstream.delay.protocol.StableCode.OK,appliedAt.source().canonicalBytes()).encode())
+                ||!Arrays.equals(input.source().canonicalBytes(),appliedAt.source().canonicalBytes()))
+            throw new IllegalStateException("Native63 changed its original APPLIED Control input/Source");
+        requireSystemPosition(first);return input;
     }
 
     private void requireWriterControlInputs(Map<String,ControlImage> inputs){
@@ -967,6 +1039,7 @@ public final class TargetCheckpointDependencies {
             for(final var first:retirementResults){CanonicalProtobuf.bytes(out,12,Bytes.sha256(first.canonicalBytes()));}
             for(final var retained:sourceHistories){CanonicalProtobuf.bytes(out,13,retained.digest());}
             for(final var tip:historyTips){CanonicalProtobuf.bytes(out,14,tip.digest());}
+            for(final var credit:parentCredits()){CanonicalProtobuf.bytes(out,15,Bytes.sha256(credit.canonicalBytes()));}
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -1007,6 +1080,8 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies=new TreeMap<>();
         private final Map<String,TargetSloWriterEpoch> sloWriterEpochs=new TreeMap<>();
+        private final Map<String,TargetParentControlCredit> parentCredits=new TreeMap<>();
+        private final Map<String,TargetQuotaGrantActivation> parentCreditGrants=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -1052,6 +1127,7 @@ public final class TargetCheckpointDependencies {
             prior.sloEvents.forEach(this::sloEvent);
             prior.sloCustodies.forEach(this::sloCustody);
             prior.sloWriterEpochs.values().forEach(this::sloWriterEpoch);
+            prior.parentCredits.values().forEach(this::parentCredit);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1129,6 +1205,14 @@ public final class TargetCheckpointDependencies {
         }
         void sloWriterEpoch(TargetSloWriterEpoch record){
             if(sloWriterEpochs.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate original SLO writer epoch");
+        }
+        void parentCredit(TargetParentControlCredit record){
+            Objects.requireNonNull(record);
+            if(parentCredits.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate original parent Control credit");
+            final var grant=record.actualPayerGrant();
+            final var prior=parentCreditGrants.putIfAbsent(Bytes.hex(grant.systemMutationId()),grant);
+            if(prior!=null&&!Arrays.equals(prior.canonicalBytes(),grant.canonicalBytes()))
+                throw new IllegalStateException("parent Control credits disagree on their original Native SHARD grant activation");
         }
         void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
             if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");

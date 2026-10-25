@@ -65,6 +65,9 @@ public final class TargetChannelControlWorkClassExecutor {
         final var exact = Objects.requireNonNull(prepared, "prepared");
         return submit(exact.control(), exact.mutation(), ownerClock);
     }
+    public Submission submitParentCredit(TargetParentControlCreditMutationFactory.Prepared prepared,LongSupplier ownerClock){
+        final var exact=Objects.requireNonNull(prepared);return submit(exact.control(),exact.mutation(),ownerClock);
+    }
 
     private synchronized Submission submit(final PreparedControlOperation control, final SystemMutation image,
             final LongSupplier ownerClock) {

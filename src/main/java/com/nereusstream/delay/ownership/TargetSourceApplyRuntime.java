@@ -262,6 +262,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public SloWriterControl{Objects.requireNonNull(prepared);Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
     }
     @FunctionalInterface public interface SloWriters{SloWriterControl resolve(SourceReplayMutation entry);}
+    public record ParentCreditControl(PreparedControlOperation prepared,
+            com.nereusstream.delay.runtime.TargetParentControlCreditVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit){
+        public ParentCreditControl{Objects.requireNonNull(prepared);Objects.requireNonNull(authority);Objects.requireNonNull(commit);}
+    }
+    @FunctionalInterface public interface ParentCredits{ParentCreditControl resolve(SourceReplayMutation entry);}
 
     public record ChannelControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
@@ -324,7 +330,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetOutcomes outcomes,
             ChannelControls channelControls,
             TargetRetirements retirements,ProtocolActivations protocolActivations,TargetReclaims reclaims,
-            SloObservationControls sloObservations, SloEvents sloEvents,SloWriters sloWriters) {
+            SloObservationControls sloObservations, SloEvents sloEvents,SloWriters sloWriters,ParentCredits parentCredits) {
+        public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,
+                Fences fences,ExpiryControls expiries,Closes closes,MembershipControls memberships,
+                TargetStoreBackend.CommitAuthority writes,TargetStoreBackend.ReadAuthority reads,Commands commands,
+                NativePolicyControls nativePolicies,TargetAdmissions admissions,TargetOutcomes outcomes,ChannelControls channels,
+                TargetRetirements retirements,ProtocolActivations activations,TargetReclaims reclaims,
+                SloObservationControls sloObservations,SloEvents sloEvents,SloWriters sloWriters){
+            this(leases,successor,grants,fences,expiries,closes,memberships,writes,reads,commands,nativePolicies,admissions,outcomes,
+                    channels,retirements,activations,reclaims,sloObservations,sloEvents,sloWriters,entry->{throw new TargetSourceAuthorityPreparation.Required();});
+        }
         public Authorities(OxiaOwnerLeaseStore leases,SourceReplaySuccessor successor,GrantControls grants,
                 Fences fences,ExpiryControls expiries,Closes closes,MembershipControls membershipControls,
                 TargetStoreBackend.CommitAuthority duplicateWrites,TargetStoreBackend.ReadAuthority reads,Commands commands,
@@ -393,38 +408,43 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters);
+                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits);
         }
 
         public Authorities withRetirements(final TargetRetirements selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations,sloEvents,sloWriters);
+                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits);
         }
         public Authorities withProtocolActivations(ProtocolActivations selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,commands,
-                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations,sloEvents,sloWriters);
+                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations,sloEvents,sloWriters,parentCredits);
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters);
+                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations,sloEvents,sloWriters,parentCredits);
         }
         public Authorities withSloObservations(SloObservationControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
-                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected), sloEvents,sloWriters);
+                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected), sloEvents,sloWriters,parentCredits);
         }
         public Authorities withSloEvents(SloEvents selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
-                    retirements, protocolActivations, reclaims, sloObservations, Objects.requireNonNull(selected),sloWriters);
+                    retirements, protocolActivations, reclaims, sloObservations, Objects.requireNonNull(selected),sloWriters,parentCredits);
         }
         public Authorities withSloWriters(SloWriters selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
                     commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
-                    sloObservations,sloEvents,Objects.requireNonNull(selected));
+                    sloObservations,sloEvents,Objects.requireNonNull(selected),parentCredits);
+        }
+        public Authorities withParentCredits(ParentCredits selected){
+            return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,
+                    commands,nativePolicyControls,admissions,outcomes,channelControls,retirements,protocolActivations,reclaims,
+                    sloObservations,sloEvents,sloWriters,Objects.requireNonNull(selected));
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -544,6 +564,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(sloObservations, "sloObservations");
             Objects.requireNonNull(sloEvents, "sloEvents");
             Objects.requireNonNull(sloWriters,"sloWriters");
+            Objects.requireNonNull(parentCredits,"parentCredits");
         }
     }
 
@@ -1178,6 +1199,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
         if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM)return TargetSourceAuthorityPreparation.Family.RECLAIM;
         if(mutation.type()==SystemMutationType.TARGET_SLO_OBSERVATION)return TargetSourceAuthorityPreparation.Family.SLO_EVENT;
+        if(com.nereusstream.delay.protocol.TargetParentControlCreditBody.isControl(mutation))return TargetSourceAuthorityPreparation.Family.PARENT_CONTROL_CREDIT;
         if (isProtocolActivation(mutation)) return TargetSourceAuthorityPreparation.Family.ACTIVATION;
         if(isSloWriterControl(mutation))return TargetSourceAuthorityPreparation.Family.SLO_WRITER;
         if (isSloObservationControl(mutation)) return TargetSourceAuthorityPreparation.Family.SLO_MODE;
@@ -2101,7 +2123,16 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || AuthorIdentity.decode(mutation.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL) {
             throw new IllegalArgumentException("Target Control writer belongs to another author/type/Shard");
         }
-        if(isSloWriterControl(mutation)){
+        if(com.nereusstream.delay.protocol.TargetParentControlCreditBody.isControl(mutation)){
+            final var body=com.nereusstream.delay.protocol.TargetParentControlCreditBody.decode(mutation.canonicalBody());
+            if(!scope.equals(body.request().scope())||!Arrays.equals(lineage,body.request().lineage()))throw new IllegalArgumentException("parent credit writer changed original Source scope");
+            if(store.controlSnapshot()==null||!store.controlSnapshot().protocolTuples().contains(body.tuple()))throw new IllegalStateException("parent credit writer lacks independent protocol readers");
+            backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+                final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,body.tuple());
+                if(activation==null)throw new IllegalStateException("parent credit writer lacks actual APPLIED protocol activation");
+                return Boolean.TRUE;
+            },workerReads(clock));
+        }else if(isSloWriterControl(mutation)){
             final var body=com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(mutation.canonicalBody());
             if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH
                     &&!sloServiceConfigured())throw new IllegalStateException("certification writer REGISTER lacks original Final/timeout/custody maintenance");
@@ -2841,6 +2872,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 try{first=activations.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
                 catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
                 result=activations.commit(first,writes(control.commit(),entry,clock));
+            } else if(com.nereusstream.delay.protocol.TargetParentControlCreditBody.isControl(mutation.mutation())){
+                final var control=Objects.requireNonNull(authorities.parentCredits().resolve(mutation),"original paid parent credit inputs");
+                final var credits=new com.nereusstream.delay.runtime.TargetParentControlCreditStore(backend,scope,lineage,limits.counters(),limits.domains());
+                final com.nereusstream.delay.runtime.TargetParentControlCreditStore.Prepared first;
+                try{first=credits.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
+                catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                result=credits.commit(first,writes(control.commit(),entry,clock));
             } else if (mutation.mutation().type() == SystemMutationType.TARGET_SLO_OBSERVATION) {
                 final var control = Objects.requireNonNull(authorities.sloEvents().resolve(mutation), "original Target SLO event inputs");
                 final var events = new com.nereusstream.delay.runtime.TargetSloObservationEventStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -3226,6 +3264,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if(isProtocolActivation(mutation.mutation())){
             com.nereusstream.delay.protocol.TargetProtocolActivationBody.decode(mutation.mutation().canonicalBody());
+        }else if(com.nereusstream.delay.protocol.TargetParentControlCreditBody.isControl(mutation.mutation())){
+            com.nereusstream.delay.protocol.TargetParentControlCreditBody.decode(mutation.mutation().canonicalBody());
         }else if(isSloWriterControl(mutation.mutation())){
             com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(mutation.mutation().canonicalBody());
         }else if (isSloObservationControl(mutation.mutation())) {

@@ -51,6 +51,12 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if(prepared.request().branch() instanceof TargetParentControlCreditRequest expected){
+                    final var body=TargetParentControlCreditBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef,body.controlRef());
+                    if(!expected.equals(body.request()))throw new IllegalArgumentException("parent Control credit differs from its registered request");
+                    expectedLogicalIdentity=body.logicalIdentity();break;
+                }
                 if(prepared.request().branch() instanceof TargetSloWriterControlRequest expected){
                     final var body=TargetSloWriterControlBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef,body.controlRef());
@@ -146,6 +152,7 @@ public final class ControlTargetMutationBinding {
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
             case GRANT_TARGET_MEMBERSHIP,
+                    ALLOCATE_PARENT_CONTROL_CREDIT,
                     REGISTER_TARGET_SLO_WRITER_EPOCH,
                     CLOSE_TARGET_SLO_WRITER_EPOCH,
                     ENABLE_TARGET_SLO_CERTIFICATION,
