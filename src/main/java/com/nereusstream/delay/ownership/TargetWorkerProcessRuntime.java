@@ -2,6 +2,14 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.KafkaActivationBarrier;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PulsarActivationBarrier;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourceActivationBarrier;
+import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.semantic.TrustedClock;
@@ -11,9 +19,11 @@ import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.WorkerNativeResourceLedger;
 import io.oxia.client.api.Authentication;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -725,6 +735,102 @@ public final class TargetWorkerProcessRuntime {
             }
             resourcesClosed = true;
         } catch (RuntimeException | Error failure) { retain(failure); }
+    }
+
+    /**
+     * Certifies only an actual Source from this already-exited Process. Completed cleanup is monotonic;
+     * public drain/replay DTOs and a different graph's empty queues cannot construct this receipt.
+     */
+    public SourceExitCustody sourceExitCustody(ShardId shard) {
+        final TargetWorkerSourceStartup source;
+        synchronized(this){
+            if(!resourcesClosed)throw new IllegalStateException("original Process cleanup has not actually completed");
+            source=Objects.requireNonNull(sources.get(Objects.requireNonNull(shard)),"actual original Source startup");
+        }
+        // Startup already calls Process admission elsewhere: never acquire its monitor while holding Process.
+        final var binding=source.sourceExitBinding();
+        synchronized(this){
+            if(!resourcesClosed||sources.get(shard)!=source||binding.process!=this
+                    ||binding.graph.resources()!=resources||binding.graph.io()!=io||binding.graph.oxia()!=oxia
+                    ||!binding.scope.shard().equals(shard)||binding.assignment==null||binding.verifiedOwner==null
+                    ||binding.lineage==null||!binding.assignment.shardId().equals(shard))
+                throw new IllegalStateException("exited Process lacks this actual authenticated Source/Owner/Root binding");
+            return new SourceExitCustody(this,binding);
+        }
+    }
+
+    /**
+     * Finite immutable custody of an observed actual Process exit. It proves no old legal-domain
+     * completeness, REGISTER authority, deadline, time or permission to reclaim. Weak graph links
+     * reject accidental reuse without retaining the old Process, SDKs, Stores or executors.
+     */
+    public static final class SourceExitCustody {
+        private final WeakReference<TargetWorkerProcessRuntime> process;
+        private final WeakReference<SharedRocksDbResources> resources;
+        private final WeakReference<ThreadPoolExecutor> io;
+        private final WeakReference<TargetWorkerOxiaRuntime> oxia;
+        private final TargetQuotaScope scope;
+        private final SourceAssignment assignment;
+        private final OwnerIdentity verifiedOwner;
+        private final byte[] lineage;
+        private final long retainedBytes;
+
+        private SourceExitCustody(TargetWorkerProcessRuntime original,TargetWorkerSourceStartup.SourceExitBinding binding){
+            process=new WeakReference<>(original);resources=new WeakReference<>(binding.graph.resources());
+            io=new WeakReference<>(binding.graph.io());oxia=new WeakReference<>(binding.graph.oxia());
+            scope=binding.scope;assignment=binding.assignment;verifiedOwner=binding.verifiedOwner;
+            lineage=Bytes.copy(binding.lineage);
+            // Conservative receipt/weak-link overhead plus immutable canonical-data envelope, including UTF-16 strings.
+            long bytes=Math.addExact(512L,lineage.length);
+            bytes=Math.addExact(bytes,Math.multiplyExact(2L,scope.canonicalBytes().length));
+            bytes=Math.addExact(bytes,Math.multiplyExact(2L,assignment.canonicalBytes().length));
+            retainedBytes=Math.addExact(bytes,Math.multiplyExact(2L,verifiedOwner.canonicalBytes().length));
+        }
+
+        public long retainedBytes(){return retainedBytes;}
+        public TargetQuotaScope scope(){return scope;}
+        public SourceAssignment assignment(){return assignment;}
+        public OwnerIdentity verifiedOwner(){return verifiedOwner;}
+        public byte[] lineage(){return Bytes.copy(lineage);}
+
+        /** Available before the new audit; no current-Owner I/O and no recursive input-hold validation. */
+        public void requireOpeningBinding(TargetWorkerSourceStartup.RecoveryInputsOpening opening){
+            final var actual=Objects.requireNonNull(opening,"actual new recovery opening");
+            final var startup=actual.startup();final var graph=startup.graph();
+            if(sameLiveObject(process,startup.sourceProcessForExitBinding())||sameLiveObject(resources,graph.resources())
+                    ||sameLiveObject(io,graph.io())||sameLiveObject(oxia,graph.oxia()))
+                throw new IllegalStateException("old Process exit custody cannot stop or qualify its own/shared new Source graph");
+            if(!scope.equals(startup.sourceScopeForExitBinding())
+                    ||!Arrays.equals(verifiedOwner.deploymentId(),actual.owner().deploymentId())
+                    ||!samePhysicalSource(assignment.activationBarrier(),actual.assignment().activationBarrier()))
+                throw new IllegalStateException("old Process exit custody changed deployment/Scope/physical Source");
+        }
+
+        /** Actual completed Process exit plus this new recovery's exact audited Scope/lineage/physical Source. */
+        public void requireExited(TargetWorkerSourceStartup.RecoveryInputsOpening opening,
+                TargetStoreBootstrap.SloRecoveryAudit audit){
+            requireOpeningBinding(opening);
+            final var actual=Objects.requireNonNull(audit,"actual Source recovery audit");
+            if(!scope.equals(actual.scope())||!Arrays.equals(lineage,actual.lineage()))
+                throw new IllegalStateException("old Process exit custody changed its authenticated Scope/recovery lineage");
+            assignment.activationBarrier().validatePosition(actual.cut().source());
+            opening.assignment().activationBarrier().validatePosition(actual.cut().source());
+        }
+
+        private static boolean sameLiveObject(WeakReference<?> original,Object actual){
+            final var live=original.get();return live!=null&&live==actual;
+        }
+
+        private static boolean samePhysicalSource(SourceActivationBarrier original,SourceActivationBarrier actual){
+            if(!original.shardId().equals(actual.shardId()))return false;
+            if(original instanceof KafkaActivationBarrier oldKafka&&actual instanceof KafkaActivationBarrier newKafka)
+                return oldKafka.authenticatedClusterId().equals(newKafka.authenticatedClusterId())
+                        &&oldKafka.nativeTopicUuid().equals(newKafka.nativeTopicUuid());
+            if(original instanceof PulsarActivationBarrier oldPulsar&&actual instanceof PulsarActivationBarrier newPulsar)
+                return Arrays.equals(oldPulsar.brokerResourceIncarnation(),newPulsar.brokerResourceIncarnation())
+                        &&oldPulsar.physicalTopic().equals(newPulsar.physicalTopic());
+            return false;
+        }
     }
 
     public synchronized boolean cleanupComplete() { return resourcesClosed; }

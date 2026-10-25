@@ -87,6 +87,8 @@ public final class TargetWorkerSourceStartup {
     private PulsarPreparation pulsarPreparation;
     private boolean initialCommitted;
     private com.nereusstream.delay.protocol.OwnerIdentity registryIdentity;
+    // Set only from a genuinely committed/reopened Root, before its Store can close.
+    private byte[] sourceExitLineage;
     private final java.util.List<RecoveryInputsOpening> recoveryInputs = new java.util.ArrayList<>(2);
     private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -456,7 +458,10 @@ public final class TargetWorkerSourceStartup {
                         if (qualificationRequired) reserveFenceBytes();
                     }
                     final var audit = coordinator.captureSloRecoveryAudit(startup.remainingSloRecoveryBytes(), false);
-                    synchronized (startup) { originalAudit = audit; startup.requireSloRecoveryByteBound(); }
+                    synchronized (startup) {
+                        originalAudit = audit;startup.sourceExitLineage=audit.lineage();
+                        startup.requireSloRecoveryByteBound();
+                    }
                     guard.run();
                     if (hasSlo(audit)) qualificationRequired = true;
                     if (qualificationRequired) {
@@ -1557,6 +1562,7 @@ public final class TargetWorkerSourceStartup {
                     @Override public void close() { original.close(); }
                 };
             });
+            synchronized(this){sourceExitLineage=committed.root().recoveryLineage();}
             initialCommitted = true;
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) return;
             activation = TargetWorkerSourceRuntimeFactory.initialize(graph.oxia(), graph.config(), graph.classes(),
@@ -1603,6 +1609,39 @@ public final class TargetWorkerSourceStartup {
         return store;
     }
     public TargetWorkerProcessRuntime.Assembly graph() { return graph; }
+
+    // Final graph/Scope identities only; retained-current guards may call these while holding a Native Store view.
+    TargetWorkerProcessRuntime sourceProcessForExitBinding(){return process;}
+    TargetQuotaScope sourceScopeForExitBinding(){return scope;}
+
+    /** Immutable local snapshot only; never reads a closed Store or re-enters stopped Source/Owner admission. */
+    synchronized SourceExitBinding sourceExitBinding() {
+        final var runtime=activation==null?null:activation.runtime();
+        final var actualLease=runtime==null?lease:runtime.snapshotDrainLease();
+        final var actualAssignment=runtime==null?assignment:runtime.acceptedAssignment();
+        // Same verified deployment/run plus the actual active-runtime (or acquired startup) lease,
+        // as publicationOwnerIdentity does. This does not attribute every old SERVICE writer to one Owner.
+        final var verified=registryIdentity==null||actualLease==null?null:
+                new com.nereusstream.delay.protocol.OwnerIdentity(registryIdentity.deploymentId(),registryIdentity.workerRunId(),
+                        actualLease.ownerEpoch(),actualLease.leaseToken());
+        return new SourceExitBinding(process,graph,scope,actualAssignment,verified,sourceExitLineage);
+    }
+
+    /** Internal identity material, not an exit receipt; only the actual Process can certify its completed cleanup. */
+    static final class SourceExitBinding {
+        final TargetWorkerProcessRuntime process;
+        final TargetWorkerProcessRuntime.Assembly graph;
+        final TargetQuotaScope scope;
+        final SourceAssignment assignment;
+        final com.nereusstream.delay.protocol.OwnerIdentity verifiedOwner;
+        final byte[] lineage;
+        private SourceExitBinding(TargetWorkerProcessRuntime process,TargetWorkerProcessRuntime.Assembly graph,
+                TargetQuotaScope scope,SourceAssignment assignment,com.nereusstream.delay.protocol.OwnerIdentity verifiedOwner,
+                byte[] lineage){
+            this.process=process;this.graph=graph;this.scope=scope;this.assignment=assignment;
+            this.verifiedOwner=verifiedOwner;this.lineage=lineage==null?null:Bytes.copy(lineage);
+        }
+    }
 
     /** Explicit deployment composition; uses this Source's original writer, process I/O and input envelope. */
     public TargetResourceReclaimMaintenance configureResourceReclaimMaintenance(TargetWorkerShardRuntime actual,

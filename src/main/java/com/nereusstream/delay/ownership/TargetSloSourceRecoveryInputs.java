@@ -46,6 +46,8 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
 
     private final TargetWorkerSourceStartup.RecoveryInputsOpening opening;
     private final WriterFactory writers;
+    private final TargetWorkerProcessRuntime.SourceExitCustody oldLocalExit;
+    private final long oldLocalExitBytes;
     private final long maximumAuthorityBytes;
     private final long maximumFrameBytes;
     private final long maximumInputBytes;
@@ -58,10 +60,14 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
     private boolean preparing, preparedOnce, closing, authorityClosed, originalClosed;
 
     private TargetSloSourceRecoveryInputs(TargetWorkerSourceStartup.RecoveryInputsOpening opening,
-            WriterFactory writers, long maximumAuthorityBytes, long maximumFrameBytes, long maximumInputBytes) {
+            WriterFactory writers, long maximumAuthorityBytes, long maximumFrameBytes, long maximumInputBytes,
+            TargetWorkerProcessRuntime.SourceExitCustody oldLocalExit) {
         this.opening = Objects.requireNonNull(opening); this.writers = Objects.requireNonNull(writers);
+        this.oldLocalExit = oldLocalExit;
+        oldLocalExitBytes = oldLocalExit == null ? 0 : oldLocalExit.retainedBytes();
         if (maximumAuthorityBytes < 1 || maximumAuthorityBytes == Long.MAX_VALUE || maximumFrameBytes < 1
                 || maximumFrameBytes == Long.MAX_VALUE || maximumInputBytes < 1 || maximumInputBytes == Long.MAX_VALUE
+                || oldLocalExitBytes < 0 || oldLocalExitBytes >= maximumAuthorityBytes
                 || Math.addExact(maximumAuthorityBytes, maximumFrameBytes) >= maximumInputBytes)
             throw new IllegalArgumentException("SLO recovery inputs need a finite combined base/authority/frame reservation");
         this.maximumAuthorityBytes = maximumAuthorityBytes; this.maximumFrameBytes = maximumFrameBytes;
@@ -74,15 +80,32 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
      */
     public static Provider provider(Provider original, AuthorityProvider authority, WriterFactory writers,
             long maximumAuthorityBytes) {
+        return providerWithLocalExit(original, authority, writers, maximumAuthorityBytes, null);
+    }
+
+    /**
+     * Adds the actual exited old local Process's bounded receipt. It proves only that Process's exit;
+     * the independent Authority must still bind its original Owner to the complete protected old domain.
+     * Cross-process recovery without an actual local handle continues to require independent exit material.
+     */
+    public static Provider provider(Provider original, AuthorityProvider authority, WriterFactory writers,
+            long maximumAuthorityBytes, TargetWorkerProcessRuntime.SourceExitCustody oldLocalExit) {
+        return providerWithLocalExit(original, authority, writers, maximumAuthorityBytes,
+                Objects.requireNonNull(oldLocalExit));
+    }
+
+    private static Provider providerWithLocalExit(Provider original, AuthorityProvider authority, WriterFactory writers,
+            long maximumAuthorityBytes, TargetWorkerProcessRuntime.SourceExitCustody oldLocalExit) {
         Objects.requireNonNull(original); Objects.requireNonNull(authority); Objects.requireNonNull(writers);
         if (maximumAuthorityBytes < 1 || maximumAuthorityBytes == Long.MAX_VALUE)
             throw new IllegalArgumentException("finite original SLO authority reservation required");
         return (opening, owner, assignment, maximumRetainedBytes, guard) -> {
             final long frame = opening.startup().graph().config().maximumSourceFrameBytes();
             final var retained = new TargetSloSourceRecoveryInputs(opening, writers, maximumAuthorityBytes, frame,
-                    maximumRetainedBytes);
+                    maximumRetainedBytes, oldLocalExit);
             try {
                 guard.run();
+                if (oldLocalExit != null) oldLocalExit.requireOpeningBinding(opening);
                 final long baseBound = Math.subtractExact(maximumRetainedBytes, Math.addExact(maximumAuthorityBytes, frame));
                 retained.original = Objects.requireNonNull(original.load(opening, owner, assignment, baseBound, guard));
                 retained.originalBytes = retained.original.retainedBytes();
@@ -90,7 +113,8 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
                     throw new IllegalArgumentException("original recovery input exceeds its reserved base bytes");
                 retained.reservedBytes = Math.addExact(retained.originalBytes, Math.addExact(maximumAuthorityBytes, frame));
                 retained.original.requireSourceCurrent(); guard.run();
-                retained.authority = Objects.requireNonNull(authority.load(opening, retained.original, maximumAuthorityBytes, guard));
+                retained.authority = Objects.requireNonNull(authority.load(opening, retained.original,
+                        Math.subtractExact(maximumAuthorityBytes, retained.oldLocalExitBytes), guard));
                 retained.requireSourceCurrent(); guard.run();
                 return retained;
             } catch (RuntimeException | Error failure) {
@@ -119,8 +143,11 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
         }
         try {
             requireSourceCurrent(); guard.run();
-            final var plan = Objects.requireNonNull(authority.prepareFence(originalAudit, maximumAuthorityBytes, guard));
+            requireOldLocalExit(originalAudit);
+            final var plan = Objects.requireNonNull(authority.prepareFence(originalAudit,
+                    Math.subtractExact(maximumAuthorityBytes, oldLocalExitBytes), guard));
             requireSourceCurrent(); guard.run();
+            requireOldLocalExit(originalAudit);
             final var exact = plan.exactFence();
             if (exact != null && exact.mutation().encodeFrame().length > Math.min(maximumFrameBytes, maximumFrameBytes()))
                 throw new IllegalArgumentException("qualified original Fence exceeds its reserved Source frame");
@@ -150,8 +177,14 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
                 throw new IllegalStateException("SLO completion changed its original preparation or exact Fence");
         }
         requireSourceCurrent(); guard.run();
+        requireOldLocalExit(originalAudit); requireOldLocalExit(replayed);
         authority.requireComplete(originalAudit, replayed, exactFence, guard);
         requireSourceCurrent(); guard.run();
+        requireOldLocalExit(originalAudit); requireOldLocalExit(replayed);
+    }
+
+    private void requireOldLocalExit(TargetStoreBootstrap.SloRecoveryAudit audit) {
+        if (oldLocalExit != null) oldLocalExit.requireExited(opening, audit);
     }
 
     private static boolean sameFrame(TargetTimeFenceMutationFactory.Prepared left, TargetTimeFenceMutationFactory.Prepared right) {
@@ -163,9 +196,11 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
         synchronized (this) {
             if (closing || originalClosed || authorityClosed) throw new IllegalStateException("original SLO input is closing");
         }
+        if (oldLocalExit != null) oldLocalExit.requireOpeningBinding(opening);
         original.requireSourceCurrent();
         if (original.retainedBytes() != originalBytes || reservedBytes > maximumInputBytes
-                || authority == null || authority.retainedBytes() < 0 || authority.retainedBytes() > maximumAuthorityBytes)
+                || authority == null || authority.retainedBytes() < 0
+                || authority.retainedBytes() > maximumAuthorityBytes - oldLocalExitBytes)
             throw new IllegalStateException("original SLO material exceeded or changed its fixed input reservation");
         authority.requireCurrent(); original.requireSourceCurrent();
     }
