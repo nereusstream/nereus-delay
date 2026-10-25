@@ -6153,3 +6153,53 @@ uses existing maintenance rotation, OUTCOME_AND_CONTROL, original process Owned 
 Source writer; UNKNOWN retains exact receipt/frame. Startup/stop/drain/quarantine preserve real I/O and
 cleanup handles. New ENABLE requires actual Final and custody components. Descriptor remains maximum14,
 advertised Native capability56; certification is unavailable pending the complete implementation/validation.
+
+2026-10-25 Source-assigned Final revision and explicit recovery gaps (activation closed).
+
+Body4 kind1 uses tuple `(1,1,SYSTEM_MUTATION,15,4)`. Common fields1–3/10–16 are unchanged except
+version4; field18 contains complete original FinalEvidence, and field17 is absent. Its identity is
+SHA256(domain `nereus-delay-target-slo-source-assigned-event` plus NUL || scope || lineage ||
+u64be(generation) || sampleId || bindingDigest || evidence.digest). All new observed-success and
+timeout requests use this branch. The immutable signed request contains no provisional revision.
+Actual Source apply chooses1 for an open Start or checked-increments the current merged v1 Final
+revision, then performs the unchanged v1 conservative merge. Exhaustion fails closed. Logical retry
+returns the original first result; UNKNOWN keeps the same frame and original time evidence.
+
+Native60 schema2 preserves fields2–5, adds6 actual incoming unchanged-v1 Final, and puts the digest
+in7 over fields1–6 with the existing Native60 domain. Schema1 retains its original field6 digest,
+input/record bounds and body1/2 bytes. Incoming is distinct from the merged after: an older worse
+Final can continue to supply the after's outcome/evidence. Hot and cold folds independently check
+the Source predecessor, allocated incoming revision, original evidence, conservative after and
+complete event order. They never regenerate a historical revision from today's sample. An old
+explicit body1/2 revision conflicting with an already applied Final is stably STALE, not renumbered.
+
+FinalEvidence2 is explicitly kind4 RECOVERY_GAP. Fields1 version2,2 kind4,3 complete qualified UTC
+observing the confirmed gap,4 original inspected Source cut, optional5/6 original Admission input/
+actual sync stamp,7 complete RecoveryGap. Its independent digest domain is
+`nereus-delay-target-slo-recovery-gap-evidence` plus NUL. Evidence1 kinds1–3/bytes/domain/bounds
+remain unchanged; body2 cannot carry Evidence2. RecoveryGap1 fields are1 version1,2 sampleId32,
+3 original startDigest32,4 immutable bindingDigest32,5 original generation,6 reason,7 complete
+known first,8 complete physical POSITION,9 original protected confirmation-material digest32.
+Known Command/Kind6 or APPLIED/OK first Admission facts, full Source/scope/lineage/Root links and
+actual retained first/POS are independently checked. Command first may belong to TARGET while its
+physical POSITION belongs to SHARD; accounting ownership is preserved rather than conflated.
+
+Reason1 SYNC_TIME_UNRECOVERABLE produces BAD_UNQUALIFIED_TIME; reason2
+ENDPOINT_EVIDENCE_UNRECOVERABLE produces BAD_EVIDENCE_GAP. Both use unchanged v1
+TRUSTED_OBSERVATION at the real gap-discovery UTC interval [E,L], original UTC digest rules and
+checked `max(0,E-start.latest)` / `max(0,L-start.earliest)` durations. These are discovery ages,
+never historical sync latency bounds or timely SUCCESS evidence. Consumers retain explicit reasons
+through the complete export; `hasCertifiedSyncLatency()` is false and `recoveryGaps()` exposes them.
+Original Source/checkpoint/collector gap qualification defaults deny. It requires protected prior
+immutable-frame/UNKNOWN reconciliation and authenticated irrecoverability; temporary lookup failure,
+incomplete recovery, malformed Native facts or unresolved old writers cannot create a BAD gap.
+
+TIMEOUT apply rechecks the exact current Native sample/lifecycle. Any existing Final, known Command
+sync (including Kind6) or known same-generation Admission makes the request STALE. Only a complete
+ordinary same-generation no-Admission projection proceeds to original deadline/time/history authority;
+missing Message/Budget/Attempt or changed generation is UNKNOWN, not absence. The live continuation
+retains actual guarded append/first Source positions; timeout/gap preappend waits until its pending
+continuation settles and those positions are actually applied. This bounded live-runtime barrier is
+not a crash-recovery settlement proof. Complete timeout census, post-old-writer recovery barrier,
+actual gap producer, lifetime Source-occurrence/resource/retention qualification and full population
+consumer remain open. Descriptor maximum14 / advertised Native56 and all completion flags stay closed.

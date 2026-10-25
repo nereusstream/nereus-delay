@@ -96,10 +96,16 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             before();final var collectorKey=authority.collectorKey(body.custody(),input.source());after();
             if(collectorKey==null||!body.custody().verifySignature(collectorKey))throw new IllegalStateException("checkpoint custody lacks its original independent collector signature");
         }else{
-            body.finalObservation().validateAgainst(sample.observation().start());
-            if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
+            if(body.isSourceAssigned())body.evidence().requireSample(sample);
+            else{
+                body.finalObservation().validateAgainst(sample.observation().start());
+                if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
+            }
         }
-        before();authority.requireCurrent();authority.requireAuthorized(generation,original,input.image(),input.source());authority.requireCurrent();after();
+        before();authority.requireCurrent();
+        if(body.evidence()!=null&&body.evidence().isRecoveryGap())authority.requireRecoveryGap(generation,original,input.image(),input.source());
+        else authority.requireAuthorized(generation,original,input.image(),input.source());
+        authority.requireCurrent();after();
         before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());after();
         return key;
     }

@@ -273,6 +273,12 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         if (!Arrays.equals(input.canonicalEnvelope(), original.canonicalEnvelope())) throw new IllegalStateException("SLO event snapshot changed exact original frame");
                         a.observation().requireAuthorized(generation, sample, input, source); requireCurrent();
                     }
+                    public void requireRecoveryGap(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
+                            SystemMutation input,SourcePosition source){
+                        requireCurrent();requireSource(entry,source);
+                        if(!Arrays.equals(input.canonicalEnvelope(),original.canonicalEnvelope()))throw new IllegalStateException("SLO recovery snapshot changed its original frame");
+                        a.observation().requireRecoveryGap(generation,sample,input,source);requireCurrent();
+                    }
                     public PublicKey collectorKey(TargetSloCustodyReceipt receipt,SourcePosition source){
                         requireCurrent();requireSource(entry,source);
                         if(!body.isCustody()||!Arrays.equals(receipt.canonicalBytes(),body.custody().canonicalBytes()))throw new IllegalStateException("collector key changed exact original receipt");

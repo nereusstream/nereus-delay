@@ -52,6 +52,7 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
     private TrustedUtcIntervalEvidence observedAt;
     private List<TargetSloObservationEventMutationFactory.Prepared> frames;
     private int persisted;
+    private SourcePosition persistedThrough;
     private boolean actionOutstanding, stopping, heldClosed, framesValidated, cleanupOutstanding;
     private Throwable lastFailure;
 
@@ -172,6 +173,7 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
         original.requireCurrent();
         final var image = exact.get(index).mutation();
         final var first = worker.sloFinalMutationResult(image, clock);
+        if(first.isPresent())rememberPersisted(SourcePositionCodec.decode(first.orElseThrow().appliedSourcePosition()));
         guard.run();
         if (first.isPresent()) {
             // This settles exact Source durability only; its actual applied/rejected result remains authoritative.
@@ -184,10 +186,22 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
         catch (RuntimeException uncertain) { guard.run(); return new Step(uncertain); }
         guard.run(); original.requireCurrent();
         if (appended.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
-            worker.requireSloFinalAppend(image, appended, inspectedAt, clock); guard.run(); original.requireCurrent();
+            worker.requireSloFinalAppend(image, appended, inspectedAt, clock);
+            rememberPersisted(appended.sourcePosition());
+            guard.run(); original.requireCurrent();
             synchronized (this) { persisted++; }
         }
         return new Step(null); // UNKNOWN/definite non-persistence keeps the same index and exact frame.
+    }
+
+    /** A real append/first-result barrier, retained independently of later provider/cleanup failures. */
+    public synchronized SourcePosition persistedThrough(){return persistedThrough;}
+
+    private synchronized void rememberPersisted(SourcePosition position){
+        TargetSourcePosition.requireBounded(Objects.requireNonNull(position));
+        if(!position.shardId().equals(inspectedAt.source().shardId())||!position.sameSourceIdentity(inspectedAt.source()))
+            throw new IllegalStateException("Final settlement changed its original physical Source");
+        if(persistedThrough==null||position.compareTo(persistedThrough)>0)persistedThrough=position;
     }
 
     private List<TargetSloObservationEventMutationFactory.Prepared> prepareFrames(Held original, Runnable guard) {
@@ -227,17 +241,17 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
         for (int index = 0; index < exact.size(); index++) {
             final var candidate = candidates.get(index); final var sample = candidate.sample(); final var generation = candidate.generation();
             final var input = exact.get(index).mutation(); final var body = TargetSloObservationEventBody.decode(input.canonicalBody());
-            final var evidence = Objects.requireNonNull(body.evidence(), "fresh Final requires complete body2 post-sync evidence");
+            final var evidence = Objects.requireNonNull(body.evidence(), "fresh observation requires complete body4 post-sync evidence");
             if (!sample.scope().equals(body.scope()) || !Arrays.equals(sample.lineage(), body.lineage())
                     || body.generation() != sample.generation() || generation.generation() != sample.generation()
                     || !Arrays.equals(body.sampleId(), sample.observation().sampleId())
                     || !Arrays.equals(body.bindingDigest(), sample.bindingDigest())
                     || !Arrays.equals(input.authorIdentity(), generation.policy().service().canonicalBytes())
                     || input.signingKeyVersion() != generation.policy().keyVersion()
-                    || !evidence.inspectedAt().equals(inspectedAt) || body.finalObservation().observationRevision() != 1) {
-                throw new IllegalArgumentException("Final provider changed original sample/binding/author/read cut/revision");
+                    || !evidence.inspectedAt().equals(inspectedAt) || !body.isSourceAssigned()) {
+                throw new IllegalArgumentException("Final provider changed original sample/binding/author/read cut or Source-assigned observation");
             }
-            evidence.requireObservation(sample, body.finalObservation());
+            evidence.requireSample(sample);
             if (entry instanceof SourceReplayRecord) {
                 if (evidence.kind() != TargetSloFinalEvidence.Kind.COMMAND_SYNC) throw new IllegalArgumentException("Command sync cannot complete due eligibility");
             } else if (evidence.kind() != TargetSloFinalEvidence.Kind.ADMISSION_SYNC

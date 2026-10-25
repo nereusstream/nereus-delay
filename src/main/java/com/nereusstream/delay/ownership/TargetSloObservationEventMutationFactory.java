@@ -30,11 +30,9 @@ public final class TargetSloObservationEventMutationFactory {
         Objects.requireNonNull(generation);Objects.requireNonNull(sample);Objects.requireNonNull(evidence);
         if(sample.generation()!=generation.generation()||!Arrays.equals(sample.policyDigest(),generation.policy().digest()))
             throw new IllegalArgumentException("observed Final changed frozen sample generation");
-        final var prior=sample.observation().finalObservation();
-        final long revision=prior==null?1:TargetQuotaMutation.increment(prior.observationRevision());
-        final var observation=evidence.observation(sample,revision);
+        evidence.requireSample(sample);
         return sign(generation,new TargetSloObservationEventBody(sample.scope(),sample.lineage(),retryUntil,sample.generation(),
-                sample.observation().sampleId(),sample.bindingDigest(),observation,evidence));
+                sample.observation().sampleId(),sample.bindingDigest(),null,evidence));
     }
     public Prepared prepareCustody(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
             TargetSloCustodyReceipt receipt,long retryUntil){

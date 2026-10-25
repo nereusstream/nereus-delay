@@ -29,7 +29,7 @@ public final class TargetSloFinalCandidates {
             throw new IllegalArgumentException("Command Final candidates require an original logical first or physical expiry");
         }
         final var result = new ArrayList<Candidate>();
-        for (var sample : references(reader, scope, lineage, originalFirst.key(), originalFirst.primaryIdentity())) {
+        for (var sample : references(reader, scope, lineage, originalFirst.key(), root(reader,scope))) {
             if (sample.declaration().objective().name() != SloObjectiveName.COMMAND_APPLIED_LATENCY) continue;
             if (!Arrays.equals(sample.first().canonicalBytes(), originalFirst.canonicalBytes())
                     || sample.declaration().path() != SloPath.NOT_APPLICABLE
@@ -68,7 +68,7 @@ public final class TargetSloFinalCandidates {
         }
         final var path = body.nativePublication() == null ? SloPath.ORDINARY_MANAGED : SloPath.MANAGED_PULSAR_HANDOFF;
         final var selected = new LinkedHashMap<String, TargetSloObservationSample>();
-        for (var sample : references(reader, scope, lineage, originalFirst.key(), originalFirst.primaryIdentity())) {
+        for (var sample : references(reader, scope, lineage, originalFirst.key(), root(reader,scope))) {
             if (sample.declaration().objective().name() != SloObjectiveName.DUE_ADMISSION_LAG) continue;
             if (sample.admission() == null || !Arrays.equals(sample.admission().canonicalEnvelope(), input.canonicalEnvelope())
                     || !Arrays.equals(sample.first().canonicalBytes(), originalFirst.canonicalBytes())
@@ -89,7 +89,7 @@ public final class TargetSloFinalCandidates {
             throw new IllegalStateException("Admission completion cannot use another Message generation");
         }
         final var birthPosition = positionKey(message.scheduleSource());
-        for (var sample : references(reader, scope, lineage, birthPosition, originalFirst.primaryIdentity())) {
+        for (var sample : references(reader, scope, lineage, birthPosition, root(reader,scope))) {
             if (sample.declaration().objective().name() != SloObjectiveName.DUE_ADMISSION_LAG) continue;
             final var eligibility = sample.eligibility();
             if (eligibility == null || !eligibility.locator().equals(body.locator())
@@ -148,9 +148,9 @@ public final class TargetSloFinalCandidates {
         Objects.requireNonNull(reader); Objects.requireNonNull(scope); Objects.requireNonNull(first);
         Bytes.requireLength(lineage, 16, "original Final candidate lineage");
         final var aggregate = reader.aggregate();
-        final var root = new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD, scope.shard(),
-                aggregate.accountingIncarnation(), null, null);
-        if (scope.target() != null || !scope.shard().equals(reader.shardId()) || !root.equals(first.primaryIdentity())
+        final var root = root(reader,scope);
+        if (scope.target() != null || !scope.shard().equals(reader.shardId()) || !scope.shard().equals(first.primaryIdentity().shard())
+                ||first.kind()!=TargetResultRecord.Kind.COMMAND&&!root.equals(first.primaryIdentity())
                 || !Arrays.equals(scope.tenantScope(), first.tenantScope()) || !Arrays.equals(lineage, first.recoveryLineage())
                 || first.kind() != TargetResultRecord.Kind.COMMAND && first.kind() != TargetResultRecord.Kind.SYSTEM
                         && first.kind() != TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED) {
@@ -162,6 +162,8 @@ public final class TargetSloFinalCandidates {
             throw new IllegalStateException("Final completion is not the actual retained first");
         }
         final var position = result(reader, positionKey(first.mutation().source()));
+        if(!root.equals(position.primaryIdentity())||!Arrays.equals(scope.tenantScope(),position.tenantScope())
+                ||!Arrays.equals(lineage,position.recoveryLineage()))throw new IllegalStateException("Final completion lost the actual physical Root POSITION");
         if(first.kind()==TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED){
             if(!Arrays.equals(position.canonicalBytes(),first.canonicalBytes()))throw new IllegalStateException("Final completion changed its standalone physical expiry");
         }else position.requireFirst(first);
@@ -169,6 +171,10 @@ public final class TargetSloFinalCandidates {
             throw new IllegalStateException("Final completion lost its exact first Source POSITION");
         }
         reader.requireWithinElapsedBudget();
+    }
+
+    private static TargetQuotaIdentity root(TargetStoreBackend.Reader reader,TargetQuotaScope scope){
+        return new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
     }
 
     private static TargetResultRecord result(TargetStoreBackend.Reader reader, byte[] key) {

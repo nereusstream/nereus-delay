@@ -66,6 +66,10 @@ public final class PersistentSloObservationCollector {
     public interface OriginalAuthority{
         /** Original Control, Source, binding, endpoint/time and complete retained collector material; outside file locks. */
         void requireOriginal(TargetSloObservationExport export);
+        /** Authenticates the original protected gap confirmation and reconciled old frames, never a read failure. */
+        default void requireRecoveryGap(TargetSloObservationExport export,com.nereusstream.delay.protocol.TargetSloObservationEventRecord event){
+            throw new IllegalStateException("original collector recovery-gap qualification unavailable");
+        }
         /** Only local checks of the already-held original protection/contract. */
         void requireCurrent();
         /** A locally held independently authenticated collector-contract key; never remote I/O. */
@@ -128,8 +132,8 @@ public final class PersistentSloObservationCollector {
         requireExportLimit(Objects.requireNonNull(incoming));
         final var key=Bytes.hex(incoming.sample().digest());
         final var observed=read(()->targets.get(key));
-        authority.requireCurrent();authority.requireOriginal(incoming);authority.requireCurrent();
-        if(observed!=null){authority.requireOriginal(observed.export());requireReceipt(observed,authority);}
+        requireOriginal(incoming,authority);
+        if(observed!=null){requireOriginal(observed.export(),authority);requireReceipt(observed,authority);}
         return mutate(()->{
             authority.requireCurrent();
             final var existing=targets.get(key);
@@ -158,7 +162,7 @@ public final class PersistentSloObservationCollector {
         requireTargetLimits(requested);Objects.requireNonNull(authority);
         final var entries=read(()->List.copyOf(targets.values()));
         final var result=new ArrayList<TargetSloObservationExport>();
-        for(var entry:entries){authority.requireCurrent();authority.requireOriginal(entry.export());requireReceipt(entry,authority);result.add(entry.export());}
+        for(var entry:entries){requireOriginal(entry.export(),authority);requireReceipt(entry,authority);result.add(entry.export());}
         authority.requireCurrent();return List.copyOf(result);
     }
 
@@ -167,7 +171,14 @@ public final class PersistentSloObservationCollector {
         requireTargetLimits(requested);Objects.requireNonNull(authority);Bytes.requireLength(sampleContentDigest,32,"exact Target sample content");
         final var entry=read(()->targets.get(Bytes.hex(sampleContentDigest)));
         if(entry==null)return null;
-        authority.requireCurrent();authority.requireOriginal(entry.export());requireReceipt(entry,authority);return entry.export();
+        requireOriginal(entry.export(),authority);requireReceipt(entry,authority);return entry.export();
+    }
+
+    private static void requireOriginal(TargetSloObservationExport exported,OriginalAuthority authority){
+        authority.requireCurrent();authority.requireOriginal(exported);authority.requireCurrent();
+        for(var event:exported.events())if(event.body().evidence()!=null&&event.body().evidence().isRecoveryGap()){
+            authority.requireRecoveryGap(exported,event);authority.requireCurrent();
+        }
     }
 
     private void requireTargetLimits(TargetLimits requested){

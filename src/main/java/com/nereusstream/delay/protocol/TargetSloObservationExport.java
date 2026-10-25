@@ -25,6 +25,8 @@ public record TargetSloObservationExport(TargetSloObservationGeneration generati
             throw new IllegalArgumentException("Target export event history exceeds its original finite generation");
         var folded=SloObservationOutbox.open(sample.observation().start());
         var latest=sample.first().mutation();long eventBytes=0;
+        var version=new TargetSloObservationSample(sample.scope(),sample.lineage(),sample.generation(),sample.enableId(),sample.enabledAt(),
+                sample.policyDigest(),sample.declaration(),sample.first(),folded,latest,sample.admission(),sample.eligibility());
         for(var event:events){
             final var body=event.body();
             if(!body.scope().equals(sample.scope())||!Arrays.equals(body.lineage(),sample.lineage())
@@ -36,11 +38,14 @@ public record TargetSloObservationExport(TargetSloObservationGeneration generati
                 throw new IllegalArgumentException("Target export lost an original immutable Source merge edge");
             policy.requireSource(event.appliedAt().source());event.appliedAt().requireAfter(latest);
             event.appliedAt().requireAtOrBefore(sample.mutation());
-            if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
-            folded=folded.mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
+            if(body.evidence()!=null)body.evidence().requireObservation(sample,event.incoming());
+            event.requireIncomingFor(version);
+            folded=folded.mergeFinal(event.incoming(),sample.declaration().objective().direction());
             if(!Arrays.equals(folded.canonicalBytes(),event.after().canonicalBytes()))
                 throw new IllegalArgumentException("Target export changed the original conservative v1 merge");
             latest=event.appliedAt();eventBytes=Math.addExact(eventBytes,event.storedBytes());
+            version=new TargetSloObservationSample(sample.scope(),sample.lineage(),sample.generation(),sample.enableId(),sample.enabledAt(),
+                    sample.policyDigest(),sample.declaration(),sample.first(),folded,latest,sample.admission(),sample.eligibility());
         }
         if(!latest.equals(sample.mutation())||!Arrays.equals(folded.canonicalBytes(),sample.observation().canonicalBytes())
                 ||eventBytes>generation.counts().eventBytes())
@@ -52,6 +57,10 @@ public record TargetSloObservationExport(TargetSloObservationGeneration generati
         CanonicalProtobuf.bytes(out,3,sample.canonicalBytes());CanonicalProtobuf.bytes(out,4,cut.canonicalBytes());
         for(var event:events)CanonicalProtobuf.bytes(out,5,event.canonicalBytes());
     });}
+    /** Gap measurements describe discovery time; they never certify the known historical sync's latency. */
+    public List<TargetSloFinalEvidence> recoveryGaps(){
+        return events.stream().map(event->event.body().evidence()).filter(value->value!=null&&value.isRecoveryGap()).toList();
+    }
     public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
     public byte[] canonicalBytes(){return Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,6,digest())));}
 

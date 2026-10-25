@@ -202,7 +202,7 @@ public final class TargetSloObservationHistoryAudit {
                 final var event=row.finalEvent();
                 if(event.body().generation()!=sample.generation()||!Arrays.equals(event.body().bindingDigest(),sample.bindingDigest()))throw new IllegalStateException("SLO Final changed original sample binding");
                 event.appliedAt().requireAtOrBefore(sample.mutation());
-                if(event.body().evidence()!=null)event.body().evidence().requireObservation(sample,event.body().finalObservation());
+                if(event.body().evidence()!=null)event.body().evidence().requireObservation(sample,event.incoming());
             }else if(row.custody().sample().generation()!=sample.generation()
                     ||!Arrays.equals(row.custody().sample().bindingDigest(),sample.bindingDigest()))throw new IllegalStateException("SLO custody changed original sample binding");
             if(pending.putIfAbsent(Bytes.hex(row.input().systemMutationId()),row)!=null
@@ -232,7 +232,8 @@ public final class TargetSloObservationHistoryAudit {
                     final var event=row.finalEvent();
                     if(!Arrays.equals(folded.recordDigest(),event.beforeDigest()))throw new IllegalStateException("SLO Source merge history has a missing predecessor");
                     event.appliedAt().requireAfter(latest);
-                    folded=folded.mergeFinal(event.body().finalObservation(),sample.declaration().objective().direction());
+                    event.requireIncomingFor(version);
+                    folded=folded.mergeFinal(event.incoming(),sample.declaration().objective().direction());
                     if(!Arrays.equals(folded.canonicalBytes(),event.after().canonicalBytes()))throw new IllegalStateException("SLO Source merge edge changes conservative v1 semantics");
                     latest=event.appliedAt();
                     version=new TargetSloObservationSample(sample.scope(),sample.lineage(),sample.generation(),sample.enableId(),sample.enabledAt(),

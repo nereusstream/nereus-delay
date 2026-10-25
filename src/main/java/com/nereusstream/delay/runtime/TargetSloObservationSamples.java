@@ -221,8 +221,9 @@ public final class TargetSloObservationSamples {
             if(written){
                 if(priorRaw==null)throw new IllegalStateException("SLO Final cannot invent original Start");
                 final var prior=TargetSloObservationSample.decodeForStore(sample.key(),TargetValueEnvelope.decode(priorRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                event.requireIncomingFor(prior);
                 if(!Arrays.equals(prior.bindingDigest(),sample.bindingDigest())||!Arrays.equals(prior.observation().recordDigest(),event.beforeDigest())
-                        ||!Arrays.equals(prior.observation().mergeFinal(event.body().finalObservation(),sample.declaration().objective().direction()).canonicalBytes(),sample.observation().canonicalBytes()))
+                        ||!Arrays.equals(prior.observation().mergeFinal(event.incoming(),sample.declaration().objective().direction()).canonicalBytes(),sample.observation().canonicalBytes()))
                     throw new IllegalStateException("SLO Final changed immutable binding or conservative original merge");
             }
         }

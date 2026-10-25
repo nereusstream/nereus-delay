@@ -15,6 +15,15 @@ public final class TargetSloObservationEventStore {
         /** Original semantic endpoint/time/history and real retained budget qualification; already-held local checks. */
         void requireAuthorized(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
                 SystemMutation input,SourcePosition source);
+        /**
+         * Original protected recovery has reconciled old immutable frames/UNKNOWN writes and independently
+         * confirmed the specified irrecoverable gap. Includes actual discovery UTC, history and resource custody.
+         * A temporary read failure, incomplete recovery or unresolved old writer never grants this authority.
+         */
+        default void requireRecoveryGap(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
+                SystemMutation input,SourcePosition source){
+            throw new IllegalStateException("original protected SLO recovery-gap qualification unavailable");
+        }
         void requireCurrent();
         /** Held independent collector contract/key at this exact Source; resolve remotely during preparation only. */
         default PublicKey collectorKey(TargetSloCustodyReceipt receipt,SourcePosition source){
@@ -70,10 +79,13 @@ public final class TargetSloObservationEventStore {
                     if(record.storedBytes()>generation.policy().limits().maximumRecordBytes())throw new IllegalStateException("custody record exceeds frozen single-record cap");
                     absent(reader,ColumnFamily.META,record.key());edits.add(reader.replace(ColumnFamily.META,record.key(),TargetSloCustodyRecord.VALUE_TYPE,record.canonicalBytes()));
                 }else{
-                    final var merged=sample.observation().mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
+                    final var incoming=body.incomingFor(sample);
+                    final var merged=sample.observation().mergeFinal(incoming,sample.declaration().objective().direction());
                     final var next=new TargetSloObservationSample(scope,lineage,sample.generation(),sample.enableId(),sample.enabledAt(),sample.policyDigest(),
                             sample.declaration(),sample.first(),merged,stamp,sample.admission(),sample.eligibility());
-                    final var event=new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged);
+                    final var event=body.isSourceAssigned()
+                            ?new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged,incoming)
+                            :new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged);
                     final var afterReserve=reserved.minus(TargetSloObservationReservations.forSample(generation,sample,wasCustodied))
                             .plus(TargetSloObservationReservations.forSample(generation,next,false));
                     counts=new TargetSloObservationGeneration.Counts(before.issued(),before.outboxRecords(),
@@ -122,10 +134,30 @@ public final class TargetSloObservationEventStore {
             if(collectorKey==null||!body.custody().verifySignature(collectorKey))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
             if(reader.get(ColumnFamily.META,TargetSloCustodyRecord.key(body.sampleId(),body.exportedSample().digest()))!=null)return StableCode.STALE_SYSTEM_MUTATION;
         }else{
-            body.finalObservation().validateAgainst(sample.observation().start());
-            requireEvidenceOrigin(reader,List.of(),scope,lineage,sample,body,reader.aggregate().mutation());
+            if(body.evidence()!=null&&body.evidence().isRecoveryGap()&&sample.observation().finalObservation()!=null)
+                return StableCode.STALE_SYSTEM_MUTATION;
+            final boolean timeout=body.evidence()!=null&&body.evidence().kind()==TargetSloFinalEvidence.Kind.TIMEOUT
+                    ||body.finalObservation()!=null&&body.finalObservation().outcome()==SloFinalOutcome.BAD_TIMEOUT;
+            if(timeout){
+                final var candidate=TargetSloTimeoutCandidates.inspect(reader,scope,lineage,reader.aggregate().mutation(),sample);
+                switch(candidate){
+                    case CURRENT_FINAL,KNOWN_COMMAND_SYNC,KNOWN_ADMISSION_SYNC->{return StableCode.STALE_SYSTEM_MUTATION;}
+                    case UNKNOWN_REQUIRED_HISTORY->throw new IllegalStateException("SLO timeout lacks the original same-generation no-Admission lifecycle/history");
+                    case NO_KNOWN_ADMISSION_AT_CUT->{ /* Original time/history authority below still qualifies this actual Source input. */ }
+                }
+            }
+            final var incoming=body.incomingFor(sample);
+            incoming.validateAgainst(sample.observation().start());
+            final var prior=sample.observation().finalObservation();
+            if(!body.isSourceAssigned()&&prior!=null
+                    &&Long.compareUnsigned(incoming.observationRevision(),prior.observationRevision())<=0
+                    &&!Arrays.equals(incoming.canonicalBytes(),prior.canonicalBytes()))return StableCode.STALE_SYSTEM_MUTATION;
+            requireEvidenceOrigin(reader,List.of(),scope,lineage,sample,body,incoming,reader.aggregate().mutation());
         }
-        authority.observation().requireCurrent();authority.observation().requireAuthorized(generation,body.isCustody()?body.exportedSample():sample,input,source);authority.observation().requireCurrent();
+        authority.observation().requireCurrent();
+        if(body.evidence()!=null&&body.evidence().isRecoveryGap())authority.observation().requireRecoveryGap(generation,sample,input,source);
+        else authority.observation().requireAuthorized(generation,body.isCustody()?body.exportedSample():sample,input,source);
+        authority.observation().requireCurrent();
         return null;
     }
     public SystemMutationResult commit(Prepared prepared,TargetStoreBackend.CommitAuthority original){
@@ -169,8 +201,8 @@ public final class TargetSloObservationEventStore {
         generation.policy().requireSource(event.appliedAt().source());
         if(!Arrays.equals(event.input().authorIdentity(),generation.policy().service().canonicalBytes())
                 ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed frozen original writer");
-        event.body().finalObservation().validateAgainst(sample.observation().start());
-        requireEvidenceOrigin(view,overlay,scope,lineage,sample,event.body(),event.appliedAt());
+        event.incoming().validateAgainst(sample.observation().start());
+        requireEvidenceOrigin(view,overlay,scope,lineage,sample,event.body(),event.incoming(),event.appliedAt());
     }
     /** Validates an older exact export without mistaking it for today's mutable projection. */
     public static void requireStoredVersion(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
@@ -185,7 +217,7 @@ public final class TargetSloObservationEventStore {
         }else{
             final var key=TargetSloObservationEventRecord.key(exported.observation().sampleId(),exported.mutation().sequence());
             final var event=TargetSloObservationEventRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetSloObservationEventRecord.VALUE_TYPE),scope,lineage);
-            requireOrigin(view,overlay,scope,lineage,current.first().primaryIdentity(),event,frontier);
+            requireOrigin(view,overlay,scope,lineage,birthRoot(view,overlay,scope,lineage,current),event,frontier);
             if(!event.appliedAt().equals(exported.mutation())||!Arrays.equals(event.after().canonicalBytes(),exported.observation().canonicalBytes()))
                 throw new IllegalStateException("custody export lost its exact original Final Source version");
         }
@@ -216,17 +248,27 @@ public final class TargetSloObservationEventStore {
     }
 
     private static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
-            TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample,TargetSloObservationEventBody body,TargetQuotaMutation frontier){
+            TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample,TargetSloObservationEventBody body,
+            SloSampleFinal incoming,TargetQuotaMutation frontier){
         final var evidence=body.evidence();if(evidence==null)return;
-        evidence.requireObservation(sample,body.finalObservation());evidence.inspectedAt().requireAtOrBefore(frontier);
+        evidence.requireObservation(sample,incoming);evidence.inspectedAt().requireAtOrBefore(frontier);
         final var cut=result(view,overlay,TargetSloObservationStore.positionKey(evidence.inspectedAt().source()));
+        final var root=birthRoot(view,overlay,scope,lineage,sample);
         if(!cut.mutation().equals(evidence.inspectedAt())||!Arrays.equals(cut.tenantScope(),scope.tenantScope())
-                ||!Arrays.equals(cut.recoveryLineage(),lineage)||!cut.primaryIdentity().equals(sample.first().primaryIdentity()))
+                ||!Arrays.equals(cut.recoveryLineage(),lineage)||!cut.primaryIdentity().equals(root))
             throw new IllegalStateException("SLO endpoint observation changed actual protected inspected Source cut");
+        if(evidence.isRecoveryGap()){
+            final var gap=evidence.gap();
+            final var known=result(view,overlay,gap.knownFirst().key());
+            final var position=result(view,overlay,gap.knownPosition().key());
+            if(!Arrays.equals(known.canonicalBytes(),gap.knownFirst().canonicalBytes())
+                    ||!Arrays.equals(position.canonicalBytes(),gap.knownPosition().canonicalBytes()))
+                throw new IllegalStateException("SLO recovery gap changed the actual known sync first/POSITION");
+        }
         if(evidence.admission()!=null){
             final var first=result(view,overlay,TargetSloObservationStore.firstKey(evidence.admission().systemMutationId()));
             if(!first.appliedFirst()||first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(evidence.admissionAt())
-                    ||!first.primaryIdentity().equals(sample.first().primaryIdentity())||!Arrays.equals(first.tenantScope(),scope.tenantScope())
+                    ||!first.primaryIdentity().equals(root)||!Arrays.equals(first.tenantScope(),scope.tenantScope())
                     ||!Arrays.equals(first.recoveryLineage(),lineage)||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(evidence.admission(),
                         ApplyStatus.APPLIED,StableCode.OK,evidence.admissionAt().source().canonicalBytes()).encode()))
                 throw new IllegalStateException("SLO due success lacks exact original sync first");
@@ -235,6 +277,17 @@ public final class TargetSloObservationEventStore {
     }
     private static TargetResultRecord result(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] key){
         final var value=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));value.requireStored(key,TargetResultRecord.VALUE_TYPE,value.canonicalBytes());return value;
+    }
+    private static TargetQuotaIdentity birthRoot(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample){
+        final var position=result(view,overlay,sample.positionKey());
+        if(position.primaryIdentity().kind()!=TargetQuotaIdentity.Kind.SHARD||!scope.shard().equals(position.primaryIdentity().shard())
+                ||!Arrays.equals(scope.tenantScope(),position.tenantScope())||!Arrays.equals(lineage,position.recoveryLineage())
+                ||!position.mutation().equals(sample.first().mutation()))throw new IllegalStateException("SLO sample lost its original physical Root POSITION");
+        if(sample.first().kind()==TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED){
+            if(!Arrays.equals(position.canonicalBytes(),sample.first().canonicalBytes()))throw new IllegalStateException("SLO expired sample changed its sole original POSITION");
+        }else position.requireFirst(sample.first());
+        return position.primaryIdentity();
     }
     static byte[] payload(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key,int type){
         return TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"original SLO Source dependency"),type).payload();
