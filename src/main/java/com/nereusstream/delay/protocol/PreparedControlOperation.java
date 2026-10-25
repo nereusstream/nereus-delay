@@ -276,6 +276,13 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH -> {
+                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
+                requireMutationPresence(values,ControlTargetKind.SHARD,true);
+                final var writer=branch(request,TargetSloWriterControlRequest.class);
+                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(writer.scope().shard()))
+                    throw new IllegalArgumentException("Target SLO writer must select its original Source Shard at index zero");
+            }
             case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);

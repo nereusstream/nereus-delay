@@ -85,7 +85,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter {}
+    public record SloWriter(PreparedControlOperation prepared,com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority authority) implements Inputs {}
     public record SloEvent(com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority authority) implements Inputs {}
     public record SloMode(PreparedControlOperation prepared, TargetSloObservationVerifier.Authority authority) implements Inputs {}
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
@@ -293,6 +294,23 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                             return key;
                         }, observation), commit);
             }
+            case SloWriter value -> {
+                final var a=value.authority();
+                final var frozen=freeze(value.prepared(),entry,a.registrations(),
+                        version->a.keys().resolve(version,entry.position()),held,guard);
+                final var material=new com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority(){
+                    public void requireAuthorized(TargetSloWriterControlRequest request,TargetSloWriterEpoch retained,SourcePosition source){
+                        requireCurrent();a.materialization().requireAuthorized(request,retained,source);requireCurrent();
+                    }
+                    public void requireFenceAuthorized(SystemMutation originalInput,TargetQuotaMutation fenceAt){
+                        requireCurrent();a.materialization().requireFenceAuthorized(originalInput,fenceAt);requireCurrent();
+                    }
+                    public void requireCurrent(){held.requireCurrent();a.materialization().requireCurrent();held.requireCurrent();}
+                };
+                yield new TargetSourceApplyRuntime.SloWriterControl(value.prepared(),
+                        new com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority(frozen,
+                                (version,source)->frozen.key(version,source),a.actor(),a.scopeProof(),material),commit);
+            }
             case SloMode value -> {
                 final var a = value.authority();
                 final var frozen = freeze(value.prepared(), entry, a.registrations(),
@@ -334,6 +352,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
             case SloMode ignored -> TargetSourceAuthorityPreparation.Family.SLO_MODE;
             case SloEvent ignored -> TargetSourceAuthorityPreparation.Family.SLO_EVENT;
+            case SloWriter ignored -> TargetSourceAuthorityPreparation.Family.SLO_WRITER;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;

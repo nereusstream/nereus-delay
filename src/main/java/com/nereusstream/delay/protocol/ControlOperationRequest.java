@@ -124,6 +124,8 @@ public final class ControlOperationRequest {
 
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
+            case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
+                    TargetSloWriterControlRequest.decode(kind, encoded);
             case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION ->
                     TargetSloObservationControlRequest.decode(kind, encoded);
             case ACTIVATE_TARGET_PROTOCOL -> TargetProtocolActivatePayload.decode(encoded);
@@ -158,6 +160,8 @@ public final class ControlOperationRequest {
     private static void validateBranch(final ControlOperationKind kind, final ControlOperationRequestBranch branch) {
         final boolean valid =
                 switch (kind) {
+                    case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
+                            branch instanceof TargetSloWriterControlRequest writer && writer.operationKind()==kind;
                     case ACTIVATE_TARGET_PROTOCOL -> branch instanceof TargetProtocolActivatePayload;
                     case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION ->
                             branch instanceof TargetSloObservationControlRequest observation && observation.operationKind() == kind;

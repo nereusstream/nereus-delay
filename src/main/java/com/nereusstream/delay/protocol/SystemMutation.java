@@ -221,6 +221,8 @@ public final class SystemMutation {
         } else if (kind == TargetSloObservationControlRequest.ENABLE_CONTROL_KIND
                 || kind == TargetSloObservationControlRequest.STOP_CONTROL_KIND) {
             logicalIdentity = TargetSloObservationControlBody.decode(envelope.body()).logicalIdentity();
+        } else if(kind==TargetSloWriterControlRequest.REGISTER_CONTROL_KIND||kind==TargetSloWriterControlRequest.CLOSE_CONTROL_KIND){
+            logicalIdentity=TargetSloWriterControlBody.decode(envelope.body()).logicalIdentity();
         } else {
             logicalIdentity = SystemMutationIdentity.resolve(envelope.shardId(), envelope.type(), envelope.body());
         }

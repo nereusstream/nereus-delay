@@ -7,6 +7,8 @@ import java.util.Objects;
 /** Retained certification generation and exact Source Control inputs. Counts require independent ledger validation. */
 public record TargetSloObservationGeneration(Control enable, Control stop, Counts counts, TargetQuotaMutation mutation) {
     public static final int VALUE_TYPE = 58;
+    public static final int MAX_V1_CANONICAL_BYTES = 2 * (Control.MAX_V1_CANONICAL_BYTES + 8)
+            + Counts.MAX_CANONICAL_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 96;
     public static final int MAX_CANONICAL_BYTES = 2 * (Control.MAX_CANONICAL_BYTES + 8)
             + Counts.MAX_CANONICAL_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 96;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-observation-generation\0");
@@ -14,6 +16,8 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
 
     /** Full immutable Source input; signature/history/registration authority is rechecked independently. */
     public record Control(SystemMutation input, TargetQuotaMutation appliedAt) {
+        public static final int MAX_V1_INPUT_BYTES = TargetSloObservationControlBody.MAX_V1_CANONICAL_BYTES + 1024;
+        public static final int MAX_V1_CANONICAL_BYTES = MAX_V1_INPUT_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 32;
         public static final int MAX_INPUT_BYTES = TargetSloObservationControlBody.MAX_CANONICAL_BYTES + 1024;
         public static final int MAX_CANONICAL_BYTES = MAX_INPUT_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 32;
 
@@ -21,7 +25,8 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
             Objects.requireNonNull(input); Objects.requireNonNull(appliedAt);
             appliedAt.requireSourceApplied();
             final var body = TargetSloObservationControlBody.decode(input.canonicalBody());
-            if (input.type() != SystemMutationType.APPLY_SHARD_CONTROL || input.canonicalEnvelope().length > MAX_INPUT_BYTES
+            if (input.type() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || input.canonicalEnvelope().length > (body.schemaVersion()==1?MAX_V1_INPUT_BYTES:MAX_INPUT_BYTES)
                     || !Arrays.equals(input.logicalOperationIdentity(), body.logicalIdentity())
                     || !input.shardId().equals(body.shard()) || !body.shard().equals(appliedAt.source().shardId())
                     || input.retryUntilEpochMs() != body.retryUntil()
@@ -158,7 +163,7 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
     public byte[] digest() { return Bytes.sha256(DOMAIN, fields()); }
     public byte[] canonicalBytes() {
         final var encoded = Bytes.concat(fields(), CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 6, digest())));
-        if (encoded.length > MAX_CANONICAL_BYTES) throw new IllegalArgumentException("Target SLO generation exceeds bound");
+        if (encoded.length > (policy().requiresWriterEpoch()?MAX_CANONICAL_BYTES:MAX_V1_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO generation exceeds bound");
         return encoded;
     }
     public static TargetSloObservationGeneration decode(byte[] encoded) {

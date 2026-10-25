@@ -51,6 +51,12 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if(prepared.request().branch() instanceof TargetSloWriterControlRequest expected){
+                    final var body=TargetSloWriterControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef,body.controlRef());
+                    if(!expected.equals(body.request()))throw new IllegalArgumentException("Target SLO writer differs from its registered Control request");
+                    expectedLogicalIdentity=body.logicalIdentity();break;
+                }
                 if (prepared.request().branch() instanceof TargetSloObservationControlRequest expected) {
                     final var body = TargetSloObservationControlBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef, body.controlRef());
@@ -140,6 +146,8 @@ public final class ControlTargetMutationBinding {
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
             case GRANT_TARGET_MEMBERSHIP,
+                    REGISTER_TARGET_SLO_WRITER_EPOCH,
+                    CLOSE_TARGET_SLO_WRITER_EPOCH,
                     ENABLE_TARGET_SLO_CERTIFICATION,
                     STOP_TARGET_SLO_CERTIFICATION,
                     ACTIVATE_TARGET_PROTOCOL,

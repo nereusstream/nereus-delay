@@ -26,6 +26,8 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
         /** Original qualified interval sampled after this continuation's actual guarded candidate read. */
         TrustedUtcIntervalEvidence observedAt();
         TargetSloObservationEventMutationFactory signer(TargetSloFinalCandidates.Candidate candidate);
+        /** Original applied writer token, held unchanged for this candidate's exact frame. */
+        default com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Applied writerEpoch(TargetSloFinalCandidates.Candidate candidate){return null;}
         long retryUntilEpochMs(TargetSloFinalCandidates.Candidate candidate);
         /** Complete original time, signer and reservation material; generated frames are charged independently. */
         long retainedBytes();
@@ -180,6 +182,7 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
             synchronized (this) { persisted++; }
             return new Step(null);
         }
+        TargetSloObservationEventMutationFactory.requirePreparedWriter(exact.get(index),candidates.get(index).generation());
         worker.requireSloFinalWriter(image, clock); guard.run(); original.requireCurrent();
         final ShardLogMutationAppender.AppendOutcome appended;
         try { appended = Objects.requireNonNull(appender.append(image), "original Final Source append"); }
@@ -224,8 +227,11 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
                     ? new TargetSloFinalEvidence(TargetSloFinalEvidence.Kind.COMMAND_SYNC, time, inspectedAt, null, null)
                     : new TargetSloFinalEvidence(TargetSloFinalEvidence.Kind.ADMISSION_SYNC, time, inspectedAt,
                             ((SourceReplayMutation) entry).mutation(), candidate.syncedFirst().mutation());
-            final var prepared = Objects.requireNonNull(original.signer(candidate), "original qualified SERVICE signer")
-                    .prepareObserved(candidate.generation(), candidate.sample(), evidence, original.retryUntilEpochMs(candidate));
+            final var signer = Objects.requireNonNull(original.signer(candidate), "original qualified SERVICE signer");
+            final var writerEpoch = original.writerEpoch(candidate);
+            final var prepared = writerEpoch == null
+                    ? signer.prepareObserved(candidate.generation(), candidate.sample(), evidence, original.retryUntilEpochMs(candidate))
+                    : signer.prepareObserved(candidate.generation(), candidate.sample(), evidence, original.retryUntilEpochMs(candidate),writerEpoch);
             synchronized (this) {
                 final var retained = new java.util.ArrayList<TargetSloObservationEventMutationFactory.Prepared>();
                 if (frames != null) retained.addAll(frames);
@@ -241,13 +247,12 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
         for (int index = 0; index < exact.size(); index++) {
             final var candidate = candidates.get(index); final var sample = candidate.sample(); final var generation = candidate.generation();
             final var input = exact.get(index).mutation(); final var body = TargetSloObservationEventBody.decode(input.canonicalBody());
-            final var evidence = Objects.requireNonNull(body.evidence(), "fresh observation requires complete body4 post-sync evidence");
+            TargetSloObservationEventMutationFactory.requirePreparedWriter(exact.get(index),generation);
+            final var evidence = Objects.requireNonNull(body.evidence(), "fresh observation requires complete Source-assigned post-sync evidence");
             if (!sample.scope().equals(body.scope()) || !Arrays.equals(sample.lineage(), body.lineage())
                     || body.generation() != sample.generation() || generation.generation() != sample.generation()
                     || !Arrays.equals(body.sampleId(), sample.observation().sampleId())
                     || !Arrays.equals(body.bindingDigest(), sample.bindingDigest())
-                    || !Arrays.equals(input.authorIdentity(), generation.policy().service().canonicalBytes())
-                    || input.signingKeyVersion() != generation.policy().keyVersion()
                     || !evidence.inspectedAt().equals(inspectedAt) || !body.isSourceAssigned()) {
                 throw new IllegalArgumentException("Final provider changed original sample/binding/author/read cut or Source-assigned observation");
             }

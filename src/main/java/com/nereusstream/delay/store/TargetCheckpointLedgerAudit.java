@@ -141,6 +141,7 @@ final class TargetCheckpointLedgerAudit {
         final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetSloWriterEpoch> sloWriterEpochs = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
@@ -247,6 +248,11 @@ final class TargetCheckpointLedgerAudit {
                         final var custody=com.nereusstream.delay.protocol.TargetSloCustodyRecord.decodeForStore(key,payload,
                                 new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
                         sloCustodies.add(custody);dependencies.sloCustody(custody);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetSloWriterEpoch.VALUE_TYPE){
+                        final var writer=com.nereusstream.delay.protocol.TargetSloWriterEpoch.decodeForStore(key,payload,
+                                proof.root().scope(),proof.root().recoveryLineage());
+                        writer.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        sloWriterEpochs.add(writer);dependencies.sloWriterEpoch(writer);
                     } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
                         channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE) {
@@ -389,11 +395,13 @@ final class TargetCheckpointLedgerAudit {
         }
         auditControlResults(membershipClosures, nativeControls, channelControls, resultRows, proof.root().identity());
         TargetChannelHistoryAudit.requireComplete(channelControls, channelIdentities, channelSlots);
+        for(var writer:sloWriterEpochs)com.nereusstream.delay.runtime.TargetSloWriterEpochStore.requireOrigin(view,List.of(),
+                proof.root().scope(),proof.root().recoveryLineage(),proof.root().identity(),writer,proof.aggregate().mutation());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireComplete(sloStates, sloGenerations,
                 new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null),
                 proof.root().recoveryLineage(), proof.aggregate().mutation());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireSamples(sloGenerations,sloSamples,
-                resultRows.stream().map(r->TargetResultRecord.decode(r.payload())).toList(),sloEvents,sloCustodies);
+                resultRows.stream().map(r->TargetResultRecord.decode(r.payload())).toList(),sloEvents,sloCustodies,sloWriterEpochs);
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireEligibilityMessages(sloGenerations,sloSamples,eligibilityMessages);
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());

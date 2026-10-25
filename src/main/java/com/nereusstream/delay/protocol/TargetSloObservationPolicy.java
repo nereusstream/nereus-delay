@@ -9,13 +9,21 @@ import java.util.Objects;
 /** Frozen Source-scoped certification declaration. Decoding it grants no activation or custody authority. */
 public record TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage, SourcePosition sourceAnchor,
         List<Declaration> declarations, Limits limits, AuthorIdentity service, int keyVersion,
-        byte[] collectorContractDigest) {
+        byte[] collectorContractDigest, TargetSloWriterContract.Reference requiredWriterEpoch) {
     public static final int MAX_DECLARATIONS = 3;
     public static final int MAX_SERVICE_BYTES = 1024;
-    public static final int MAX_CANONICAL_BYTES = TargetQuotaScope.MAX_CANONICAL_BYTES
+    public static final int MAX_V1_CANONICAL_BYTES = TargetQuotaScope.MAX_CANONICAL_BYTES
             + TargetSourcePosition.MAX_CANONICAL_BYTES + MAX_DECLARATIONS * Declaration.MAX_CANONICAL_BYTES
             + MAX_SERVICE_BYTES + 256;
+    public static final int MAX_CANONICAL_BYTES = MAX_V1_CANONICAL_BYTES + TargetSloWriterContract.Reference.MAX_CANONICAL_BYTES + 8;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-observation-policy\0");
+    private static final byte[] EPOCH_DOMAIN = Bytes.utf8("nereus-delay-target-slo-observation-epoch-policy\0");
+
+    public TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage, SourcePosition sourceAnchor,
+            List<Declaration> declarations, Limits limits, AuthorIdentity service, int keyVersion,
+            byte[] collectorContractDigest) {
+        this(scope, lineage, sourceAnchor, declarations, limits, service, keyVersion, collectorContractDigest, null);
+    }
 
     /** Only the actual Command and managed Admission producers are declared in this schema. */
     public record Declaration(SloObjective objective, SloPath path) {
@@ -115,6 +123,7 @@ public record TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage,
 
     @Override public byte[] lineage() { return Bytes.copy(lineage); }
     @Override public byte[] collectorContractDigest() { return Bytes.copy(collectorContractDigest); }
+    public boolean requiresWriterEpoch() { return requiredWriterEpoch != null; }
 
     public void requireSource(SourcePosition actual) {
         TargetSourcePosition.requireBounded(actual);
@@ -125,7 +134,7 @@ public record TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage,
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, 1);
+            CanonicalProtobuf.uint32(out, 1, requiresWriterEpoch() ? 2 : 1);
             CanonicalProtobuf.bytes(out, 2, scope.canonicalBytes());
             CanonicalProtobuf.bytes(out, 3, lineage);
             CanonicalProtobuf.bytes(out, 4, sourceAnchor.canonicalBytes());
@@ -136,21 +145,25 @@ public record TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage,
             CanonicalProtobuf.bytes(out, 7, service.canonicalBytes());
             CanonicalProtobuf.uint32Bits(out, 8, keyVersion);
             CanonicalProtobuf.bytes(out, 9, collectorContractDigest);
+            if (requiresWriterEpoch()) CanonicalProtobuf.bytes(out, 10, requiredWriterEpoch.canonicalBytes());
         });
     }
 
-    public byte[] digest() { return Bytes.sha256(DOMAIN, fields()); }
+    public byte[] digest() { return Bytes.sha256(requiresWriterEpoch() ? EPOCH_DOMAIN : DOMAIN, fields()); }
 
     public byte[] canonicalBytes() {
-        final var encoded = Bytes.concat(fields(), CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 10, digest())));
-        if (encoded.length > MAX_CANONICAL_BYTES) throw new IllegalArgumentException("Target SLO policy exceeds canonical bound");
+        final var encoded = Bytes.concat(fields(), CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, requiresWriterEpoch() ? 11 : 10, digest())));
+        if (encoded.length > (requiresWriterEpoch() ? MAX_CANONICAL_BYTES : MAX_V1_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO policy exceeds canonical bound");
         return encoded;
     }
 
     public static TargetSloObservationPolicy decode(byte[] encoded) {
-        final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 10, false, "Target SLO policy");
-        QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, "Target SLO policy");
-        if (QueryCodecSupport.uint32(f.getFirst(), 1) != 1) throw new IllegalArgumentException("unknown Target SLO policy schema");
+        final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 11, false, "Target SLO policy");
+        final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
+        if (version < 1 || version > 2) throw new IllegalArgumentException("unknown Target SLO policy schema");
+        QueryCodecSupport.requireNumbers(f, version == 1 ? new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+                : new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, "Target SLO policy");
+        if (version == 1 && encoded.length > MAX_V1_CANONICAL_BYTES) throw new IllegalArgumentException("legacy Target SLO policy exceeds its original bound");
         final var group = TargetCompatibilityCodec.read(QueryCodecSupport.bytes(f.get(4), 5), MAX_DECLARATIONS * (Declaration.MAX_CANONICAL_BYTES + 8), MAX_DECLARATIONS, true, "Target SLO declarations");
         final var declarations = new ArrayList<Declaration>();
         for (var field : group) declarations.add(Declaration.decode(QueryCodecSupport.bytes(field, 1)));
@@ -159,8 +172,9 @@ public record TargetSloObservationPolicy(TargetQuotaScope scope, byte[] lineage,
         final var result = new TargetSloObservationPolicy(TargetQuotaScope.decode(QueryCodecSupport.bytes(f.get(1), 2)),
                 QueryCodecSupport.fixed(f.get(2), 3, 16), TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(3), 4)),
                 declarations, Limits.decode(QueryCodecSupport.bytes(f.get(5), 6)), AuthorIdentity.decode(service),
-                QueryCodecSupport.uint32(f.get(7), 8), QueryCodecSupport.fixed(f.get(8), 9, 32));
-        if (!Arrays.equals(result.digest(), QueryCodecSupport.fixed(f.get(9), 10, 32))) throw new IllegalArgumentException("Target SLO policy digest mismatch");
+                QueryCodecSupport.uint32(f.get(7), 8), QueryCodecSupport.fixed(f.get(8), 9, 32),
+                version == 1 ? null : TargetSloWriterContract.Reference.decode(QueryCodecSupport.bytes(f.get(9), 10)));
+        if (!Arrays.equals(result.digest(), QueryCodecSupport.fixed(f.get(version == 1 ? 9 : 10), version == 1 ? 10 : 11, 32))) throw new IllegalArgumentException("Target SLO policy digest mismatch");
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target SLO policy");
         return result;
     }

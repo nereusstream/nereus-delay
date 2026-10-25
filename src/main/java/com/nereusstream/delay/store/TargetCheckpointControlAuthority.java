@@ -56,6 +56,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     private final BoundedReadBudget budget;
     private final Runnable protection;
     private final com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations;
+    private final com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers;
 
     /** All external I/O must have finite provider deadlines; use outside Store locks with a held protection set. */
     public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
@@ -68,6 +69,14 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             TargetQuotaGrantControlVerifier.KeyAuthority keys, HistoryAuthority history, SourceAuthority source,
             BoundedReadBudget budget, Runnable protection,
             com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations) {
+        this(registrations,keys,history,source,budget,protection,observations,null);
+    }
+
+    public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
+            TargetQuotaGrantControlVerifier.KeyAuthority keys,HistoryAuthority history,SourceAuthority source,
+            BoundedReadBudget budget,Runnable protection,
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations,
+            com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers) {
         this.registrations = Objects.requireNonNull(registrations, "registrations");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.history = Objects.requireNonNull(history, "history");
@@ -75,20 +84,47 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         this.budget = Objects.requireNonNull(budget, "budget");
         this.protection = Objects.requireNonNull(protection, "protection");
         this.observations = observations;
+        this.writers = writers;
     }
 
     @Override
     public PublicKey authenticateObservation(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
             com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
             com.nereusstream.delay.protocol.TargetSloObservationSample sample) {
+        return authenticateObservation(input,first,generation,sample,null);
+    }
+
+    @Override
+    public PublicKey authenticateObservation(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+            com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
+            com.nereusstream.delay.protocol.TargetSloObservationSample sample,
+            com.nereusstream.delay.protocol.TargetSloWriterEpoch writer) {
         protection.run(); before(); history.requireOriginal(input,first); after();
         if(!first.appliedFirst())return null;
         final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(input.image().canonicalBody());
         if(generation==null||sample==null||sample.generation()!=body.generation()||generation.generation()!=body.generation()
-                ||!Arrays.equals(sample.bindingDigest(),body.bindingDigest())
-                ||!Arrays.equals(input.image().authorIdentity(),generation.policy().service().canonicalBytes())
-                ||input.image().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("checkpoint SLO event lost original frozen writer/binding");
+                ||!Arrays.equals(sample.bindingDigest(),body.bindingDigest()))throw new IllegalStateException("checkpoint SLO event lost original frozen generation/binding");
         generation.policy().requireSource(input.source());
+        if(body.writerEpoch()==null){
+            if(writer!=null||generation.policy().requiresWriterEpoch()
+                    ||!Arrays.equals(input.image().authorIdentity(),generation.policy().service().canonicalBytes())
+                    ||input.image().signingKeyVersion()!=generation.policy().keyVersion())
+                throw new IllegalStateException("checkpoint SLO event lost its mandatory original writer epoch");
+        }else{
+            if(writer==null||!writer.reference().equals(body.writerEpoch()))throw new IllegalStateException("checkpoint body5 lacks its exact original applied writer epoch");
+            final var writerAuthority=Objects.requireNonNull(writers,"original checkpoint writer qualification authority");
+            before();writerAuthority.requireCurrent();after();
+            final var contract=writer.contract();contract.requireSource(input.source());
+            if(!generation.policy().scope().equals(contract.scope())||!Arrays.equals(generation.policy().lineage(),contract.lineage())
+                    ||!Arrays.equals(input.image().authorIdentity(),contract.service().canonicalBytes())
+                    ||input.image().signingKeyVersion()!=contract.keyVersion()
+                    ||input.image().retryUntilEpochMs()>contract.maximumRetryUntil()
+                    ||input.image().encodeFrame().length>contract.limits().maximumFrameBytes()
+                    ||input.source().brokerPersistenceTimeEpochMs()>input.image().retryUntilEpochMs()
+                    ||writer.register().appliedAt().source().compareTo(input.source())>=0
+                    ||writer.closed()&&writer.close().body().request().fenceAt().source().compareTo(input.source())<=0)
+                throw new IllegalStateException("checkpoint body5 changed its actual registered writer/deadline/Fence range");
+        }
         final var authority=Objects.requireNonNull(observations,"original checkpoint SLO endpoint/time/history and budget authority");
         final var original=body.isCustody()?body.exportedSample():sample;
         if(body.isCustody()){
@@ -106,14 +142,51 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         if(body.evidence()!=null&&body.evidence().isRecoveryGap())authority.requireRecoveryGap(generation,original,input.image(),input.source());
         else authority.requireAuthorized(generation,original,input.image(),input.source());
         authority.requireCurrent();after();
-        before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());after();
+        before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());
+        if(body.writerEpoch()!=null)writers.requireCurrent();after();
         return key;
     }
 
     @Override
     public PublicKey authenticate(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first) {
+        if(first.appliedFirst()&&com.nereusstream.delay.protocol.TargetSloWriterControlBody.isControl(input.image()))
+            throw new IllegalStateException("checkpoint writer Control requires its retained Native62 and independent materialization authority");
         final var verified = authenticateControl(input, first);
         return verified == null ? null : verified.key();
+    }
+
+    @Override
+    public PublicKey authenticateWriterEpoch(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+            com.nereusstream.delay.protocol.TargetSloWriterEpoch writer,
+            com.nereusstream.delay.protocol.TargetSloWriterEpoch predecessor){
+        final var authenticated=authenticateControl(input,first);
+        if(authenticated==null)return null;
+        final var request=com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(input.image().canonicalBody()).request();
+        final var actual=Objects.requireNonNull(writer,"APPLIED writer Control lacks its complete retained Native62");
+        final var original=request.contract()!=null?actual.register():Objects.requireNonNull(actual.close(),"APPLIED writer CLOSE lost its original Control");
+        if(!Arrays.equals(original.input().canonicalEnvelope(),input.image().canonicalEnvelope())||!original.appliedAt().equals(first.mutation()))
+            throw new IllegalStateException("checkpoint writer authority changed its actual original Control/Source");
+        final com.nereusstream.delay.protocol.TargetSloWriterEpoch retained;
+        if(request.contract()!=null){
+            if(request.epoch()==1){
+                if(predecessor!=null||request.expectedPriorDigest()!=null)throw new IllegalStateException("first writer REGISTER changed its predecessor");
+                retained=null;
+            }else{
+                if(predecessor==null||!Arrays.equals(predecessor.contractDigest(),request.expectedPriorDigest())
+                        ||!Arrays.equals(predecessor.contract().writerIdentityDigest(),actual.contract().writerIdentityDigest())
+                        ||predecessor.contract().epoch()+1!=request.epoch()
+                        ||predecessor.register().appliedAt().source().compareTo(input.source())>=0)
+                    throw new IllegalStateException("checkpoint writer REGISTER lost its original applied predecessor");
+                // A later CLOSE was not visible to this original REGISTER's materialization decision.
+                retained=predecessor.closed()&&predecessor.close().appliedAt().source().compareTo(input.source())>=0
+                        ?new com.nereusstream.delay.protocol.TargetSloWriterEpoch(predecessor.register(),null):predecessor;
+            }
+        }else retained=new com.nereusstream.delay.protocol.TargetSloWriterEpoch(actual.register(),null);
+        final var authority=Objects.requireNonNull(writers,"original checkpoint writer resource/Fence qualification authority");
+        before();authority.requireCurrent();
+        if(request.fence()!=null)authority.requireFenceAuthorized(request.fence(),request.fenceAt());
+        authority.requireAuthorized(request,retained,input.source());authority.requireCurrent();after();
+        return authenticated.key();
     }
 
     private AuthenticatedControl authenticateControl(TargetCheckpointDependencies.ControlImage input,
@@ -201,8 +274,14 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             if (!budget.tryCharge(input.source().canonicalBytes().length, input.image().encodeFrame().length)) {
                 throw budget.incomplete();
             }
-            final var authenticated = authenticateControl(input, first);
-            if (Arrays.equals(initial.initialGrant().systemMutationId(), input.image().systemMutationId())) {
+            final boolean isInitial=Arrays.equals(initial.initialGrant().systemMutationId(),input.image().systemMutationId());
+            final var authenticated=isInitial?authenticateControl(input,first):null;
+            if(!isInitial){
+                final var key=dependencies.authenticateInput(input,first,this);
+                if(first.appliedFirst()&&(key==null||!input.image().verifySignature(key)))
+                    throw new IllegalArgumentException("checkpoint original Control/event lacks its authorized signature");
+            }
+            if (isInitial) {
                 if (authenticated == null) {
                     throw new IllegalArgumentException("initial Control was not APPLIED/authenticated");
                 }

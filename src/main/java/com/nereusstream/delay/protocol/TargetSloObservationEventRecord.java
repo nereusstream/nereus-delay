@@ -10,10 +10,14 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
         SloSampleFinal incoming) {
     public static final int VALUE_TYPE=60;
     public static final int MAX_V1_INPUT_BYTES=TargetSloObservationEventBody.MAX_FINAL_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
-    public static final int MAX_INPUT_BYTES=Math.max(TargetSloObservationEventBody.MAX_FINAL_CANONICAL_BYTES,
+    public static final int MAX_LEGACY_INPUT_BYTES=Math.max(TargetSloObservationEventBody.MAX_FINAL_CANONICAL_BYTES,
             TargetSloObservationEventBody.MAX_SOURCE_ASSIGNED_CANONICAL_BYTES)+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
+    public static final int MAX_INPUT_BYTES=Math.max(MAX_LEGACY_INPUT_BYTES,
+            TargetSloObservationEventBody.MAX_EPOCH_FINAL_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512);
     public static final int MAX_V1_CANONICAL_BYTES=MAX_V1_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             +TargetSloObservationSample.MAX_START_BYTES+TargetSloObservationSample.MAX_FINAL_BYTES+192;
+    public static final int MAX_LEGACY_CANONICAL_BYTES=MAX_LEGACY_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            +TargetSloObservationSample.MAX_START_BYTES+2*TargetSloObservationSample.MAX_FINAL_BYTES+200;
     public static final int MAX_CANONICAL_BYTES=MAX_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
             +TargetSloObservationSample.MAX_START_BYTES+2*TargetSloObservationSample.MAX_FINAL_BYTES+200;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-slo-observation-source-record\0");
@@ -26,7 +30,7 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
         final var body=TargetSloObservationEventBody.decode(input.canonicalBody());
         if(body.isCustody()||input.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!input.shardId().equals(body.scope().shard())||!input.shardId().equals(appliedAt.source().shardId())
                 ||input.retryUntilEpochMs()!=body.retryUntil()||!Arrays.equals(input.logicalOperationIdentity(),body.logicalIdentity())
-                ||input.canonicalEnvelope().length>(body.isSourceAssigned()?MAX_INPUT_BYTES:MAX_V1_INPUT_BYTES)
+                ||input.canonicalEnvelope().length>(body.writerEpoch()!=null?MAX_INPUT_BYTES:body.isSourceAssigned()?MAX_LEGACY_INPUT_BYTES:MAX_V1_INPUT_BYTES)
                 ||!Arrays.equals(appliedAt.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
                 ||!Arrays.equals(body.sampleId(),after.sampleId())||after.finalObservation()==null||appliedAt.source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())
             throw new IllegalArgumentException("SLO event record lost exact applied Source input");
@@ -35,7 +39,7 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
             if(!Arrays.equals(incoming.sourceEventEvidenceSha256(),body.evidence().digest()))
                 throw new IllegalArgumentException("Source-assigned incoming Final changed original signed evidence");
         }else{
-            if(incoming!=null)throw new IllegalArgumentException("explicit Source incoming Final requires body4");
+            if(incoming!=null)throw new IllegalArgumentException("explicit Source incoming Final requires Source-assigned evidence");
             incoming=Objects.requireNonNull(body.finalObservation());
         }
         incoming.validateAgainst(after.start());
@@ -62,7 +66,7 @@ public record TargetSloObservationEventRecord(SystemMutation input,TargetQuotaMu
     });}
     public byte[] canonicalBytes(){
         final var bytes=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,schemaVersion()==1?6:7,Bytes.sha256(DOMAIN,fields()))));
-        if(bytes.length>(schemaVersion()==1?MAX_V1_CANONICAL_BYTES:MAX_CANONICAL_BYTES))throw new IllegalArgumentException("SLO event history exceeds finite bound");return bytes;
+        if(bytes.length>(schemaVersion()==1?MAX_V1_CANONICAL_BYTES:body().writerEpoch()==null?MAX_LEGACY_CANONICAL_BYTES:MAX_CANONICAL_BYTES))throw new IllegalArgumentException("SLO event history exceeds finite bound");return bytes;
     }
     public long storedBytes(){return Math.addExact((long)key().length,TargetValueEnvelope.encode(VALUE_TYPE,canonicalBytes()).length);}
     public static long maximumStoredBytes(SystemMutation input,TargetSloObservationSample sample,SourcePosition sourceAnchor){

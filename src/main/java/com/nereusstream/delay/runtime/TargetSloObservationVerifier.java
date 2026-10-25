@@ -65,7 +65,7 @@ public final class TargetSloObservationVerifier {
         if (registered == null || !Arrays.equals(prepared.canonicalBytes(), registered.canonicalBytes())) throw denied("Target SLO Control lacks its exact original registration");
         authority.registrations().validateMutation(prepared, prepared.targets().getFirst(), input);
 
-        final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage, ProtocolTuple.targetSloObservation());
+        final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage, body.tuple());
         if (activation == null || activation.body().payload().descriptor().schemaVersion() < 15
                 || activation.appliedAt().source().compareTo(source) >= 0) {
             throw new CommandResolutionException(StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION, "Target SLO certification requires its independent prior activation");
@@ -85,6 +85,18 @@ public final class TargetSloObservationVerifier {
                     : prior.active() || request.generation() != TargetQuotaMutation.increment(prior.generation())) throw stale("Target SLO enable is not the next stopped generation");
             final var policy = request.policy();
             policy.requireSource(source);
+            if(policy.requiresWriterEpoch()){
+                final var epochKey=policy.requiredWriterEpoch().key(scope);final var epochRaw=reader.get(ColumnFamily.META,epochKey);
+                if(epochRaw==null)throw denied("certification ENABLE lost its registered writer contract");
+                final var epoch=TargetSloWriterEpoch.decodeForStore(epochKey,TargetValueEnvelope.decode(epochRaw,TargetSloWriterEpoch.VALUE_TYPE).payload(),scope,lineage);
+                if(!epoch.reference().equals(policy.requiredWriterEpoch()))throw denied("certification ENABLE changed its registered writer reference");
+                final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+                TargetSloWriterEpochStore.requireOrigin(reader,java.util.List.of(),scope,lineage,root,epoch,reader.aggregate().mutation());
+                if(epoch.closed()||reader.closedIngressDeadlineThrough()>=epoch.contract().maximumRetryUntil()
+                        ||!policy.service().equals(epoch.contract().service())||policy.keyVersion()!=epoch.contract().keyVersion()
+                        ||epoch.register().appliedAt().source().compareTo(source)>=0)
+                    throw denied("certification ENABLE lacks its open original registered writer contract");
+            }
             if (source.compareTo(policy.sourceAnchor()) <= 0) throw denied("Target SLO enable requires its original prior resource anchor");
             // Retained generations still carry original Source/history duties and consume the declared finite slots.
             if (Long.compareUnsigned(request.generation(), policy.limits().maximumConcurrentGenerations()) > 0) {

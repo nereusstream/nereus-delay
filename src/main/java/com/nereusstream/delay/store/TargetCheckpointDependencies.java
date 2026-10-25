@@ -20,6 +20,9 @@ import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.protocol.TargetSloWriterContract;
+import com.nereusstream.delay.protocol.TargetSloWriterControlBody;
+import com.nereusstream.delay.protocol.TargetSloWriterEpoch;
 import com.nereusstream.delay.runtime.RetryPolicyCatalog;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TargetPublishAdmissionVerifier;
@@ -140,6 +143,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents;
     private final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies;
+    private final Map<String,TargetSloWriterEpoch> sloWriterEpochs;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -184,6 +188,7 @@ public final class TargetCheckpointDependencies {
         sloSamples=List.copyOf(builder.sloSamples.values());
         sloEvents=List.copyOf(builder.sloEvents.values());
         sloCustodies=List.copyOf(builder.sloCustodies.values());
+        sloWriterEpochs=Map.copyOf(builder.sloWriterEpochs);
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -275,6 +280,13 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples(){return sloSamples;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents(){return sloEvents;}
     public List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies(){return sloCustodies;}
+    public List<TargetSloWriterEpoch> sloWriterEpochs(){return sloWriterEpochs.values().stream().sorted((a,b)->Arrays.compareUnsigned(a.key(),b.key())).toList();}
+    /** Exact retained applied registration; an absent or substituted epoch never falls back to the generation signer. */
+    public TargetSloWriterEpoch sloWriterEpoch(TargetSloWriterContract.Reference reference){
+        final var writer=sloWriterEpochs.get(Bytes.hex(Objects.requireNonNull(reference).key(root.root().scope())));
+        if(writer!=null&&!writer.reference().equals(reference))throw new IllegalStateException("checkpoint writer reference changed its original applied registration");
+        return writer;
+    }
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -672,6 +684,19 @@ public final class TargetCheckpointDependencies {
                 com.nereusstream.delay.protocol.TargetSloObservationSample sample){
             throw new IllegalStateException("checkpoint authority lacks original SLO event authentication");
         }
+        default java.security.PublicKey authenticateObservation(ControlImage input,TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
+                com.nereusstream.delay.protocol.TargetSloObservationSample sample,TargetSloWriterEpoch writer){
+            if(com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(input.image().canonicalBody()).writerEpoch()!=null)
+                throw new IllegalStateException("checkpoint authority lacks original writer-epoch event authentication");
+            return authenticateObservation(input,first,generation,sample);
+        }
+        /** Original registration/RBAC, complete resource materialization and independent original Fence authority. */
+        default java.security.PublicKey authenticateWriterEpoch(ControlImage input,TargetResultRecord first,
+                TargetSloWriterEpoch writer,TargetSloWriterEpoch predecessor){
+            if(first.appliedFirst())throw new IllegalStateException("checkpoint authority lacks original writer Control/Fence authentication");
+            return authenticate(input,first);
+        }
     }
 
     /**
@@ -698,13 +723,7 @@ public final class TargetCheckpointDependencies {
             final var result = SystemMutationResult.decode(first.typedPayload());
             final byte[] frame = image.encodeFrame();
             if (!budget.tryCharge(input.source().canonicalBytes().length, frame.length)) { throw budget.incomplete(); }
-            final java.security.PublicKey key;
-            if(image.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
-                final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(image.canonicalBody());
-                final var sample=sloSamples.stream().filter(v->Arrays.equals(v.observation().sampleId(),body.sampleId())).findFirst().orElse(null);
-                final var generation=sloGenerations.stream().filter(v->v.generation()==body.generation()).findFirst().orElse(null);
-                key=authority.authenticateObservation(input,first,generation,sample);
-            }else key=authority.authenticate(input,first);
+            final var key=authenticateInput(input,first,authority);
             if (result.applyStatus() == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
                     && (key == null || !image.verifySignature(key))) {
                 throw new IllegalArgumentException("Target Control input signature invalid");
@@ -714,6 +733,28 @@ public final class TargetCheckpointDependencies {
         }
         protectionGuard.run();
         return correlated;
+    }
+
+    java.security.PublicKey authenticateInput(ControlImage input,TargetResultRecord first,ControlImageAuthority authority){
+        final var image=input.image();
+        if(image.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
+            final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(image.canonicalBody());
+            final var sample=sloSamples.stream().filter(v->Arrays.equals(v.observation().sampleId(),body.sampleId())).findFirst().orElse(null);
+            final var generation=sloGenerations.stream().filter(v->v.generation()==body.generation()).findFirst().orElse(null);
+            final var writer=body.writerEpoch()==null||!first.appliedFirst()?null:sloWriterEpoch(body.writerEpoch());
+            if(first.appliedFirst()&&(generation==null||body.writerEpoch()!=null&&writer==null
+                    ||body.writerEpoch()==null&&generation.policy().requiresWriterEpoch()))
+                throw new IllegalStateException("checkpoint APPLIED observation lacks its mandatory actual writer-epoch branch");
+            return authority.authenticateObservation(input,first,generation,sample,writer);
+        }
+        if(TargetSloWriterControlBody.isControl(image)){
+            final var request=TargetSloWriterControlBody.decode(image.canonicalBody()).request();
+            final byte[] key=request.contract()!=null?TargetSloWriterEpoch.key(request.scope(),request.contract().writerIdentityDigest(),request.epoch()):request.reference().key(request.scope());
+            final var writer=sloWriterEpochs.get(Bytes.hex(key));
+            final var predecessor=request.contract()!=null&&request.epoch()!=1?sloWriterEpochs.get(Bytes.hex(TargetSloWriterEpoch.key(request.scope(),request.contract().writerIdentityDigest(),request.epoch()-1))):null;
+            return authority.authenticateWriterEpoch(input,first,writer,predecessor);
+        }
+        return authority.authenticate(input,first);
     }
 
     /** Offline correlation only. Issuer/history authentication must be repeated by restore/publication authority. */
@@ -741,7 +782,33 @@ public final class TargetCheckpointDependencies {
         }
         final var correlated = List.copyOf(complete.values());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireControlInputs(sloGenerations, correlated, controlResults);
+        requireWriterControlInputs(complete);
         return correlated;
+    }
+
+    private void requireWriterControlInputs(Map<String,ControlImage> inputs){
+        for(var writer:sloWriterEpochs.values()){
+            requireWriterControlInput(inputs,writer.register());
+            if(writer.closed())requireWriterControlInput(inputs,writer.close());
+        }
+        final var firsts=new TreeMap<String,TargetResultRecord>();
+        for(var first:controlResults)firsts.put(Bytes.hex(first.logicalId()),first);
+        for(var input:inputs.values()){
+            if(!TargetSloWriterControlBody.isControl(input.image())||!Objects.requireNonNull(firsts.get(Bytes.hex(input.image().systemMutationId()))).appliedFirst())continue;
+            final var request=TargetSloWriterControlBody.decode(input.image().canonicalBody()).request();
+            final var key=request.contract()!=null?TargetSloWriterEpoch.key(request.scope(),request.contract().writerIdentityDigest(),request.epoch()):request.reference().key(request.scope());
+            final var writer=Objects.requireNonNull(sloWriterEpochs.get(Bytes.hex(key)),"APPLIED writer Control lacks its complete retained Native62");
+            final var original=request.contract()!=null?writer.register():Objects.requireNonNull(writer.close(),"APPLIED writer CLOSE lacks its retained original Control");
+            if(!Arrays.equals(original.input().canonicalEnvelope(),input.image().canonicalEnvelope())
+                    ||!original.appliedAt().equals(firsts.get(Bytes.hex(input.image().systemMutationId())).mutation()))
+                throw new IllegalStateException("APPLIED writer Control differs from its retained original Native62 input/stamp");
+        }
+    }
+    private void requireWriterControlInput(Map<String,ControlImage> inputs,TargetSloWriterEpoch.Control control){
+        final var input=Objects.requireNonNull(inputs.get(Bytes.hex(control.input().systemMutationId())),"Native62 lost its complete original Control input");
+        if(!Arrays.equals(input.image().canonicalEnvelope(),control.input().canonicalEnvelope())
+                ||!Arrays.equals(input.source().canonicalBytes(),control.appliedAt().source().canonicalBytes()))
+            throw new IllegalStateException("Native62 changed its original Control input/Source");
     }
 
     /** Joins every retained attempt to its original image; incomplete or stale references cannot prove closure. */
@@ -939,6 +1006,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies=new TreeMap<>();
+        private final Map<String,TargetSloWriterEpoch> sloWriterEpochs=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -983,6 +1051,7 @@ public final class TargetCheckpointDependencies {
             prior.sloSamples.forEach(this::sloSample);
             prior.sloEvents.forEach(this::sloEvent);
             prior.sloCustodies.forEach(this::sloCustody);
+            prior.sloWriterEpochs.values().forEach(this::sloWriterEpoch);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1057,6 +1126,9 @@ public final class TargetCheckpointDependencies {
         }
         void sloCustody(com.nereusstream.delay.protocol.TargetSloCustodyRecord record){
             if(sloCustodies.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate exact Target custody version");
+        }
+        void sloWriterEpoch(TargetSloWriterEpoch record){
+            if(sloWriterEpochs.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate original SLO writer epoch");
         }
         void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
             if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");

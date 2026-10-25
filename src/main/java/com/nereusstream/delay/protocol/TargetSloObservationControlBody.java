@@ -7,6 +7,7 @@ import java.util.Objects;
 public record TargetSloObservationControlBody(ShardId shard, long retryUntil, ControlRef controlRef,
         TargetSloObservationControlRequest request, int expectedRecordState) {
     public static final int MAX_CANONICAL_BYTES = TargetSloObservationControlRequest.MAX_CANONICAL_BYTES + 192;
+    public static final int MAX_V1_CANONICAL_BYTES=TargetSloObservationControlRequest.MAX_V1_CANONICAL_BYTES+192;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-observation-control\0");
 
     public TargetSloObservationControlBody {
@@ -20,6 +21,8 @@ public record TargetSloObservationControlBody(ShardId shard, long retryUntil, Co
     }
 
     public byte[] logicalIdentity() { return controlRef.logicalOperationIdentity(request.controlKind()); }
+    public int schemaVersion(){return request.policy()!=null&&request.policy().requiresWriterEpoch()?2:1;}
+    public ProtocolTuple tuple(){return schemaVersion()==2?ProtocolTuple.targetSloObservationEpochPolicy():ProtocolTuple.targetSloObservation();}
     public byte[] semanticHash() { return Bytes.sha256(DOMAIN, Bytes.u16be(request.controlKind()), request.canonicalBytes()); }
 
     public static boolean isControl(SystemMutation input) {
@@ -43,13 +46,13 @@ public record TargetSloObservationControlBody(ShardId shard, long retryUntil, Co
             CanonicalProtobuf.uint64Bits(out, 3, retryUntil);
             CanonicalProtobuf.bytes(out, 10, controlRef.canonicalBytes());
             CanonicalProtobuf.uint32(out, 11, request.controlKind());
-            CanonicalProtobuf.uint32(out, 12, 1);
+            CanonicalProtobuf.uint32(out, 12, schemaVersion());
             CanonicalProtobuf.bytes(out, 13, semanticHash());
             CanonicalProtobuf.uint32(out, 14, expectedRecordState);
             CanonicalProtobuf.bytes(out, 15, CanonicalProtobuf.message(payload ->
                     CanonicalProtobuf.bytes(payload, request.controlKind(), request.canonicalBytes())));
         });
-        if (encoded.length > MAX_CANONICAL_BYTES) throw new IllegalArgumentException("Target SLO Control body exceeds bound");
+        if (encoded.length > (schemaVersion()==1?MAX_V1_CANONICAL_BYTES:MAX_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO Control body exceeds bound");
         return encoded;
     }
 
@@ -63,7 +66,7 @@ public record TargetSloObservationControlBody(ShardId shard, long retryUntil, Co
             default -> throw new IllegalArgumentException("unknown Target SLO Control kind");
         };
         if (QueryCodecSupport.uint32(f.get(1), 2) != SystemMutationType.APPLY_SHARD_CONTROL.wireValue()
-                || QueryCodecSupport.uint32(f.get(5), 12) != 1) throw new IllegalArgumentException("unknown Target SLO Control type/schema");
+                || QueryCodecSupport.uint32(f.get(5),12)<1||QueryCodecSupport.uint32(f.get(5),12)>2) throw new IllegalArgumentException("unknown Target SLO Control type/schema");
         final var shard = QueryCodecSupport.bytes(f.getFirst(), 1);
         TargetCompatibilityCodec.read(shard, 24, 2, false, "Target SLO Shard subject");
         final var ref = QueryCodecSupport.bytes(f.get(3), 10);
@@ -75,6 +78,7 @@ public record TargetSloObservationControlBody(ShardId shard, long retryUntil, Co
                 QueryCodecSupport.uint64Bits(f.get(2), 3), ControlRef.decode(ref),
                 TargetSloObservationControlRequest.decode(operation, QueryCodecSupport.bytes(payload.getFirst(), kind)),
                 QueryCodecSupport.uint32(f.get(7), 14));
+        if(QueryCodecSupport.uint32(f.get(5),12)!=result.schemaVersion())throw new IllegalArgumentException("Target certification Control schema changed its frozen writer policy");
         if (!Arrays.equals(result.semanticHash(), QueryCodecSupport.fixed(f.get(6), 13, 32))) {
             throw new IllegalArgumentException("Target SLO Control semantic hash mismatch");
         }

@@ -32,10 +32,16 @@ public record TargetSloObservationExport(TargetSloObservationGeneration generati
             if(!body.scope().equals(sample.scope())||!Arrays.equals(body.lineage(),sample.lineage())
                     ||body.generation()!=sample.generation()||!Arrays.equals(body.sampleId(),sample.observation().sampleId())
                     ||!Arrays.equals(body.bindingDigest(),sample.bindingDigest())
-                    ||!Arrays.equals(event.input().authorIdentity(),policy.service().canonicalBytes())
-                    ||event.input().signingKeyVersion()!=policy.keyVersion()
                     ||!Arrays.equals(event.beforeDigest(),folded.recordDigest()))
                 throw new IllegalArgumentException("Target export lost an original immutable Source merge edge");
+            if(body.writerEpoch()==null){
+                if(policy.requiresWriterEpoch()
+                        ||!Arrays.equals(event.input().authorIdentity(),policy.service().canonicalBytes())
+                        ||event.input().signingKeyVersion()!=policy.keyVersion())
+                    throw new IllegalArgumentException("legacy Target export event changed its Policy1 writer");
+            }else if(AuthorIdentity.decode(event.input().authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE){
+                throw new IllegalArgumentException("Target export event lost its registered writer author form");
+            }
             policy.requireSource(event.appliedAt().source());event.appliedAt().requireAfter(latest);
             event.appliedAt().requireAtOrBefore(sample.mutation());
             if(body.evidence()!=null)body.evidence().requireObservation(sample,event.incoming());

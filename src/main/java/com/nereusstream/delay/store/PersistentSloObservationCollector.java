@@ -70,6 +70,28 @@ public final class PersistentSloObservationCollector {
         default void requireRecoveryGap(TargetSloObservationExport export,com.nereusstream.delay.protocol.TargetSloObservationEventRecord event){
             throw new IllegalStateException("original collector recovery-gap qualification unavailable");
         }
+        /** Actual protected Native62/Control/Fence history and original per-frame key/deadline authority, outside file locks. */
+        default void requireWriterEpoch(TargetSloObservationExport export,com.nereusstream.delay.protocol.TargetSloObservationEventRecord event){
+            throw new IllegalStateException("original collector writer-epoch qualification unavailable");
+        }
+        /** Complete original ENABLE and its initial actual Native62 anchor, including exports with no Final yet. */
+        default void requireWriterPolicy(TargetSloObservationExport export){
+            throw new IllegalStateException("original collector writer-policy qualification unavailable");
+        }
+        /** All callbacks require already-held independent history and run outside collector file locks. */
+        default void requireTargetOriginal(TargetSloObservationExport export){
+            requireCurrent();requireOriginal(export);requireCurrent();
+            if(export.generation().policy().requiresWriterEpoch()){
+                requireWriterPolicy(export);requireCurrent();
+            }
+            for(var event:export.events()){
+                if(event.body().writerEpoch()!=null){requireWriterEpoch(export,event);requireCurrent();}
+                if(event.body().evidence()!=null&&event.body().evidence().isRecoveryGap()){
+                    requireRecoveryGap(export,event);requireCurrent();
+                }
+            }
+            requireCurrent();
+        }
         /** Only local checks of the already-held original protection/contract. */
         void requireCurrent();
         /** A locally held independently authenticated collector-contract key; never remote I/O. */
@@ -175,10 +197,7 @@ public final class PersistentSloObservationCollector {
     }
 
     private static void requireOriginal(TargetSloObservationExport exported,OriginalAuthority authority){
-        authority.requireCurrent();authority.requireOriginal(exported);authority.requireCurrent();
-        for(var event:exported.events())if(event.body().evidence()!=null&&event.body().evidence().isRecoveryGap()){
-            authority.requireRecoveryGap(exported,event);authority.requireCurrent();
-        }
+        authority.requireTargetOriginal(exported);
     }
 
     private void requireTargetLimits(TargetLimits requested){

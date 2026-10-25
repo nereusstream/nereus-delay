@@ -8,7 +8,9 @@ import java.util.Objects;
 /** Immutable Source custody of one exact exported sample version; it does not modify or delete that sample. */
 public record TargetSloCustodyRecord(SystemMutation input,TargetQuotaMutation appliedAt) {
     public static final int VALUE_TYPE=61;
-    public static final int MAX_INPUT_BYTES=TargetSloObservationEventBody.MAX_CUSTODY_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
+    public static final int MAX_V1_INPUT_BYTES=TargetSloObservationEventBody.MAX_CUSTODY_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
+    public static final int MAX_INPUT_BYTES=TargetSloObservationEventBody.MAX_EPOCH_CUSTODY_CANONICAL_BYTES+TargetSloObservationPolicy.MAX_SERVICE_BYTES+512;
+    public static final int MAX_V1_CANONICAL_BYTES=MAX_V1_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+64;
     public static final int MAX_CANONICAL_BYTES=MAX_INPUT_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+64;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-slo-custody-source-record\0");
     public TargetSloCustodyRecord {
@@ -16,7 +18,7 @@ public record TargetSloCustodyRecord(SystemMutation input,TargetQuotaMutation ap
         final var body=TargetSloObservationEventBody.decode(input.canonicalBody());
         if(input.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!body.isCustody()||!input.shardId().equals(body.scope().shard())
                 ||!input.shardId().equals(appliedAt.source().shardId())||input.retryUntilEpochMs()!=body.retryUntil()
-                ||input.canonicalEnvelope().length>MAX_INPUT_BYTES||!Arrays.equals(input.logicalOperationIdentity(),body.logicalIdentity())
+                ||input.canonicalEnvelope().length>(body.writerEpoch()==null?MAX_V1_INPUT_BYTES:MAX_INPUT_BYTES)||!Arrays.equals(input.logicalOperationIdentity(),body.logicalIdentity())
                 ||!Arrays.equals(appliedAt.mutationDigest(),Bytes.sha256(input.canonicalEnvelope()))
                 ||appliedAt.source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())throw new IllegalArgumentException("custody lost exact original Source input/stamp");
         body.exportedSample().mutation().requireAtOrBefore(appliedAt);
@@ -32,7 +34,11 @@ public record TargetSloCustodyRecord(SystemMutation input,TargetQuotaMutation ap
     private byte[] fields(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,input.canonicalEnvelope());CanonicalProtobuf.bytes(out,3,appliedAt.canonicalBytes());
     });}
-    public byte[] canonicalBytes(){return Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,4,Bytes.sha256(DOMAIN,fields()))));}
+    public byte[] canonicalBytes(){
+        final var bytes=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,4,Bytes.sha256(DOMAIN,fields()))));
+        if(bytes.length>(body().writerEpoch()==null?MAX_V1_CANONICAL_BYTES:MAX_CANONICAL_BYTES))throw new IllegalArgumentException("custody Source record exceeds its schema bound");
+        return bytes;
+    }
     public long storedBytes(){return Math.addExact((long)key().length,TargetValueEnvelope.encode(VALUE_TYPE,canonicalBytes()).length);}
     /** Complete key/NV upper bound for these exact bytes and the frozen fixed-width physical Source codec. */
     public static long maximumStoredBytes(SystemMutation input,SourcePosition sourceAnchor){

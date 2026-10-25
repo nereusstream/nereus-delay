@@ -1511,6 +1511,10 @@ public final class TargetWorkerShardRuntime
     synchronized void requireSloCustodyWriter(SystemMutation image,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireTargetControlWriter(image,clock);}
     synchronized Optional<SystemMutationResult> sloCustodyMutationResult(SystemMutation image,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.targetControlMutationResult(image,clock);}
     synchronized boolean hasSloCustody(com.nereusstream.delay.protocol.TargetSloObservationExport export,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.hasSloCustody(export,clock);}
+    public synchronized com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Applied observeSloWriterEpoch(
+            com.nereusstream.delay.protocol.TargetSloWriterContract.Reference reference,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.observeSloWriterEpoch(reference,clock);
+    }
     synchronized void requireSloCustodyAppend(SystemMutation image,ShardLogMutationAppender.AppendOutcome appended,
             com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){requireSloFinalAppend(image,appended,cut,clock);}
     @Override public Optional<WorkClassTask> settlePendingSloCustodyForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){

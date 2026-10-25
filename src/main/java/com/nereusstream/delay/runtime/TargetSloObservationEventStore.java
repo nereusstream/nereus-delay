@@ -118,13 +118,28 @@ public final class TargetSloObservationEventStore {
     private StableCode verify(TargetStoreBackend.Reader reader,TargetSloObservationEventBody body,SystemMutation input,SourcePosition source,
             TargetSloObservationGeneration generation,TargetSloObservationSample sample,Authority authority){
         if(reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs()||source.brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())return StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED;
-        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetSloObservation());
+        if(generation==null||sample==null||sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest()))return StableCode.STALE_SYSTEM_MUTATION;
+        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,generation.enable().body().tuple());
         final var eventActivation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.tuple());
         if(activation==null||activation.body().payload().descriptor().schemaVersion()<15
                 ||eventActivation==null||eventActivation.body().payload().descriptor().schemaVersion()<15)return StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION;
-        if(generation==null||sample==null||sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest()))return StableCode.STALE_SYSTEM_MUTATION;
         generation.policy().requireSource(source);sample.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        if(!Arrays.equals(input.authorIdentity(),generation.policy().service().canonicalBytes())||input.signingKeyVersion()!=generation.policy().keyVersion())return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+        if(body.writerEpoch()==null){
+            if(generation.policy().requiresWriterEpoch()||!Arrays.equals(input.authorIdentity(),generation.policy().service().canonicalBytes())
+                    ||input.signingKeyVersion()!=generation.policy().keyVersion())return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+        }else{
+            final var epochKey=body.writerEpoch().key(scope);final var epochRaw=reader.get(ColumnFamily.META,epochKey);
+            if(epochRaw==null)return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+            final var epoch=TargetSloWriterEpoch.decodeForStore(epochKey,TargetValueEnvelope.decode(epochRaw,TargetSloWriterEpoch.VALUE_TYPE).payload(),scope,lineage);
+            if(!epoch.reference().equals(body.writerEpoch()))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+            if(epoch.closed())return StableCode.STALE_SYSTEM_MUTATION;
+            final var contract=epoch.contract();
+            if(!Arrays.equals(input.authorIdentity(),contract.service().canonicalBytes())||input.signingKeyVersion()!=contract.keyVersion()
+                    ||input.retryUntilEpochMs()>contract.maximumRetryUntil()||input.encodeFrame().length>contract.limits().maximumFrameBytes())
+                return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+            final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+            requireWriterOrigin(reader,List.of(),scope,lineage,root,generation,body,input,source,reader.aggregate().mutation());
+        }
         final var key=authority.keys().resolve(Integer.toUnsignedLong(input.signingKeyVersion()),source);
         if(key==null||!input.verifySignature(key))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
         if(body.isCustody()){
@@ -199,8 +214,7 @@ public final class TargetSloObservationEventStore {
         final var generation=TargetSloObservationGeneration.decodeForStore(generationKey,
                 payload(view,overlay,ColumnFamily.META,generationKey,TargetSloObservationGeneration.VALUE_TYPE),scope,lineage);
         generation.policy().requireSource(event.appliedAt().source());
-        if(!Arrays.equals(event.input().authorIdentity(),generation.policy().service().canonicalBytes())
-                ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed frozen original writer");
+        requireWriterOrigin(view,overlay,scope,lineage,root,generation,event.body(),event.input(),event.appliedAt().source(),frontier);
         event.incoming().validateAgainst(sample.observation().start());
         requireEvidenceOrigin(view,overlay,scope,lineage,sample,event.body(),event.incoming(),event.appliedAt());
     }
@@ -243,8 +257,30 @@ public final class TargetSloObservationEventStore {
         final var generationKey=TargetSloObservationGeneration.key(scope,body.generation());
         final var generation=TargetSloObservationGeneration.decodeForStore(generationKey,payload(view,overlay,ColumnFamily.META,generationKey,TargetSloObservationGeneration.VALUE_TYPE),scope,lineage);
         record.receipt().requireSample(generation,record.sample());
-        if(!Arrays.equals(record.input().authorIdentity(),generation.policy().service().canonicalBytes())
-                ||record.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("custody changed original frozen SERVICE writer");
+        requireWriterOrigin(view,overlay,scope,lineage,root,generation,body,record.input(),record.appliedAt().source(),frontier);
+    }
+
+    /** Original epoch scope, actual REGISTER/Fence history and immutable per-frame bounds; not key authority. */
+    public static TargetSloWriterEpoch requireWriterOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity root,TargetSloObservationGeneration generation,
+            TargetSloObservationEventBody body,SystemMutation input,SourcePosition source,TargetQuotaMutation frontier){
+        if(body.writerEpoch()==null){
+            if(generation.policy().requiresWriterEpoch()||!Arrays.equals(input.authorIdentity(),generation.policy().service().canonicalBytes())
+                    ||input.signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event lost its mandatory original writer contract");
+            return null;
+        }
+        final var reference=body.writerEpoch();final var key=reference.key(scope);
+        final var epoch=TargetSloWriterEpoch.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetSloWriterEpoch.VALUE_TYPE),scope,lineage);
+        final var contract=epoch.contract();
+        if(!Arrays.equals(epoch.contractDigest(),reference.contractDigest())||!Arrays.equals(input.authorIdentity(),contract.service().canonicalBytes())
+                ||input.signingKeyVersion()!=contract.keyVersion()||input.retryUntilEpochMs()>contract.maximumRetryUntil()
+                ||input.encodeFrame().length>contract.limits().maximumFrameBytes()
+                ||epoch.register().appliedAt().source().compareTo(source)>=0
+                ||epoch.closed()&&epoch.close().body().request().fenceAt().source().compareTo(source)<=0)
+            throw new IllegalStateException("SLO event changed its original registered writer, deadline or Fence range");
+        contract.requireSource(source);
+        TargetSloWriterEpochStore.requireOrigin(view,overlay,scope,lineage,root,epoch,frontier);
+        return epoch;
     }
 
     private static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,

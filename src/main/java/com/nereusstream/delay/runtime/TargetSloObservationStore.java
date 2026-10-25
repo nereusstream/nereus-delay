@@ -133,7 +133,7 @@ public final class TargetSloObservationStore {
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity root,
             TargetSloObservationGeneration generation, TargetQuotaMutation frontier) {
         generation.mutation().requireAtOrBefore(frontier);
-        final var activationKey = TargetProtocolActivationRecord.key(ProtocolTuple.targetSloObservation());
+        final var activationKey = TargetProtocolActivationRecord.key(generation.enable().body().tuple());
         final var activation = TargetProtocolActivationRecord.decodeForStore(activationKey,
                 payload(view, overlay, ColumnFamily.META, activationKey, TargetProtocolActivationRecord.VALUE_TYPE), scope, lineage);
         if (activation.body().payload().descriptor().schemaVersion() < 15
@@ -141,6 +141,17 @@ public final class TargetSloObservationStore {
             throw new IllegalStateException("Target SLO generation lacks prior independent activation");
         }
         TargetProtocolActivationStore.requireApplied(view, overlay, scope, lineage, root, activation, frontier);
+        if(generation.policy().requiresWriterEpoch()){
+            final var reference=generation.policy().requiredWriterEpoch();
+            final var key=reference.key(scope);
+            final var writer=TargetSloWriterEpoch.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetSloWriterEpoch.VALUE_TYPE),scope,lineage);
+            if(!Arrays.equals(writer.contractDigest(),reference.contractDigest())
+                    ||!writer.contract().service().equals(generation.policy().service())
+                    ||writer.contract().keyVersion()!=generation.policy().keyVersion()
+                    ||writer.register().appliedAt().source().compareTo(generation.enable().appliedAt().source())>=0)
+                throw new IllegalStateException("certification generation lost its original registered writer epoch");
+            TargetSloWriterEpochStore.requireOrigin(view,overlay,scope,lineage,root,writer,frontier);
+        }
         requireControlOrigin(view, overlay, scope, lineage, root, generation.enable(), frontier);
         if (generation.stop() != null) requireControlOrigin(view, overlay, scope, lineage, root, generation.stop(), frontier);
         if (generation.generation() != 1) {

@@ -7,6 +7,8 @@ import java.util.Objects;
 public final class TargetSloObservationControlRequest implements ControlOperationRequestBranch {
     public static final int ENABLE_CONTROL_KIND = 28;
     public static final int STOP_CONTROL_KIND = 29;
+    public static final int MAX_V1_CANONICAL_BYTES=TargetSloObservationPolicy.MAX_V1_CANONICAL_BYTES
+            +TargetQuotaScope.MAX_CANONICAL_BYTES+256;
     public static final int MAX_CANONICAL_BYTES = TargetSloObservationPolicy.MAX_CANONICAL_BYTES
             + TargetQuotaScope.MAX_CANONICAL_BYTES + 256;
 
@@ -80,7 +82,7 @@ public final class TargetSloObservationControlRequest implements ControlOperatio
             if (policy != null) CanonicalProtobuf.bytes(out, 6, policy.canonicalBytes());
             if (reason != null) CanonicalProtobuf.bytes(out, 7, reason.canonicalBytes());
         });
-        if (encoded.length > MAX_CANONICAL_BYTES) throw new IllegalArgumentException("Target SLO Control request exceeds bound");
+        if (encoded.length > (policy!=null&&policy.requiresWriterEpoch()?MAX_CANONICAL_BYTES:MAX_V1_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO Control request exceeds bound");
         return encoded;
     }
 

@@ -26,6 +26,8 @@ public final class TargetSloCustodyExportMaintenance {
         PersistentSloObservationCollector.OriginalAuthority authority();
         PersistentSloObservationCollector.ReceiptSigner collectorSigner();
         TargetSloObservationEventMutationFactory sourceSigner();
+        /** Original applied writer token, held unchanged for this export's exact Source frame. */
+        default com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Applied writerEpoch(TargetSloObservationExport exported){return null;}
         long retryUntilEpochMs();
         /** Complete original export, generated receipt/frame, collector I/O and credential/retention material. */
         long retainedBytes();
@@ -158,8 +160,11 @@ public final class TargetSloCustodyExportMaintenance {
         TargetSloObservationEventMutationFactory.Prepared exact;
         synchronized (this) { exact = frame; }
         if (exact == null) {
-            final var prepared = Objects.requireNonNull(original.sourceSigner(), "original SERVICE Source signer")
-                    .prepareCustody(originalExport.generation(), originalExport.sample(), exactReceipt, original.retryUntilEpochMs());
+            final var signer = Objects.requireNonNull(original.sourceSigner(), "original SERVICE Source signer");
+            final var writerEpoch = original.writerEpoch(originalExport);
+            final var prepared = writerEpoch == null
+                    ? signer.prepareCustody(originalExport.generation(), originalExport.sample(), exactReceipt, original.retryUntilEpochMs())
+                    : signer.prepareCustody(originalExport.generation(), originalExport.sample(), exactReceipt, original.retryUntilEpochMs(),writerEpoch);
             synchronized (this) { frame = prepared; exact = prepared; }
         }
         requireFrame(original, originalPage, exported, originalExport, exactReceipt, exact);
@@ -194,7 +199,7 @@ public final class TargetSloCustodyExportMaintenance {
             throw new IllegalStateException("Target collector receipt changed its first fixed export or exact sample version");
         }
         exact.requireSample(stored.generation(), stored.sample());
-        final var authority = original.authority(); authority.requireCurrent(); authority.requireOriginal(stored); authority.requireCurrent();
+        final var authority = original.authority(); authority.requireCurrent(); authority.requireTargetOriginal(stored); authority.requireCurrent();
         final var key = authority.receiptKey(stored, exact);
         if (key == null || !exact.verifySignature(key)) throw new IllegalStateException("Target custody receipt lacks its original collector contract signature");
         original.requireCurrent();
@@ -203,14 +208,14 @@ public final class TargetSloCustodyExportMaintenance {
     private void requireFrame(Held original, TargetSloExportPageReader.Page originalPage, TargetSloObservationExport requested,
             TargetSloObservationExport stored, TargetSloCustodyReceipt exact, TargetSloObservationEventMutationFactory.Prepared prepared) {
         final var image = prepared.mutation(); final var body = TargetSloObservationEventBody.decode(image.canonicalBody());
+        TargetSloObservationEventMutationFactory.requirePreparedWriter(prepared,stored.generation());
         if (!body.isCustody() || !Arrays.equals(body.exportedSample().canonicalBytes(), requested.sample().canonicalBytes())
-                || !Arrays.equals(body.custody().canonicalBytes(), exact.canonicalBytes())
-                || !Arrays.equals(image.authorIdentity(), stored.generation().policy().service().canonicalBytes())
-                || image.signingKeyVersion() != stored.generation().policy().keyVersion()) {
+                || !Arrays.equals(body.custody().canonicalBytes(), exact.canonicalBytes())) {
             throw new IllegalStateException("Target custody Source frame changed original receipt/binding/SERVICE author");
         }
         long known = Math.addExact(stored.canonicalBytes().length, exact.canonicalBytes().length);
         known = Math.addExact(known, image.encodeFrame().length);
+        if(prepared.writerEpoch()!=null)known=Math.addExact(known,prepared.writerEpoch().value().canonicalBytes().length);
         if (!Arrays.equals(stored.canonicalBytes(), requested.canonicalBytes())) known = Math.addExact(known, requested.canonicalBytes().length);
         final long retained = original.retainedBytes();
         final long otherRows = Math.subtractExact(originalPage.canonicalBytes(), requested.canonicalBytes().length);

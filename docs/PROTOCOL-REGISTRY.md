@@ -6235,3 +6235,61 @@ approved next step is an immutable authenticated writer-epoch deadline contract 
 APPLIED independent TIME_FENCE covering that complete range; those writer contracts, closure
 recovery/census and full Scope resource/retention qualification are not implemented by this slice.
 Descriptor maximum14/advertised Native56 and completion/production flags remain unchanged.
+
+
+2026-10-25 immutable SLO writer epochs (activation remains closed).
+
+ControlOperationKind31 REGISTER_TARGET_SLO_WRITER_EPOCH and32 CLOSE_TARGET_SLO_WRITER_EPOCH
+use ApplyShardControl kinds30/31, body1 and independent tuple `(1,1,SYSTEM_MUTATION,1,19)`.
+They retain the existing exact registration, single SHARD target, ControlRef and CONTROL author;
+both original tenant policy administrator and platform operator qualifications remain mandatory.
+The bootstrap CONTROL issuer does not need an E4 SERVICE writer contract.
+
+WriterContract1 fields1 version1,2 complete Shard Scope,3 lineage16,4 full physical Source anchor,
+5 SERVICE identity,6 signing key version,7 writer epoch,8 finite absolute maximumRetryUntil D,
+9 explicit finite limits,10 complete resource-contract digest32,11 declaration digest32. Limits1
+fields1 version1,2 maximumEpochs,3 lifetime maximumSourceOccurrences,4 maximumBurstOccurrences,
+5 maximumFrameBytes,6 retainedUntilEpochMs. These declarations/digests do not qualify resources.
+WriterReference1 fields1 version1,2 SERVICE identity digest32,3 epoch,4 actual REGISTER digest32.
+The applied digest covers the original signed REGISTER plus its actual Source stamp; it is distinct
+from the pure declaration digest and stays unchanged when the epoch later closes.
+
+Writer request1 fields1 version1,2 Scope,3 lineage16. REGISTER adds4 full contract and optional5
+exact prior applied contract digest (absent iff epoch1). CLOSE adds6 original applied reference,
+7 complete original signed TIME_FENCE input,8 actual Fence stamp. Native62 schema1 at META56
+has key `38 01 || scope.keySuffix || writerIdentityDigest32 || epoch:u64be`: fields1 version1,
+2 original applied REGISTER, optional3 original applied CLOSE,4 record digest32. Each applied
+Control stores fields1 version1,2 full signed SystemMutation envelope,3 actual Source stamp.
+REGISTER < actual APPLIED TIME_FENCE < CLOSE must share physical Source/Scope/lineage, and
+closeThrough >= original D. Complete original Control registrations, independent Fence/time/public
+key authority, actual APPLIED first/POSITION and cumulative ingress Fence remain required.
+Native62, first/POSITION and actual Root STATE/RESULT/EVIDENCE plus tenant mirror use the same
+Source accounting batch. Previous epochs and their full original dependencies remain retained.
+
+Policy2 keeps Policy1 fields2–9, puts required initial WriterReference in10 and digest in11 under
+an independent policy domain. ENABLE with Policy2 uses Control body schema2 and independent
+policy tuple `(1,1,SYSTEM_MUTATION,1,20)`; the initial REGISTER must actually precede ENABLE.
+All Final/timeout/gap/custody frames for Policy2 require body5; body1–4 aliases are rejected.
+Body5 uses tuple `(1,1,SYSTEM_MUTATION,15,5)`, fields1–3/10–16 with version5, and mandatory21
+original WriterReference. Kind1 has18 complete source-assigned FinalEvidence and no provisional
+revision; kind2 has19 full collector receipt and20 exact exported sample. Independent identities
+include the original reference. Native60 keeps actual incoming/merged schema2; Native61 retains
+the complete original body5 input. Legacy schema bytes, identities and size bounds remain separate.
+
+The Policy2 reference is an initial ENABLE anchor, not a permanent event-writer selection. A later
+independently authorized epoch may complete an older generation, including Policy1, without changing
+its sample binding. Body5 author/key/deadline/frame bounds come from its actual retained Native62.
+Fresh signing reads the actual original epoch before and after signing; new append/apply recheck
+it. Reconciliation of an already retained exact frame still queries its original actual first even
+when the epoch later closes. No new signature, time or epoch replaces an uncertain old frame.
+
+Checkpoint retains full contracts/Control/Fence inputs and predecessor joins through existing
+semantic material; hashes/DTOs are not cold authority. Target export/collector independently require
+initial Policy2 registration qualification and every body5 epoch qualification, including repeat
+custody authentication. Missing new authority defaults to rejection. No new export/file format.
+An old Policy1 domain without an original complete finite D remains UNKNOWN. Closing a proved old
+range removes future logical apply ability; it proves neither physical non-persistence nor RPC exit,
+and preserves earlier firsts, late rejection/POS fees, Journal/attempt duties and physical custody.
+Actual recovery Fence orchestration/census, deployment providers, complete Scope resource/retention
+qualification and centralized/real validation remain required. Descriptor maximum14 and advertised
+Native56 remain unchanged; registering Native62 codecs does not activate certification.

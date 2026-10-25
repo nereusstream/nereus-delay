@@ -86,7 +86,17 @@ public final class TargetSloObservationHistoryAudit {
     public static void requireSamples(List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events,
             List<TargetSloCustodyRecord> custodies) {
-        requireEventHistory(generations,samples,firsts,events,custodies);
+        requireSamples(generations,samples,firsts,events,custodies,List.of());
+    }
+    /** Writer rows must be the actual Native62 material collected and independently authenticated by the checkpoint. */
+    public static void requireSamples(List<TargetSloObservationGeneration> generations,
+            List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events,
+            List<TargetSloCustodyRecord> custodies,List<TargetSloWriterEpoch> writers) {
+        final var writerRows=new HashMap<String,TargetSloWriterEpoch>();
+        for(var writer:writers)if(writerRows.putIfAbsent(Bytes.hex(writer.key()),writer)!=null)
+            throw new IllegalStateException("duplicate SLO writer epoch in actual checkpoint history");
+        for(var generation:generations)requirePolicyWriter(generation,writerRows);
+        requireEventHistory(generations,samples,firsts,events,custodies,writerRows);
         final var controls=new TreeMap<SourcePosition,TargetSloObservationGeneration>();
         final var byGeneration=new HashMap<Long,TargetSloObservationGeneration>();
         final var counts=new HashMap<Long,long[]>();
@@ -181,7 +191,7 @@ public final class TargetSloObservationHistoryAudit {
     /** Every APPLIED type15 first must name exactly one immutable Final or custody event. */
     private static void requireEventHistory(List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,List<TargetResultRecord> firsts,List<TargetSloObservationEventRecord> events,
-            List<TargetSloCustodyRecord> custodies){
+            List<TargetSloCustodyRecord> custodies,HashMap<String,TargetSloWriterEpoch> writers){
         final var bySample=new HashMap<String,TargetSloObservationSample>();
         final var byGeneration=new HashMap<Long,TargetSloObservationGeneration>();
         final var histories=new HashMap<String,TreeMap<Long,HistoryEntry>>();
@@ -195,8 +205,8 @@ public final class TargetSloObservationHistoryAudit {
             final var sampleId=row.finalEvent()!=null?row.finalEvent().body().sampleId():row.custody().sample().observation().sampleId();
             final var sample=Objects.requireNonNull(bySample.get(Bytes.hex(sampleId)),"orphaned SLO Source event/custody");
             final var generation=Objects.requireNonNull(byGeneration.get(sample.generation()),"SLO event original generation");
-            if(!Arrays.equals(row.input().authorIdentity(),generation.policy().service().canonicalBytes())
-                    ||row.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO Source event changed frozen writer");
+            requireEventWriter(generation,TargetSloObservationEventBody.decode(row.input().canonicalBody()),
+                    row.input(),row.appliedAt(),writers);
             generation.policy().requireSource(row.appliedAt().source());row.appliedAt().requireAfter(sample.first().mutation());
             if(row.finalEvent()!=null){
                 final var event=row.finalEvent();
@@ -248,6 +258,52 @@ public final class TargetSloObservationHistoryAudit {
             }
             if(!latest.equals(sample.mutation())||!Arrays.equals(version.canonicalBytes(),sample.canonicalBytes()))
                 throw new IllegalStateException("SLO sample lost complete original Source event history");
+        }
+    }
+
+    private static TargetSloWriterEpoch requirePolicyWriter(TargetSloObservationGeneration generation,
+            HashMap<String,TargetSloWriterEpoch> writers){
+        final var policy=generation.policy();
+        if(!policy.requiresWriterEpoch())return null;
+        final var reference=policy.requiredWriterEpoch();
+        final var writer=Objects.requireNonNull(writers.get(Bytes.hex(reference.key(policy.scope()))),
+                "Policy2 lost its actual original Native62 writer epoch");
+        final var contract=writer.contract();
+        if(!writer.reference().equals(reference)||!contract.scope().equals(policy.scope())
+                ||!Arrays.equals(contract.lineage(),policy.lineage()))
+            throw new IllegalStateException("Policy2 changed its exact original applied writer contract");
+        contract.requireSource(generation.enable().appliedAt().source());
+        generation.enable().appliedAt().requireAfter(writer.register().appliedAt());
+        return writer;
+    }
+
+    private static void requireEventWriter(TargetSloObservationGeneration generation,TargetSloObservationEventBody body,
+            SystemMutation input,TargetQuotaMutation appliedAt,HashMap<String,TargetSloWriterEpoch> writers){
+        final var policy=generation.policy();
+        if(body.writerEpoch()==null){
+            if(policy.requiresWriterEpoch()||!Arrays.equals(input.authorIdentity(),policy.service().canonicalBytes())
+                    ||input.signingKeyVersion()!=policy.keyVersion())
+                throw new IllegalStateException("legacy SLO Source event changed its original Policy1 writer");
+            return;
+        }
+        final var writer=Objects.requireNonNull(writers.get(Bytes.hex(body.writerEpoch().key(policy.scope()))),
+                "SLO body5 lost its actual original Native62 writer epoch");
+        final var contract=writer.contract();
+        if(!writer.reference().equals(body.writerEpoch())||!policy.scope().equals(contract.scope())
+                ||!Arrays.equals(policy.lineage(),contract.lineage())
+                ||!body.scope().equals(contract.scope())||!Arrays.equals(body.lineage(),contract.lineage())
+                ||!Arrays.equals(input.authorIdentity(),contract.service().canonicalBytes())
+                ||input.signingKeyVersion()!=contract.keyVersion()||input.retryUntilEpochMs()>contract.maximumRetryUntil()
+                ||input.encodeFrame().length>contract.limits().maximumFrameBytes()
+                ||appliedAt.source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())
+            throw new IllegalStateException("SLO body5 changed its original registered writer or finite frame/deadline bounds");
+        contract.requireSource(appliedAt.source());
+        appliedAt.requireAfter(writer.register().appliedAt());
+        if(writer.closed()){
+            final var fenceAt=writer.close().body().request().fenceAt();
+            if(appliedAt.source().compareTo(fenceAt.source())>=0)
+                throw new IllegalStateException("SLO body5 follows its original writer's actual closure Fence");
+            appliedAt.requireAtOrBefore(fenceAt);
         }
     }
 

@@ -51,6 +51,8 @@ public final class ControlOperationAuthorization {
     private static ControlRole[] requiredRoles(final PreparedControlOperation prepared) {
         return switch (prepared.kind()) {
             case GRANT_TARGET_MEMBERSHIP,
+                    REGISTER_TARGET_SLO_WRITER_EPOCH,
+                    CLOSE_TARGET_SLO_WRITER_EPOCH,
                     ENABLE_TARGET_SLO_CERTIFICATION,
                     STOP_TARGET_SLO_CERTIFICATION,
                     CLOSE_TARGET_MEMBERSHIP,
