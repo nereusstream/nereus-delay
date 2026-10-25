@@ -10,6 +10,17 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
     SourceReplayCursor<SourceReplayEntry> replayCursor();
     SourceReplaySuccessor successorAfter(SourcePosition position);
+    /**
+     * One finite native tail observation after the original signed barrier, before probing its old EOF.
+     * Runs on the caller's owned I/O pool. A captured prefix is not an old-writer/UNKNOWN settlement proof.
+     */
+    default void captureReplayTail(){
+        throw new IllegalStateException("reader cannot capture its original guarded finite replay tail");
+    }
+    /** Local original-reader checks only; every delivered entry must already be reflected in actualApplied. */
+    default boolean replayTailReached(SourcePosition actualApplied){
+        throw new IllegalStateException("reader has no original captured-prefix consumption proof");
+    }
     /** Private Target-startup path: the actual SDK reader must own the independent post-seek proof. */
     default void requireReaderBinding(SourceAssignment assignment, SourcePosition positionedCut) {
         throw new IllegalStateException("reader has no independent Target startup binding");

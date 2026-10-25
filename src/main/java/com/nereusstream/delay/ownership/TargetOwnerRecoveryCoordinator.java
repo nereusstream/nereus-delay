@@ -65,6 +65,47 @@ public final class TargetOwnerRecoveryCoordinator {
     private boolean sourceReadyForReactivation;
     private boolean reactivationReaderReleased;
     private com.nereusstream.delay.scheduler.WorkClassTask lastSourceAction;
+    private TargetWorkerRecoverySource replayTailReader;
+    private SourcePosition replayTailAppliedAt;
+    private boolean replayTailCaptured;
+
+    synchronized void bindReplayTail(TargetWorkerRecoverySource reader){
+        if(turnNumber!=0||replay!=null||replayTailReader!=null)throw new IllegalStateException("finite replay tail must bind before recovery starts");
+        replayTailReader=Objects.requireNonNull(reader);
+    }
+
+    synchronized boolean awaitingReplayTailCapture(){
+        return replayTailReader!=null&&!replayTailCaptured&&pending==null&&pendingEntry==null
+                &&(lastSourceAction==null||workClasses.state(lastSourceAction).isEmpty())
+                &&assignment.activationBarrier().reachedBy(store.appliedShardLogPosition());
+    }
+
+    synchronized void replayTailCaptured(TargetWorkerRecoverySource reader){
+        if(replayTailReader!=reader)throw new IllegalArgumentException("captured tail changed its original recovery reader");
+        if(replayTailCaptured)return;
+        if(!awaitingReplayTailCapture())throw new IllegalStateException("tail captured before original Source barrier/action completion");
+        replayTailCaptured=true;
+    }
+
+    synchronized OwnerRecoveryTurn replayTailCaptureTurn(){
+        if(!awaitingReplayTailCapture())throw new IllegalStateException("original Source is not paused for tail capture");
+        return new OwnerRecoveryTurn(List.of(),false,turnNumber);
+    }
+
+    /** A real consumed prefix, distinct from the immutable assignment and from old-writer settlement. */
+    private boolean replayTailReached(){
+        if(replayTailReader==null)return true; // Original component-only recovery keeps its original barrier contract.
+        if(!replayTailCaptured)return false;
+        final var applied=Objects.requireNonNull(store.appliedShardLogPosition(),"actual Source tail apply cut");
+        if(replayTailAppliedAt!=null){
+            if(!applied.sameSourceIdentity(replayTailAppliedAt)||applied.compareTo(replayTailAppliedAt)<0
+                    ||applied.compareTo(replayTailAppliedAt)==0&&!Arrays.equals(applied.canonicalBytes(),replayTailAppliedAt.canonicalBytes()))
+                throw new IllegalStateException("recovery lost its actual consumed tail cut");
+            return true;
+        }
+        if(!replayTailReader.replayTailReached(applied))return false;
+        replayTailAppliedAt=applied;return true;
+    }
 
     synchronized void releaseReaderForSourceReactivation(TargetWorkerRecoverySource reader) {
         if (!sourceReadyForReactivation || reader != boundReader || !reader.cleanupComplete()) {
@@ -86,7 +127,7 @@ public final class TargetOwnerRecoveryCoordinator {
         requireCatalog(); requireLease(false);
         if (lastSourceAction != null && workClasses.state(lastSourceAction).isPresent()) return false;
         if (pending != null || pendingEntry != null || completedRoot == null
-                || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
+                || !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())||!replayTailReached()) {
             throw new IllegalStateException("Source reactivation pause lost its actual audited cut");
         }
         return true;
@@ -242,7 +283,7 @@ public final class TargetOwnerRecoveryCoordinator {
         recoveryJournalProtection = journalProtection;
     }
 
-    /** One retained Source action at a time; reaching the authenticated barrier, not cursor exhaustion, completes. */
+    /** One retained Source action; the original barrier and any privately bound captured prefix must be applied. */
     public synchronized OwnerRecoveryTurn runTurn() {
         final var outcomes = new ArrayList<SourceReplayOutcome>();
         final int turn = Math.incrementExact(turnNumber);
@@ -259,11 +300,16 @@ public final class TargetOwnerRecoveryCoordinator {
             }
             requireCatalog();
             while (true) {
-                if (pending == null && assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
-                    final boolean finished = finish();
-                    complete = finished;
-                    turnNumber = turn;
-                    return new OwnerRecoveryTurn(outcomes, finished, turn);
+                if (pending == null && pendingEntry==null&&assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
+                    if(replayTailReader!=null&&!replayTailCaptured){
+                        turnNumber=turn;return new OwnerRecoveryTurn(outcomes,false,turn);
+                    }
+                    if(replayTailReached()){
+                        final boolean finished = finish();
+                        complete = finished;
+                        turnNumber = turn;
+                        return new OwnerRecoveryTurn(outcomes, finished, turn);
+                    }
                 }
                 beginReplay();
                 replay.requireRecoveryOwner(clock);
@@ -274,6 +320,10 @@ public final class TargetOwnerRecoveryCoordinator {
                 }
                 if (pendingEntry == null) {
                     if (!source.hasNext()) {
+                        if(assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())&&replayTailReached()){
+                            final boolean finished=finish();complete=finished;turnNumber=turn;
+                            return new OwnerRecoveryTurn(outcomes,finished,turn);
+                        }
                         throw new SourceReplayGapException("Target Source ended before its barrier");
                     }
                     pendingEntry = Objects.requireNonNull(source.peek(), "source entry");
@@ -426,7 +476,7 @@ public final class TargetOwnerRecoveryCoordinator {
             public void requireCurrent() {
                 protection.run();
                 requireLease(true);
-                if (!assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
+                if (!assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())||!replayTailReached()) {
                     throw new IllegalStateException("Target recovery completion lost its Source barrier");
                 }
             }

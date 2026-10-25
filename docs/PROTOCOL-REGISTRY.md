@@ -6203,3 +6203,35 @@ continuation settles and those positions are actually applied. This bounded live
 not a crash-recovery settlement proof. Complete timeout census, post-old-writer recovery barrier,
 actual gap producer, lifetime Source-occurrence/resource/retention qualification and full population
 consumer remain open. Descriptor maximum14 / advertised Native56 and all completion flags stay closed.
+
+
+2026-10-25 independent finite Source replay tail (no wire or assignment change).
+
+Formal Target recovery first actually applies the original signed activation barrier and drains its
+retained Source action. Before probing the old iterator EOF, Startup captures one new finite native
+prefix on its original guarded no-ACK reader through the existing process Owned I/O pool. The
+coordinator pauses until that I/O has exited, then resumes ordinary SOURCE_APPLY/decode/sync/POS.
+Claim takeover, P1 reader release/freeze and completion audit require both the unchanged assignment
+barrier and the actually consumed captured prefix. No new Route/assignment identity is fabricated.
+
+K1 preserves the original validated consumer isolation: read_uncommitted captures actual Fetch HW;
+only an originally read_committed reader captures LSO and checks LSO <= HW. Progress comes from
+that response's guarded paired nextOffsets, including actual control/aborted processing, never
+consumer.position(), guessed bound-minus-one SourcePosition or an unproved empty poll. One
+lookahead is retained; records beyond the fixed cut are not applied. The original audited anchor
+keeps its full canonical identity, and strictKafka is unchanged. This is not K2 coverage evidence.
+
+P1 captures getLastMessageIdsAsync on the same independently proven SUBSCRIBE connection, checks
+generation/attestation before and after, and derives completion from actual decoded/delivered full
+SourcePosition or the identical already-audited anchor. Native entry-only tail metadata explicitly
+leaves singleton batch kind unresolved; only a real decoded/audited size1 position supplies BATCH
+or NON_BATCH. It cannot certify a larger batch's first member as the tail. Query timeout retains
+the original future/native-read custody; cleanup requires its actual exit, not cancellation.
+
+This establishes one finite replay prefix, not remote UNKNOWN settlement. Current K1 Source writer
+has no stable transactional producer fence; P1 Source is not an Exclusive producer. Local SDK
+termination, a captured tip or no frame in this prefix cannot certify all old writes absent. The
+approved next step is an immutable authenticated writer-epoch deadline contract plus an actually
+APPLIED independent TIME_FENCE covering that complete range; those writer contracts, closure
+recovery/census and full Scope resource/retention qualification are not implemented by this slice.
+Descriptor maximum14/advertised Native56 and completion/production flags remain unchanged.

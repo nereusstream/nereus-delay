@@ -15,6 +15,7 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
@@ -25,9 +26,11 @@ import java.util.function.Supplier;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
+import org.apache.pulsar.client.api.TopicMessageId;
 
 /**
  * Native guarded Pulsar replay input for {@code OwnerRecoveryCoordinator}.
@@ -65,6 +68,10 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private boolean hasDelivered;
     private PulsarSourcePosition lastDelivered;
     private SourceReplayEntry lastDeliveredEntry;
+    private ReplayTail readThrough;
+    private CompletableFuture<?> replayTailIo;
+    private boolean replayTailCaptureStarted;
+    private boolean replayTailAtPositionedCut;
     private boolean closed;
     private boolean failed;
 
@@ -366,7 +373,137 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         }
         barrier.validatePosition(entry.position());
     }
-    @Override public synchronized boolean cleanupComplete() { return closed && cleanup.cleanupComplete(); }
+    @Override public synchronized boolean cleanupComplete() {
+        return closed && cleanup.cleanupComplete() && (replayTailIo == null || replayTailIo.isDone());
+    }
+
+    /** Observes one finite tail on the original independent reader; it does not change the signed barrier. */
+    @Override public synchronized void captureReplayTail() {
+        ensureOpen();
+        requireIndependentReader();
+        if (replayTailCaptureStarted) {
+            if (readThrough != null) { requireCurrent(); return; }
+            throw new IllegalStateException("P1 replay tail capture already started; retain its original I/O");
+        }
+        if (current != null || buffered != null) {
+            throw new IllegalStateException("P1 replay tail capture requires no undelivered Source input");
+        }
+        if (!barrier.reachedBy(lastDelivered == null ? positionedReaderCut : lastDelivered)) {
+            throw new IllegalStateException("P1 replay tail capture must follow the original activation barrier");
+        }
+        replayTailCaptureStarted = true;
+        final long started = System.nanoTime();
+        final long budgetNanos = TimeUnit.MILLISECONDS.toNanos(receiveTimeoutMs);
+        try {
+            cleanup.read(receiveTimeoutMs, ignored -> {
+                protection.run();
+                final SourceProof before = requireProof();
+                final var reading = PulsarClientArtifactOwnedBackendGroup.beginNativeRead(consumer);
+                if (reading == null) {
+                    throw new IllegalStateException("P1 replay tail lacks its original native read ownership");
+                }
+                final CompletableFuture<List<TopicMessageId>> pending;
+                try {
+                    pending = Objects.requireNonNull(consumer.getLastMessageIdsAsync(), "P1 replay tail future")
+                            .whenComplete((value, failure) -> reading.close());
+                    replayTailIo = pending;
+                } catch (RuntimeException | Error failure) {
+                    reading.close();
+                    throw failure;
+                }
+                final List<TopicMessageId> ids;
+                try {
+                    final long remaining = budgetNanos - (System.nanoTime() - started);
+                    if (remaining <= 0) { throw new java.util.concurrent.TimeoutException("P1 replay tail deadline"); }
+                    ids = pending.get(remaining, TimeUnit.NANOSECONDS);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("P1 replay tail capture interrupted; retain its original I/O", failure);
+                } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
+                    throw new IllegalStateException("P1 replay tail capture is unconfirmed; retain its original I/O", failure);
+                }
+                final SourceProof after = requireProof();
+                if (!before.equals(after)) {
+                    throw new IllegalStateException("P1 replay tail changed its guarded SUBSCRIBE proof");
+                }
+                if (ids == null || ids.size() != 1 || ids.getFirst() == null
+                        || !physicalTopic.equals(ids.getFirst().getOwnerTopic())
+                        || !(ids.getFirst() instanceof MessageIdAdv tail)) {
+                    throw new IllegalStateException("P1 replay tail lacks its single physical Source response");
+                }
+                final ReplayTail captured = ReplayTail.from(tail, assignment.shardId().partition());
+                captured.requireNotBefore(positionedReaderCut);
+                if (!barrier.empty()) {
+                    final int relative = captured.compare(barrier.ledgerId(), barrier.entryId(),
+                            barrier.normalizedLastBatchIndex());
+                    if (relative < 0 || relative == 0 && barrier.batchSize() != 0
+                            && captured.batchSize() != barrier.batchSize()) {
+                        throw new IllegalStateException("P1 replay tail precedes or changes the original activation barrier");
+                    }
+                }
+                if (lastDelivered != null) { captured.requireAtOrBefore(lastDelivered); }
+                if (current != null) { captured.requireAtOrBefore((PulsarSourcePosition) current.position()); }
+                final boolean atPositionedCut = captured.matches(positionedReaderCut);
+                protection.run();
+                readThrough = captured;
+                replayTailAtPositionedCut = atPositionedCut;
+                return null;
+            });
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            failed = true;
+            throw new IllegalStateException("P1 replay tail reader wait interrupted", failure);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
+            failed = true;
+            throw new IllegalStateException("P1 replay tail reader wait is unconfirmed", failure);
+        } catch (RuntimeException | Error failure) {
+            failed = true;
+            throw failure;
+        } finally {
+            if (backend != null) { backend.cleanupProgress(); }
+        }
+    }
+
+    /** Requires the actual decoded delivery (or exact original Store cut) and the actual applied Source position. */
+    @Override public synchronized boolean replayTailReached(SourcePosition actualApplied) {
+        ensureOpen();
+        requireIndependentReader();
+        if (readThrough == null) {
+            throw new IllegalStateException("P1 replay tail was not captured on its original reader");
+        }
+        protection.run();
+        requireProof();
+        final PulsarSourcePosition observed;
+        if (lastDelivered != null && readThrough.matches(lastDelivered)) {
+            observed = lastDelivered;
+        } else if (replayTailAtPositionedCut && lastDelivered == null && current == null && buffered == null) {
+            // This is the original complete Store position, never a SourcePosition made from a last-message id.
+            observed = positionedReaderCut;
+        } else {
+            return false;
+        }
+        if (!(actualApplied instanceof PulsarSourcePosition applied)) {
+            throw new IllegalStateException("P1 replay completion lacks its actual applied Source position");
+        }
+        final int relative = applied.compareTo(observed);
+        if (relative == 0 && !sameCanonicalPosition(applied, observed)) {
+            throw new IllegalStateException("P1 replay applied position changed the complete observed Source position");
+        }
+        if (applied.ledgerId() == observed.ledgerId() && applied.entryId() == observed.entryId()) {
+            readThrough.requireAtOrBefore(applied);
+        }
+        protection.run();
+        return relative >= 0;
+    }
+
+    private void requireIndependentReader() {
+        if (!target || independentReaderProof == null || sourceStartup == null || positionedReaderCut == null
+                || verifiedCredential == null || backend == null) {
+            throw new IllegalStateException("P1 replay tail requires its original independent Target startup reader");
+        }
+        requireReaderBinding(assignment, positionedReaderCut);
+        barrier.validatePosition(positionedReaderCut);
+    }
 
     /** Keeps the exact post-seek native guard live across Target recovery look-ahead and queued writes. */
     public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {
@@ -395,12 +532,23 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
 
     private boolean load() {
         protection.run();
+        final boolean independentReplay = target && sourceStartup != null;
         if (current != null) {
             requireProof();
+            if (independentReplay) { requireReplayBound((PulsarSourcePosition) current.position()); }
             return true;
         }
         final SourceProof before = requireProof();
-        if (target && (barrier.empty() || lastDelivered != null && barrier.reachedBy(lastDelivered))) { return false; }
+        if (independentReplay) {
+            if (readThrough == null) {
+                if (barrier.reachedBy(lastDelivered == null ? positionedReaderCut : lastDelivered)) {
+                    throw new IllegalStateException("P1 recovery must capture its new tail before probing past the original barrier");
+                }
+            } else if ((lastDelivered != null && readThrough.matches(lastDelivered))
+                    || (replayTailAtPositionedCut && lastDelivered == null && buffered == null)) { return false; }
+        } else if (target && (barrier.empty() || lastDelivered != null && barrier.reachedBy(lastDelivered))) {
+            return false;
+        }
         final Message<byte[]> message;
         if (buffered != null) {
             message = buffered;
@@ -414,7 +562,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         if (message == null) {
             requireProof();
             protection.run();
-            if (target && !barrier.empty()) {
+            if (target && (independentReplay || !barrier.empty())) {
                 throw new IllegalStateException("Target recovery Source was unavailable before its receive deadline");
             }
             return false;
@@ -427,17 +575,37 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             if (target && (message.getData() == null || message.getData().length > maximumFrameBytes)) {
                 throw new IllegalStateException("Target recovery Source frame exceeds its declared byte bound");
             }
-            current = target
+            final SourceReplayEntry decoded = target
                     ? PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message, assignment.shardId(),
                             physicalTopic, after.attestation(), after.generation(), after.digest())
                     : PulsarClientArtifactSourceRecordConsumer.decodeReplayRecord(message, assignment.shardId(),
                             physicalTopic, after.attestation(), after.generation(), after.digest());
-            buffered = null;
+            if (independentReplay) {
+                requireReplayBound((PulsarSourcePosition) decoded.position());
+            }
             protection.run();
+            current = decoded;
+            buffered = null;
             return true;
         } catch (RuntimeException | Error failure) {
             buffered = message;
             throw failure;
+        }
+    }
+
+    private void requireReplayBound(PulsarSourcePosition position) {
+        barrier.validatePosition(position);
+        if (readThrough != null) {
+            readThrough.requireAtOrBefore(position);
+            return;
+        }
+        int relative = Long.compareUnsigned(position.ledgerId(), barrier.ledgerId());
+        if (relative == 0) { relative = Long.compareUnsigned(position.entryId(), barrier.entryId()); }
+        if (relative == 0) {
+            relative = Integer.compareUnsigned(position.normalizedBatchIndex(), barrier.normalizedLastBatchIndex());
+        }
+        if (barrier.empty() || relative > 0) {
+            throw new IllegalStateException("P1 recovery delivered past the original barrier before its new tail capture");
         }
     }
 
@@ -554,6 +722,67 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private void ensureOpen() {
         if (closed || failed) {
             throw new IllegalStateException("Pulsar recovery source is closed or failed; retain it only for cleanup");
+        }
+    }
+
+    /**
+     * Native last-message coordinates only: timestamps and complete Source positions come from actual delivery.
+     * An entry-only query leaves kind unknown because the SDK also uses it for a singleton batch's last member.
+     */
+    private record ReplayTail(long ledgerId, long entryId, int lastBatchIndex, int batchSize, boolean batchKindKnown) {
+        private static ReplayTail from(MessageIdAdv tail, int partition) {
+            final int nativeIndex = tail.getBatchIndex();
+            final int nativeSize = tail.getBatchSize();
+            if (tail.getLedgerId() < 0 || tail.getEntryId() < 0 || tail.getFirstChunkMessageId() != null
+                    || tail.getPartitionIndex() < -1
+                    || tail.getPartitionIndex() >= 0 && tail.getPartitionIndex() != partition
+                    || nativeIndex < -1 || nativeIndex == Integer.MAX_VALUE || nativeSize < 0) {
+                throw new IllegalStateException("P1 replay tail lacks a finite complete native message identity");
+            }
+            final int last = Math.max(0, nativeIndex);
+            // Broker GetLastMessageId reports the largest batch index. Its client wrapper can omit batchSize.
+            final int size = last + 1;
+            if (nativeSize != 0 && nativeSize != size) {
+                throw new IllegalStateException("P1 replay tail changes the native final batch shape");
+            }
+            return new ReplayTail(tail.getLedgerId(), tail.getEntryId(), last, size, nativeIndex >= 0);
+        }
+
+        /** Compares captured tail coordinates with another actual native coordinate. */
+        private int compare(long ledger, long entry, int index) {
+            int result = Long.compareUnsigned(ledgerId, ledger);
+            if (result == 0) { result = Long.compareUnsigned(entryId, entry); }
+            return result == 0 ? Integer.compareUnsigned(lastBatchIndex, index) : result;
+        }
+
+        private boolean sameEntry(PulsarSourcePosition position) {
+            return ledgerId == position.ledgerId() && entryId == position.entryId();
+        }
+
+        private void requireShape(PulsarSourcePosition position) {
+            if (sameEntry(position) && (position.batchSize() != batchSize
+                    || batchKindKnown && position.entryKind() != PulsarSourcePosition.EntryKind.BATCH)) {
+                throw new IllegalStateException("P1 replay position does not match the captured tail's complete batch shape");
+            }
+        }
+
+        private void requireNotBefore(PulsarSourcePosition position) {
+            requireShape(position);
+            if (compare(position.ledgerId(), position.entryId(), position.normalizedBatchIndex()) < 0) {
+                throw new IllegalStateException("P1 replay tail precedes the original audited Store cut");
+            }
+        }
+
+        private void requireAtOrBefore(PulsarSourcePosition position) {
+            requireShape(position);
+            if (compare(position.ledgerId(), position.entryId(), position.normalizedBatchIndex()) < 0) {
+                throw new IllegalStateException("P1 replay delivered beyond or skipped its captured finite tail");
+            }
+        }
+
+        private boolean matches(PulsarSourcePosition position) {
+            requireShape(position);
+            return compare(position.ledgerId(), position.entryId(), position.normalizedBatchIndex()) == 0;
         }
     }
 

@@ -5,6 +5,7 @@ import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Iterator;
@@ -24,10 +25,11 @@ import org.apache.kafka.common.TopicPartition;
  * coordinator retains the same decoded record until the bounded Store apply
  * outcome is proven, then calls {@link #next()} to release only the local
  * look-ahead. The caller supplies the already validated durable replay start
- * offset; transient empty polls before the Route activation barrier are
- * retried, while an empty poll after the barrier is a proved source boundary.
- * The Route activation barrier remains an identity fence, not a substitute
- * for local Store recovery metadata.</p>
+ * offset. Target startup additionally captures one actual guarded Fetch native
+ * bound under its original isolation mode and replays only that fixed prefix;
+ * a timeout or empty poll alone is never
+ * its completion proof. The Route activation barrier remains an identity
+ * fence, not a substitute for local Store recovery metadata.</p>
  */
 public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<SourceReplayEntry>,
         com.nereusstream.delay.ownership.TargetWorkerRecoverySource {
@@ -45,6 +47,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private final TopicPartition topicPartition;
     private final ConsumerResourceGuard expectedGuard;
     private final Duration pollTimeout;
+    private final long startOffsetInclusive;
     private final boolean target;
     private final int maximumFrameBytes;
     private final Runnable protection;
@@ -52,6 +55,11 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private SourceReplayEntry current;
     private int emptyPollsBeforeActivationBarrier;
     private boolean activationBarrierReached;
+    private long replayTailExclusive = -1;
+    private long readThrough;
+    private String isolationLevel;
+    private KafkaSourcePosition positionedAnchor;
+    private KafkaSourcePosition lastDeliveredPosition;
     private boolean closed;
     private boolean failed;
 
@@ -98,6 +106,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                     Math.addExact(position.offset(), 1L), pollTimeout, maximumFrameBytes, time,
                     () -> { startup.requireCurrent(); originalProtection.run(); }, budget, allocationId,
                     maximumConnections, cost, graph.classes(), graph.resources());
+            cursor.positionedAnchor = position;
             startup.retainRecoverySource(cursor); original.requireCurrent();
             return cursor;
         } catch (com.nereusstream.delay.ownership.TargetSdkCleanupFailure partial) {
@@ -174,6 +183,11 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         config.put(org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         config.put(org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
         config.put(org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_METRICS_PUSH_CONFIG, false);
+        final String isolation = new org.apache.kafka.clients.consumer.ConsumerConfig(config)
+                .getString(org.apache.kafka.clients.consumer.ConsumerConfig.ISOLATION_LEVEL_CONFIG);
+        if (!"read_uncommitted".equals(isolation) && !"read_committed".equals(isolation)) {
+            throw new IllegalArgumentException("Source recovery requires its original Kafka isolation mode");
+        }
         protection.run();
         final var actual = KafkaClientArtifactSourceConsumerFactory.create(config, resource.authenticatedClusterId(), topic,
                 resource.nativeTopicUuid(), assignment.shardId().partition(), pollTimeout);
@@ -181,6 +195,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             protection.run();
             final var cursor = forTarget(actual, assignment, topic, startOffsetInclusive, pollTimeout, maximumFrameBytes, protection);
             cursor.verifiedCredential = credential;
+            cursor.isolationLevel = isolation;
             return cursor;
         } catch (RuntimeException | Error failure) {
             try { actual.closeGuardedResources(pollTimeout); if (!actual.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete"); }
@@ -222,6 +237,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         this.expectedGuard = new ConsumerResourceGuard(
                 authenticatedClusterId, topic, toKafkaUuid(nativeTopicUuid), shard.partition());
         this.pollTimeout = Objects.requireNonNull(pollTimeout, "pollTimeout");
+        this.startOffsetInclusive = startOffsetInclusive;
+        this.readThrough = startOffsetInclusive;
         if (pollTimeout.isNegative() || pollTimeout.isZero()) {
             throw new IllegalArgumentException("pollTimeout must be positive");
         }
@@ -233,6 +250,62 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         consumer.assign(java.util.List.of(topicPartition));
         consumer.seek(topicPartition, startOffsetInclusive);
         protection.run();
+    }
+
+    /** Freezes one actual-mode Fetch bound; it is neither old-writer settlement nor K2 coverage. */
+    @Override public synchronized void captureReplayTail() {
+        requireCurrent();
+        if (!target || verifiedCredential == null || allocation == null || allocation.released()
+                || positionedAnchor == null) {
+            throw new IllegalStateException("tail capture requires the original budgeted Target recovery reader");
+        }
+        if (replayTailExclusive >= 0) { return; }
+        if (current != null || !buffered.isEmpty()
+                || !activationBarrier.reachedBy(lastDeliveredPosition == null ? positionedAnchor : lastDeliveredPosition)) {
+            throw new IllegalStateException("Source tail capture requires the fully delivered original activation barrier");
+        }
+        try {
+            final var records = consumer.pollGuarded(pollTimeout);
+            requireCurrent();
+            final var evidence = KafkaClientArtifactFetchEvidence.requireResponse(records, expectedGuard);
+            if (evidence == null) {
+                throw new IllegalStateException("Source tail capture has no actual guarded Fetch response");
+            }
+            final long nativeBound = nativeResponseBound(evidence);
+            if (nativeBound < activationBarrier.exclusiveOffset()) {
+                throw new IllegalStateException("Source tail is behind its accepted activation barrier");
+            }
+            acceptReplayResponse(records, evidence);
+            replayTailExclusive = nativeBound;
+            requireCurrent();
+        } catch (RuntimeException | Error failure) {
+            failed = true;
+            throw failure;
+        }
+    }
+
+    /** Local qualification of this reader's actually processed prefix and already delivered Source frames. */
+    @Override public synchronized boolean replayTailReached(SourcePosition actualApplied) {
+        requireCurrent();
+        if (replayTailExclusive < 0) {
+            throw new IllegalStateException("Source replay tail was not captured by its original reader");
+        }
+        if (actualApplied == null) { return false; }
+        activationBarrier.validatePosition(actualApplied);
+        final var applied = (KafkaSourcePosition) actualApplied;
+        if (applied.offset() < 0 || applied.offset() < startOffsetInclusive - 1
+                || readThrough < replayTailExclusive
+                || current != null && ((KafkaSourcePosition) current.position()).offset() < replayTailExclusive
+                || !buffered.isEmpty() && buffered.peekFirst().record().offset() < replayTailExclusive) {
+            return false;
+        }
+        if (lastDeliveredPosition == null) {
+            return positionedAnchor != null && java.util.Arrays.equals(
+                    applied.canonicalBytes(), positionedAnchor.canonicalBytes());
+        }
+        final int relative = applied.compareTo(lastDeliveredPosition);
+        return relative > 0 || relative == 0 && java.util.Arrays.equals(
+                applied.canonicalBytes(), lastDeliveredPosition.canonicalBytes());
     }
 
     @Override
@@ -254,32 +327,42 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         if (current != null) {
             return true;
         }
-        if (target && activationBarrierReached) { return false; }
-        while (buffered.isEmpty()) {
-            final GuardedConsumerRecords<byte[], byte[]> records = consumer.pollGuarded(pollTimeout);
-            final GuardedFetchEvidence evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, expectedGuard);
-            if (target && records.count() > 1) {
-                throw new IllegalStateException("Target recovery Fetch exceeds its one-record look-ahead bound");
+        if (replayTailExclusive >= 0) {
+            if (!loadNativePrefix(replayTailExclusive)) { return false; }
+        } else if (target && allocation != null && verifiedCredential != null) {
+            // The core pauses here after the original Source action has exited. Returning false
+            // before that pause/capture would permanently cache the old EOF in SourceReplayCursor.
+            if (activationBarrierReached || !loadNativePrefix(activationBarrier.exclusiveOffset())) {
+                throw new IllegalStateException("Source tail capture is required before probing the original recovery EOF");
             }
-            for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
-                KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
-                buffered.addLast(new BufferedRecord(record, evidence));
+        } else {
+            if (target && activationBarrierReached) { return false; }
+            while (buffered.isEmpty()) {
+                final GuardedConsumerRecords<byte[], byte[]> records = consumer.pollGuarded(pollTimeout);
+                final GuardedFetchEvidence evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, expectedGuard);
+                if (target && records.count() > 1) {
+                    throw new IllegalStateException("Target recovery Fetch exceeds its one-record look-ahead bound");
+                }
+                for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
+                    KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
+                    buffered.addLast(new BufferedRecord(record, evidence));
+                }
+                if (records.isEmpty()) {
+                    if (activationBarrierReached) {
+                        protection.run();
+                        return false;
+                    }
+                    if (target) {
+                        throw new IllegalStateException("Target recovery Source was unavailable before its poll deadline");
+                    }
+                    if (++emptyPollsBeforeActivationBarrier >= MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER) {
+                        throw new IllegalStateException("Kafka recovery source did not reach the activation barrier after "
+                                + MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER + " empty polls");
+                    }
+                    continue;
+                }
+                emptyPollsBeforeActivationBarrier = 0;
             }
-            if (records.isEmpty()) {
-                if (activationBarrierReached) {
-                    protection.run();
-                    return false;
-                }
-                if (target) {
-                    throw new IllegalStateException("Target recovery Source was unavailable before its poll deadline");
-                }
-                if (++emptyPollsBeforeActivationBarrier >= MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER) {
-                    throw new IllegalStateException("Kafka recovery source did not reach the activation barrier after "
-                            + MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER + " empty polls");
-                }
-                continue;
-            }
-            emptyPollsBeforeActivationBarrier = 0;
         }
         final BufferedRecord fetched = buffered.removeFirst();
         final ConsumerRecord<byte[], byte[]> record = fetched.record();
@@ -316,8 +399,81 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new NoSuchElementException("Kafka recovery source is exhausted");
         }
         final SourceReplayEntry result = current;
+        if (target) { lastDeliveredPosition = (KafkaSourcePosition) result.position(); }
         current = null;
         return result;
+    }
+
+    private boolean loadNativePrefix(long exclusiveBound) {
+        final long started = System.nanoTime();
+        while (buffered.isEmpty()) {
+            if (readThrough >= exclusiveBound) { return false; }
+            final long elapsed = System.nanoTime() - started;
+            final long remaining = pollTimeout.toNanos() - elapsed;
+            if (elapsed < 0 || remaining <= 0) {
+                throw new IllegalStateException("Source replay did not reach its fixed tail before the poll deadline");
+            }
+            final var records = consumer.pollGuarded(Duration.ofNanos(remaining));
+            requireCurrent();
+            final var evidence = KafkaClientArtifactFetchEvidence.requireResponse(records, expectedGuard);
+            if (evidence == null) {
+                throw new IllegalStateException("Source replay has no actual guarded Fetch continuation");
+            }
+            final long before = readThrough;
+            acceptReplayResponse(records, evidence);
+            requireCurrent();
+            if (buffered.isEmpty() && readThrough == before && readThrough < exclusiveBound) {
+                throw new IllegalStateException("Source replay was unavailable before its captured tail");
+            }
+        }
+        // A later response can include a newer Source frame beyond the fixed cut. Keep it owned,
+        // but never expose it to the recovery coordinator or silently advance its Source cut.
+        return buffered.peekFirst().record().offset() < exclusiveBound;
+    }
+
+    private void acceptReplayResponse(GuardedConsumerRecords<byte[], byte[]> records, GuardedFetchEvidence evidence) {
+        final long nativeBound = nativeResponseBound(evidence);
+        if (evidence.logStartOffset() < 0 || evidence.logStartOffset() > readThrough
+                || nativeBound < readThrough
+                || replayTailExclusive >= 0 && nativeBound < replayTailExclusive
+                || records.count() > 1 || !buffered.isEmpty()) {
+            throw new IllegalStateException("Source replay Fetch lost its retained range, native bound or single-record bound");
+        }
+        final var processed = records.nextOffsets().get(topicPartition);
+        if (processed == null || evidence.fetchOffset() > readThrough || processed.offset() < readThrough
+                || processed.offset() > nativeBound) {
+            throw new IllegalStateException("Source replay Fetch lacks its paired actual processed continuation");
+        }
+        BufferedRecord next = null;
+        for (var record : records.records(topicPartition)) {
+            KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
+            if (record.offset() < readThrough || record.offset() >= nativeBound
+                    || record.offset() >= processed.offset() || record.timestamp() < 0
+                    || requireValue(record).length > maximumFrameBytes) {
+                throw new IllegalStateException("Source replay record is outside its processed native prefix");
+            }
+            next = new BufferedRecord(record, evidence);
+        }
+        if (next != null) { buffered.addLast(next); }
+        // This same-response SDK continuation includes actually processed control/aborted batches.
+        // Neither the native bound itself nor consumer.position() proves that processing occurred.
+        readThrough = processed.offset();
+    }
+
+    private long nativeResponseBound(GuardedFetchEvidence evidence) {
+        if ("read_uncommitted".equals(isolationLevel)) {
+            if (evidence.highWatermark() < 0) {
+                throw new IllegalStateException("Source replay Fetch lacks its actual high watermark");
+            }
+            return evidence.highWatermark();
+        }
+        if ("read_committed".equals(isolationLevel)) {
+            if (evidence.lastStableOffset() < 0 || evidence.highWatermark() < evidence.lastStableOffset()) {
+                throw new IllegalStateException("Source replay Fetch lacks its actual LSO/HW relation");
+            }
+            return evidence.lastStableOffset();
+        }
+        throw new IllegalStateException("Source replay has no original verified isolation mode");
     }
 
     @Override
@@ -327,6 +483,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             if (target) {
                 consumer.closeGuardedResources(pollTimeout);
                 if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete");
+                current = null;
+                buffered.clear();
             }
             else { consumer.close(); }
             closed = true;
@@ -347,12 +505,21 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             com.nereusstream.delay.store.SharedRocksDbResources resources) {
         if (!target || verifiedCredential == null || allocation == null || allocation.released()
                 || allocationClasses != classes || allocationResources != resources || !assignment.sameIdentity(expected)
-                || maximumFrameBytes > frameBytes) throw new IllegalStateException("recovery cursor lacks its original verified Source startup");
+                || maximumFrameBytes > frameBytes || positionedAnchor == null
+                || positionedAnchor.offset() < 0 || positionedAnchor.offset() == Long.MAX_VALUE
+                || positionedAnchor.offset() + 1 != startOffsetInclusive) {
+            throw new IllegalStateException("recovery cursor lacks its original verified Source startup");
+        }
+        activationBarrier.validatePosition(positionedAnchor);
         verifiedCredential.authorization().requireAssignment(expected);
     }
     @Override public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(
             com.nereusstream.delay.protocol.SourcePosition resumeAfter) {
         requireCurrent(); activationBarrier.validatePosition(resumeAfter);
+        if (positionedAnchor != null && !java.util.Arrays.equals(
+                positionedAnchor.canonicalBytes(), resumeAfter.canonicalBytes())) {
+            throw new IllegalStateException("recovery successor changed its original audited Source anchor");
+        }
         return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
     }
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return null; }

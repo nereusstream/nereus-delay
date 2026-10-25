@@ -1743,3 +1743,39 @@ images正向枚举不能代替从未Admission的eligibility覆盖。原v1与form
 实现优先/测试与真实Broker恢复等集中验收后置的要求保持；A–F/29切片及四包范围不缩减，
 实现/集中验证/生产完成标志不能因多agent、编译或局部Source接线而提升。历史单agent记录
 保留，当前executionPolicy.singleAgent改为false。
+
+
+## 2026-10-25：E4 writer epoch截止与Source-ordered Fence逻辑闭合裁定
+
+主会话核验当前K1无稳定transactional producer fence、P1 Source非Exclusive后裁定：
+本地SDK/custody退出和新reader捕获的有限tail均不证明所有旧UNKNOWN不曾/不会物理落盘。
+采用原Source-ordered ingress deadline fence关闭已覆盖旧范围的后续逻辑apply能力，
+不更改K1/P1 producer语义，不改signedRoute/assignment，不新增第二日志或通用prepared
+frame账本。以下为已裁定的后续实现要求，不是当前已完成状态。
+
+在任何新SERVICE观测签名帧进入appender/provider所有权前，原Control须已APPLIED明确的
+immutable writer契约，绑定tenant/Shard/物理Source/lineage、writer epoch/身份和有限绝对
+maxRetryUntil=D。epoch独立于observation generation，不可延长或覆盖旧UNKNOWN；新授权
+epoch可在原sample generation/binding下继续Final/custody。prepare/sign/append/Source
+apply必须约束所有合法生成、重试和别名入口；CONTROL issuer不反过来依赖先有E4契约。
+发生次数/burst/帧上限及Root/tenant/Source/collector retention仍须完整Scope合同冻结，
+不能从D、retention、ENABLE TTL或maximumOutboxRecords推造容量或旧帧截止。
+
+仅当原独立权威证明完整旧range全部retryUntil<=D，且真正APPLIED的独立TIME_FENCE
+覆盖closedThrough>=D时，该范围的未first晚帧才不能再改样本/Final/custody。原已APPLIED
+first须先完整重放保留，迟到重复仍遵守原retained-first/expired契约，拒绝/POS真实费用
+仍结算。Fence权限和qualified UTC earliest>=D+safetyMargin均来自原TIME_FENCE链，
+E4 SERVICE签名不授予Fence权；未到时间保持等待，不把Fence推到未来。
+
+启动顺序：原signed barrier实际apply→旧本地writer停新/SDK与I/O退出→恢复完整原writer
+界限→提交或复用实际覆盖D的原授权Fence→原reader独立捕获覆盖Fence的新有限cut并连续
+实际apply→认证Fence first/POS/IngressFence与前序Final/custody→同受保护cut做完整census，
+再进入依赖它的gap/timeout与Claim takeover。PERSISTED/tip/empty/count不是实际apply，
+不能让恢复Fence等一个正等待其后继Source apply的旧Control/pending槽造成环。
+
+完整契约可替代恢复所有raw prepared帧来确定最大D；存活exact帧仍同字节重试，崩溃
+丢失材料不能重造旧UTC。policy1/旧writer无整代durable界限时，须原完整旧prepared范围
+与有限D及真实Fence，否则继续UNKNOWN/不完整coverage；新epoch不追认旧义务。cold/
+companion/Source/collector须保管完整契约、原Control与Fence实际锚点/必要公开认证材料及
+恢复cut/census引用；hash/DTO不授权。逻辑闭合不等于NOT_PERSISTED/NOT_PUBLISHED，也不
+统一退款、释放物理UNKNOWN、其它attempt/Journal或原保护。当前不执行真实Fence或环境操作。

@@ -61,6 +61,7 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
     private TargetWorkerSourceRuntimeFactory.Recovery recovery;
     private TargetWorkerRecoverySource recoverySource;
+    private OwnedCheckpointIo<Boolean> recoveryTailCapture;
     private CheckpointInputFuture.Cleanup recoveryOpeningCleanup;
     private TargetOwnedBackendGroup recoveryOpeningBackend;
     private com.nereusstream.delay.store.RecoveryCatalogAuthority checkpointCatalog;
@@ -347,6 +348,10 @@ public final class TargetWorkerSourceStartup {
 
     private boolean recoveryInputOperationsExited(boolean stop) {
         boolean exited = true;
+        if(recoveryTailCapture!=null){
+            if(stop)recoveryTailCapture.requestStop();
+            exited&=recoveryTailCapture.operationExited();
+        }
         for (var input : recoveryInputs) {
             if (input.io == null) continue;
             if (stop) input.io.requestStop();
@@ -357,6 +362,7 @@ public final class TargetWorkerSourceStartup {
 
     private boolean recoveryInputCleanupExited() {
         boolean exited = true;
+        if(recoveryTailCapture!=null){recoveryTailCapture.retryCleanup();exited&=recoveryTailCapture.ioExited();}
         for (var input : recoveryInputs) {
             if (input.io == null) continue;
             input.io.retryCleanup(); exited &= input.io.ioExited();
@@ -588,7 +594,7 @@ public final class TargetWorkerSourceStartup {
                         throw new IllegalStateException("successor Store changed the original positioned incarnation/cut");
                     }
                     startup.activation = null; startup.failedAssembly = null;
-                    startup.recovery = null; startup.recoverySource = null;
+                    startup.recovery = null; startup.recoverySource = null;startup.recoveryTailCapture=null;
                     startup.recoveryCleanupFailure = null;
                     openedSuccessor = true;
                 }
@@ -986,6 +992,7 @@ public final class TargetWorkerSourceStartup {
                 recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
                 if (pulsarPreparation == null) recovery.coordinator().deferForSourceReactivation();
             }
+            recovery.coordinator().bindReplayTail(source);
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
                 synchronized (this) { failedAssembly = partial; lease = partial.lease(); }
@@ -1006,6 +1013,21 @@ public final class TargetWorkerSourceStartup {
             original = beginConstruction(false);
         }
         try (original) {
+            original.requireCurrent();
+            if(recovery.coordinator().awaitingReplayTailCapture()&&recoveryTailCapture==null){
+                final var source=recoverySource;
+                recoveryTailCapture=OwnedCheckpointIo.submit(guard->{
+                    guard.run();source.captureReplayTail();guard.run();return Boolean.TRUE;
+                },this::requireRecoveryReaderCurrent,graph.io());
+            }
+            final var capture=recoveryTailCapture;
+            if(capture!=null){
+                capture.retryCleanup();
+                if(!capture.operationExited()||!capture.receipt().isDone())return recovery.coordinator().replayTailCaptureTurn();
+                capture.receipt().join();
+                if(!capture.ioExited())return recovery.coordinator().replayTailCaptureTurn();
+                recovery.coordinator().replayTailCaptured(recoverySource);
+            }
             original.requireCurrent();
             var turn = recovery.coordinator().runTurn();
             if (recovery.coordinator().sourceReadyForReactivation()) {
