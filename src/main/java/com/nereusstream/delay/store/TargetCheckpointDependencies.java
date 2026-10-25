@@ -23,6 +23,9 @@ import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
+import com.nereusstream.delay.protocol.TargetScopeControlObligation;
+import com.nereusstream.delay.protocol.TargetScopeControlObligationBody;
+import com.nereusstream.delay.protocol.TargetSloControlScopeHeader;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.protocol.TargetSloWriterContract;
 import com.nereusstream.delay.protocol.TargetSloWriterControlBody;
@@ -150,6 +153,7 @@ public final class TargetCheckpointDependencies {
     private final Map<String,TargetSloWriterEpoch> sloWriterEpochs;
     private final Map<String,TargetParentControlCredit> parentCredits;
     private final Map<String,TargetQuotaGrantActivation> parentCreditGrants;
+    private final Map<String,TargetScopeControlObligation> scopeObligations;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -196,6 +200,7 @@ public final class TargetCheckpointDependencies {
         sloCustodies=List.copyOf(builder.sloCustodies.values());
         sloWriterEpochs=Map.copyOf(builder.sloWriterEpochs);
         parentCredits=Map.copyOf(builder.parentCredits);parentCreditGrants=Map.copyOf(builder.parentCreditGrants);
+        scopeObligations=Map.copyOf(builder.scopeObligations);
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -252,11 +257,15 @@ public final class TargetCheckpointDependencies {
     public List<TargetResultRecord> retirementResults(){return retirementResults;}
     /** Exact original POSITION from the same complete physical fold; no re-encoding or missing-row substitute. */
     public void requireSystemPosition(TargetResultRecord first){
+        systemPosition(first);
+    }
+    private TargetResultRecord systemPosition(TargetResultRecord first){
         if(first.kind()!=TargetResultRecord.Kind.SYSTEM)throw new IllegalArgumentException("original system first required");
         final var key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},first.mutation().source().canonicalBytes());
         final var position=Objects.requireNonNull(systemPositions.get(Bytes.hex(key)),"authenticated image lacks original system POSITION");
         if(!position.mutation().equals(first.mutation()))throw new IllegalStateException("image POSITION changed original first stamp");
         position.requireFirst(first);
+        return position;
     }
     public TargetResultRecord requireTimeFence(com.nereusstream.delay.ownership.SourceReplayMutation original){
         final var input=original.mutation();
@@ -297,6 +306,14 @@ public final class TargetCheckpointDependencies {
     /** Creation-time activations are retained facts, never replacements for today's Native SHARD grant. */
     public List<TargetQuotaGrantActivation> parentCreditGrants(){return parentCreditGrants.values().stream()
             .sorted((a,b)->Arrays.compareUnsigned(a.systemMutationId(),b.systemMutationId())).toList();}
+    public List<TargetScopeControlObligation> scopeObligations(){return scopeObligations.values().stream()
+            .sorted((a,b)->Arrays.compareUnsigned(a.key(),b.key())).toList();}
+    public TargetScopeControlObligation scopeObligation(TargetSloControlScopeHeader.Reference reference){
+        final var obligation=scopeObligations.get(Bytes.hex(Objects.requireNonNull(reference).scopeId()));
+        if(obligation!=null&&!obligation.headerReference().equals(reference))
+            throw new IllegalStateException("Scope obligation reference changed its immutable header");
+        return obligation;
+    }
     /** Exact retained applied registration; an absent or substituted epoch never falls back to the generation signer. */
     public TargetSloWriterEpoch sloWriterEpoch(TargetSloWriterContract.Reference reference){
         final var writer=sloWriterEpochs.get(Bytes.hex(Objects.requireNonNull(reference).key(root.root().scope())));
@@ -718,6 +735,12 @@ public final class TargetCheckpointDependencies {
             if(first.appliedFirst())throw new IllegalStateException("checkpoint authority lacks original paid parent Control credit authentication");
             return authenticate(input,first);
         }
+        /** Original paid Native64 allocation and its independent historical Scope resource authority. */
+        default java.security.PublicKey authenticateScopeObligation(ControlImage input,TargetResultRecord first,
+                TargetScopeControlObligation obligation,TargetParentControlCredit parent){
+            if(first.appliedFirst())throw new IllegalStateException("checkpoint authority lacks original paid Scope obligation authentication");
+            return authenticate(input,first);
+        }
     }
 
     /**
@@ -758,6 +781,12 @@ public final class TargetCheckpointDependencies {
 
     java.security.PublicKey authenticateInput(ControlImage input,TargetResultRecord first,ControlImageAuthority authority){
         final var image=input.image();
+        if(TargetScopeControlObligationBody.isControl(image)){
+            final var definition=TargetScopeControlObligationBody.decode(image.canonicalBody()).request().definition();
+            final var obligation=first.appliedFirst()?scopeObligation(definition.headerReference()):null;
+            final var parent=first.appliedFirst()?parentCredit(definition.parentReference()):null;
+            return authority.authenticateScopeObligation(input,first,obligation,parent);
+        }
         if(TargetParentControlCreditBody.isControl(image)){
             final var definition=TargetParentControlCreditBody.decode(image.canonicalBody()).request().definition();
             return authority.authenticateParentCredit(input,first,first.appliedFirst()?parentCredit(definition.reference()):null);
@@ -809,7 +838,75 @@ public final class TargetCheckpointDependencies {
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireControlInputs(sloGenerations, correlated, controlResults);
         requireWriterControlInputs(complete);
         requireParentCreditControlInputs(complete);
+        requireScopeObligationControlInputs(complete);
         return correlated;
+    }
+
+    private void requireScopeObligationControlInputs(Map<String,ControlImage> inputs){
+        final var firsts=new TreeMap<String,TargetResultRecord>();
+        for(var first:controlResults)firsts.put(Bytes.hex(first.logicalId()),first);
+        for(var obligation:scopeObligations.values()){
+            obligation.requireRoot(root.root());
+            final var funding=obligation.funding();
+            final var first=requireScopeObligationInput(inputs,firsts,funding.input(),funding.appliedAt());
+            if(!TargetScopeControlObligationBody.isControl(funding.input())
+                    ||!TargetScopeControlObligationBody.decode(funding.input().canonicalBody()).request().definition().equals(obligation.definition())
+                    ||!obligation.bootstrapResultsCharge().equals(first.recordCharge().add(systemPosition(first).recordCharge())))
+                throw new IllegalStateException("Native64 changed its original Scope definition or actual first/POS charge");
+            final var parent=Objects.requireNonNull(parentCredit(obligation.parentReference()),"Native64 lost its actual paid Native63 parent");
+            parent.requireRoot(root.root());
+            if(!parent.scope().equals(obligation.scope())||!Arrays.equals(parent.lineage(),obligation.lineage()))
+                throw new IllegalStateException("Native64 changed its actual parent Root scope/lineage");
+            final var allocation=parent.allocations().stream().filter(value->value.scope().equals(obligation.headerReference()))
+                    .findFirst().orElseThrow(()->new IllegalStateException("Native64 lost its permanent exact parent allocation"));
+            requireScopeAllocation(parent,allocation,obligation);
+        }
+        for(var parent:parentCredits.values()){
+            if(parent.allocations().isEmpty())continue;
+            var prior=TargetParentControlCredit.fund(parent.definition(),parent.funding().input(),parent.actualPayerGrant(),parent.fundedAt());
+            for(var allocation:parent.allocations()){
+                final var obligation=Objects.requireNonNull(scopeObligation(allocation.scope()),"Native63 allocation lost its actual paid Native64 Scope row");
+                requireScopeAllocation(parent,allocation,obligation);
+                final var request=obligation.funding().body().request();
+                if(request.expectedParentRevision()!=prior.revision()||!Arrays.equals(request.expectedParentDigest(),prior.digest()))
+                    throw new IllegalStateException("Native64 changed its original parent revision/digest precondition");
+                prior=prior.allocate(allocation);
+            }
+        }
+        for(var input:inputs.values()){
+            if(!TargetScopeControlObligationBody.isControl(input.image()))continue;
+            final var first=Objects.requireNonNull(firsts.get(Bytes.hex(input.image().systemMutationId())));
+            if(!first.appliedFirst())continue;
+            final var definition=TargetScopeControlObligationBody.decode(input.image().canonicalBody()).request().definition();
+            final var obligation=Objects.requireNonNull(scopeObligation(definition.headerReference()),"APPLIED Scope Control lacks its complete retained Native64");
+            requireScopeObligationInput(inputs,firsts,obligation.funding().input(),obligation.fundedAt());
+            if(!definition.equals(obligation.definition())
+                    ||!Arrays.equals(obligation.funding().input().encodeFrame(),input.image().encodeFrame())
+                    ||!obligation.fundedAt().equals(first.mutation()))
+                throw new IllegalStateException("APPLIED Scope Control differs from its retained Native64 input/stamp");
+        }
+    }
+
+    private static void requireScopeAllocation(TargetParentControlCredit parent,TargetParentControlCredit.Allocation allocation,
+            TargetScopeControlObligation obligation){
+        if(!parent.reference().equals(obligation.parentReference())||!allocation.scope().equals(obligation.headerReference())
+                ||!Arrays.equals(allocation.allocationGrantDigest(),obligation.allocationGrantDigest())
+                ||!allocation.commitment().equals(obligation.parentCommitment())||!allocation.allocatedAt().equals(obligation.fundedAt()))
+            throw new IllegalStateException("Native63 allocation changed its exact Scope/grant/commitment/Source obligation");
+    }
+
+    private TargetResultRecord requireScopeObligationInput(Map<String,ControlImage> inputs,Map<String,TargetResultRecord> firsts,
+            SystemMutation original,com.nereusstream.delay.protocol.TargetQuotaMutation appliedAt){
+        final String id=Bytes.hex(original.systemMutationId());
+        final var input=Objects.requireNonNull(inputs.get(id),"Native64 lost its complete original allocation Control input");
+        final var first=Objects.requireNonNull(firsts.get(id),"Native64 lost its actual original allocation Control first");
+        if(!first.appliedFirst()||!first.mutation().equals(appliedAt)
+                ||!Arrays.equals(input.image().encodeFrame(),original.encodeFrame())
+                ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(original,com.nereusstream.delay.runtime.ApplyStatus.APPLIED,
+                        com.nereusstream.delay.protocol.StableCode.OK,appliedAt.source().canonicalBytes()).encode())
+                ||!Arrays.equals(input.source().canonicalBytes(),appliedAt.source().canonicalBytes()))
+            throw new IllegalStateException("Native64 changed its original APPLIED OK Control input/Source");
+        requireSystemPosition(first);return first;
     }
 
     private void requireParentCreditControlInputs(Map<String,ControlImage> inputs){
@@ -1040,6 +1137,7 @@ public final class TargetCheckpointDependencies {
             for(final var retained:sourceHistories){CanonicalProtobuf.bytes(out,13,retained.digest());}
             for(final var tip:historyTips){CanonicalProtobuf.bytes(out,14,tip.digest());}
             for(final var credit:parentCredits()){CanonicalProtobuf.bytes(out,15,Bytes.sha256(credit.canonicalBytes()));}
+            for(final var obligation:scopeObligations()){CanonicalProtobuf.bytes(out,16,Bytes.sha256(obligation.canonicalBytes()));}
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -1082,6 +1180,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String,TargetSloWriterEpoch> sloWriterEpochs=new TreeMap<>();
         private final Map<String,TargetParentControlCredit> parentCredits=new TreeMap<>();
         private final Map<String,TargetQuotaGrantActivation> parentCreditGrants=new TreeMap<>();
+        private final Map<String,TargetScopeControlObligation> scopeObligations=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -1128,6 +1227,7 @@ public final class TargetCheckpointDependencies {
             prior.sloCustodies.forEach(this::sloCustody);
             prior.sloWriterEpochs.values().forEach(this::sloWriterEpoch);
             prior.parentCredits.values().forEach(this::parentCredit);
+            prior.scopeObligations.values().forEach(this::scopeObligation);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1213,6 +1313,11 @@ public final class TargetCheckpointDependencies {
             final var prior=parentCreditGrants.putIfAbsent(Bytes.hex(grant.systemMutationId()),grant);
             if(prior!=null&&!Arrays.equals(prior.canonicalBytes(),grant.canonicalBytes()))
                 throw new IllegalStateException("parent Control credits disagree on their original Native SHARD grant activation");
+        }
+        void scopeObligation(TargetScopeControlObligation record){
+            Objects.requireNonNull(record);
+            if(scopeObligations.putIfAbsent(Bytes.hex(record.headerReference().scopeId()),record)!=null)
+                throw new IllegalStateException("duplicate original Scope Control obligation");
         }
         void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
             if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");

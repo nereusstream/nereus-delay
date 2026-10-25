@@ -143,6 +143,7 @@ final class TargetCheckpointLedgerAudit {
         final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetSloWriterEpoch> sloWriterEpochs = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetParentControlCredit> parentCredits = new ArrayList<>();
+        final List<com.nereusstream.delay.protocol.TargetScopeControlObligation> scopeObligations = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
         final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
@@ -258,6 +259,10 @@ final class TargetCheckpointLedgerAudit {
                         final var credit=com.nereusstream.delay.protocol.TargetParentControlCredit.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
                         credit.mutation().requireAtOrBefore(proof.aggregate().mutation());
                         parentCredits.add(credit);dependencies.parentCredit(credit);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetScopeControlObligation.VALUE_TYPE){
+                        final var obligation=com.nereusstream.delay.protocol.TargetScopeControlObligation.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        obligation.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        scopeObligations.add(obligation);dependencies.scopeObligation(obligation);
                     } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
                         channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE) {
@@ -404,6 +409,8 @@ final class TargetCheckpointLedgerAudit {
                 proof.root().scope(),proof.root().recoveryLineage(),proof.root().identity(),writer,proof.aggregate().mutation());
         for(var credit:parentCredits)com.nereusstream.delay.runtime.TargetParentControlCreditStore.requireOrigin(view,List.of(),
                 proof.root().scope(),proof.root().recoveryLineage(),proof.root(),credit,proof.aggregate().mutation());
+        for(var obligation:scopeObligations)com.nereusstream.delay.runtime.TargetScopeControlObligationStore.requireOrigin(view,List.of(),
+                proof.root().scope(),proof.root().recoveryLineage(),proof.root(),obligation,proof.aggregate().mutation());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireComplete(sloStates, sloGenerations,
                 new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null),
                 proof.root().recoveryLineage(), proof.aggregate().mutation());

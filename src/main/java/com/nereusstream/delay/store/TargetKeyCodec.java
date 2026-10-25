@@ -66,6 +66,7 @@ public final class TargetKeyCodec {
     public static final int SLO_CUSTODY_TAG = 55;
     public static final int SLO_WRITER_EPOCH_TAG = 56;
     public static final int PARENT_CONTROL_CREDIT_TAG = 57;
+    public static final int SCOPE_CONTROL_OBLIGATION_TAG = 58;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

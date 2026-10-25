@@ -276,6 +276,13 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> {
+                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
+                requireMutationPresence(values,ControlTargetKind.SHARD,true);
+                final var obligation=branch(request,TargetScopeControlObligationRequest.class);
+                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(obligation.scope().shard()))
+                    throw new IllegalArgumentException("Scope Control obligation must select its original Source Shard at index zero");
+            }
             case ALLOCATE_PARENT_CONTROL_CREDIT -> {
                 requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
                 requireMutationPresence(values,ControlTargetKind.SHARD,true);

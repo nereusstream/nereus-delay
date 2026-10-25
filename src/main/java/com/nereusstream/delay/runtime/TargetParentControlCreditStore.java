@@ -117,8 +117,6 @@ public final class TargetParentControlCreditStore {
             TargetQuotaScope scope,byte[] lineage,TargetQuotaIncarnation owner,TargetParentControlCredit credit,TargetQuotaMutation frontier){
         credit.requireRoot(owner);credit.mutation().requireAtOrBefore(frontier);
         if(!scope.equals(credit.scope())||!Arrays.equals(lineage,credit.lineage()))throw new IllegalStateException("parent credit changed Source scope/lineage");
-        // A pure codec allocation cannot lower actual charged credit. A Source-owned child proof is mandatory.
-        if(!credit.allocations().isEmpty())throw new IllegalStateException("Scope child allocation has no original Source obligation proof");
         final var input=credit.funding().input();
         final var first=result(view,overlay,Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},input.systemMutationId()));
         final var outcome=SystemMutationResult.decode(first.typedPayload());
@@ -138,6 +136,19 @@ public final class TargetParentControlCreditStore {
         final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,payload(view,overlay,ColumnFamily.META,activationKey,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
         TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,owner.identity(),activation,frontier);
         credit.fundedAt().requireAfter(activation.appliedAt());
+        // Rebuild each immutable prefix: another operation cannot spend a stale parent revision or rewrite a child.
+        var prefix=TargetParentControlCredit.fund(credit.definition(),input,credit.actualPayerGrant(),credit.fundedAt());
+        for(var allocation:credit.allocations()){
+            final var key=Bytes.concat(new byte[]{TargetScopeControlObligation.KEY_TAG,TargetKeyCodec.KEY_FORMAT},allocation.scope().scopeId());
+            final var child=TargetScopeControlObligation.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetScopeControlObligation.VALUE_TYPE),scope,lineage);
+            TargetScopeControlObligationStore.requireLocalOrigin(view,overlay,scope,lineage,owner,child,frontier);
+            TargetScopeControlObligationStore.requireParentAllocation(credit,child);
+            final var request=child.funding().body().request();
+            if(!child.parentReference().equals(prefix.reference())||request.expectedParentRevision()!=prefix.revision()
+                    ||!Arrays.equals(request.expectedParentDigest(),prefix.digest()))
+                throw new IllegalStateException("Scope allocation changed its original paid parent prefix");
+            prefix=prefix.allocate(allocation);
+        }
     }
     private static TargetResultRecord result(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] key){
         final var bytes=payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE);

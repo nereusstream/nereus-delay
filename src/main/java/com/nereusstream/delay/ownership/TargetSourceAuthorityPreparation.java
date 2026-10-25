@@ -18,7 +18,7 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
     }
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
@@ -96,7 +96,8 @@ public final class TargetSourceAuthorityPreparation {
                 value -> require(value, TargetSourceApplyRuntime.SloObservationControl.class),
                 value -> require(value, TargetSourceApplyRuntime.SloEventControl.class),
                 value -> require(value, TargetSourceApplyRuntime.SloWriterControl.class),
-                value -> require(value, TargetSourceApplyRuntime.ParentCreditControl.class));
+                value -> require(value, TargetSourceApplyRuntime.ParentCreditControl.class),
+                value -> require(value, TargetSourceApplyRuntime.ScopeObligationControl.class));
         return authorities;
     }
 
@@ -252,6 +253,7 @@ public final class TargetSourceAuthorityPreparation {
         if (control instanceof TargetSourceApplyRuntime.SloEventControl) return Family.SLO_EVENT;
         if(control instanceof TargetSourceApplyRuntime.SloWriterControl)return Family.SLO_WRITER;
         if(control instanceof TargetSourceApplyRuntime.ParentCreditControl)return Family.PARENT_CONTROL_CREDIT;
+        if(control instanceof TargetSourceApplyRuntime.ScopeObligationControl)return Family.SCOPE_OBLIGATION;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }
 

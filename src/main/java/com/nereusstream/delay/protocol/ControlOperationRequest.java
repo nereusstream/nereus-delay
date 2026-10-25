@@ -126,8 +126,13 @@ public final class ControlOperationRequest {
         return Objects.requireNonNull(branch, "branch").operationRequest();
     }
 
+    public static ControlOperationRequest targetScopeControlObligation(final TargetScopeControlObligationRequest branch) {
+        return Objects.requireNonNull(branch, "branch").operationRequest();
+    }
+
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
+            case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> TargetScopeControlObligationRequest.decode(encoded);
             case ALLOCATE_PARENT_CONTROL_CREDIT -> TargetParentControlCreditRequest.decode(encoded);
             case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
                     TargetSloWriterControlRequest.decode(kind, encoded);
@@ -165,6 +170,7 @@ public final class ControlOperationRequest {
     private static void validateBranch(final ControlOperationKind kind, final ControlOperationRequestBranch branch) {
         final boolean valid =
                 switch (kind) {
+                    case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> branch instanceof TargetScopeControlObligationRequest;
                     case ALLOCATE_PARENT_CONTROL_CREDIT -> branch instanceof TargetParentControlCreditRequest;
                     case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
                             branch instanceof TargetSloWriterControlRequest writer && writer.operationKind()==kind;

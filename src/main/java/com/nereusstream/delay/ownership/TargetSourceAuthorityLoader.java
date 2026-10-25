@@ -38,6 +38,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
          * PARENT_CONTROL_CREDIT independently retains the original tenant, placement, physical Source,
          * exclusive funding slice and DataDefinition/Native grant protections acquired during Provider.load;
          * its capacity callbacks use only those bounded held snapshots, never Scope membership or remote I/O.
+         * SCOPE_OBLIGATION separately retains original registry/physical Source/retention rights and paid-parent
+         * funding protection; its actual Native parent/view/complete plan is a read set, not authorization.
          */
         void requireCurrent();
         /**
@@ -88,10 +90,14 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation {}
     public record ParentCredit(PreparedControlOperation prepared, TargetParentControlCreditVerifier.Authority authority,
             TargetStoreBackend.CommitAuthority commit) implements Inputs {
         public ParentCredit { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
+    public record ScopeObligation(PreparedControlOperation prepared, TargetScopeControlObligationVerifier.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) implements Inputs {
+        public ScopeObligation { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
     }
     public record SloWriter(PreparedControlOperation prepared,com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.Authority authority) implements Inputs {}
     public record SloEvent(com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority authority) implements Inputs {}
@@ -337,6 +343,25 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                                 (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), capacity),
                         held.commit(value.commit()));
             }
+            case ScopeObligation value -> {
+                final var a = value.authority();
+                final var frozen = freeze(value.prepared(), entry, a.registrations(),
+                        version -> a.keys().resolve(version, entry.position()), held, guard);
+                final var capacity = new TargetScopeControlObligationVerifier.CapacityAuthority() {
+                    public void requireAuthorized(TargetScopeControlObligation.Definition definition,
+                            TargetParentControlCreditVerifier.View actual, TargetParentControlCredit parent,
+                            SourcePosition source, TargetStoreBackend.Mutation fullPlan) {
+                        requireCurrent(); requireSource(entry, source);
+                        a.capacity().requireAuthorized(definition, actual, parent, source, fullPlan);
+                        requireCurrent();
+                    }
+                    public void requireCurrent() { held.requireCurrent(); a.capacity().requireCurrent(); held.requireCurrent(); }
+                };
+                yield new TargetSourceApplyRuntime.ScopeObligationControl(value.prepared(),
+                        new TargetScopeControlObligationVerifier.Authority(frozen,
+                                (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), capacity),
+                        held.commit(value.commit()));
+            }
             case SloMode value -> {
                 final var a = value.authority();
                 final var frozen = freeze(value.prepared(), entry, a.registrations(),
@@ -380,6 +405,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case SloEvent ignored -> TargetSourceAuthorityPreparation.Family.SLO_EVENT;
             case SloWriter ignored -> TargetSourceAuthorityPreparation.Family.SLO_WRITER;
             case ParentCredit ignored -> TargetSourceAuthorityPreparation.Family.PARENT_CONTROL_CREDIT;
+            case ScopeObligation ignored -> TargetSourceAuthorityPreparation.Family.SCOPE_OBLIGATION;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;

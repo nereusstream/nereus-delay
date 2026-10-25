@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /** NV framing for the explicitly selected Target Store reader, including shared fixed metadata. */
 public final class TargetValueEnvelope {
-    public static final int MAX_REGISTERED_VALUE_TYPE = 63;
+    public static final int MAX_REGISTERED_VALUE_TYPE = 64;
 
     private TargetValueEnvelope() {}
 
