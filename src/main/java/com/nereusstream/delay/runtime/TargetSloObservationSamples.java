@@ -27,6 +27,31 @@ public final class TargetSloObservationSamples {
         public Plan { edits = List.copyOf(edits); Objects.requireNonNull(qualification); }
     }
 
+    /** A new expired physical POSITION has a completed Command sync, without resurrecting a logical first. */
+    public static Plan expiredCommand(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
+            PreparedCommand command,TargetQuotaMutation stamp,TargetResultRecord position,
+            java.util.function.Supplier<Authority> authority){
+        final var state=TargetSloObservationVerifier.readState(reader,scope,lineage);
+        if(state==null||!state.active())return new Plan(List.of(),()->{});
+        final var generation=Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader,scope,lineage,state.generation()),"original expired Command SLO generation");
+        state.requireGeneration(generation);generation.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        generation.policy().requireSource(stamp.source());stamp.requireAfter(generation.mutation());
+        final var declaration=generation.policy().declarations().stream()
+                .filter(d->d.objective().name()==SloObjectiveName.COMMAND_APPLIED_LATENCY).findFirst().orElse(null);
+        if(declaration==null)return new Plan(List.of(),()->{});
+        if(position.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED||!position.mutation().equals(stamp))
+            throw new IllegalStateException("expired Command Start lost its new original physical POSITION");
+        position.requireExpiredCommand(command);
+        final var logicalKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_COMMAND_TAG,TargetKeyCodec.KEY_FORMAT},command.commandId().bytes());
+        final var queryKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_QUERY_TAG,TargetKeyCodec.KEY_FORMAT},command.commandId().bytes());
+        if(reader.get(ColumnFamily.DEDUPE,logicalKey)!=null||reader.get(ColumnFamily.DEDUPE,queryKey)!=null
+                ||reader.get(ColumnFamily.DEDUPE,position.key())!=null)throw new IllegalStateException("expired Command Start cannot rebind existing logical or physical evidence");
+        final var sample=new TargetSloObservationSample(scope,lineage,generation.generation(),generation.enable().input().systemMutationId(),
+                generation.enable().appliedAt(),generation.policy().digest(),declaration,position,
+                SloObservationOutbox.open(SloAuthoritativeStartFactory.commandApplied(declaration.objective(),stamp.source())),stamp);
+        return append(reader,generation,List.of(sample),stamp,Objects.requireNonNull(authority.get(),"original expired Command sample authority"));
+    }
+
     /** Only a first business decision reaches this path. Logical retry/replay never creates or rebinds a sample. */
     public static Plan command(TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage,
             PreparedCommand command, TargetQuotaMutation stamp, List<TargetStoreBackend.Edit> business, Authority authority) {
@@ -159,7 +184,10 @@ public final class TargetSloObservationSamples {
         }
         final var actual = result(view,overlay,sample.first().key());
         if (!Arrays.equals(actual.canonicalBytes(),sample.first().canonicalBytes())) throw new IllegalStateException("Target SLO sample lost protected original first");
-        result(view,overlay,sample.positionKey()).requireFirst(actual);
+        final var position=result(view,overlay,sample.positionKey());
+        if(actual.kind()==TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED){
+            if(!Arrays.equals(position.canonicalBytes(),actual.canonicalBytes()))throw new IllegalStateException("expired Command sample changed its sole physical POSITION");
+        }else position.requireFirst(actual);
         if(sample.eligibility()!=null){
             final var birth=sample.eligibility();final var accepted=CommandDedupeRecord.decode(actual.typedPayload()).result();
             if(accepted.applyStatus()!=ApplyStatus.APPLIED||accepted.generation()!=birth.locator().generation()||accepted.stateVersion()!=birth.stateVersion()

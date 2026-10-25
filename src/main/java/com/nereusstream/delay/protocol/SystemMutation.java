@@ -244,6 +244,15 @@ public final class SystemMutation {
         return decodeEnvelope(envelope,logicalIdentity);
     }
 
+    /** Checks a nested protocol branch before decoding its body, preventing recursive type substitution. */
+    public static SystemMutation decodeTargetEnvelope(final byte[] envelope,final SystemMutationType expected) {
+        final var fields=readEnvelope(envelope);
+        if(fields.type()!=Objects.requireNonNull(expected))throw new IllegalArgumentException("nested Target mutation has another protocol type");
+        final byte[] identity=fields.type()==SystemMutationType.APPLY_SHARD_CONTROL
+                ?targetControlIdentity(fields):SystemMutationIdentity.resolve(fields.shardId(),fields.type(),fields.body());
+        return decodeEnvelope(envelope,identity);
+    }
+
     /**
      * Decodes a frame and validates the logical operation identity supplied by the operation-specific caller.
      * The identity is deliberately not duplicated in the wire envelope; the registry derives it from the body

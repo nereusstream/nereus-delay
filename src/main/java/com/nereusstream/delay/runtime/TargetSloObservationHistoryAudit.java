@@ -117,7 +117,7 @@ public final class TargetSloObservationHistoryAudit {
                 }
                 continue;
             }
-            if(first.kind()!=TargetResultRecord.Kind.COMMAND)continue;
+            if(first.kind()!=TargetResultRecord.Kind.COMMAND&&first.kind()!=TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED)continue;
             final var eligibility=eligibilityFirsts.remove(Bytes.hex(first.key()));
             if(eligibility!=null){
                 if(!Arrays.equals(first.canonicalBytes(),eligibility.first().canonicalBytes()))throw new IllegalStateException("eligibility changed original birth first");
@@ -163,6 +163,7 @@ public final class TargetSloObservationHistoryAudit {
                     ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO Source event changed frozen binding or writer");
             generation.policy().requireSource(event.appliedAt().source());event.appliedAt().requireAfter(sample.first().mutation());
             event.appliedAt().requireAtOrBefore(sample.mutation());
+            if(event.body().evidence()!=null)event.body().evidence().requireObservation(sample,event.body().finalObservation());
             if(pending.putIfAbsent(Bytes.hex(event.input().systemMutationId()),event)!=null
                     ||histories.computeIfAbsent(Bytes.hex(event.body().sampleId()),ignored->new TreeMap<>(Long::compareUnsigned))
                         .putIfAbsent(event.appliedAt().sequence(),event)!=null)throw new IllegalStateException("duplicate SLO Source merge edge");

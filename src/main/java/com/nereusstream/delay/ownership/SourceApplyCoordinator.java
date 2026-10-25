@@ -83,6 +83,7 @@ public final class SourceApplyCoordinator {
     public synchronized TurnResult runTurn(final SchedulerBudget workBudget, final LongSupplier ownerClock) {
         Objects.requireNonNull(workBudget, "workBudget");
         Objects.requireNonNull(ownerClock, "ownerClock");
+        boolean workClassTurnRun = false;
         if (pending == null) {
             if (sourceConsumer != null) {
                 try {
@@ -127,6 +128,7 @@ public final class SourceApplyCoordinator {
             }
             if (pending.submission.outcome().isEmpty()) {
                 try {
+                    workClassTurnRun = true;
                     workClasses.runTurn(workBudget);
                 } catch (RuntimeException | Error failure) {
                     final SourceApplyWorkClassExecutor.ApplyOutcome observed =
@@ -162,6 +164,45 @@ public final class SourceApplyCoordinator {
                         applied.failure());
             }
             pending.appliedOutcome = Objects.requireNonNull(applied.result(), "source apply result");
+        }
+
+        if (!pending.finalContinuationPrepared) {
+            try {
+                pending.finalContinuation = target.beginFinalContinuation(
+                        pending.entry, pending.appliedOutcome, ownerClock);
+                pending.finalContinuationPrepared = true;
+            } catch (java.util.concurrent.RejectedExecutionException full) {
+                return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, full);
+            } catch (RuntimeException | Error failure) {
+                // Business apply is already durable. Retry only this preparation, never the business mutation.
+                return TurnResult.failed(
+                        target.isAuthorityPreparationRequired(failure) ? TurnStatus.AUTHORITY_RETRY
+                        : target.isReadIncomplete(failure) ? TurnStatus.READ_INCOMPLETE
+                        : TurnStatus.FINAL_SOURCE_FAILURE, pending.entry, failure);
+            }
+        }
+        final SourceApplyTarget.FinalContinuation finals = pending.finalContinuation;
+        if (finals != null && !pending.finalContinuationComplete) {
+            try {
+                if (!finals.complete()) {
+                    finals.schedule(ownerClock);
+                    if (!finals.complete() && !workClassTurnRun) {
+                        workClasses.runTurn(workBudget);
+                    }
+                    if (!finals.complete()) {
+                        final Throwable failure = finals.failure();
+                        return failure == null
+                                ? new TurnResult(TurnStatus.WAITING_FOR_FINAL_SOURCE, pending.entry, null, null, null)
+                                : TurnResult.failed(TurnStatus.FINAL_SOURCE_FAILURE, pending.entry, failure);
+                    }
+                }
+                pending.finalContinuationComplete = true;
+            } catch (java.util.concurrent.RejectedExecutionException full) {
+                return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, full);
+            } catch (RuntimeException | Error failure) {
+                // Retain the exact continuation/frames and applied outcome across failure or append uncertainty.
+                return TurnResult.failed(TurnStatus.FINAL_SOURCE_FAILURE, pending.entry, failure);
+            }
         }
 
         if (!target.completeAuthorities(pending.entry)) {
@@ -262,6 +303,9 @@ public final class SourceApplyCoordinator {
         private final SourceReplayEntry entry;
         private SourceApplyWorkClassExecutor.Submission submission;
         private SourceReplayOutcome appliedOutcome;
+        private boolean finalContinuationPrepared;
+        private boolean finalContinuationComplete;
+        private SourceApplyTarget.FinalContinuation finalContinuation;
         private boolean acknowledged;
 
         private Pending(final SourceReplayEntry entry) {
@@ -276,12 +320,14 @@ public final class SourceApplyCoordinator {
         WAITING_FOR_WORK_CLASS,
         WAITING_FOR_AUTHORITY,
         WAITING_FOR_AUTHORITY_CLEANUP,
+        WAITING_FOR_FINAL_SOURCE,
         AUTHORITY_RETRY,
         AUTHORITY_FAILURE,
         APPLIED_AND_ACKED,
         SUBMISSION_REJECTED,
         WORK_CLASS_FAILURE,
         APPLY_FAILURE,
+        FINAL_SOURCE_FAILURE,
         READ_INCOMPLETE,
         ACK_DEFINITIVELY_NOT_ACKED,
         ACK_UNKNOWN,

@@ -6071,3 +6071,32 @@ rejected; it does not close certification producers, custody, coverage or resour
   eligibility, actual endpoint/timeout producers, complete future event/custody reservation, full
   exporter/collector custody/ACK/retention and positive historical coverage consumer remain open.
   No production/activation/migration authority or central validation is claimed.
+
+
+2026-10-25 Target post-sync Final evidence: body2 is independently gated by tuple
+`(1,1,SYSTEM_MUTATION,15,2)`; body1 bytes/identity remain readable and unchanged.
+Body2 keeps fields1–17 and adds field18 full `TargetSloFinalEvidence`. Its logical identity
+appends the evidence digest to the original body1 identity preimage (same domain).
+Evidence1 fields:1 version1,2 kind (1 COMMAND_SYNC,2 ADMISSION_SYNC,3 TIMEOUT),3 full original
+bounded TrustedUtcIntervalEvidence,4 actual inspected TargetQuotaMutation cut; Admission-only
+fields5 full original signed type13 envelope,6 its actual applied Source mutation stamp. Digest
+is SHA256(domain `nereus-delay-target-slo-final-evidence` plus NUL || canonical evidence bytes).
+The nested envelope type is checked before decoding its body, forbidding recursive type15 input.
+
+Final reconstruction preserves v1: exact sample/start digests, checked conservative millisecond
+bounds from original Start/full UTC, AT_MOST classification SUCCESS/BAD_DEFINITIVE/BAD_UNCERTAIN,
+no invented exclusion, exact UTC digest in TRUSTED_OBSERVATION and full evidence digest as source
+material. Qualified TIMEOUT requires the original deadline; a future timeout producer additionally
+must prove no known success at its original cut and serialize observation revision with success.
+The current post-sync producer only handles open COMMAND_SYNC/ADMISSION_SYNC, revision1.
+Native Source/cold validation independently joins inspected POSITION, original APPLIED/OK Admission
+first/POS, Root/tenant/lineage and exact input; external actual post-sync UTC/history qualification
+is mandatory and cannot be inferred from a historical clock signature or Admission decisionTime.
+
+Native59 schema4 binds standalone expired Command observations to existing physical Kind6
+POSITION_COMMAND_EXPIRED. It has the same fields1–13 as schema1, explicit version4 and original
+Kind6 instead of logical COMMAND first. Only COMMAND_APPLIED/NOT_APPLICABLE is permitted; no new
+logical COMMAND/QUERY, Message or eligibility is created. Its first and POSITION are the same key,
+so there are exactly two actual Native59 projections (primary plus one original POSITION ref).
+Source/cold enumeration includes this physical stable rejection, while replay never rebinds it.
+Schema1–3 bytes/identity are unchanged. Descriptor15/Native60/body2 certification remains closed.

@@ -1734,3 +1734,12 @@ capacity exclusion；无资格原因用BAD_EVIDENCE_GAP/UNKNOWN，timeout保留v
 业务HARD_QUOTA。Final/consumer必须有完整ALL_ACCEPTED集合和保留/保管证明，Admission
 images正向枚举不能代替从未Admission的eligibility覆盖。原v1与format-1行为保持，单agent、
 非Fast、必要编译，集中测试/环境后置，descriptor15仍待完整能力和原资格后开放。
+
+
+## 2026-10-25：用户允许多 agent，完整目标与验证边界保持
+
+用户将目标中的单agent限定移除，并明确“你可以多 agent 了”。后续允许按文件归属并行
+调查/实现，由主agent合并并统一必要编译、scoped commit及push origin main。此前非Fast、
+实现优先/测试与真实Broker恢复等集中验收后置的要求保持；A–F/29切片及四包范围不缩减，
+实现/集中验证/生产完成标志不能因多agent、编译或局部Source接线而提升。历史单agent记录
+保留，当前executionPolicy.singleAgent改为false。

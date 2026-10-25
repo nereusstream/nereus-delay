@@ -22,9 +22,23 @@ public final class TargetSloObservationEventMutationFactory {
                 ||!Arrays.equals(sample.lineage(),generation.policy().lineage())
                 ||!Arrays.equals(sample.policyDigest(),generation.policy().digest()))throw new IllegalArgumentException("SLO event changed original frozen sample generation");
         observation.validateAgainst(sample.observation().start());
-        final var body=new TargetSloObservationEventBody(sample.scope(),sample.lineage(),retryUntil,sample.generation(),
-                sample.observation().sampleId(),sample.bindingDigest(),observation);
-        final var image=SystemMutation.signed(sample.scope().shard(),SystemMutationType.TARGET_SLO_OBSERVATION,retryUntil,
+        return sign(generation,new TargetSloObservationEventBody(sample.scope(),sample.lineage(),retryUntil,sample.generation(),
+                sample.observation().sampleId(),sample.bindingDigest(),observation));
+    }
+    public Prepared prepareObserved(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
+            TargetSloFinalEvidence evidence,long retryUntil){
+        Objects.requireNonNull(generation);Objects.requireNonNull(sample);Objects.requireNonNull(evidence);
+        if(sample.generation()!=generation.generation()||!Arrays.equals(sample.policyDigest(),generation.policy().digest()))
+            throw new IllegalArgumentException("observed Final changed frozen sample generation");
+        final var prior=sample.observation().finalObservation();
+        final long revision=prior==null?1:TargetQuotaMutation.increment(prior.observationRevision());
+        final var observation=evidence.observation(sample,revision);
+        return sign(generation,new TargetSloObservationEventBody(sample.scope(),sample.lineage(),retryUntil,sample.generation(),
+                sample.observation().sampleId(),sample.bindingDigest(),observation,evidence));
+    }
+    private Prepared sign(TargetSloObservationGeneration generation,TargetSloObservationEventBody body){
+        final var retryUntil=body.retryUntil();
+        final var image=SystemMutation.signed(body.scope().shard(),SystemMutationType.TARGET_SLO_OBSERVATION,retryUntil,
                 body.logicalIdentity(),body.canonicalBytes(),generation.policy().service().canonicalBytes(),generation.policy().keyVersion(),key);
         if(image.encodeFrame().length>maximumFrameBytes||image.canonicalEnvelope().length>TargetSloObservationEventRecord.MAX_INPUT_BYTES)
             throw new IllegalArgumentException("SLO event exceeds original Source frame budget");

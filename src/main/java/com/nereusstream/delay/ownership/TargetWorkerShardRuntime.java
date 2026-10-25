@@ -1486,6 +1486,41 @@ public final class TargetWorkerShardRuntime
         return target.admissionMutationResult(mutation, ownerClock);
     }
 
+    public synchronized void configureSloFinalContinuations(OwnedSourceSystemWriter appender,
+            java.util.concurrent.ThreadPoolExecutor originalExecutor,TargetSloFinalContinuation.Provider provider,long maximumBytes){
+        requireNewTurnsAdmitted();Objects.requireNonNull(appender);Objects.requireNonNull(originalExecutor);Objects.requireNonNull(provider);
+        if(appender.sourceWriterWorker()!=this||appender.resourcesTerminated()||!appender.readyForAppending()
+                ||systemWriterBackends.values().stream().noneMatch(original->original==appender))
+            throw new IllegalArgumentException("SLO Final continuation requires the original admitted Source writer");
+        if(maximumBytes<=0||maximumBytes==Long.MAX_VALUE)throw new IllegalArgumentException("SLO Final Source envelope must be finite");
+        workClasses.requireTaskServiceable(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,"target-slo-final-envelope",maximumBytes));
+        target.configureSloFinalContinuations((candidates,inspected,entry,outcome)->new TargetSloFinalContinuation(
+                this,appender,originalExecutor,candidates,inspected,entry,outcome,provider,maximumBytes));
+    }
+    synchronized void submitSloFinalContinuationAction(WorkClassTask task,Runnable action){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);
+    }
+    synchronized boolean withdrawSloFinalContinuationAction(WorkClassTask task){return workClasses.withdrawQueued(task);}
+    synchronized boolean sloFinalContinuationActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
+    synchronized void requireSloFinalContinuation(SourceReplayEntry entry,SourceReplayOutcome outcome,
+            com.nereusstream.delay.protocol.TargetQuotaMutation inspected,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloFinalContinuation(entry,outcome,inspected,clock);
+    }
+    synchronized void requireSloFinalWriter(SystemMutation image,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireTargetControlWriter(image,clock);
+    }
+    synchronized Optional<SystemMutationResult> sloFinalMutationResult(SystemMutation image,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.targetControlMutationResult(image,clock);
+    }
+    synchronized void requireSloFinalAppend(SystemMutation image,ShardLogMutationAppender.AppendOutcome appended,
+            com.nereusstream.delay.protocol.TargetQuotaMutation inspected,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireTargetControlWriter(image,clock);
+        if(appended.disposition()!=ShardLogMutationAppender.AppendDisposition.PERSISTED
+                ||appended.sourcePosition().compareTo(inspected.source())<=0
+                ||appended.sourcePosition().brokerPersistenceTimeEpochMs()>image.retryUntilEpochMs())throw new IllegalStateException("Final observation lacks later guarded in-window persisted Source");
+        target.requireCurrentExpiryLogPosition(appended.sourcePosition(),appended.sourceConnectionGeneration(),appended.guardAttestationDigest(),clock);
+    }
+
     synchronized void submitTargetControlAction(final WorkClassTask task, final SystemMutation mutation,
             final LongSupplier clock, final Runnable action) {
         requireNewTurnsAdmitted();

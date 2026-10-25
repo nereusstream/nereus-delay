@@ -89,6 +89,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
                 ||!Arrays.equals(input.image().authorIdentity(),generation.policy().service().canonicalBytes())
                 ||input.image().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("checkpoint SLO event lost original frozen writer/binding");
         generation.policy().requireSource(input.source());body.finalObservation().validateAgainst(sample.observation().start());
+        if(body.evidence()!=null)body.evidence().requireObservation(sample,body.finalObservation());
         final var authority=Objects.requireNonNull(observations,"original checkpoint SLO endpoint/time/history and budget authority");
         before();authority.requireCurrent();authority.requireAuthorized(generation,sample,input.image(),input.source());authority.requireCurrent();after();
         before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());after();

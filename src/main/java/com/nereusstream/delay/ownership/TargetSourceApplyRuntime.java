@@ -768,12 +768,63 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
+    @FunctionalInterface interface SloFinalContinuations {
+        TargetSloFinalContinuation create(java.util.List<com.nereusstream.delay.runtime.TargetSloFinalCandidates.Candidate> candidates,
+                com.nereusstream.delay.protocol.TargetQuotaMutation inspectedAt,SourceReplayEntry entry,SourceReplayOutcome outcome);
+    }
+    private SloFinalContinuations sloFinalContinuations;
+    private volatile TargetSloFinalContinuation activeSloFinal;
+    synchronized void configureSloFinalContinuations(SloFinalContinuations selected){
+        if(sloFinalContinuations!=null)throw new IllegalStateException("SLO Final Source continuation already configured");
+        sloFinalContinuations=Objects.requireNonNull(selected);
+    }
+    @Override synchronized FinalContinuation beginFinalContinuation(SourceReplayEntry entry,SourceReplayOutcome outcome,LongSupplier clock){
+        if(entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()!=SystemMutationType.TARGET_PUBLISH_ADMISSION)return null;
+        requireSloFinalContinuation(entry,outcome,null,clock);
+        final var candidates=backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            final byte[] key=entry instanceof SourceReplayRecord command
+                    ?Bytes.concat(new byte[]{TargetKeyCodec.RESULT_COMMAND_TAG,TargetKeyCodec.KEY_FORMAT},command.command().commandId().bytes())
+                    :Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},((SourceReplayMutation)entry).mutation().systemMutationId());
+            var raw=reader.get(ColumnFamily.DEDUPE,key);
+            if(raw==null&&entry instanceof SourceReplayRecord command){
+                final var position=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},entry.position().canonicalBytes());
+                raw=reader.get(ColumnFamily.DEDUPE,position);
+                if(raw==null)throw new IllegalStateException("post-sync Command lost actual first and physical expiry POSITION");
+                final var expired=com.nereusstream.delay.runtime.TargetResultRecord.decode(TargetValueEnvelope.decode(raw,com.nereusstream.delay.runtime.TargetResultRecord.VALUE_TYPE).payload());
+                if(expired.kind()!=com.nereusstream.delay.runtime.TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED)
+                    throw new IllegalStateException("missing Command first is not an original standalone physical expiry");
+                expired.requireExpiredCommand(command.command());
+            }
+            if(raw==null)throw new IllegalStateException("post-sync SLO Source lost its actual first");
+            final var first=com.nereusstream.delay.runtime.TargetResultRecord.decode(TargetValueEnvelope.decode(raw,com.nereusstream.delay.runtime.TargetResultRecord.VALUE_TYPE).payload());
+            if(!Arrays.equals(first.mutation().source().canonicalBytes(),entry.position().canonicalBytes()))return java.util.List.<com.nereusstream.delay.runtime.TargetSloFinalCandidates.Candidate>of();
+            return entry instanceof SourceReplayRecord
+                    ?com.nereusstream.delay.runtime.TargetSloFinalCandidates.forCommand(reader,scope,lineage,first)
+                    :com.nereusstream.delay.runtime.TargetSloFinalCandidates.forAdmission(reader,scope,lineage,((SourceReplayMutation)entry).mutation(),first);
+        },reads(entry,clock));
+        if(candidates.isEmpty())return null;
+        if(activeSloFinal!=null)throw new IllegalStateException("another original Source still retains Final continuation");
+        final var factory=Objects.requireNonNull(sloFinalContinuations,"required original post-sync Final Source provider");
+        final var inspected=candidates.getFirst().syncedFirst().mutation();
+        requireSloFinalContinuation(entry,outcome,inspected,clock);
+        activeSloFinal=Objects.requireNonNull(factory.create(candidates,inspected,entry,outcome));return activeSloFinal;
+    }
+    synchronized void requireSloFinalContinuation(SourceReplayEntry entry,SourceReplayOutcome outcome,
+            com.nereusstream.delay.protocol.TargetQuotaMutation inspected,LongSupplier clock){
+        requireGcOwner(clock);
+        if(!Arrays.equals(outcome.position().canonicalBytes(),entry.position().canonicalBytes())
+                ||!Arrays.equals(store.appliedShardLogPosition().canonicalBytes(),entry.position().canonicalBytes())
+                ||inspected!=null&&!Arrays.equals(inspected.source().canonicalBytes(),entry.position().canonicalBytes()))
+            throw new IllegalStateException("SLO Final continuation lost its original applied Source cut");
+        try(var held=reads(entry,clock).acquire(store.metadata(),scope)){held.requireCurrent();}
+    }
+
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }
 
-    void stopAuthorityPreparation() { final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
-    void retryAuthorityCleanup() { final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
-    boolean authorityIoExited() { final var selected = authorityPreparation; return selected == null || selected.ioExited(); }
-    Throwable authorityIoFailure() { final var selected = authorityPreparation; return selected == null ? null : selected.pendingIoFailure(); }
+    void stopAuthorityPreparation() { final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
+    void retryAuthorityCleanup() { final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
+    boolean authorityIoExited() { final var selected = authorityPreparation; return (selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited()); }
+    Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();return failure!=null?failure:activeSloFinal==null?null:activeSloFinal.pendingIoFailure(); }
 
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
         final var selected = authorityPreparation;
@@ -786,7 +837,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
         try {
             if (entry instanceof SourceReplayRecord command) {
-                if (commandReplay.prepareReplayOrExpired(budget, command.command(), entry.position()).isPresent()) return true;
+                if (commandReplay.prepareReplayOrExpired(budget, command.command(), entry.position(),
+                        () -> { throw new TargetSourceAuthorityPreparation.Required(); }).isPresent()) return true;
             } else {
                 final var mutation = ((SourceReplayMutation) entry).mutation();
                 if (replay.prepareIfPresent(budget, mutation, entry.position()).isPresent()) return true;
@@ -799,12 +851,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                                 .requiresConfirmationInputs(budget, mutation, entry.position())) return true;
             }
         } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+        catch (TargetSourceAuthorityPreparation.Required required) { return selected.prepare(entry, contentFamily(entry)); }
         return selected.prepare(entry, contentFamily(entry));
     }
 
     @Override boolean completeAuthorities(SourceReplayEntry entry) {
         final var selected = authorityPreparation;
-        return selected == null || selected.complete(entry);
+        if(selected!=null&&!selected.complete(entry))return false;
+        final var finals=activeSloFinal;if(finals!=null){if(!finals.complete()||!finals.ioExited())return false;activeSloFinal=null;}
+        return true;
     }
 
     @Override boolean isAuthorityPreparationRequired(Throwable failure) {
@@ -1675,7 +1730,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if(!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())
                     ||!scope.shard().equals(mutation.shardId())||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
                 throw new IllegalArgumentException("SLO observation writer changed original SERVICE/Shard/lineage");
-            final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetSloObservationEvent();
+            final var tuple=body.tuple();
             final var compatible=store.controlSnapshot();
             if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("SLO event lacks independently admitted readers");
             backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
@@ -1683,6 +1738,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,required);
                     if(activation==null||activation.body().payload().descriptor().schemaVersion()<15)throw new IllegalStateException("SLO event lacks original APPLIED activation");
                 }
+                if(reader.closedIngressDeadlineThrough()>=mutation.retryUntilEpochMs())throw new IllegalStateException("SLO Final writer retry window is already durably closed");
                 final var generation=com.nereusstream.delay.runtime.TargetSloObservationVerifier.readGeneration(reader,scope,lineage,body.generation());
                 final var key=com.nereusstream.delay.protocol.TargetSloObservationSample.key(body.sampleId());
                 final var raw=reader.get(ColumnFamily.META,key);
@@ -1703,6 +1759,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if (isSloObservationControl(mutation)) {
             final var body = com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.canonicalBody());
+            if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
+                    &&sloFinalContinuations==null)throw new IllegalStateException("certification writer lacks original post-sync Final continuation");
             if (!scope.equals(body.request().scope()) || !Arrays.equals(lineage, body.request().lineage())) {
                 throw new IllegalArgumentException("Target certification writer changed its frozen scope/lineage");
             }
@@ -2434,6 +2492,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 result = events.commit(first, writes(control.commit(), entry, clock));
             } else if (isSloObservationControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.sloObservations().resolve(mutation), "original Target SLO Control inputs");
+                if(com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
+                        ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION&&sloFinalContinuations==null)
+                    throw new TargetSourceAuthorityPreparation.InputUnavailable("certification ENABLE lacks actual post-sync Final Source continuation");
                 final var mode = new com.nereusstream.delay.runtime.TargetSloObservationStore(backend, scope, lineage, limits.counters(), limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloObservationStore.Prepared first;
                 try { first = mode.prepareFirst(budget, control.prepared(), mutation.mutation(), entry.position(), control.authority()); }
@@ -2533,7 +2594,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final TargetCommandReplayStore.Prepared prepared;
         try {
             prepared = commandReplay
-                    .prepareReplayOrExpired(budget, entry.command(), entry.position())
+                    .prepareReplayOrExpired(budget, entry.command(), entry.position(),
+                            () -> Objects.requireNonNull(authorities.commands().resolve(entry), "expired Source sample authority").samples())
                     .orElse(null);
         } catch (ReadIncompleteException incomplete) {
             throw new ReadYield(incomplete);

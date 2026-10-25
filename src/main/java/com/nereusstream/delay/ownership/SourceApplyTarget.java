@@ -8,6 +8,16 @@ import java.util.function.LongSupplier;
 
 /** Internal adapter shared by the bounded source queue and its one-record ACK coordinator. */
 abstract class SourceApplyTarget {
+    /** Owned by the one retained Source entry; completion proves its exact Final frames are durable. */
+    interface FinalContinuation {
+        boolean complete();
+
+        /** Schedules or polls one bounded step; remote work must use the existing owned I/O executor. */
+        void schedule(LongSupplier clock);
+
+        default Throwable failure() { return null; }
+    }
+
     abstract void bind(WorkClassExecutionRegistry registry);
 
     abstract void requireSubmission(SourceReplayEntry entry, boolean recovery);
@@ -19,6 +29,11 @@ abstract class SourceApplyTarget {
     boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) { return true; }
 
     boolean completeAuthorities(SourceReplayEntry entry) { return true; }
+
+    /** Called only after successful business apply, before releasing its original authority protections. */
+    FinalContinuation beginFinalContinuation(SourceReplayEntry entry, SourceReplayOutcome outcome, LongSupplier clock) {
+        return null;
+    }
 
     boolean isAuthorityPreparationRequired(Throwable failure) { return false; }
 

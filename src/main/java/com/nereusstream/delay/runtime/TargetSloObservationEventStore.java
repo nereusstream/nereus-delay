@@ -89,7 +89,7 @@ public final class TargetSloObservationEventStore {
             TargetSloObservationGeneration generation,TargetSloObservationSample sample,Authority authority){
         if(reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs()||source.brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())return StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED;
         final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetSloObservation());
-        final var eventActivation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetSloObservationEvent());
+        final var eventActivation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.tuple());
         if(activation==null||activation.body().payload().descriptor().schemaVersion()<15
                 ||eventActivation==null||eventActivation.body().payload().descriptor().schemaVersion()<15)return StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION;
         if(generation==null||sample==null||sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest()))return StableCode.STALE_SYSTEM_MUTATION;
@@ -98,6 +98,7 @@ public final class TargetSloObservationEventStore {
         final var key=authority.keys().resolve(Integer.toUnsignedLong(input.signingKeyVersion()),source);
         if(key==null||!input.verifySignature(key))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
         body.finalObservation().validateAgainst(sample.observation().start());
+        requireEvidenceOrigin(reader,List.of(),scope,lineage,sample,body,reader.aggregate().mutation());
         authority.observation().requireCurrent();authority.observation().requireAuthorized(generation,sample,input,source);authority.observation().requireCurrent();
         return null;
     }
@@ -121,7 +122,7 @@ public final class TargetSloObservationEventStore {
     public static void requireOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
             TargetQuotaIdentity root,TargetSloObservationEventRecord event,TargetQuotaMutation frontier){
         event.appliedAt().requireAtOrBefore(frontier);
-        final var activationKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetSloObservationEvent());
+        final var activationKey=TargetProtocolActivationRecord.key(event.body().tuple());
         final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,
                 payload(view,overlay,ColumnFamily.META,activationKey,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
         if(activation.body().payload().descriptor().schemaVersion()<15
@@ -143,6 +144,25 @@ public final class TargetSloObservationEventStore {
         if(!Arrays.equals(event.input().authorIdentity(),generation.policy().service().canonicalBytes())
                 ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed frozen original writer");
         event.body().finalObservation().validateAgainst(sample.observation().start());
+        requireEvidenceOrigin(view,overlay,scope,lineage,sample,event.body(),event.appliedAt());
+    }
+    private static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample,TargetSloObservationEventBody body,TargetQuotaMutation frontier){
+        final var evidence=body.evidence();if(evidence==null)return;
+        evidence.requireObservation(sample,body.finalObservation());evidence.inspectedAt().requireAtOrBefore(frontier);
+        final var cut=result(view,overlay,TargetSloObservationStore.positionKey(evidence.inspectedAt().source()));
+        if(!cut.mutation().equals(evidence.inspectedAt())||!Arrays.equals(cut.tenantScope(),scope.tenantScope())
+                ||!Arrays.equals(cut.recoveryLineage(),lineage)||!cut.primaryIdentity().equals(sample.first().primaryIdentity()))
+            throw new IllegalStateException("SLO endpoint observation changed actual protected inspected Source cut");
+        if(evidence.admission()!=null){
+            final var first=result(view,overlay,TargetSloObservationStore.firstKey(evidence.admission().systemMutationId()));
+            if(!first.appliedFirst()||first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(evidence.admissionAt())
+                    ||!first.primaryIdentity().equals(sample.first().primaryIdentity())||!Arrays.equals(first.tenantScope(),scope.tenantScope())
+                    ||!Arrays.equals(first.recoveryLineage(),lineage)||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(evidence.admission(),
+                        ApplyStatus.APPLIED,StableCode.OK,evidence.admissionAt().source().canonicalBytes()).encode()))
+                throw new IllegalStateException("SLO due success lacks exact original sync first");
+            result(view,overlay,TargetSloObservationStore.positionKey(evidence.admissionAt().source())).requireFirst(first);
+        }
     }
     private static TargetResultRecord result(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] key){
         final var value=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));value.requireStored(key,TargetResultRecord.VALUE_TYPE,value.canonicalBytes());return value;

@@ -1286,6 +1286,14 @@ public final class TargetWorkerSourceStartup {
         } catch (RuntimeException | Error failure) { failResourceStartup(failure); throw failure; }
     }
 
+    /** Original process I/O and already admitted Source writer; deployment supplies held UTC/signer/budget material. */
+    public void configureSloFinalContinuations(OwnedSourceSystemWriter writer,
+            TargetSloFinalContinuation.Provider provider,long maximumBytes){
+        try(var construction=beginWorkerResourceConstruction(worker)){
+            construction.requireCurrent();worker.configureSloFinalContinuations(writer,graph.io(),provider,maximumBytes);construction.requireCurrent();
+        }catch(RuntimeException|Error failure){failResourceStartup(failure);throw failure;}
+    }
+
     /** Builds the actual single-flight driver and its mandatory recovery/Journal maintenance, never a supplied runtime. */
     public TargetPulsarPublishRuntime configurePublishing(OwnedSourceSystemWriter writer,
             TargetWorkerPublishingConfiguration configuration) {
