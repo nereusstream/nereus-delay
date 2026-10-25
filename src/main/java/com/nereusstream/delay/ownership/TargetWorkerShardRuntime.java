@@ -1487,6 +1487,49 @@ public final class TargetWorkerShardRuntime
     }
 
     private volatile TargetSloCustodyExportMaintenance sloCustodyExport;
+    private volatile TargetSloFinalMaintenance sloFinalMaintenance;
+    public synchronized void configureSloFinalMaintenance(OwnedSourceSystemWriter writer,java.util.concurrent.ThreadPoolExecutor executor,
+            java.util.function.Supplier<BoundedReadBudget> reads,LongSupplier clock,
+            TargetSloFinalMaintenance.Limits pageLimits,TargetSloFinalMaintenance.Provider provider,long maximumBytes){
+        requireNewTurnsAdmitted();
+        if(sloFinalMaintenance!=null||writer.sourceWriterWorker()!=this||writer.resourcesTerminated()||!writer.readyForAppending()
+                ||systemWriterBackends.values().stream().noneMatch(original->original==writer))
+            throw new IllegalArgumentException("SLO Final maintenance requires one original admitted Source writer");
+        workClasses.requireTaskServiceable(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,"target-slo-timeout-envelope",maximumBytes));
+        final var maintenance=new TargetSloFinalMaintenance(this,writer,executor,reads,clock,pageLimits,provider,maximumBytes);
+        target.registerSloFinalMaintenance(maintenance);sloFinalMaintenance=maintenance;
+    }
+    @Override public Optional<WorkClassTask> runSloFinalMaintenanceTurn(){
+        final var maintenance=sloFinalMaintenance;
+        return maintenance==null||!target.sloScopeQualified()?Optional.empty():maintenance.runTurn();
+    }
+    synchronized TargetSloFinalMaintenance.Page captureSloFinalPage(BoundedReadBudget budget,
+            TargetSloFinalMaintenance.Cursor after,TargetSloFinalMaintenance.Limits limits,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.captureSloFinalPage(budget,after,limits,clock);
+    }
+    synchronized void submitSloFinalMaintenanceAction(WorkClassTask task,Runnable action){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloScopeQualified();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);
+    }
+    synchronized boolean withdrawSloFinalMaintenanceAction(WorkClassTask task){return workClasses.withdrawQueued(task);}
+    synchronized boolean sloFinalMaintenanceActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
+    synchronized void requireSloFinalMaintenanceContext(com.nereusstream.delay.protocol.TargetQuotaMutation inspected,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloExportContext(inspected,clock);
+    }
+    synchronized boolean sloFinalCandidateCurrent(TargetSloFinalMaintenance.Candidate candidate,
+            TargetSloObservationEventMutationFactory.Prepared exact,LongSupplier clock){
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.sloFinalCandidateCurrent(candidate,exact,clock);
+    }
+    @Override public Optional<WorkClassTask> settlePendingSloFinalForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){
+        final var maintenance=sloFinalMaintenance;if(maintenance==null)return Optional.empty();
+        maintenance.stopNew();maintenance.retryCleanup();final var task=maintenance.runTurn();
+        if(!maintenance.hasPending()&&target.sloFinalMaintenanceSourceSettled(clock))return Optional.empty();
+        workClasses.runTurn(workBudget);
+        synchronized(this){if(sourceLoop.pendingEntry().isPresent())sourceLoop.settlePendingEntry(sourceBudget,clock);else sourceLoop.runTurn(sourceBudget,clock);}
+        maintenance.runTurn();
+        return maintenance.hasPending()||!target.sloFinalMaintenanceSourceSettled(clock)
+                ?task.or(()->Optional.of(new WorkClassTask(com.nereusstream.delay.scheduler.WorkClass.OUTCOME_AND_CONTROL,"target-slo-timeout-drain/"+shardId,1)))
+                :Optional.empty();
+    }
     public synchronized void configureSloCustodyExport(OwnedSourceSystemWriter writer,java.util.concurrent.ThreadPoolExecutor executor,
             java.util.function.Supplier<BoundedReadBudget> reads,LongSupplier clock,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,TargetSloCustodyExportMaintenance.Provider provider,long maximumBytes){
@@ -2012,6 +2055,7 @@ public final class TargetWorkerShardRuntime
         if (sourceLoop.pendingEntry().isPresent()) {
             throw new IllegalStateException("Target Worker cannot pause a pending source acknowledgement");
         }
+        final var finalMaintenance=sloFinalMaintenance;if(finalMaintenance!=null){finalMaintenance.stopNew();if(!finalMaintenance.ioExited()||finalMaintenance.hasPending())throw new IllegalStateException("Target Worker cannot pause retained SLO Final maintenance");}
         final var exporter=sloCustodyExport;if(exporter!=null){exporter.stopNew();if(!exporter.ioExited()||exporter.hasPending())throw new IllegalStateException("Target Worker cannot pause retained SLO custody export");}
         if (hasUnsettledMessageExpiry()) {
             throw new IllegalStateException("Target Worker cannot pause a pending message expiry handoff");

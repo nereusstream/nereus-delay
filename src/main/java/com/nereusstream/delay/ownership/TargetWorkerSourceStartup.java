@@ -1828,6 +1828,15 @@ public final class TargetWorkerSourceStartup {
     }
 
     /** Original process I/O and already admitted Source writer; deployment supplies held UTC/signer/budget material. */
+    public void configureSloFinalMaintenance(OwnedSourceSystemWriter writer,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            TargetSloFinalMaintenance.Limits pageLimits,TargetSloFinalMaintenance.Provider provider,long maximumBytes){
+        try(var construction=beginWorkerResourceConstruction(worker)){
+            construction.requireCurrent();worker.configureSloFinalMaintenance(writer,graph.io(),reads,owner.clock(),pageLimits,provider,maximumBytes);construction.requireCurrent();
+        }catch(RuntimeException|Error failure){failResourceStartup(failure);throw failure;}
+    }
+
+    /** Original process I/O and already admitted Source writer; deployment supplies held UTC/signer/budget material. */
     public void configureSloFinalContinuations(OwnedSourceSystemWriter writer,
             TargetSloFinalContinuation.Provider provider,long maximumBytes){
         try(var construction=beginWorkerResourceConstruction(worker)){

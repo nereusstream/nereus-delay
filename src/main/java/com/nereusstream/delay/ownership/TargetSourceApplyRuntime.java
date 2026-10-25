@@ -884,6 +884,98 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if(sloCustodyExport!=null)throw new IllegalStateException("Target SLO custody exporter already configured");
         sloCustodyExport=Objects.requireNonNull(exporter);
     }
+    private volatile TargetSloFinalMaintenance sloFinalMaintenance;
+    synchronized void registerSloFinalMaintenance(TargetSloFinalMaintenance maintenance){
+        if(sloFinalMaintenance!=null)throw new IllegalStateException("Target SLO Final maintenance already configured");
+        sloFinalMaintenance=Objects.requireNonNull(maintenance);
+    }
+    private boolean sloServiceConfigured(){
+        return sloFinalContinuations!=null&&sloCustodyExport!=null&&sloFinalMaintenance!=null;
+    }
+    synchronized boolean sloFinalMaintenanceSourceSettled(LongSupplier clock){
+        requireGcOwner(clock);
+        final var maintenance=sloFinalMaintenance;
+        final var through=maintenance==null?null:maintenance.persistedThrough();
+        if(through==null)return true;
+        return backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            final var source=Objects.requireNonNull(reader.source(),"actual SLO Final Source frontier");
+            if(!through.sameSourceIdentity(source))throw new IllegalStateException("SLO Final drain changed physical Source");
+            return source.compareTo(through)>=0;
+        },workerReads(clock));
+    }
+    synchronized TargetSloFinalMaintenance.Page captureSloFinalPage(BoundedReadBudget budget,
+            TargetSloFinalMaintenance.Cursor after,TargetSloFinalMaintenance.Limits pageLimits,LongSupplier clock){
+        requireGcOwner(clock);requireSloScopeQualified();
+        final var page=backend.guardedRead(budget,reader->{
+            requireSloFinalSourceSettlement(reader);
+            final var cut=reader.aggregate().mutation();cut.requireSourceApplied();
+            final var source=Objects.requireNonNull(reader.source(),"actual SLO Final Source cut");
+            if(!Arrays.equals(source.canonicalBytes(),cut.source().canonicalBytes()))
+                throw new IllegalStateException("SLO Final census requires its actual aggregate/Source cut");
+            if(after!=null&&(!scope.equals(after.scope())||!Arrays.equals(lineage,after.lineage())
+                    ||!source.sameSourceIdentity(after.sweepSource())||after.sweepSource().compareTo(source)>0))
+                throw new IllegalArgumentException("SLO Final cursor crossed Scope, lineage or physical Source");
+            final var sweepSource=after==null?source:after.sweepSource();
+            final var prefix=new byte[]{TargetKeyCodec.SLO_SAMPLE_TAG,TargetKeyCodec.KEY_FORMAT};
+            final var upper=new byte[]{TargetKeyCodec.SLO_SAMPLE_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
+            byte[] last=after==null?null:after.afterSampleKey();
+            byte[] lower=last==null?prefix:Bytes.concat(last,new byte[]{0});
+            final long bytes=TargetSloFinalMaintenance.Page.minimumCanonicalBytes(null,null);
+            if(bytes>=pageLimits.maximumCanonicalBytes())throw new IllegalArgumentException("SLO Final page cannot retain its actual cut");
+            boolean advanced=false;
+            for(int visited=0;visited<pageLimits.maximumRows();visited++){
+                try{
+                    reader.requireWithinElapsedBudget();
+                    final var row=reader.first(ColumnFamily.META,lower,upper,java.util.List.of());
+                    if(row==null)return new TargetSloFinalMaintenance.Page(null,null,true,bytes);
+                    final var sample=com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(row.key(),
+                            TargetValueEnvelope.decode(row.value(),com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                    if(!sample.primary(row.key()))throw new IllegalStateException("SLO Final census selected a non-primary sample");
+                    final var result=com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.inspect(reader,scope,lineage,cut,sample);
+                    final var nextCursor=new TargetSloFinalMaintenance.Cursor(scope,lineage,sweepSource,row.key());
+                    if(result!=com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.Result.CURRENT_FINAL){
+                        final var generation=Objects.requireNonNull(com.nereusstream.delay.runtime.TargetSloObservationVerifier.readGeneration(
+                                reader,scope,lineage,sample.generation()),"actual SLO Final generation");
+                        final var candidate=new TargetSloFinalMaintenance.Candidate(generation,sample,cut,result);
+                        final long retained=TargetSloFinalMaintenance.Page.minimumCanonicalBytes(candidate,nextCursor);
+                        if(retained>pageLimits.maximumCanonicalBytes())throw new IllegalArgumentException("one SLO Final candidate exceeds its finite page envelope");
+                        return new TargetSloFinalMaintenance.Page(candidate,nextCursor,false,retained);
+                    }
+                    last=row.key();lower=Bytes.concat(last,new byte[]{0});advanced=true;
+                }catch(ReadIncompleteException incomplete){
+                    if(!advanced)throw incomplete;
+                    final var cursor=new TargetSloFinalMaintenance.Cursor(scope,lineage,sweepSource,last);
+                    return new TargetSloFinalMaintenance.Page(null,cursor,false,TargetSloFinalMaintenance.Page.minimumCanonicalBytes(null,cursor));
+                }
+            }
+            final var cursor=new TargetSloFinalMaintenance.Cursor(scope,lineage,sweepSource,last);
+            return new TargetSloFinalMaintenance.Page(null,cursor,false,TargetSloFinalMaintenance.Page.minimumCanonicalBytes(null,cursor));
+        },workerReads(clock));
+        if(page.canonicalBytes()>pageLimits.maximumCanonicalBytes())throw new IllegalArgumentException("SLO Final page exceeded its original finite envelope");
+        requireGcOwner(clock);requireSloScopeQualified();return page;
+    }
+    /** Rechecks the actual current sample before a new native attempt; an old UNKNOWN keeps its original bytes. */
+    synchronized boolean sloFinalCandidateCurrent(TargetSloFinalMaintenance.Candidate candidate,
+            TargetSloObservationEventMutationFactory.Prepared exact,LongSupplier clock){
+        requireGcOwner(clock);requireSloScopeQualified();
+        return backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+            requireSloFinalSourceSettlement(reader);candidate.inspectedAt().requireAtOrBefore(reader.aggregate().mutation());
+            final var original=candidate.sample();
+            if(!scope.equals(original.scope())||!Arrays.equals(lineage,original.lineage()))throw new IllegalArgumentException("SLO Final candidate changed Scope/lineage");
+            final var raw=reader.get(ColumnFamily.META,original.key());
+            if(raw==null)throw new IllegalStateException("SLO Final candidate lost its protected sample");
+            final var current=com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(original.key(),
+                    TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+            if(current.generation()!=original.generation()||!Arrays.equals(current.bindingDigest(),original.bindingDigest()))
+                throw new IllegalStateException("SLO Final candidate changed its frozen binding");
+            if(current.observation().finalObservation()!=null)return false;
+            final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(exact.mutation().canonicalBody());
+            body.evidence().requireSample(current);
+            final var classification=com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.inspect(reader,scope,lineage,reader.aggregate().mutation(),current);
+            return body.evidence().kind()!=com.nereusstream.delay.protocol.TargetSloFinalEvidence.Kind.TIMEOUT
+                    ||classification==com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.Result.NO_KNOWN_ADMISSION_AT_CUT;
+        },workerReads(clock));
+    }
     synchronized com.nereusstream.delay.runtime.TargetSloExportPageReader.Page captureSloExportPage(BoundedReadBudget budget,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Cursor cursor,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,LongSupplier clock){
@@ -944,10 +1036,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }
 
-    void stopAuthorityPreparation() { final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
-    void retryAuthorityCleanup() { final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
-    boolean authorityIoExited() { final var selected = authorityPreparation; return (selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited()); }
-    Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();final var finals=activeSloFinal==null?null:activeSloFinal.pendingIoFailure();return failure!=null?failure:finals!=null?finals:sloCustodyExport==null?null:sloCustodyExport.pendingIoFailure(); }
+    void stopAuthorityPreparation() { final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.requestStop();final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
+    void retryAuthorityCleanup() { final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.retryCleanup();final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
+    boolean authorityIoExited() { final var selected = authorityPreparation; return (selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited())&&(sloFinalMaintenance==null||sloFinalMaintenance.ioExited()); }
+    Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();final var finals=activeSloFinal==null?null:activeSloFinal.pendingIoFailure();final var maintenance=sloFinalMaintenance==null?null:sloFinalMaintenance.pendingIoFailure();return failure!=null?failure:finals!=null?finals:maintenance!=null?maintenance:sloCustodyExport==null?null:sloCustodyExport.pendingIoFailure(); }
 
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
         final var selected = authorityPreparation;
@@ -1058,12 +1150,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     /** Local custody of frames produced by this runtime; previous incarnations still require protected recovery. */
     private void requireSloFinalSourceSettlement(TargetStoreBackend.Reader reader){
         if(activeSloFinal!=null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Final continuation has not settled its exact frames");
-        final var through=sloFinalSourceBarrier;
+        final var original=sloFinalSourceBarrier;
+        final var maintenance=sloFinalMaintenance;
+        final var pending=maintenance==null?null:maintenance.persistedThrough();
+        if(original!=null&&pending!=null&&!original.sameSourceIdentity(pending))
+            throw new IllegalStateException("SLO Final settlement changed physical Source");
+        final var through=original==null?pending:pending!=null&&pending.compareTo(original)>0?pending:original;
         if(through==null)return;
         final var applied=Objects.requireNonNull(reader.source(),"actual Final Source frontier");
         if(!applied.sameSourceIdentity(through)||applied.compareTo(through)<0)
             throw new TargetSourceAuthorityPreparation.InputUnavailable("original persisted Final frames have not reached actual Source apply");
-        if(sloFinalSourceBarrier==through)sloFinalSourceBarrier=null;
+        if(sloFinalSourceBarrier==original)sloFinalSourceBarrier=null;
     }
 
     @Override boolean isAuthorityPreparationRequired(Throwable failure) {
@@ -2006,6 +2103,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if(isSloWriterControl(mutation)){
             final var body=com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(mutation.canonicalBody());
+            if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH
+                    &&!sloServiceConfigured())throw new IllegalStateException("certification writer REGISTER lacks original Final/timeout/custody maintenance");
             if(!scope.equals(body.request().scope())||!Arrays.equals(lineage,body.request().lineage()))throw new IllegalArgumentException("SLO writer Control changed original Scope/lineage");
             final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetSloWriterEpoch();
             if(store.controlSnapshot()==null||!store.controlSnapshot().protocolTuples().contains(tuple))throw new IllegalStateException("SLO writer Control lacks independent readers");
@@ -2017,7 +2116,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }else if (isSloObservationControl(mutation)) {
             final var body = com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.canonicalBody());
             if(body.request().operationKind()==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
-                    &&(sloFinalContinuations==null||sloCustodyExport==null))throw new IllegalStateException("certification writer lacks original Final/custody Source continuation");
+                    &&!sloServiceConfigured())throw new IllegalStateException("certification writer lacks original Final/timeout/custody Source maintenance");
             if (!scope.equals(body.request().scope()) || !Arrays.equals(lineage, body.request().lineage())) {
                 throw new IllegalArgumentException("Target certification writer changed its frozen scope/lineage");
             }
@@ -2751,6 +2850,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 result = events.commit(first, writes(control.commit(), entry, clock, requiresSloQualification));
             } else if(isSloWriterControl(mutation.mutation())){
                 final var control=Objects.requireNonNull(authorities.sloWriters().resolve(mutation),"original SLO writer Control inputs");
+                if(!recoveryOnly&&com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
+                        ==com.nereusstream.delay.protocol.ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH
+                        &&!sloServiceConfigured()&&!sloInputExpired(mutation,budget))
+                    throw new TargetSourceAuthorityPreparation.InputUnavailable("certification REGISTER lacks actual Final/timeout/custody maintenance");
                 final var writers=new com.nereusstream.delay.runtime.TargetSloWriterEpochStore(backend,scope,lineage,limits.counters(),limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Prepared first;
                 try{first=writers.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
@@ -2758,10 +2861,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 result=writers.commit(first,writes(control.commit(),entry,clock,requiresSloQualification));
             } else if (isSloObservationControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.sloObservations().resolve(mutation), "original Target SLO Control inputs");
-                if(com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
+                if(!recoveryOnly&&com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
                         ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
-                        &&(sloFinalContinuations==null||sloCustodyExport==null)&&!sloInputExpired(mutation,budget))
-                    throw new TargetSourceAuthorityPreparation.InputUnavailable("certification ENABLE lacks actual post-sync Final Source continuation");
+                        &&!sloServiceConfigured()&&!sloInputExpired(mutation,budget))
+                    throw new TargetSourceAuthorityPreparation.InputUnavailable("certification ENABLE lacks actual Final/timeout/custody maintenance");
                 final var mode = new com.nereusstream.delay.runtime.TargetSloObservationStore(backend, scope, lineage, limits.counters(), limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloObservationStore.Prepared first;
                 try { first = mode.prepareFirst(budget, control.prepared(), mutation.mutation(), entry.position(), control.authority()); }

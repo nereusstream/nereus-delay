@@ -44,6 +44,7 @@ public final class TargetWorkerShardFleetRuntime {
         default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() { return Optional.empty(); }
         default Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() { return Optional.empty(); }
         default Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn(){return Optional.empty();}
+        default Optional<WorkClassTask> runSloFinalMaintenanceTurn(){return Optional.empty();}
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -104,6 +105,7 @@ public final class TargetWorkerShardFleetRuntime {
     private int publicationResourceCursor;
     private int resourceReclaimCursor;
     private int sloCustodyCursor;
+    private int sloFinalCursor;
     private Thread activeTurnThread;
 
     public TargetWorkerShardFleetRuntime(
@@ -288,6 +290,17 @@ public final class TargetWorkerShardFleetRuntime {
         if(selected.pendingCheckpointTask().isPresent())return Optional.empty();
         activeTurnThread=Thread.currentThread();
         try{return selected.runSloCustodyExportMaintenanceTurn();}
+        catch(RuntimeException failure){throw new MaintenanceDispatchFailure(selected.shardId(),failure);}
+        finally{activeTurnThread=null;}
+    }
+
+    synchronized Optional<WorkClassTask> runNextSloFinalTurnIfPresent(){
+        requireNotInSelectedTurn();if(shards.isEmpty())return Optional.empty();
+        final int index=sloFinalCursor>=shards.size()?0:sloFinalCursor;
+        final var selected=shards.get(index);sloFinalCursor=index==shards.size()-1?0:index+1;
+        if(selected.pendingCheckpointTask().isPresent())return Optional.empty();
+        activeTurnThread=Thread.currentThread();
+        try{return selected.runSloFinalMaintenanceTurn();}
         catch(RuntimeException failure){throw new MaintenanceDispatchFailure(selected.shardId(),failure);}
         finally{activeTurnThread=null;}
     }
