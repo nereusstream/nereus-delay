@@ -138,6 +138,7 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples;
+    private final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents;
     private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories;
     private final List<com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips;
     private final List<ProfileRef> profiles;
@@ -180,6 +181,7 @@ public final class TargetCheckpointDependencies {
         sloStates=List.copyOf(builder.sloStates.values());
         sloGenerations=List.copyOf(builder.sloGenerations.values());
         sloSamples=List.copyOf(builder.sloSamples.values());
+        sloEvents=List.copyOf(builder.sloEvents.values());
         sourceHistories=List.copyOf(builder.sourceHistories.values());
         historyTips=List.copyOf(builder.historyTips.values());
         profiles = List.copyOf(builder.profiles.values());
@@ -269,6 +271,7 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates(){return sloStates;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations(){return sloGenerations;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples(){return sloSamples;}
+    public List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents(){return sloEvents;}
 
     /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
     @FunctionalInterface
@@ -514,7 +517,8 @@ public final class TargetCheckpointDependencies {
         public ControlImage {
             TargetSourcePosition.requireBounded(source);
             Objects.requireNonNull(image, "image");
-            if (image.type() != SystemMutationType.APPLY_SHARD_CONTROL || !source.shardId().equals(image.shardId())) {
+            if ((image.type() != SystemMutationType.APPLY_SHARD_CONTROL && image.type() != SystemMutationType.TARGET_SLO_OBSERVATION)
+                    || !source.shardId().equals(image.shardId())) {
                 throw new IllegalArgumentException("Target control image has another Source/type");
             }
         }
@@ -541,8 +545,8 @@ public final class TargetCheckpointDependencies {
             Objects.requireNonNull(image, "image");
             TargetSourcePosition.requireBounded(actualSource);
             final var result = SystemMutationResult.decode(first.typedPayload());
-            if (image.type() != SystemMutationType.APPLY_SHARD_CONTROL
-                    || !Arrays.equals(actualSource.canonicalBytes(), source().canonicalBytes())
+            if ((image.type() != SystemMutationType.APPLY_SHARD_CONTROL && image.type() != SystemMutationType.TARGET_SLO_OBSERVATION)
+                    || result.mutationType() != image.type() || !Arrays.equals(actualSource.canonicalBytes(), source().canonicalBytes())
                     || !Arrays.equals(Bytes.sha256(image.canonicalEnvelope()), envelopeDigest())
                     || !Arrays.equals(result.mutationId(), image.systemMutationId())
                     || !Arrays.equals(result.mutationHash(), image.mutationHash())
@@ -659,6 +663,12 @@ public final class TargetCheckpointDependencies {
     @FunctionalInterface
     public interface ControlImageAuthority {
         java.security.PublicKey authenticate(ControlImage input, TargetResultRecord first);
+        /** Original SERVICE event history, endpoint/time and retained budget; APPLIED uses its frozen sample. */
+        default java.security.PublicKey authenticateObservation(ControlImage input,TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
+                com.nereusstream.delay.protocol.TargetSloObservationSample sample){
+            throw new IllegalStateException("checkpoint authority lacks original SLO event authentication");
+        }
     }
 
     /**
@@ -685,7 +695,13 @@ public final class TargetCheckpointDependencies {
             final var result = SystemMutationResult.decode(first.typedPayload());
             final byte[] frame = image.encodeFrame();
             if (!budget.tryCharge(input.source().canonicalBytes().length, frame.length)) { throw budget.incomplete(); }
-            final var key = authority.authenticate(input, first);
+            final java.security.PublicKey key;
+            if(image.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
+                final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(image.canonicalBody());
+                final var sample=sloSamples.stream().filter(v->Arrays.equals(v.observation().sampleId(),body.sampleId())).findFirst().orElse(null);
+                final var generation=sloGenerations.stream().filter(v->v.generation()==body.generation()).findFirst().orElse(null);
+                key=authority.authenticateObservation(input,first,generation,sample);
+            }else key=authority.authenticate(input,first);
             if (result.applyStatus() == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
                     && (key == null || !image.verifySignature(key))) {
                 throw new IllegalArgumentException("Target Control input signature invalid");
@@ -918,6 +934,7 @@ public final class TargetCheckpointDependencies {
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples=new TreeMap<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord> historyTips=new TreeMap<>();
         private final Map<String, ProfileRef> profiles = new TreeMap<>();
@@ -960,6 +977,7 @@ public final class TargetCheckpointDependencies {
             prior.sloStates.forEach(this::sloState);
             prior.sloGenerations.forEach(this::sloGeneration);
             prior.sloSamples.forEach(this::sloSample);
+            prior.sloEvents.forEach(this::sloEvent);
             prior.sourceHistories.forEach(this::sourceHistory);
             prior.historyTips.forEach(this::historyTip);
             prior.profiles.forEach(this::profile);
@@ -1032,6 +1050,9 @@ public final class TargetCheckpointDependencies {
         void sloGeneration(com.nereusstream.delay.protocol.TargetSloObservationGeneration record) {
             if(sloGenerations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO generation");
         }
+        void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
+            if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");
+        }
         void sloSample(com.nereusstream.delay.protocol.TargetSloObservationSample record) {
             if(sloSamples.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO sample");
         }
@@ -1054,9 +1075,10 @@ public final class TargetCheckpointDependencies {
             final var result = SystemMutationResult.decode(first.typedPayload());
             if (first.kind() != TargetResultRecord.Kind.SYSTEM
                     || !first.primaryIdentity().equals(root.root().identity())
-                    || result.mutationType() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || (result.mutationType() != SystemMutationType.APPLY_SHARD_CONTROL && result.mutationType() != SystemMutationType.TARGET_SLO_OBSERVATION)
                     || result.applyStatus() == com.nereusstream.delay.runtime.ApplyStatus.APPLIED
-                            && AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL) {
+                            && AuthorIdentity.decode(result.authorIdentity()).kind() != (result.mutationType()==SystemMutationType.TARGET_SLO_OBSERVATION
+                                ?AuthorIdentity.Kind.SERVICE:AuthorIdentity.Kind.CONTROL)) {
                 throw new IllegalArgumentException("Target Control reference differs from its root/type/author");
             }
             controlResults.put(Bytes.hex(first.key()), first);

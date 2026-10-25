@@ -115,7 +115,8 @@ public final class TargetSloObservationSamples {
             actual=Math.addExact(actual,sample.storedBytes());maximum=Math.addExact(maximum,sample.maximumStoredBytes());
         }
         final long reserved=Math.addExact(before.outboxBytes(),Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.maximumFutureStoredGrowth(generation.policy())));
-        if(Math.addExact(before.outboxRecords(),samples.size())>limits.maximumOutboxRecords()||Math.addExact(reserved,maximum)>limits.maximumOutboxBytes())
+        if(Math.addExact(Math.addExact(before.outboxRecords(),before.eventRecords()),samples.size())>limits.maximumOutboxRecords()
+                ||Math.addExact(Math.addExact(reserved,before.eventBytes()),maximum)>limits.maximumOutboxBytes())
             throw new IllegalStateException("certification lacks the original complete business-mutation sample reservation");
         final var held=Objects.requireNonNull(authority);held.requireCurrent();
         final var edits=new ArrayList<TargetStoreBackend.Edit>();
@@ -126,7 +127,7 @@ public final class TargetSloObservationSamples {
                 edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,sample.canonicalBytes()));
             }
         }
-        final var counts=new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),samples.size()),Math.addExact(before.outboxRecords(),samples.size()),Math.addExact(before.outboxBytes(),actual),before.custodied());
+        final var counts=new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),samples.size()),Math.addExact(before.outboxRecords(),samples.size()),Math.addExact(before.outboxBytes(),actual),before.custodied(),before.eventRecords(),before.eventBytes());
         final var next=generation.withCounts(counts,stamp);
         edits.add(reader.replace(ColumnFamily.META,next.key(),TargetSloObservationGeneration.VALUE_TYPE,next.canonicalBytes()));
         return new Plan(edits,held::requireCurrent);
@@ -149,8 +150,10 @@ public final class TargetSloObservationSamples {
         }
         TargetSloObservationStore.requireOrigin(view,overlay,scope,lineage,root,generation,frontier);
         final boolean written = overlay.stream().anyMatch(e->e.family()==ColumnFamily.META&&sample.keys().stream().anyMatch(k->Arrays.equals(k,e.key())));
+        final var priorRaw=view.projected(ColumnFamily.META,sample.key(),List.of());
+        final boolean born=written&&priorRaw==null;
         if(written && (!sample.mutation().equals(frontier)
-                || view.projected(ColumnFamily.DEDUPE,sample.first().key(),List.of())!=null
+                || born&&view.projected(ColumnFamily.DEDUPE,sample.first().key(),List.of())!=null
                 || overlay.stream().noneMatch(e->e.family()==ColumnFamily.META&&Arrays.equals(e.key(),generationKey)))) {
             throw new IllegalStateException("Target SLO Start must share the actual new first/generation Source batch; no repair backfill");
         }
@@ -161,7 +164,7 @@ public final class TargetSloObservationSamples {
             final var birth=sample.eligibility();final var accepted=CommandDedupeRecord.decode(actual.typedPayload()).result();
             if(accepted.applyStatus()!=ApplyStatus.APPLIED||accepted.generation()!=birth.locator().generation()||accepted.stateVersion()!=birth.stateVersion()
                     ||accepted.messageStatus()!=MessageStatus.SCHEDULED)throw new IllegalStateException("due eligibility lost original accepted Message birth");
-            if(written){
+            if(born){
                 final var key=TargetKeyCodec.message(birth.locator().messageId());
                 final var message=TargetMessageRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.ID,key,TargetMessageRecord.VALUE_TYPE),scope.shard());
                 if(!Arrays.equals(TargetSloMessageEligibility.from(message).canonicalBytes(),birth.canonicalBytes()))
@@ -179,9 +182,20 @@ public final class TargetSloObservationSamples {
         for(var key:sample.keys()) if(!Arrays.equals(payload(view,overlay,ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE),sample.canonicalBytes())) {
             throw new IllegalStateException("Target SLO sample lost exact retained primary/Source reference projection");
         }
-        // Finals require their own original Source event/custody chain; this Start writer cannot manufacture one.
-        if(sample.observation().finalObservation()!=null || !sample.mutation().equals(sample.first().mutation())) {
-            throw new IllegalStateException("Target SLO Final Source event is not wired yet");
+        if(sample.observation().finalObservation()==null){
+            if(!sample.mutation().equals(sample.first().mutation()))throw new IllegalStateException("open SLO Start changed birth mutation without original Source event");
+        }else{
+            final var eventKey=TargetSloObservationEventRecord.key(sample.observation().sampleId(),sample.mutation().sequence());
+            final var event=TargetSloObservationEventRecord.decodeForStore(eventKey,payload(view,overlay,ColumnFamily.META,eventKey,TargetSloObservationEventRecord.VALUE_TYPE),scope,lineage);
+            TargetSloObservationEventStore.requireOrigin(view,overlay,scope,lineage,root,event,frontier);
+            if(!sample.mutation().equals(event.appliedAt())||!Arrays.equals(event.after().canonicalBytes(),sample.observation().canonicalBytes()))throw new IllegalStateException("SLO Final lost its actual latest Source merge edge");
+            if(written){
+                if(priorRaw==null)throw new IllegalStateException("SLO Final cannot invent original Start");
+                final var prior=TargetSloObservationSample.decodeForStore(sample.key(),TargetValueEnvelope.decode(priorRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                if(!Arrays.equals(prior.bindingDigest(),sample.bindingDigest())||!Arrays.equals(prior.observation().recordDigest(),event.beforeDigest())
+                        ||!Arrays.equals(prior.observation().mergeFinal(event.body().finalObservation(),sample.declaration().objective().direction()).canonicalBytes(),sample.observation().canonicalBytes()))
+                    throw new IllegalStateException("SLO Final changed immutable binding or conservative original merge");
+            }
         }
     }
 
@@ -194,20 +208,31 @@ public final class TargetSloObservationSamples {
         final byte[] priorRaw=view.projected(ColumnFamily.META,generation.key(),List.of());
         final var prior=priorRaw==null?null:TargetSloObservationGeneration.decodeForStore(generation.key(),TargetValueEnvelope.decode(priorRaw,TargetSloObservationGeneration.VALUE_TYPE).payload(),scope,lineage);
         final var base=prior==null?TargetSloObservationGeneration.Counts.empty():prior.counts();
-        long added=0,bytes=0;
+        long added=0,bytes=0,eventRecords=0,eventBytes=0;
+        boolean sampleChanged=false;
         for(var edit:overlay){
-            if(edit.family()!=ColumnFamily.META||edit.key()[0]!=TargetKeyCodec.SLO_SAMPLE_TAG)continue;
-            if(edit.after()==null)throw new IllegalStateException("Target SLO Start cannot delete retained samples");
-            final var sample=TargetSloObservationSample.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
-            if(sample.generation()!=generation.generation())continue;
-            if(edit.before()!=null || !sample.mutation().equals(frontier))throw new IllegalStateException("Target SLO Start changed an already bound event");
-            added=Math.addExact(added,1);bytes=Math.addExact(bytes,sample.storedBytes());
+            if(edit.family()!=ColumnFamily.META)continue;
+            if(edit.key()[0]==TargetKeyCodec.SLO_SAMPLE_TAG){
+                if(edit.after()==null)throw new IllegalStateException("SLO observation cannot delete retained sample");
+                final var sample=TargetSloObservationSample.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                if(sample.generation()!=generation.generation())continue;
+                if(!sample.mutation().equals(frontier))throw new IllegalStateException("SLO sample edit changed actual Source mutation");
+                sampleChanged=true;bytes=Math.addExact(bytes,sample.storedBytes());
+                if(edit.before()==null)added=Math.addExact(added,1);
+                else bytes=Math.subtractExact(bytes,TargetSloObservationSample.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.before(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage).storedBytes());
+            }else if(edit.key()[0]==TargetKeyCodec.SLO_EVENT_TAG){
+                if(edit.before()!=null||edit.after()==null)throw new IllegalStateException("original SLO event history is immutable");
+                final var event=TargetSloObservationEventRecord.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetSloObservationEventRecord.VALUE_TYPE).payload(),scope,lineage);
+                if(event.body().generation()!=generation.generation())continue;
+                if(!event.appliedAt().equals(frontier))throw new IllegalStateException("SLO event changed Source stamp");
+                eventRecords=Math.addExact(eventRecords,1);eventBytes=Math.addExact(eventBytes,event.storedBytes());
+            }
         }
-        final var expected=new TargetSloObservationGeneration.Counts(Math.addExact(base.issued(),added),Math.addExact(base.outboxRecords(),added),Math.addExact(base.outboxBytes(),bytes),base.custodied());
-        if(!expected.equals(generation.counts()) || !generation.mutation().equals(frontier)
-                || added==0 && !generation.mutation().equals(generation.control().appliedAt())) {
-            throw new IllegalStateException("Target SLO generation totals do not match original actual sample/Control edits");
-        }
+        final var expected=new TargetSloObservationGeneration.Counts(Math.addExact(base.issued(),added),Math.addExact(base.outboxRecords(),added),
+                Math.addExact(base.outboxBytes(),bytes),base.custodied(),Math.addExact(base.eventRecords(),eventRecords),Math.addExact(base.eventBytes(),eventBytes));
+        if(!expected.equals(generation.counts())||!generation.mutation().equals(frontier)
+                ||!sampleChanged&&!generation.mutation().equals(generation.control().appliedAt())||eventRecords!=0&&!sampleChanged)
+            throw new IllegalStateException("SLO generation totals do not match complete original sample/Source event edits");
     }
 
     /** Any retained sample keeps its original first/POS protected, independently of collector acknowledgement. */

@@ -1,0 +1,153 @@
+package com.nereusstream.delay.runtime;
+
+import com.nereusstream.delay.protocol.*;
+import com.nereusstream.delay.store.*;
+import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+
+/** Original ordered Source apply for a pure observation; no Claim, Attempt, Message or publication transition. */
+public final class TargetSloObservationEventStore {
+    @FunctionalInterface public interface Keys { PublicKey resolve(long version,SourcePosition source); }
+    public interface ObservationAuthority {
+        /** Original semantic endpoint/time/history and real retained budget qualification; already-held local checks. */
+        void requireAuthorized(TargetSloObservationGeneration generation,TargetSloObservationSample sample,
+                SystemMutation input,SourcePosition source);
+        void requireCurrent();
+    }
+    public record Authority(Keys keys,ObservationAuthority observation){
+        public Authority{Objects.requireNonNull(keys);Objects.requireNonNull(observation);}
+    }
+    public static final class Prepared {
+        private final TargetSloObservationEventStore owner;private final TargetStoreBackend.Prepared batch;
+        private final SystemMutationResult result;private final Runnable qualification;
+        private Prepared(TargetSloObservationEventStore owner,TargetStoreBackend.Prepared batch,SystemMutationResult result,Runnable qualification){
+            this.owner=owner;this.batch=batch;this.result=result;this.qualification=qualification;
+        }
+    }
+    private final TargetStoreBackend backend;private final TargetQuotaScope scope;private final byte[] lineage;private final int counters,domains;
+    public TargetSloObservationEventStore(TargetStoreBackend backend,TargetQuotaScope scope,byte[] lineage,int counters,int domains){
+        this.backend=Objects.requireNonNull(backend);this.scope=Objects.requireNonNull(scope);this.lineage=Bytes.copy(lineage);
+        Bytes.requireLength(lineage,16,"SLO event Source lineage");
+        if(scope.target()!=null||counters<2||domains<1||domains>TargetQueueState.MAX_DOMAIN_SLOTS)throw new IllegalArgumentException("bounded original SLO Source scope required");
+        this.counters=counters;this.domains=domains;
+    }
+    public Prepared prepareFirst(BoundedReadBudget budget,SystemMutation input,SourcePosition source,Authority authority){
+        Objects.requireNonNull(authority);TargetSourcePosition.requireBounded(source);
+        final var body=TargetSloObservationEventBody.decode(input.canonicalBody());
+        if(input.type()!=SystemMutationType.TARGET_SLO_OBSERVATION||!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())
+                ||!input.shardId().equals(scope.shard())||!source.shardId().equals(scope.shard()))throw new IllegalArgumentException("SLO event changed original Source scope");
+        final var result=new SystemMutationResult[1];final boolean[] applied={false};
+        final var batch=backend.prepare(budget,reader->{
+            if(reader.source()==null||source.compareTo(reader.source())<=0)throw new IllegalStateException("SLO event requires advancing Source");
+            final var stamp=new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),source,Bytes.sha256(input.canonicalEnvelope()));
+            final var firstKey=TargetSloObservationStore.firstKey(input.systemMutationId());final var positionKey=TargetSloObservationStore.positionKey(source);
+            absent(reader,ColumnFamily.DEDUPE,firstKey);absent(reader,ColumnFamily.DEDUPE,positionKey);
+            final var root=root(reader);final var edits=new ArrayList<TargetStoreBackend.Edit>();
+            final var generation=TargetSloObservationVerifier.readGeneration(reader,scope,lineage,body.generation());
+            final var sampleKey=TargetSloObservationSample.key(body.sampleId());final var sampleRaw=reader.get(ColumnFamily.META,sampleKey);
+            final var sample=sampleRaw==null?null:TargetSloObservationSample.decodeForStore(sampleKey,TargetValueEnvelope.decode(sampleRaw,TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+            final StableCode rejection=verify(reader,body,input,source,generation,sample,authority);
+            if(rejection==null){
+                final var merged=sample.observation().mergeFinal(body.finalObservation(),sample.declaration().objective().direction());
+                final var next=new TargetSloObservationSample(scope,lineage,sample.generation(),sample.enableId(),sample.enabledAt(),sample.policyDigest(),
+                        sample.declaration(),sample.first(),merged,stamp,sample.admission(),sample.eligibility());
+                final var event=new TargetSloObservationEventRecord(input,stamp,sample.observation().recordDigest(),merged);
+                final var before=generation.counts();
+                final var counts=new TargetSloObservationGeneration.Counts(before.issued(),before.outboxRecords(),
+                        Math.addExact(before.outboxBytes(),Math.subtractExact(next.storedBytes(),sample.storedBytes())),before.custodied(),
+                        Math.addExact(before.eventRecords(),1),Math.addExact(before.eventBytes(),event.storedBytes()));
+                // Complete evidence stream cap includes retained immutable Source merge edges.
+                if(Math.addExact(counts.outboxRecords(),counts.eventRecords())>generation.policy().limits().maximumOutboxRecords()
+                        ||Math.addExact(counts.outboxBytes(),counts.eventBytes())>generation.policy().limits().maximumOutboxBytes())
+                    throw new IllegalStateException("required SLO Source history exceeds its frozen observation budget");
+                final var maximumRecord=generation.policy().limits().maximumRecordBytes();
+                if(next.keys().stream().anyMatch(k->k.length+(long)TargetValueEnvelope.encode(TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()).length>maximumRecord)
+                        ||event.storedBytes()>maximumRecord)throw new IllegalStateException("SLO event record exceeds original complete record budget");
+                for(var key:next.keys())edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,next.canonicalBytes()));
+                absent(reader,ColumnFamily.META,event.key());edits.add(reader.replace(ColumnFamily.META,event.key(),TargetSloObservationEventRecord.VALUE_TYPE,event.canonicalBytes()));
+                final var after=generation.withCounts(counts,stamp);edits.add(reader.replace(ColumnFamily.META,after.key(),TargetSloObservationGeneration.VALUE_TYPE,after.canonicalBytes()));
+                authority.observation().requireCurrent();applied[0]=true;
+            }
+            result[0]=SystemMutationResult.from(input,rejection==null?ApplyStatus.APPLIED:ApplyStatus.REJECTED,rejection==null?StableCode.OK:rejection,source.canonicalBytes());
+            final TargetResultRecord.CreationAuthority results=(record,first)->{
+                record.requireOwner(root);if(!record.mutation().equals(stamp)||record.allocation()!=null)throw new IllegalStateException("SLO event result changed original Root/Source");
+                absent(reader,ColumnFamily.DEDUPE,record.key());
+                if(record.kind()==TargetResultRecord.Kind.SYSTEM){if(first!=null||!Arrays.equals(record.key(),firstKey)||!Arrays.equals(record.typedPayload(),result[0].encode()))throw new IllegalStateException("SLO event first changed decision");}
+                else if(record.kind()==TargetResultRecord.Kind.POSITION_SYSTEM){if(first==null||!Arrays.equals(record.key(),positionKey))throw new IllegalStateException("SLO event POSITION lost first");record.requireFirst(first);}
+                else throw new IllegalStateException("SLO observation cannot create another result kind");
+            };
+            final var first=TargetResultRecord.system(root,result[0],stamp,null,results);final var position=TargetResultRecord.position(root,first,stamp,results);
+            for(var record:List.of(first,position))edits.add(reader.replace(ColumnFamily.DEDUPE,record.key(),TargetResultRecord.VALUE_TYPE,record.canonicalBytes()));
+            return new TargetSourceAccounting(scope,lineage,source,stamp.mutationDigest(),counters,1,domains).assemble(reader,edits);
+        });
+        return new Prepared(this,batch,result[0],applied[0]?authority.observation()::requireCurrent:()->{});
+    }
+    private StableCode verify(TargetStoreBackend.Reader reader,TargetSloObservationEventBody body,SystemMutation input,SourcePosition source,
+            TargetSloObservationGeneration generation,TargetSloObservationSample sample,Authority authority){
+        if(reader.closedIngressDeadlineThrough()>=input.retryUntilEpochMs()||source.brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())return StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED;
+        final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetSloObservation());
+        final var eventActivation=TargetProtocolActivationStore.applied(reader,scope,lineage,ProtocolTuple.targetSloObservationEvent());
+        if(activation==null||activation.body().payload().descriptor().schemaVersion()<15
+                ||eventActivation==null||eventActivation.body().payload().descriptor().schemaVersion()<15)return StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION;
+        if(generation==null||sample==null||sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest()))return StableCode.STALE_SYSTEM_MUTATION;
+        generation.policy().requireSource(source);sample.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        if(!Arrays.equals(input.authorIdentity(),generation.policy().service().canonicalBytes())||input.signingKeyVersion()!=generation.policy().keyVersion())return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+        final var key=authority.keys().resolve(Integer.toUnsignedLong(input.signingKeyVersion()),source);
+        if(key==null||!input.verifySignature(key))return StableCode.UNAUTHORIZED_SYSTEM_MUTATION;
+        body.finalObservation().validateAgainst(sample.observation().start());
+        authority.observation().requireCurrent();authority.observation().requireAuthorized(generation,sample,input,source);authority.observation().requireCurrent();
+        return null;
+    }
+    public SystemMutationResult commit(Prepared prepared,TargetStoreBackend.CommitAuthority original){
+        if(prepared.owner!=this)throw new IllegalArgumentException("foreign SLO Source plan");prepared.qualification.run();
+        backend.commit(prepared.batch,(metadata,actualScope,mutation)->{
+            final var held=original.acquire(metadata,actualScope,mutation);return new TargetStoreBackend.CommitGuard(){
+                public void requireCurrent(){prepared.qualification.run();held.requireCurrent();prepared.qualification.run();}
+                public void close(){held.close();}
+            };
+        });return prepared.result;
+    }
+    private TargetQuotaIncarnation root(TargetStoreBackend.Reader reader){
+        final var identity=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+        final var key=identity.key();key[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var value=TargetQuotaIncarnation.decodeForStore(key,TargetValueEnvelope.decode(Objects.requireNonNull(reader.get(ColumnFamily.META,key)),TargetQuotaIncarnation.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
+        if(!Arrays.equals(value.recoveryLineage(),lineage))throw new IllegalStateException("SLO Source Root changed lineage");return value;
+    }
+    private static void absent(TargetStoreBackend.Reader reader,ColumnFamily family,byte[] key){if(reader.get(family,key)!=null)throw new IllegalStateException("SLO first Source key already exists");}
+
+    public static void requireOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
+            TargetQuotaIdentity root,TargetSloObservationEventRecord event,TargetQuotaMutation frontier){
+        event.appliedAt().requireAtOrBefore(frontier);
+        final var activationKey=TargetProtocolActivationRecord.key(ProtocolTuple.targetSloObservationEvent());
+        final var activation=TargetProtocolActivationRecord.decodeForStore(activationKey,
+                payload(view,overlay,ColumnFamily.META,activationKey,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
+        if(activation.body().payload().descriptor().schemaVersion()<15
+                ||activation.appliedAt().source().compareTo(event.appliedAt().source())>=0)throw new IllegalStateException("SLO event lost its prior independent reader activation");
+        TargetProtocolActivationStore.requireApplied(view,overlay,scope,lineage,root,activation,frontier);
+        final var first=result(view,overlay,TargetSloObservationStore.firstKey(event.input().systemMutationId()));
+        if(!first.appliedFirst()||first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(event.appliedAt())||!first.primaryIdentity().equals(root)
+                ||!Arrays.equals(first.tenantScope(),scope.tenantScope())||!Arrays.equals(first.recoveryLineage(),lineage)
+                ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(event.input(),ApplyStatus.APPLIED,StableCode.OK,event.appliedAt().source().canonicalBytes()).encode()))throw new IllegalStateException("SLO history lost actual APPLIED first");
+        result(view,overlay,TargetSloObservationStore.positionKey(event.appliedAt().source())).requireFirst(first);
+        final var key=TargetSloObservationSample.key(event.body().sampleId());
+        final var sample=TargetSloObservationSample.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE),scope,lineage);
+        if(!Arrays.equals(sample.bindingDigest(),event.body().bindingDigest())||sample.generation()!=event.body().generation())throw new IllegalStateException("SLO Source history changed original sample binding");
+        event.appliedAt().requireAfter(sample.first().mutation());event.appliedAt().requireAtOrBefore(sample.mutation());
+        final var generationKey=TargetSloObservationGeneration.key(scope,sample.generation());
+        final var generation=TargetSloObservationGeneration.decodeForStore(generationKey,
+                payload(view,overlay,ColumnFamily.META,generationKey,TargetSloObservationGeneration.VALUE_TYPE),scope,lineage);
+        generation.policy().requireSource(event.appliedAt().source());
+        if(!Arrays.equals(event.input().authorIdentity(),generation.policy().service().canonicalBytes())
+                ||event.input().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed frozen original writer");
+        event.body().finalObservation().validateAgainst(sample.observation().start());
+    }
+    private static TargetResultRecord result(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] key){
+        final var value=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));value.requireStored(key,TargetResultRecord.VALUE_TYPE,value.canonicalBytes());return value;
+    }
+    static byte[] payload(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key,int type){
+        return TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"original SLO Source dependency"),type).payload();
+    }
+}

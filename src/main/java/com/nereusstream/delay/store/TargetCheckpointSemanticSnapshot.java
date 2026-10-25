@@ -665,7 +665,7 @@ public final class TargetCheckpointSemanticSnapshot {
             QueryCodecSupport.requireNumbers(image, new int[] {1, 2}, "Control image");
             controls.add(new TargetCheckpointDependencies.ControlImage(
                     SourcePositionCodec.decode(QueryCodecSupport.bytes(image.get(0), 1)),
-                    SystemMutation.decodeTargetControlFrame(QueryCodecSupport.bytes(image.get(1), 2))));
+                    SystemMutation.decodeTargetFrame(QueryCodecSupport.bytes(image.get(1), 2))));
         }
         while (version >= 3 && index < fields.size() && fields.get(index).number() == 13) {
             final var image = QueryCodecSupport.read(QueryCodecSupport.bytes(fields.get(index++), 13), "Outcome image");

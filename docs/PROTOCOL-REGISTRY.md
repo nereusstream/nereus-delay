@@ -6030,3 +6030,44 @@ Source material and bounded observation event. Missing material blocks required 
 Source/ACK; it is not silently treated as ordinary or as outside ALL_ACCEPTED. This producer is
 still incomplete and descriptor15 stays closed. Genuine physical/execution gate facts may be
 preserved as pure observations; no synthetic ADMISSION_CAPACITY_GATED/HARD_QUOTA result is added.
+
+
+2026-10-25 Target SLO Final System Source event (activation remains closed).
+This supersedes the earlier implementation note that every Native59 Final is unconditionally
+rejected; it does not close certification producers, custody, coverage or resource qualification.
+
+- SystemMutationType15 `TARGET_SLO_OBSERVATION`, body1, tuple `(1,1,SYSTEM_MUTATION,15,1)`,
+  SERVICE author. Body fields1 ShardSubject,2 type15,3 retryUntil,10 version1,11 kind1 FINAL,
+  12 full Shard-only scope,13 lineage16,14 original observation generation,15 v1 sampleId32,
+  16 immutable original binding digest32,17 unchanged complete v1 Final. Logical identity is
+  SHA256(domain `nereus-delay-target-slo-final-source-event` plus NUL || scope || lineage ||
+  u64be(generation) || sampleId || bindingDigest || original Final bytes). Retry preserves the
+  exact signed frame; a new retry window must not re-sign the same retained event.
+- Native60 schema1, META tag54, key `36 01 || sampleId32 || u64be(actualSourceSequence)`:
+  fields1 version1,2 complete original signed SystemMutation envelope,3 actual applied Source
+  mutation stamp,4 predecessor outbox digest32,5 actual conservatively merged v1 outbox,
+  6 SHA256(domain `nereus-delay-target-slo-observation-source-record` plus NUL || fields1–5).
+  Each immutable merge edge retains the original first/POS and prior independent event activation.
+- Native58 outer schema1 retains Counts1 bytes for zero events. Counts2 adds fields6 retained
+  event records,7 retained event bytes after the original fields1–5; field1 is version2. Original
+  maximumOutboxRecords caps sample primaries plus event rows; maximumOutboxBytes includes all
+  actual sample projections plus immutable event history;
+  actual event/sample growth is charged to frozen Root STATE and tenant mirror in the same batch.
+  No cap increase, ACK deletion or refund follows from a merge.
+- Native59 binding/Start and schemas1–3 remain unchanged. Final updates require an original
+  same-Shard Source event, unchanged binding, exact prior digest and the existing v1 conservative
+  merge. STOP does not prevent old-generation Finals. Only the mutable outbox/latest stamp changes.
+- The existing single OUTCOME_AND_CONTROL slot retains SERVICE events alongside Control work,
+  without Control registration for SERVICE. Source authority preparation freezes the original
+  signer key outside Store locks and holds endpoint/time/history/resource qualification through
+  commit. Original first-result reconciliation, UNKNOWN retry and drain ownership are reused.
+- Checkpoint dependencies/cold fold retain every Native60, positively enumerate every APPLIED
+  event first, reconstruct the entire per-sample merge chain and derive actual generation totals.
+  The existing bounded original-input list now also carries type15 (same image framing); restore
+  uses Target System decoding and independently authenticates SERVICE history/signature and
+  original endpoint/time/budget. Existing authorities default deny this new semantic duty.
+- Mode tuple18 and event tuple15 both need prior independently APPLIED descriptor15 activation.
+  Descriptor currently remains maximum14; advertised Native capability remains56. Native-capable
+  eligibility, actual endpoint/timeout producers, complete future event/custody reservation, full
+  exporter/collector custody/ACK/retention and positive historical coverage consumer remain open.
+  No production/activation/migration authority or central validation is claimed.

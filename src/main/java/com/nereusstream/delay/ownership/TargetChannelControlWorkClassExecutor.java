@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 
-/** Registers and appends one exact channel or certification Control through the same bounded Source slot. */
+/** Appends one exact Control or SERVICE observation through the same bounded System Source slot. */
 public final class TargetChannelControlWorkClassExecutor {
     private final TargetWorkerShardRuntime worker;
     private final ShardLogMutationAppender appender;
@@ -54,16 +54,22 @@ public final class TargetChannelControlWorkClassExecutor {
         return submit(exact.control(), exact.mutation(), ownerClock);
     }
 
+    public Submission submitFinalEvent(final TargetSloObservationEventMutationFactory.Prepared prepared,
+            final LongSupplier ownerClock) {
+        return submit(null, Objects.requireNonNull(prepared).mutation(), ownerClock);
+    }
+
     private synchronized Submission submit(final PreparedControlOperation control, final SystemMutation image,
             final LongSupplier ownerClock) {
         Submission pending = pendingRef.get();
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         protection.run();
-        ControlTargetMutationBinding.validate(control, control.targets().getFirst(), image);
+        if(control!=null)ControlTargetMutationBinding.validate(control, control.targets().getFirst(), image);
+        else TargetSloObservationEventMutationFactory.Prepared.restore(image);
         final byte[] frame = image.encodeFrame();
         if (pending != null) {
             final boolean same = Arrays.equals(pending.mutation.encodeFrame(), frame)
-                    && Arrays.equals(pending.control.canonicalBytes(), control.canonicalBytes());
+                    && Arrays.equals(controlBytes(pending.control), controlBytes(control));
             final var result = readFirstResult(pending, clock);
             if (result.isPresent()) {
                 if (same) {
@@ -86,8 +92,8 @@ public final class TargetChannelControlWorkClassExecutor {
             }
         }
         final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-control/" + Bytes.hex(Bytes.sha256(frame, control.preparedDigest())),
-                Math.addExact((long) frame.length, control.canonicalBytes().length));
+                "target-control/" + Bytes.hex(Bytes.sha256(frame, control==null?new byte[0]:control.preparedDigest())),
+                Math.addExact((long) frame.length, controlBytes(control).length));
         final var submission = new Submission(control, image, task);
         pendingRef.set(submission);
         if (readFirstResult(submission, clock).isPresent()) {
@@ -118,9 +124,10 @@ public final class TargetChannelControlWorkClassExecutor {
                 try {
                     protection.run();
                     // Actual Oxia registration classifies response loss only by rereading these exact Prepared bytes.
-                    registrations.register(submission.control);
-                    registrations.validateMutation(submission.control, submission.control.targets().getFirst(),
-                            submission.mutation);
+                    if(submission.control!=null){
+                        registrations.register(submission.control);
+                        registrations.validateMutation(submission.control, submission.control.targets().getFirst(), submission.mutation);
+                    }
                     protection.run();
                     final var result = worker.appendTargetControl(submission.mutation, appender, clock);
                     submission.first = result.firstResult();
@@ -184,6 +191,8 @@ public final class TargetChannelControlWorkClassExecutor {
         return result;
     }
 
+    private static byte[] controlBytes(PreparedControlOperation control){return control==null?new byte[0]:control.canonicalBytes();}
+
     public static final class Submission {
         private final PreparedControlOperation control;
         private final SystemMutation mutation;
@@ -201,6 +210,7 @@ public final class TargetChannelControlWorkClassExecutor {
             this.task = task;
         }
 
+        /** Absent for SERVICE observations, which carry no Control registration. */
         public PreparedControlOperation control() { return control; }
         public SystemMutation mutation() { return mutation; }
         public WorkClassTask task() { return task; }

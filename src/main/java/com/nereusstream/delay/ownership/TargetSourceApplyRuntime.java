@@ -250,6 +250,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
     @FunctionalInterface public interface SloObservationControls { SloObservationControl resolve(SourceReplayMutation entry); }
 
+    public record SloEventControl(com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public SloEventControl { Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
+    @FunctionalInterface public interface SloEvents { SloEventControl resolve(SourceReplayMutation entry); }
+
     public record ChannelControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetChannelControlVerifier.Authority authority,
             TargetStoreBackend.CommitAuthority commit) {
@@ -311,7 +317,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             TargetOutcomes outcomes,
             ChannelControls channelControls,
             TargetRetirements retirements,ProtocolActivations protocolActivations,TargetReclaims reclaims,
-            SloObservationControls sloObservations) {
+            SloObservationControls sloObservations, SloEvents sloEvents) {
+        public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
+                Fences fences, ExpiryControls expiries, Closes closes, MembershipControls memberships,
+                TargetStoreBackend.CommitAuthority writes, TargetStoreBackend.ReadAuthority reads, Commands commands,
+                NativePolicyControls nativePolicies, TargetAdmissions admissions, TargetOutcomes outcomes,
+                ChannelControls channels, TargetRetirements retirements, ProtocolActivations activations,
+                TargetReclaims reclaims, SloObservationControls sloObservations) {
+            this(leases, successor, grants, fences, expiries, closes, memberships, writes, reads, commands,
+                    nativePolicies, admissions, outcomes, channels, retirements, activations, reclaims, sloObservations,
+                    entry -> { throw new TargetSourceAuthorityPreparation.Required(); });
+        }
         public Authorities(OxiaOwnerLeaseStore leases, SourceReplaySuccessor successor, GrantControls grants,
                 Fences fences, ExpiryControls expiries, Closes closes, MembershipControls memberships,
                 TargetStoreBackend.CommitAuthority writes, TargetStoreBackend.ReadAuthority reads, Commands commands,
@@ -360,28 +376,33 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public Authorities withChannelControls(final ChannelControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations);
+                    Objects.requireNonNull(selected, "channelControls"), retirements,protocolActivations,reclaims,sloObservations,sloEvents);
         }
 
         public Authorities withRetirements(final TargetRetirements selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes,
-                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations);
+                    channelControls, Objects.requireNonNull(selected),protocolActivations,reclaims,sloObservations,sloEvents);
         }
         public Authorities withProtocolActivations(ProtocolActivations selected){
             return new Authorities(leases,successor,grants,fences,expiries,closes,membershipControls,duplicateWrites,reads,commands,
-                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations);
+                    nativePolicyControls,admissions,outcomes,channelControls,retirements,Objects.requireNonNull(selected),reclaims,sloObservations,sloEvents);
         }
 
         public Authorities withSuccessor(final SourceReplaySuccessor selected) {
             return new Authorities(leases, Objects.requireNonNull(selected), grants, fences, expiries, closes,
                     membershipControls, duplicateWrites, reads, commands, nativePolicyControls, admissions,
-                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations);
+                    outcomes, channelControls, retirements,protocolActivations,reclaims,sloObservations,sloEvents);
         }
         public Authorities withSloObservations(SloObservationControls selected) {
             return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
                     duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
-                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected));
+                    retirements, protocolActivations, reclaims, Objects.requireNonNull(selected), sloEvents);
+        }
+        public Authorities withSloEvents(SloEvents selected) {
+            return new Authorities(leases, successor, grants, fences, expiries, closes, membershipControls,
+                    duplicateWrites, reads, commands, nativePolicyControls, admissions, outcomes, channelControls,
+                    retirements, protocolActivations, reclaims, sloObservations, Objects.requireNonNull(selected));
         }
         public Authorities(
                 final OxiaOwnerLeaseStore leases,
@@ -499,6 +520,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             Objects.requireNonNull(protocolActivations,"protocolActivations");
             Objects.requireNonNull(reclaims,"reclaims");
             Objects.requireNonNull(sloObservations, "sloObservations");
+            Objects.requireNonNull(sloEvents, "sloEvents");
         }
     }
 
@@ -799,6 +821,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         if (mutation.type() == SystemMutationType.PUBLISH_OUTCOME || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION) return TargetSourceAuthorityPreparation.Family.OUTCOME;
         if (mutation.type() == SystemMutationType.RESOURCE_RETIRE_INTENT||mutation.type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED) return TargetSourceAuthorityPreparation.Family.RETIREMENT;
         if(mutation.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM)return TargetSourceAuthorityPreparation.Family.RECLAIM;
+        if(mutation.type()==SystemMutationType.TARGET_SLO_OBSERVATION)return TargetSourceAuthorityPreparation.Family.SLO_EVENT;
         if (isProtocolActivation(mutation)) return TargetSourceAuthorityPreparation.Family.ACTIVATION;
         if (isSloObservationControl(mutation)) return TargetSourceAuthorityPreparation.Family.SLO_MODE;
         if (isChannelControl(mutation)) return TargetSourceAuthorityPreparation.Family.CHANNEL;
@@ -1647,6 +1670,32 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized void requireTargetControlWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
+        if(mutation.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
+            final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(mutation.canonicalBody());
+            if(!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())
+                    ||!scope.shard().equals(mutation.shardId())||AuthorIdentity.decode(mutation.authorIdentity()).kind()!=AuthorIdentity.Kind.SERVICE)
+                throw new IllegalArgumentException("SLO observation writer changed original SERVICE/Shard/lineage");
+            final var tuple=com.nereusstream.delay.protocol.ProtocolTuple.targetSloObservationEvent();
+            final var compatible=store.controlSnapshot();
+            if(compatible==null||!compatible.protocolTuples().contains(tuple))throw new IllegalStateException("SLO event lacks independently admitted readers");
+            backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
+                for(var required:java.util.List.of(tuple,com.nereusstream.delay.protocol.ProtocolTuple.targetSloObservation())){
+                    final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,required);
+                    if(activation==null||activation.body().payload().descriptor().schemaVersion()<15)throw new IllegalStateException("SLO event lacks original APPLIED activation");
+                }
+                final var generation=com.nereusstream.delay.runtime.TargetSloObservationVerifier.readGeneration(reader,scope,lineage,body.generation());
+                final var key=com.nereusstream.delay.protocol.TargetSloObservationSample.key(body.sampleId());
+                final var raw=reader.get(ColumnFamily.META,key);
+                if(generation==null||raw==null)throw new IllegalStateException("SLO event lost original retained generation/sample");
+                final var sample=com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(key,
+                        TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+                if(sample.generation()!=body.generation()||!Arrays.equals(sample.bindingDigest(),body.bindingDigest())
+                        ||!Arrays.equals(mutation.authorIdentity(),generation.policy().service().canonicalBytes())
+                        ||mutation.signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("SLO event changed original frozen binding/writer");
+                body.finalObservation().validateAgainst(sample.observation().start());return Boolean.TRUE;
+            },workerReads(clock));
+            requireGcOwner(clock);return;
+        }
         if (mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL
                 || !scope.shard().equals(mutation.shardId())
                 || AuthorIdentity.decode(mutation.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL) {
@@ -1685,8 +1734,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     synchronized Optional<SystemMutationResult> targetControlMutationResult(
             final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
-        if (mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL
-                || (!isChannelControl(mutation) && !isSloObservationControl(mutation))
+        if ((mutation.type() != SystemMutationType.TARGET_SLO_OBSERVATION
+                && (mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || (!isChannelControl(mutation) && !isSloObservationControl(mutation))))
                 || !scope.shard().equals(mutation.shardId())) {
             throw new IllegalArgumentException("Target Control result lookup belongs to another operation/Shard");
         }
@@ -2375,6 +2425,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 try{first=activations.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
                 catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
                 result=activations.commit(first,writes(control.commit(),entry,clock));
+            } else if (mutation.mutation().type() == SystemMutationType.TARGET_SLO_OBSERVATION) {
+                final var control = Objects.requireNonNull(authorities.sloEvents().resolve(mutation), "original Target SLO event inputs");
+                final var events = new com.nereusstream.delay.runtime.TargetSloObservationEventStore(backend, scope, lineage, limits.counters(), limits.domains());
+                final com.nereusstream.delay.runtime.TargetSloObservationEventStore.Prepared first;
+                try { first = events.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority()); }
+                catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+                result = events.commit(first, writes(control.commit(), entry, clock));
             } else if (isSloObservationControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.sloObservations().resolve(mutation), "original Target SLO Control inputs");
                 final var mode = new com.nereusstream.delay.runtime.TargetSloObservationStore(backend, scope, lineage, limits.counters(), limits.domains());
@@ -2707,6 +2764,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         if(entry instanceof SourceReplayMutation reclaim&&reclaim.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
             com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(reclaim.mutation().canonicalBody());return;
+        }
+        if(entry instanceof SourceReplayMutation event&&event.mutation().type()==SystemMutationType.TARGET_SLO_OBSERVATION){
+            com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(event.mutation().canonicalBody());return;
         }
         if (!(entry instanceof SourceReplayMutation mutation)
                 || mutation.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL) {

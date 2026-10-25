@@ -141,7 +141,7 @@ public final class AuthorIdentity {
                     case PUBLISH_ADMISSION, PUBLISH_OUTCOME, EXPIRE_GENERATION, CLAIM_RESULT,
                             TARGET_PUBLISH_ADMISSION -> Kind.OWNER;
                     case EVIDENCE_RESOLUTION, RESOURCE_RETIRE_INTENT, RESOURCE_DELETE_CONFIRMED, DLQ_EXPORT_RESULT,
-                            TARGET_RESOURCE_RECLAIM ->
+                            TARGET_RESOURCE_RECLAIM, TARGET_SLO_OBSERVATION ->
                         Kind.SERVICE;
                 };
         if (kind != expected) {

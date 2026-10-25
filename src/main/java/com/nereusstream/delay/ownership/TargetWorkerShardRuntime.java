@@ -1067,6 +1067,11 @@ public final class TargetWorkerShardRuntime
         return handoff.submitObservation(prepared, clock);
     }
 
+    public TargetChannelControlWorkClassExecutor.Submission submitSloFinalEvent(
+            final TargetSloObservationEventMutationFactory.Prepared prepared, final LongSupplier clock) {
+        return Objects.requireNonNull(channelControlHandoff, "configured original Target System handoff").submitFinalEvent(prepared,clock);
+    }
+
     /** Retained Admission proof for conservative recovery only; current Owner/read guards still apply. */
     public synchronized com.nereusstream.delay.runtime.TargetPublishAdmissionStore.Recovery readRecoveryAdmission(
             final BoundedReadBudget budget, final com.nereusstream.delay.protocol.SystemMutation image,

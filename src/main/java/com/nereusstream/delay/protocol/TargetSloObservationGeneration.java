@@ -49,29 +49,34 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
         }
     }
 
-    public record Counts(long issued, long outboxRecords, long outboxBytes, long custodied) {
-        public static final int MAX_CANONICAL_BYTES = 48;
+    public record Counts(long issued, long outboxRecords, long outboxBytes, long custodied,long eventRecords,long eventBytes) {
+        public static final int MAX_CANONICAL_BYTES = 72;
+        public Counts(long issued,long records,long bytes,long custodied){this(issued,records,bytes,custodied,0,0);}
         public Counts {
             // Custody does not remove a retained outbox or refund its storage charge.
             if (issued < 0 || outboxRecords < 0 || outboxRecords > issued || outboxBytes < 0
-                    || custodied < 0 || custodied > issued || (outboxRecords == 0) != (outboxBytes == 0)) {
+                    || custodied < 0 || custodied > issued || (outboxRecords == 0) != (outboxBytes == 0)
+                    ||eventRecords<0||eventBytes<0||(eventRecords==0)!=(eventBytes==0)) {
                 throw new IllegalArgumentException("Target SLO generation counts are inconsistent");
             }
         }
         public static Counts empty() { return new Counts(0, 0, 0, 0); }
         public byte[] canonicalBytes() { return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, 1);
+            CanonicalProtobuf.uint32(out, 1, eventRecords==0?1:2);
             CanonicalProtobuf.uint64Bits(out, 2, issued);
             CanonicalProtobuf.uint64Bits(out, 3, outboxRecords);
             CanonicalProtobuf.uint64Bits(out, 4, outboxBytes);
             CanonicalProtobuf.uint64Bits(out, 5, custodied);
+            if(eventRecords!=0){CanonicalProtobuf.uint64Bits(out,6,eventRecords);CanonicalProtobuf.uint64Bits(out,7,eventBytes);}
         }); }
         public static Counts decode(byte[] encoded) {
-            final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false, "Target SLO generation counts");
-            QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4, 5}, "Target SLO generation counts");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != 1) throw new IllegalArgumentException("unknown Target SLO counts schema");
+            final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 7, false, "Target SLO generation counts");
+            final int version=QueryCodecSupport.uint32(f.getFirst(),1);
+            if(version<1||version>2)throw new IllegalArgumentException("unknown Target SLO counts schema");
+            QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2,3,4,5}:new int[]{1,2,3,4,5,6,7},"Target SLO generation counts");
             final var result = new Counts(QueryCodecSupport.uint64Bits(f.get(1), 2), QueryCodecSupport.uint64Bits(f.get(2), 3),
-                    QueryCodecSupport.uint64Bits(f.get(3), 4), QueryCodecSupport.uint64Bits(f.get(4), 5));
+                    QueryCodecSupport.uint64Bits(f.get(3), 4), QueryCodecSupport.uint64Bits(f.get(4), 5),
+                    version==1?0:QueryCodecSupport.uint64Bits(f.get(5),6),version==1?0:QueryCodecSupport.uint64Bits(f.get(6),7));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target SLO generation counts");
             return result;
         }
@@ -96,8 +101,8 @@ public record TargetSloObservationGeneration(Control enable, Control stop, Count
         mutation.requireSourceApplied();
         (stop == null ? enable : stop).appliedAt().requireAtOrBefore(mutation);
         request.policy().requireSource(mutation.source());
-        if (counts.outboxRecords() > request.policy().limits().maximumOutboxRecords()
-                || counts.outboxBytes() > request.policy().limits().maximumOutboxBytes()) throw new IllegalArgumentException("Target SLO generation exceeds its frozen outbox limits");
+        if (Math.addExact(counts.outboxRecords(),counts.eventRecords()) > request.policy().limits().maximumOutboxRecords()
+                || Math.addExact(counts.outboxBytes(),counts.eventBytes()) > request.policy().limits().maximumOutboxBytes()) throw new IllegalArgumentException("Target SLO generation exceeds its frozen complete observation outbox limits");
     }
 
     public static TargetSloObservationGeneration enabled(SystemMutation input, TargetQuotaMutation at) {

@@ -62,6 +62,7 @@ public final class TargetKeyCodec {
     public static final int SLO_GENERATION_TAG = 51;
     public static final int SLO_SAMPLE_TAG = 52;
     public static final int SLO_SAMPLE_REFERENCE_TAG = 53;
+    public static final int SLO_EVENT_TAG = 54;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

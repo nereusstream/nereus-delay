@@ -55,17 +55,44 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     private final SourceAuthority source;
     private final BoundedReadBudget budget;
     private final Runnable protection;
+    private final com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations;
 
     /** All external I/O must have finite provider deadlines; use outside Store locks with a held protection set. */
     public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
             TargetQuotaGrantControlVerifier.KeyAuthority keys, HistoryAuthority history, SourceAuthority source,
             BoundedReadBudget budget, Runnable protection) {
+        this(registrations,keys,history,source,budget,protection,null);
+    }
+
+    public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
+            TargetQuotaGrantControlVerifier.KeyAuthority keys, HistoryAuthority history, SourceAuthority source,
+            BoundedReadBudget budget, Runnable protection,
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations) {
         this.registrations = Objects.requireNonNull(registrations, "registrations");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.history = Objects.requireNonNull(history, "history");
         this.source = Objects.requireNonNull(source, "source");
         this.budget = Objects.requireNonNull(budget, "budget");
         this.protection = Objects.requireNonNull(protection, "protection");
+        this.observations = observations;
+    }
+
+    @Override
+    public PublicKey authenticateObservation(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+            com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
+            com.nereusstream.delay.protocol.TargetSloObservationSample sample) {
+        protection.run(); before(); history.requireOriginal(input,first); after();
+        if(!first.appliedFirst())return null;
+        final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(input.image().canonicalBody());
+        if(generation==null||sample==null||sample.generation()!=body.generation()||generation.generation()!=body.generation()
+                ||!Arrays.equals(sample.bindingDigest(),body.bindingDigest())
+                ||!Arrays.equals(input.image().authorIdentity(),generation.policy().service().canonicalBytes())
+                ||input.image().signingKeyVersion()!=generation.policy().keyVersion())throw new IllegalStateException("checkpoint SLO event lost original frozen writer/binding");
+        generation.policy().requireSource(input.source());body.finalObservation().validateAgainst(sample.observation().start());
+        final var authority=Objects.requireNonNull(observations,"original checkpoint SLO endpoint/time/history and budget authority");
+        before();authority.requireCurrent();authority.requireAuthorized(generation,sample,input.image(),input.source());authority.requireCurrent();after();
+        before();final var key=keys.resolve(input.image().signingKeyVersion(),input.source());after();
+        return key;
     }
 
     @Override

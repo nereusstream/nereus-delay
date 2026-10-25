@@ -39,6 +39,7 @@ public final class SystemMutationIdentity {
             case PUBLISH_ADMISSION -> PublishAdmissionBody.decode(body).publishAttemptId();
             case TARGET_PUBLISH_ADMISSION -> TargetPublishAdmissionBody.decode(body).publishAttemptId();
             case TARGET_RESOURCE_RECLAIM -> TargetResourceReclaimBody.decode(body).logicalOperationIdentity();
+            case TARGET_SLO_OBSERVATION -> TargetSloObservationEventBody.decode(body).logicalIdentity();
             case PUBLISH_OUTCOME -> PublishOutcomeBody.decode(body).initialLogicalOperationIdentity();
             case EXPIRE_GENERATION -> {
                 final DelayMessageId messageId =

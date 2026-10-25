@@ -85,7 +85,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent {}
+    public record SloEvent(com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority authority) implements Inputs {}
     public record SloMode(PreparedControlOperation prepared, TargetSloObservationVerifier.Authority authority) implements Inputs {}
     public record Activation(PreparedControlOperation prepared,TargetProtocolActivationStore.Authority authority) implements Inputs {}
     public record Command(TargetCommandStore.Policy policy, TargetCommandStore.CancellationControls cancellations,
@@ -256,6 +257,29 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         frozen, (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), a.materialization(),
                         a.activatedChannelSlots(), a.currentOwner()), commit);
             }
+            case SloEvent value -> {
+                final var original = ((SourceReplayMutation) entry).mutation();
+                final var a = value.authority();
+                final long version = Integer.toUnsignedLong(original.signingKeyVersion());
+                final var key = copyKey(a.keys().resolve(version, entry.position()));
+                guard.run(); held.requireCurrent();
+                held.bytes = Math.addExact(held.bytes, key == null ? 0 : key.getEncoded().length);
+                final var observation = new com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority() {
+                    public void requireAuthorized(TargetSloObservationGeneration generation, TargetSloObservationSample sample,
+                            SystemMutation input, SourcePosition source) {
+                        requireCurrent(); requireSource(entry, source);
+                        if (!Arrays.equals(input.canonicalEnvelope(), original.canonicalEnvelope())) throw new IllegalStateException("SLO event snapshot changed exact original frame");
+                        a.observation().requireAuthorized(generation, sample, input, source); requireCurrent();
+                    }
+                    public void requireCurrent() { held.requireCurrent(); a.observation().requireCurrent(); held.requireCurrent(); }
+                };
+                yield new TargetSourceApplyRuntime.SloEventControl(
+                        new com.nereusstream.delay.runtime.TargetSloObservationEventStore.Authority((actual, source) -> {
+                            held.requireCurrent(); requireSource(entry, source);
+                            if (actual != version) throw new IllegalStateException("SLO event signing key changed after capture");
+                            return key;
+                        }, observation), commit);
+            }
             case SloMode value -> {
                 final var a = value.authority();
                 final var frozen = freeze(value.prepared(), entry, a.registrations(),
@@ -296,6 +320,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Outcome ignored -> TargetSourceAuthorityPreparation.Family.OUTCOME;
             case Channel ignored -> TargetSourceAuthorityPreparation.Family.CHANNEL;
             case SloMode ignored -> TargetSourceAuthorityPreparation.Family.SLO_MODE;
+            case SloEvent ignored -> TargetSourceAuthorityPreparation.Family.SLO_EVENT;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;
