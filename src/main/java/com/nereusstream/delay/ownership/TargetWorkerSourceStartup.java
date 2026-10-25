@@ -99,11 +99,11 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerChannelInventory channelInventory;
     private boolean channelInputsReleased;
 
-    /** A provider must register its actual SDK owner before it can allocate/open native Journal resources. */
+    /** A provider registers actual Journal/Fence SDK owners before allocating native resources. */
     public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
         Objects.requireNonNull(actual).requireWorkerGraph(graph.classes(), graph.resources());
         if (actual == backend || recoveryInputBackends.contains(actual)) return;
-        if (recoveryInputBackends.size() == 2) throw new IllegalStateException("two Owner recovery input SDK owners are already retained");
+        if (recoveryInputBackends.size() == 4) throw new IllegalStateException("two Owner Journal/Fence SDK owner windows are already retained");
         recoveryInputBackends.add(actual);
     }
 
@@ -133,6 +133,9 @@ public final class TargetWorkerSourceStartup {
         for (var prior : recoveryInputs) {
             if (prior.writer != null && !prior.handoffConfirmed) {
                 throw new IllegalStateException("original recovery Journal writer has not normally closed before successor opening");
+            }
+            if (prior.fenceWriter != null && !prior.fenceHandoffConfirmed) {
+                throw new IllegalStateException("original recovery Fence writer has not normally closed before successor opening");
             }
             if (!Arrays.equals(prior.owner.deploymentId(), expectedOwner.deploymentId())
                     || !Arrays.equals(prior.owner.workerRunId(), expectedOwner.workerRunId())) {
@@ -170,6 +173,9 @@ public final class TargetWorkerSourceStartup {
         private TargetSourceRecoveryInputs.JournalWriter writer;
         private JournalHandoff handoff;
         private boolean handoffConfirmed;
+        private TargetRecoveryFenceWriter fenceWriter;
+        private RecoveryFenceHandoff fenceHandoff;
+        private boolean fenceHandoffConfirmed;
         private RecoveryInputsOpening(TargetWorkerSourceStartup startup, TargetSourceRecoveryInputs.Provider provider,
                 com.nereusstream.delay.protocol.OwnerIdentity owner, SourceAssignment assignment,
                 long maximumBytes, long allocationBytes) {
@@ -190,6 +196,104 @@ public final class TargetWorkerSourceStartup {
         public com.nereusstream.delay.protocol.OwnerIdentity owner() { return owner; }
         public SourceAssignment assignment() { return assignment; }
         public TargetWorkerSourceStartup startup() { return startup; }
+        /** The original registered handle also survives a factory's partial/late failure; no recursive hold validation. */
+        public TargetRecoveryFenceWriter fenceWriter() {
+            synchronized(startup){return fenceWriter;}
+        }
+        public LocalBrokerMtlsResolver.SourceReceipt credential() {
+            synchronized(startup){requireValue();return original.credential();}
+        }
+        public int maximumFrameBytes() {
+            synchronized(startup){requireValue();return original.maximumFrameBytes();}
+        }
+
+        /** Original strict prepare task only; native factories remain on that task's existing graph executor. */
+        public void requireFenceFactory() {
+            synchronized(startup){
+                startup.requireRecoveryReaderCurrent();requireValue();
+                requireFencePreparation();
+                original.credential().authorization().requireAssignment(assignment);
+            }
+        }
+
+        private SloRecoveryOpening requireFencePreparation() {
+            final var phase=startup.currentSloRecovery;
+            if(closed||startup.currentRecoveryInputs!=this||!startup.recoveryInputs.contains(this)
+                    ||!assignment.sameIdentity(startup.assignment)||startup.lease==null
+                    ||owner.ownerEpoch()!=startup.lease.ownerEpoch()
+                    ||!Bytes.constantTimeEquals(owner.leaseFencingDigest(),startup.lease.leaseToken())
+                    ||startup.worker!=null||startup.activation!=null||startup.stopping||startup.firstFailure!=null
+                    ||phase==null||phase.input!=this||!startup.sloRecoveries.contains(phase)
+                    ||!phase.qualificationRequired||phase.originalAudit==null||phase.preparationBound
+                    ||phase.preparationThread!=Thread.currentThread()
+                    ||phase.preparation!=null&&phase.preparation.operationExited()
+                    ||startup.recoverySource!=phase.source||startup.recovery==null
+                    ||startup.recovery.coordinator()!=phase.coordinator||fenceHandoff!=null){
+                throw new IllegalStateException("Fence SDK opening is not the original strict recovery preparation");
+            }
+            return phase;
+        }
+
+        /** Retain the actual producer generation before native allocation; backend ownership must already exist. */
+        public void retainFenceWriter(TargetRecoveryFenceWriter actual) {
+            synchronized(startup){
+                requireFenceFactory();Objects.requireNonNull(actual).requireBinding(this);
+                if(fenceWriter!=null&&fenceWriter!=actual
+                        ||actual.backend()!=startup.backend&&!startup.recoveryInputBackends.contains(actual.backend())
+                        ||!actual.backend().holdsSourceCredential(original.credential()))
+                    throw new IllegalStateException("Fence writer lacks its original opening/Source credential/SDK owner");
+                fenceWriter=actual;
+            }
+        }
+
+        /** Authoritative factory checks run outside the SDK's send/close locks. */
+        public void requireFenceOpening(TargetRecoveryFenceWriter actual) {
+            synchronized(startup){
+                requireFenceFactory();
+                if(fenceWriter!=actual)throw new IllegalStateException("Fence writer is not this opening's actual registered generation");
+                actual.requireBinding(this);
+            }
+        }
+
+        /** Retains the exact immutable frame before any possible SDK append, including UNKNOWN/throwing returns. */
+        public RecoveryFenceAppend prepareFenceAppend(TargetRecoveryFenceWriter actual,
+                TargetTimeFenceMutationFactory.Prepared exact) {
+            synchronized(startup){
+                requireFenceOpening(actual);
+                final var phase=requireFencePreparation();
+                phase.retainFence(Objects.requireNonNull(exact));
+                if(phase.appendPermit==null)phase.appendPermit=new RecoveryFenceAppend(this,phase,actual,phase.exactFence);
+                else if(phase.appendPermit.writer!=actual)
+                    throw new IllegalStateException("original recovery Fence cannot move to another producer generation");
+                phase.appendOutcome=ShardLogMutationAppender.AppendOutcome.unknown();
+                return phase.appendPermit;
+            }
+        }
+
+        /** Original provider path; the Root retains the frame and result even when native persistence is uncertain. */
+        public ShardLogMutationAppender.AppendOutcome appendFence(TargetRecoveryFenceWriter actual,
+                TargetTimeFenceMutationFactory.Prepared exact) {
+            final var permit=prepareFenceAppend(actual,exact);
+            final var appended=Objects.requireNonNull(actual.append(permit.exact,permit),"actual recovery Fence append result");
+            synchronized(startup){
+                permit.requireLocal(actual,permit.exact);
+                permit.phase.appendOutcome=appended;
+            }
+            return appended;
+        }
+
+        /** An existing frame needs actual first/POS at the pre-append audit cut, not a caller DTO or append return. */
+        public void retainPreviouslyAppliedFence(TargetTimeFenceMutationFactory.Prepared exact) {
+            final SloRecoveryOpening phase;
+            synchronized(startup){requireFenceFactory();phase=requireFencePreparation();}
+            phase.coordinator.requireSloRecoveryFencePreviouslyApplied(phase.originalAudit,Objects.requireNonNull(exact));
+            synchronized(startup){
+                requireFenceFactory();
+                if(requireFencePreparation()!=phase||phase.appendPermit!=null)
+                    throw new IllegalStateException("existing recovery Fence changed its original pre-append phase");
+                phase.retainFence(exact);phase.existingFenceVerified=true;
+            }
+        }
         /** Retain the actual writer and its SDK cleanup before any native opening can begin. */
         public void retainJournalWriter(TargetSourceRecoveryInputs.JournalWriter actual) {
             synchronized (startup) {
@@ -235,6 +339,19 @@ public final class TargetWorkerSourceStartup {
                     throw new IllegalStateException("provider changed its actual Owner/credential/frame/hold bound");
                 }
                 if (writer != null) writer.requireBinding(this);
+                final var inputFenceWriter=value.fenceWriter();
+                final var phase=startup.currentSloRecovery;
+                final boolean lateFenceOpening=inputFenceWriter==null&&fenceWriter!=null&&phase!=null
+                        &&phase.input==this&&phase.qualificationRequired&&phase.preparationThread!=null
+                        &&!phase.preparationBound;
+                if(inputFenceWriter!=fenceWriter&&!lateFenceOpening)
+                    throw new IllegalStateException("provider changed its original recovery Fence producer generation");
+                if(fenceWriter!=null){
+                    fenceWriter.requireBinding(this);
+                    if(fenceWriter.backend()!=startup.backend&&!startup.recoveryInputBackends.contains(fenceWriter.backend())
+                            ||!fenceWriter.backend().holdsSourceCredential(value.credential()))
+                        throw new IllegalStateException("provider did not retain its original Fence Source credential/SDK owner");
+                }
                 if (value.journalBackend() != null && value.journalBackend() != startup.backend
                         && !startup.recoveryInputBackends.contains(value.journalBackend())) {
                     throw new IllegalStateException("provider did not retain its actual Journal SDK owner before opening");
@@ -261,9 +378,13 @@ public final class TargetWorkerSourceStartup {
         private final RecoveryInputsOpening input;
         private OwnedCheckpointIo<Boolean> preparation;
         private OwnedCheckpointIo<Boolean> completion;
+        private Thread preparationThread;
         private TargetStoreBootstrap.SloRecoveryAudit originalAudit;
         private TargetStoreBootstrap.SloRecoveryAudit replayedAudit;
         private TargetTimeFenceMutationFactory.Prepared exactFence;
+        private RecoveryFenceAppend appendPermit;
+        private ShardLogMutationAppender.AppendOutcome appendOutcome;
+        private boolean existingFenceVerified;
         private long fenceRetainedBytes;
         private boolean qualificationRequired;
         private boolean preparationBound;
@@ -305,11 +426,28 @@ public final class TargetWorkerSourceStartup {
             }
         }
 
+        private void retainFence(TargetTimeFenceMutationFactory.Prepared exact) {
+            if(!qualificationRequired||originalAudit==null||preparationBound||fenceRetainedBytes==0
+                    ||exact.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.TIME_FENCE
+                    ||!exact.body().shard().equals(originalAudit.scope().shard())
+                    ||!originalAudit.scope().equals(startup.scope))
+                throw new IllegalStateException("recovery Fence lacks its original strict Scope/frame reservation");
+            final var frame=exact.mutation().encodeFrame();
+            if(frame.length>fenceRetainedBytes||input==null||frame.length>input.original.maximumFrameBytes())
+                throw new IllegalArgumentException("original SLO recovery Fence exceeds its reserved Source frame bound");
+            if(exactFence!=null&&!Arrays.equals(exactFence.mutation().encodeFrame(),frame))
+                throw new IllegalStateException("original SLO recovery Fence cannot be replaced or resigned");
+            if(exactFence==null)exactFence=exact;
+            fenceRetainedBytes=frame.length;startup.requireSloRecoveryByteBound();
+        }
+
         private void prepare() {
             synchronized (startup) {
                 requireCurrent();
                 if (preparation != null) return;
                 preparation = OwnedCheckpointIo.submit(guard -> {
+                    synchronized(startup){preparationThread=Thread.currentThread();}
+                    try {
                     guard.run();
                     if (input != null) {
                         input.requireValue(); guard.run();
@@ -328,13 +466,15 @@ public final class TargetWorkerSourceStartup {
                         input.requireValue(); guard.run();
                         // The original hold owns append/UNKNOWN and every native cleanup; no Source apply is awaited here.
                         final var fence = input.original.prepareSloRecoveryFence(audit, guard);
+                        if(fence!=null){
+                            final boolean alreadyRetained;
+                            synchronized(startup){alreadyRetained=exactFence!=null;}
+                            if(!alreadyRetained)input.retainPreviouslyAppliedFence(fence);
+                        }
                         synchronized (startup) {
-                            exactFence = fence;
-                            final long actualFrameBytes = fence == null ? 0 : fence.mutation().encodeFrame().length;
-                            if (actualFrameBytes > fenceRetainedBytes) {
-                                throw new IllegalArgumentException("original SLO recovery Fence exceeds the Source frame bound");
-                            }
-                            fenceRetainedBytes = actualFrameBytes;
+                            if(fence==null&&exactFence!=null)
+                                throw new IllegalStateException("original SLO recovery dropped its already retained Fence frame");
+                            if(fence!=null)retainFence(fence);else fenceRetainedBytes=0;
                             startup.requireSloRecoveryByteBound();
                         }
                         input.requireValue(); guard.run();
@@ -343,6 +483,7 @@ public final class TargetWorkerSourceStartup {
                         }
                     }
                     guard.run(); return Boolean.TRUE;
+                    } finally { synchronized(startup){preparationThread=null;} }
                 }, this::requireCurrent, startup.graph.io());
             }
         }
@@ -356,6 +497,9 @@ public final class TargetWorkerSourceStartup {
             if (!io.ioExited()) return false;
             requireCurrent();
             if (!preparationBound) {
+                if(exactFence!=null&&appendPermit==null&&!existingFenceVerified)
+                    throw new IllegalStateException("recovery Fence has neither its original SDK permit nor actual pre-cut APPLIED proof");
+                if(!startup.settleRecoveryFence(input,this))return false;
                 coordinator.bindSloRecoveryPreparation(Objects.requireNonNull(originalAudit), exactFence,
                         input == null ? null : input.original, qualificationRequired);
                 preparationBound = true;
@@ -446,6 +590,112 @@ public final class TargetWorkerSourceStartup {
         if (bytes > content.maximumBytes()) throw new IllegalStateException("retained SLO recovery audits/Fences exceed their aggregate bound");
     }
 
+    /** Actual accepted reader for the original strict factory; a replacement reader cannot authorize this producer. */
+    public TargetWorkerRecoverySource recoverySourceForFence(RecoveryInputsOpening input) {
+        synchronized(this){
+            if(input==null||input.startup!=this)throw new IllegalArgumentException("Fence reader belongs to another original startup");
+            input.requireFenceFactory();
+            final var phase=input.requireFencePreparation();
+            Objects.requireNonNull(recoverySource).requireStartup(input.assignment,graph.config().maximumSourceFrameBytes(),
+                    graph.classes(),graph.resources());
+            if(recoverySource!=phase.source)throw new IllegalStateException("Fence writer lost its actual original Source reader");
+            return recoverySource;
+        }
+    }
+
+    /** Exact type-4 SDK permission created only after the Root retained this immutable frame. */
+    public static final class RecoveryFenceAppend {
+        private final RecoveryInputsOpening input;
+        private final SloRecoveryOpening phase;
+        private final TargetRecoveryFenceWriter writer;
+        private final TargetTimeFenceMutationFactory.Prepared exact;
+        private final TargetSourceRecoveryInputs original;
+        private final OwnerLease owner;
+        private final ShardStore store;
+        private RecoveryFenceAppend(RecoveryInputsOpening input,SloRecoveryOpening phase,
+                TargetRecoveryFenceWriter writer,TargetTimeFenceMutationFactory.Prepared exact){
+            this.input=input;this.phase=phase;this.writer=writer;this.exact=exact;
+            original=input.original;owner=input.startup.lease;store=input.startup.store;
+        }
+
+        private void requireLocal(TargetRecoveryFenceWriter actual,TargetTimeFenceMutationFactory.Prepared actualFrame){
+            final var startup=input.startup;
+            final long now=startup.owner.clock().getAsLong();
+            if(actual!=writer||input.fenceWriter!=actual||phase.appendPermit!=this
+                    ||input.original!=original||input.closed||input.fenceHandoff!=null
+                    ||startup.currentRecoveryInputs!=input||startup.currentSloRecovery!=phase
+                    ||startup.recoverySource!=phase.source||startup.store!=store||startup.storeClosed
+                    ||startup.worker!=null||startup.activation!=null||startup.stopping||startup.firstFailure!=null
+                    ||!phase.qualificationRequired||phase.originalAudit==null||phase.preparationBound
+                    ||phase.preparationThread!=Thread.currentThread()||phase.exactFence!=exact
+                    ||startup.lease==null||!owner.sameIdentity(startup.lease)
+                    ||!input.assignment.sameIdentity(startup.assignment)||now<startup.lastNow||!startup.lease.validAt(now)
+                    ||actualFrame==null||actualFrame.mutation().type()!=com.nereusstream.delay.protocol.SystemMutationType.TIME_FENCE
+                    ||!Arrays.equals(exact.mutation().encodeFrame(),actualFrame.mutation().encodeFrame()))
+                throw new IllegalStateException("recovery Fence SDK handoff lost its actual original frame/producer/Source/Owner");
+        }
+
+        /** Local retained guards only; no authoritative lookup, Store view or SDK acquisition under native send locks. */
+        public void beforeSdk(TargetRecoveryFenceWriter actual,TargetTimeFenceMutationFactory.Prepared actualFrame){
+            synchronized(input.startup){requireLocal(actual,actualFrame);}
+            original.requireSourceCurrent();
+            synchronized(input.startup){requireLocal(actual,actualFrame);}
+        }
+    }
+
+    /** Normal close of only the original recovery Fence producer; never business-write or shared-client authority. */
+    public static final class RecoveryFenceHandoff {
+        private final RecoveryInputsOpening input;
+        private final SloRecoveryOpening phase;
+        private final TargetRecoveryFenceWriter writer;
+        private final OwnerLease owner;
+        private RecoveryFenceHandoff(RecoveryInputsOpening input,SloRecoveryOpening phase){
+            this.input=input;this.phase=phase;writer=input.fenceWriter;owner=input.startup.lease;
+        }
+        public void requireWriter(TargetRecoveryFenceWriter actual){
+            final var startup=input.startup;
+            synchronized(startup){
+                final long now=startup.owner.clock().getAsLong();
+                if(actual!=writer||input.fenceWriter!=actual||input.fenceHandoff!=this||input.closed
+                        ||startup.currentRecoveryInputs!=input||startup.currentSloRecovery!=phase
+                        ||startup.recoverySource!=phase.source||phase.input!=input||phase.preparationBound
+                        ||phase.preparationThread!=null||phase.preparation==null
+                        ||!phase.preparation.operationExited()||!phase.preparation.ioExited()
+                        ||startup.worker!=null||startup.activation!=null||startup.stopping||startup.firstFailure!=null
+                        ||startup.lease==null||!owner.sameIdentity(startup.lease)
+                        ||!input.assignment.sameIdentity(startup.assignment)||now<startup.lastNow||!startup.lease.validAt(now))
+                    throw new IllegalStateException("Fence close is not this original completed preparation's producer handoff");
+            }
+        }
+    }
+
+    private boolean settleRecoveryFence(RecoveryInputsOpening input,SloRecoveryOpening phase){
+        if(input==null)return true;
+        final RecoveryFenceHandoff permit;
+        final TargetRecoveryFenceWriter actual;
+        synchronized(this){
+            phase.requireCurrent();input.requireValue();
+            if(input.fenceHandoffConfirmed)return true;
+            actual=input.fenceWriter;
+            if(actual==null){input.fenceHandoffConfirmed=true;return true;}
+            if(input.fenceHandoff==null)input.fenceHandoff=new RecoveryFenceHandoff(input,phase);
+            permit=input.fenceHandoff;permit.requireWriter(actual);
+        }
+        final boolean closed=actual.closeForHandoff(permit);
+        final boolean exited=actual.operationsExited();
+        synchronized(this){
+            permit.requireWriter(actual);
+            if(closed&&!exited)throw new IllegalStateException("normally closed Fence producer still has original native/callback cleanup work");
+            if(closed)input.fenceHandoffConfirmed=true;
+            return closed;
+        }
+    }
+
+    private void requireRecoveryFenceHandoffs(){
+        for(var input:recoveryInputs)if(input.fenceWriter!=null&&!input.fenceHandoffConfirmed)
+            throw new IllegalStateException("original recovery Fence producer normal handoff is pending");
+    }
+
     /** Private root-issued close permission; no apply/ACK/append authority and no hold release. */
     public static final class JournalHandoff {
         private final RecoveryInputsOpening input;
@@ -521,6 +771,7 @@ public final class TargetWorkerSourceStartup {
                             || recoverySource == null || !recoverySource.cleanupComplete()) return false;
                 }
                 input = currentRecoveryInputs;
+                requireRecoveryFenceHandoffs();
             }
             if (!settleRecoveryJournal(input, null)) return false;
             synchronized (this) { requireRecoveryReaderCurrent(); serviceJournalHandoffComplete = true; }
@@ -601,6 +852,7 @@ public final class TargetWorkerSourceStartup {
             throw new IllegalStateException("P1 preparation requires its original unexposed startup");
         }
         if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) return Optional.empty();
+        requireRecoveryFenceHandoffs();
         if (recovery != null) {
             if (!recovery.coordinator().sourceReadyForReactivation()
                     || recoverySource == null || !recoverySource.cleanupComplete()) return Optional.empty();
@@ -1623,6 +1875,7 @@ public final class TargetWorkerSourceStartup {
 
     /** Original SDK factory construction is single flight and must return before the Store/lease can retire. */
     public synchronized Construction beginWorkerConstruction() {
+        requireRecoveryFenceHandoffs();
         if (!recoveryInputs.isEmpty() && !serviceJournalHandoffComplete) {
             throw new IllegalStateException("recovery Journal normal close is required before Worker construction");
         }
@@ -1705,6 +1958,7 @@ public final class TargetWorkerSourceStartup {
             if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) {
                 throw new IllegalStateException("original recovery input opening/cleanup is still pending");
             }
+            requireRecoveryFenceHandoffs();
             if (!recoveryInputs.isEmpty() && !serviceJournalHandoffComplete) {
                 throw new IllegalStateException("recovery Journal handoff is pending before Worker admission");
             }

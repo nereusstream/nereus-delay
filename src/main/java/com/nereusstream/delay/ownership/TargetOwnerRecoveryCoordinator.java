@@ -227,6 +227,20 @@ public final class TargetOwnerRecoveryCoordinator {
         sloRecoveryQualificationRequired=qualificationRequired;sloRecoveryBound=true;
     }
 
+    /** Existing signed Fence frames require actual original-cut APPLIED first/POS before skipping a new SDK producer. */
+    synchronized void requireSloRecoveryFencePreviouslyApplied(TargetStoreBootstrap.SloRecoveryAudit original,
+            TargetTimeFenceMutationFactory.Prepared exactFence){
+        requireSloAuditPhase(false);requireLease(false);requireSloAudit(original);
+        if(sloRecoveryOriginal!=original)throw new IllegalStateException("existing Fence changed its original actual recovery audit");
+        requireFenceCovers(original,Objects.requireNonNull(exactFence,"original already-applied Fence"));
+        store.withReadView(original.reopened().view(),()->null);
+        original.reopened().backend().guardedRead(Objects.requireNonNull(auditBudgets.get()),reader->{
+            com.nereusstream.delay.runtime.TargetSloRecoveryFenceVerifier.requireApplied(reader,original.scope(),original.lineage(),
+                    exactFence.mutation(),original.cut());return Boolean.TRUE;
+        },sloRecoveryReads(false));
+        requireLease(false);requireSloAuditPhase(false);
+    }
+
     /** Exact APPLIED first/POS, not append return or an empty finite prefix, closes the expected Fence dependency. */
     synchronized void requireSloRecoveryFenceApplied(TargetStoreBootstrap.SloRecoveryAudit replayed){
         requireSloAuditPhase(true);requireLease(false);requireSloAudit(replayed);requireFenceCovers(replayed,sloRecoveryFence);

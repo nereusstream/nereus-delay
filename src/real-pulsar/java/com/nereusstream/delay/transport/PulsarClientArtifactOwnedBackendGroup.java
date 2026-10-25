@@ -92,11 +92,14 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         final TargetDestinationSdkBudget.Client allocation;
         CompletableFuture<?> opening;
         boolean creationObserved;
+        boolean creationCallbackExited;
+        final CompletableFuture<Void> creationExit = new CompletableFuture<>();
         int activeReads;
         Object value;
         com.nereusstream.delay.ownership.SourceTransportCredentialUse sourceCredentialUse;
         CompletableFuture<Void> firstClose;
         CompletableFuture<Void> sdkClose;
+        final CompletableFuture<Void> closeExit = new CompletableFuture<>();
         NativeUse(PulsarClientArtifactOwnedBackendGroup group, TargetDestinationSdkBudget.Client allocation) {
             this.group = group; this.allocation = allocation;
         }
@@ -510,9 +513,14 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             } catch (RuntimeException | Error cleanup) { recordFailure(cleanup); }
             finally {
                 // SDK callbacks need not run in registration order. Expose only after original ownership is recorded.
-                if (failure == null) { transferred.complete(value); }
-                else { transferred.completeExceptionally(failure); }
-                cleanupProgress();
+                try {
+                    if (failure == null) { transferred.complete(value); }
+                    else { transferred.completeExceptionally(failure); }
+                } finally {
+                    synchronized (gate) { use.creationCallbackExited = true; }
+                    cleanupProgress();
+                    use.creationExit.complete(null);
+                }
             }
         });
         return transferred.copy();
@@ -524,12 +532,20 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         }
     }
 
+    CompletableFuture<Void> nativeCreationExit(Object value) {
+        synchronized (gate) {
+            final var original = use(value);
+            if (original == null) throw new IllegalStateException("P1 creation has no original native registration");
+            return original.creationExit.copy();
+        }
+    }
+
     CompletableFuture<Void> closeNative(Object value) {
         final NativeUse use;
         synchronized (gate) {
             use = use(value);
             if (use == null) { throw new IllegalStateException("P1 native handle was not registered in its original group"); }
-            if (use.firstClose != null) { return use.firstClose.copy(); }
+            if (use.firstClose != null) { return use.closeExit.copy(); }
             use.firstClose = new CompletableFuture<>();
         }
         try {
@@ -538,22 +554,28 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             else { throw new IllegalArgumentException("unsupported P1 native handle"); }
         } catch (RuntimeException | Error failure) { use.sdkClose = CompletableFuture.failedFuture(failure); }
         use.sdkClose.whenComplete((__, failure) -> {
-            if (failure == null) {
-                try {
-                    if (use.allocation != null) { use.allocation.closed(); }
-                    synchronized (gate) {
-                        final var source = sourceOwners.remove(value);
-                        if (source != null) {
-                            admittedSources.remove(source);
-                            admittedWorkers.removeIf(worker -> worker.ownsSourceConsumer(source));
+            try {
+                if (failure == null) {
+                    try {
+                        if (use.allocation != null) { use.allocation.closed(); }
+                        synchronized (gate) {
+                            final var source = sourceOwners.remove(value);
+                            if (source != null) {
+                                admittedSources.remove(source);
+                                admittedWorkers.removeIf(worker -> worker.ownsSourceConsumer(source));
+                            }
                         }
-                    }
-                    use.firstClose.complete(null);
-                    synchronized (HANDLES) { HANDLES.remove(value); }
-                } catch (RuntimeException | Error failed) { use.firstClose.completeExceptionally(failed); }
-            } else { use.firstClose.completeExceptionally(failure); recordFailure(failure); }
+                        use.firstClose.complete(null);
+                        synchronized (HANDLES) { HANDLES.remove(value); }
+                    } catch (RuntimeException | Error failed) { use.firstClose.completeExceptionally(failed); }
+                } else { use.firstClose.completeExceptionally(failure); recordFailure(failure); }
+            } finally {
+                final var failed = com.nereusstream.delay.ownership.CheckpointInputFuture.ownedFailure(use.firstClose);
+                cleanupProgress();
+                if (failed == null) use.closeExit.complete(null); else use.closeExit.completeExceptionally(failed);
+            }
         });
-        return use.firstClose.copy();
+        return use.closeExit.copy();
     }
 
     /** Existing producer helpers observe this registration; they never register a second native owner. */
@@ -623,6 +645,23 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             final var use = use(producer);
             if (!ready || host != null || frozen || use == null || use.firstClose != null) {
                 throw new IllegalStateException("original pre-Host recovery Journal SEND is unavailable");
+            }
+            return send.get();
+        }
+    }
+
+    /** The exact registered Source producer, reader and Root permit are required before Claim/Host activation. */
+    <T> T recoveryFenceSend(PulsarClientArtifactRecoveryFenceWriter writer, Producer<?> producer,
+            com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared exact,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit, Supplier<T> send) {
+        final var source = writer.requireNativeSendBinding(this, producer);
+        permit.beforeSdk(writer, exact);
+        synchronized (gate) {
+            final var nativeProducer = use(producer);
+            final var nativeSource = use(source);
+            if (!ready || host != null || frozen || sdkTerminated || nativeProducer == null
+                    || nativeProducer.firstClose != null || nativeSource == null || nativeSource.firstClose != null) {
+                throw new IllegalStateException("original pre-Host recovery Source Fence SEND is unavailable");
             }
             return send.get();
         }
@@ -744,7 +783,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
                     }
                     synchronized (gate) {
                         for (var use : users.values()) {
-                            if (!use.creationObserved || use.activeReads != 0) { return false; }
+                            if (!use.creationObserved || !use.creationCallbackExited || use.activeReads != 0) { return false; }
                             if (use.allocation != null) { use.allocation.closed(); }
                         }
                         allocation.closed();

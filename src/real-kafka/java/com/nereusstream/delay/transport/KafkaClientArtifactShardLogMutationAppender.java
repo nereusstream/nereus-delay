@@ -43,6 +43,8 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private final Duration responseTimeout;
     private final SystemWriterAppendBudget.Writer writer;
     private final Runnable sourceGate;
+    private int nativeAppends;
+    private boolean nativeTerminated;
 
     public KafkaClientArtifactShardLogMutationAppender(
             final GuardedProducer<byte[], byte[]> producer,
@@ -123,18 +125,21 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             return AppendOutcome.definitelyNotPersisted();
         }
         final CompletableFuture<Observation> completion = new CompletableFuture<>();
+        final NativeAppend nativeAppend = new NativeAppend();
         try {
             final java.util.function.Supplier<java.util.concurrent.Future<GuardedRecordMetadata>> send = () -> {
                 if (sourceGate != null) {
                     try { sourceGate.run(); }
                     catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 }
+                nativeStarted(nativeAppend);
                 return producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
                             (metadata, failure) -> {
                                 try {
                                     completion.complete(new Observation(metadata, failure));
                                 } finally {
-                                    if (reservation != null) { reservation.sdkCompleted(); }
+                                    try { if (reservation != null) { reservation.sdkCompleted(); } }
+                                    finally { nativeExited(nativeAppend); }
                                 }
                             });
             };
@@ -146,12 +151,14 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         } catch (RuntimeException failure) {
             if (failure instanceof SourceWriteNotStarted) {
                 if (reservation != null) reservation.sdkCompleted();
+                nativeExited(nativeAppend);
                 return AppendOutcome.definitelyNotPersisted();
             }
             final ResourceGuardException proof = unwrap(failure);
             if (reservation != null && proof != null && proof.definitelyNotPersisted()) {
                 reservation.sdkCompleted();
             }
+            if (proof != null && proof.definitelyNotPersisted()) nativeExited(nativeAppend);
             return failure(failure);
         }
         final Observation observation;
@@ -169,6 +176,26 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             return failure(observation.failure());
         }
         return persisted(observation.metadata());
+    }
+
+    private synchronized void nativeStarted(NativeAppend append) {
+        if (nativeTerminated) throw new SourceWriteNotStarted(new IllegalStateException("original Kafka producer is closed"));
+        nativeAppends = Math.incrementExact(nativeAppends); append.started = true;
+    }
+
+    private synchronized void nativeExited(NativeAppend append) {
+        if (!append.started || append.exited) return;
+        append.exited = true;
+        if (!nativeTerminated) nativeAppends--;
+    }
+
+    /** An UNKNOWN result keeps its original native callback obligation until completion or actual producer exit. */
+    synchronized boolean nativeOperationsExited() { return nativeAppends == 0; }
+
+    /** Only the same producer's actual guarded native termination settles callbacks with no observed response. */
+    synchronized void producerNativeClosed() {
+        if (!producer.guardedResourcesTerminated()) throw new IllegalStateException("original Kafka producer resources remain live");
+        nativeTerminated = true; nativeAppends = 0;
     }
 
     @Override
@@ -232,6 +259,7 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     }
 
     private record Observation(GuardedRecordMetadata metadata, Throwable failure) {}
+    private static final class NativeAppend { private boolean started; private boolean exited; }
     private static final class SourceWriteNotStarted extends RuntimeException {
         private static final long serialVersionUID = 1L;
         private SourceWriteNotStarted(Throwable cause) { super("Source credential denied before native append", cause); }

@@ -664,6 +664,32 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         }
     }
 
+    /** Only the Root's actually bound independent reader can supply a pre-Host Fence producer's Source proof. */
+    GuardedConsumer<byte[]> recoveryFenceConsumer(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryInputsOpening opening,
+            PulsarClientArtifactOwnedBackendGroup group, LocalBrokerMtlsResolver.SourceReceipt credential) {
+        Objects.requireNonNull(opening).requireFenceFactory();
+        if (sourceStartup != opening.startup() || sourceStartup.recoverySourceForFence(opening) != this
+                || backend != group || PulsarClientArtifactOwnedBackendGroup.findNative(consumer) != group
+                || independentReaderProof == null || !assignment.sameIdentity(opening.assignment())
+                || verifiedCredential != credential || opening.credential() != credential) {
+            throw new IllegalStateException("recovery Fence lacks its original bound native Source reader/material");
+        }
+        credential.authorization().requireAssignment(assignment);
+        group.requireSourceReadResource(credential, expectedGuard);
+        requireCurrent();
+        return consumer;
+    }
+
+    /** Native-only recheck for the SDK handoff; original Root/Owner checks run before entering that lock. */
+    synchronized void requireRecoveryFenceProof(GuardedConsumer<byte[]> original) {
+        ensureOpen();
+        if (consumer != original || independentReaderProof == null) {
+            throw new IllegalStateException("recovery Fence changed its original guarded Source consumer");
+        }
+        requireProof();
+    }
+
     private SourceProof requireProof() {
         if (!consumer.isConnected()) {
             throw new IllegalStateException("Pulsar guarded recovery consumer is not connected");

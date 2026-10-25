@@ -98,6 +98,20 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     @Override
     public AppendOutcome append(final SystemMutation mutation) {
+        return append(mutation, null, null, null);
+    }
+
+    /** Only the original Root permit admits this type4 send before the active Host exists. */
+    AppendOutcome appendRecoveryFence(com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared exact,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
+            PulsarClientArtifactRecoveryFenceWriter recoveryWriter) {
+        return append(Objects.requireNonNull(exact).mutation(), Objects.requireNonNull(recoveryWriter), exact,
+                Objects.requireNonNull(permit));
+    }
+
+    private AppendOutcome append(final SystemMutation mutation, PulsarClientArtifactRecoveryFenceWriter recoveryWriter,
+            com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared fence,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
         final SystemMutation exact = Objects.requireNonNull(mutation, "mutation");
         if (!shard.equals(exact.shardId())) {
             throw new IllegalArgumentException("Pulsar Shard Log mutation belongs to another Shard");
@@ -107,14 +121,16 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             return AppendOutcome.definitelyNotPersisted();
         }
         try {
-            return appendReserved(exact, reservation);
+            return appendReserved(exact, reservation, recoveryWriter, fence, permit);
         } finally {
             if (reservation != null) { reservation.callerReturned(); }
         }
     }
 
     private AppendOutcome appendReserved(final SystemMutation exact,
-            final SystemWriterAppendBudget.Reservation reservation) {
+            final SystemWriterAppendBudget.Reservation reservation, PulsarClientArtifactRecoveryFenceWriter recoveryWriter,
+            com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared fence,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
         final SourceProof before;
         try {
             before = sourceProof();
@@ -141,7 +157,10 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
                     try { sourceGate.run(); }
                     catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 }
-                return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync());
+                return recoveryWriter == null
+                        ? PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(frame).sendAsync())
+                        : recoveryWriter.nativeSend(this, producer, fence, permit,
+                                () -> producer.newMessage().value(frame).sendAsync());
             };
             if (writer == null) {
                 completion = send.get();
@@ -162,9 +181,10 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         }
         if (completion == null) { return AppendOutcome.unknown(); }
         if (reservation != null) {
-            completion.whenComplete((result, failure) -> {
+            final var accountingExit = completion.whenComplete((result, failure) -> {
                 if (!completion.isCancelled()) { reservation.sdkCompleted(); }
             });
+            if (recoveryWriter != null) recoveryWriter.trackSdkCompletion(completion, accountingExit);
         }
         final MessageId messageId;
         try {

@@ -35,6 +35,8 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
     PulsarAttemptJournal journal();
     TargetOwnedBackendGroup journalBackend();
     default JournalWriter journalWriter() { return null; }
+    /** May be created by the original strict prepare callback, after the actual Source reader is bound. */
+    default TargetRecoveryFenceWriter fenceWriter() { return null; }
     long retainedBytes();
     /**
      * Stable declaration that this original hold requests E4 recovery responsibilities, including an
@@ -53,10 +55,14 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
      *
      * <p>The original independent FENCE role, qualified UTC and signer must authorize this frame.
      * Its retry-until is independently finite and strictly later than the qualified old deadline.
-     * This input must own the exact Prepared bytes before any guarded original Source append, and
+     * Before any native append, use its original {@code RecoveryInputsOpening.prepareFenceAppend}
+     * or {@code appendFence} so the Root retains the exact Prepared bytes and issues its narrow permit.
+     * Register the actual Fence writer/backend before opening native resources. The input must
      * retain every partial/native UNKNOWN and cleanup handle with the backend registered before
      * allocation, including on failure. Do not acquire a replacement hold or wait for the next
-     * Source apply. Returning Prepared is neither append persistence nor an APPLIED Fence proof.</p>
+     * Source apply. Returning Prepared is neither append persistence nor an APPLIED Fence proof.
+     * A returned frame without this opening's append permit must already have its actual APPLIED
+     * first/POS at the original audited cut; it cannot substitute an unowned external append.</p>
      * <p>A null result requires this original input to independently authenticate and continuously
      * protect the absence of an old legal SLO domain; an empty Native census cannot establish that
      * absence, and any positive post-replay SLO audit must reject that null preparation.</p>

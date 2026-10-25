@@ -2268,7 +2268,7 @@ public final class TargetWorkerShardRuntime
         if (actual == null || actual == sourceBackendGroup || actual == recoveryBackend || actual == priorRecoveryBackend) return;
         original.requireRecoveryInputBackend(actual);
         actual.requireWorkerGraph(workClasses, resources);
-        if (publicationHost != null || !recoveryInputBackends.contains(actual) && recoveryInputBackends.size() == 2) {
+        if (publicationHost != null || !recoveryInputBackends.contains(actual) && recoveryInputBackends.size() == 4) {
             throw new IllegalStateException("recovery input SDK owners cannot be replaced or added after Host transfer");
         }
         recoveryInputBackends.add(actual);
