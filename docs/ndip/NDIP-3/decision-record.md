@@ -1714,3 +1714,23 @@ cut/采集区间，进程前未知覆盖=UNKNOWN，gap=0非完整SLO证据，无
 保管、无未知职责才COMPLETE，watermark/count/gap=0/空outbox/STOP/普通Delivery各自不足。
 复用实际Source/业务/collector材料，不另造通用coverage oracle。真实部署权限/预算缺失
 拒绝并列OPEN；仓内写者、启动/失效/退出/恢复和consumer接线仍须完整实施，测试后置。
+
+
+## 2026-10-25：E4分母来自durable eligibility，保持Target reserved-work drain
+
+主会话已现场核验TargetQuotaGrantGate与TargetPublishAdmissionStore并裁定：不新增Target
+Admission逻辑容量拒绝，保持ADMISSION(false)→EXISTING_WORK_DRAIN和原Claim/reserve/
+Attempt/Outcome契约。此前“稳定capacity决定”引用format-1既有hook，不要求复制不存在的
+APPLIED/ADMISSION_CAPACITY_GATED或HARD_QUOTA业务结果，降额不得重新阻断已承诺工作。
+DUE_ADMISSION_LAG/ALL_ACCEPTED必须源于durable Message/managed eligibility，不能缩成成功
+Admission集合；原Source已有完整权威字段时同批物化Start，后续才取得独立真实材料时沿
+已批准的有限SLO Source事件保管原事实和原观察generation，不新增业务拒绝或改Claim撤销。
+尚未Admission的已接受eligibility也进入应有样本/timeout/coverage，旧普通事件不补当代，
+缺原归属为legacy/UNKNOWN及不完整。物理/执行门禁事实只能来自真实原holder/epoch/事件/
+时间材料，本地事实不能冒充已有业务Source，metric/异常/空队列/未Admission不能推导准确
+capacity exclusion；无资格原因用BAD_EVIDENCE_GAP/UNKNOWN，timeout保留v1 BAD规则。
+不要求每poll/tryAcquire失败一条Source，按原sample/event和revision有限合并，保留真实最大
+事件量/bytes/time/retention及Final空间，缺观测预算阻断缺证据提交/ACK或拒绝开启，不改成
+业务HARD_QUOTA。Final/consumer必须有完整ALL_ACCEPTED集合和保留/保管证明，Admission
+images正向枚举不能代替从未Admission的eligibility覆盖。原v1与format-1行为保持，单agent、
+非Fast、必要编译，集中测试/环境后置，descriptor15仍待完整能力和原资格后开放。

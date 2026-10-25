@@ -379,8 +379,6 @@ public final class TargetCommandStore {
                 },
                 (reader, business) -> {
                     final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
-                    final var sample = TargetSloObservationSamples.command(reader, scope, lineage, command, stamp, business, samples);
-                    sampleQualification[0] = sample.qualification();
                     final var accounting = new TargetSourceAccounting(scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
                     final var gate = new TargetQuotaStoreGate(scope, lineage, 1);
                     final var operation = ingress[0] != null
@@ -396,6 +394,8 @@ public final class TargetCommandStore {
                     // Preserve the original business capacity decision before charging mandatory certification.
                     final var baseline = accounting.assemble(reader, business);
                     gate.check(reader, baseline, operation, ingress[0]);
+                    final var sample = TargetSloObservationSamples.command(reader, scope, lineage, command, stamp, business, samples);
+                    sampleQualification[0] = sample.qualification();
                     if (sample.edits().isEmpty()) return baseline;
                     final var observed = new ArrayList<>(business);
                     observed.addAll(sample.edits());

@@ -82,6 +82,7 @@ public final class TargetSloObservationHistoryAudit {
         final var latest=new HashMap<Long,TargetQuotaMutation>();
         final var pending=new HashMap<String,TargetSloObservationSample>();
         final var dueFirsts=new HashMap<String,TargetSloObservationSample>();
+        final var eligibilityFirsts=new HashMap<String,TargetSloObservationSample>();
         for(var generation:generations){
             controls.put(generation.enable().appliedAt().source(),generation);
             counts.put(generation.generation(),new long[2]); latest.put(generation.generation(),generation.control().appliedAt());
@@ -90,6 +91,7 @@ public final class TargetSloObservationHistoryAudit {
             final var usage=Objects.requireNonNull(counts.get(sample.generation()),"Target SLO sample lost original generation");
             if(pending.putIfAbsent(Bytes.hex(sample.key()),sample)!=null)throw new IllegalStateException("duplicate Target SLO sample identity");
             if(sample.admission()!=null&&dueFirsts.putIfAbsent(Bytes.hex(sample.first().key()),sample)!=null)throw new IllegalStateException("Admission event was bound more than once");
+            if(sample.eligibility()!=null&&eligibilityFirsts.putIfAbsent(Bytes.hex(sample.first().key()),sample)!=null)throw new IllegalStateException("Message birth eligibility was bound more than once");
             usage[0]=Math.addExact(usage[0],1);usage[1]=Math.addExact(usage[1],sample.storedBytes());
             final var at=latest.get(sample.generation());
             if(Long.compareUnsigned(sample.mutation().sequence(),at.sequence())>0)latest.put(sample.generation(),sample.mutation());
@@ -107,6 +109,11 @@ public final class TargetSloObservationHistoryAudit {
                 continue;
             }
             if(first.kind()!=TargetResultRecord.Kind.COMMAND)continue;
+            final var eligibility=eligibilityFirsts.remove(Bytes.hex(first.key()));
+            if(eligibility!=null){
+                if(!Arrays.equals(first.canonicalBytes(),eligibility.first().canonicalBytes()))throw new IllegalStateException("eligibility changed original birth first");
+                pending.remove(Bytes.hex(eligibility.key()));
+            }
             final var selected=controls.lowerEntry(first.mutation().source());
             if(selected==null)continue;
             final var generation=selected.getValue();
@@ -120,7 +127,7 @@ public final class TargetSloObservationHistoryAudit {
                 throw new IllegalStateException("Source-applied certification Command lost its required original Start/binding");
             }
         }
-        if(!pending.isEmpty()||!dueFirsts.isEmpty())throw new IllegalStateException("Target SLO sample has no eligible original business first");
+        if(!pending.isEmpty()||!dueFirsts.isEmpty()||!eligibilityFirsts.isEmpty())throw new IllegalStateException("Target SLO sample has no eligible original business first");
         for(var generation:generations){
             final var usage=counts.get(generation.generation());
             final var expected=new TargetSloObservationGeneration.Counts(usage[0],usage[0],usage[1],0);
@@ -130,33 +137,46 @@ public final class TargetSloObservationHistoryAudit {
         }
     }
 
-    /** Original complete Admission images positively enumerate required due Starts, independently of stored counts. */
+    /** Legacy Admission-only binding correlation is not an ALL_ACCEPTED population oracle. */
     public static void requireAdmissionInputs(List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,List<TargetCheckpointDependencies.AdmissionImage> inputs){
+        final var pending=new HashMap<String,TargetSloObservationSample>();
+        for(var sample:samples)if(sample.admission()!=null)pending.put(Bytes.hex(sample.admission().systemMutationId()),sample);
+        if(pending.isEmpty())return;
+        for(var input:inputs){
+            final var sample=pending.remove(Bytes.hex(input.image().systemMutationId()));
+            if(sample!=null&&(!Arrays.equals(sample.admission().canonicalEnvelope(),input.image().canonicalEnvelope())
+                    ||!Arrays.equals(sample.first().mutation().source().canonicalBytes(),input.source().canonicalBytes())))
+                throw new IllegalStateException("legacy Admission binding changed exact original input");
+        }
+        if(!pending.isEmpty())throw new IllegalStateException("legacy due sample lost its original Admission image");
+    }
+
+    /** Current durable Message generations positively require their original ordinary eligibility Start, even without Admission. */
+    public static void requireEligibilityMessages(List<TargetSloObservationGeneration> generations,
+            List<TargetSloObservationSample> samples,List<TargetMessageRecord> messages){
         final var controls=new TreeMap<SourcePosition,TargetSloObservationGeneration>();
         for(var generation:generations)controls.put(generation.enable().appliedAt().source(),generation);
-        final var pending=new HashMap<String,TargetSloObservationSample>();
-        for(var sample:samples)if(sample.admission()!=null)pending.put(Bytes.hex(sample.key()),sample);
-        for(var input:inputs){
-            final var body=TargetPublishAdmissionBody.decode(input.image().canonicalBody());
-            if(body.attemptNo()!=1)continue;
-            final var selected=controls.lowerEntry(input.source());
-            if(selected==null)continue;
-            final var generation=selected.getValue();
-            if(generation.stop()!=null&&input.source().compareTo(generation.stop().appliedAt().source())>=0)continue;
-            if(!body.materialized()&&generation.policy().declarations().stream().anyMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG))
-                throw new IllegalStateException("declared due interval contains an unclassifiable original Admission");
-            final var path=body.nativePublication()==null?SloPath.ORDINARY_MANAGED:SloPath.MANAGED_PULSAR_HANDOFF;
-            final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==path).findFirst().orElse(null);
-            if(declaration==null)continue;
-            final var start=TargetSloObservationSample.dueStart(declaration,body);
-            final var sample=pending.remove(Bytes.hex(TargetSloObservationSample.key(start.sampleId())));
-            if(sample==null||sample.generation()!=generation.generation()||!Arrays.equals(sample.admission().canonicalEnvelope(),input.image().canonicalEnvelope())
-                    ||!Arrays.equals(sample.first().mutation().source().canonicalBytes(),input.source().canonicalBytes())
-                    ||!Arrays.equals(sample.observation().start().canonicalBytes(),start.canonicalBytes())) {
-                throw new IllegalStateException("actual first Admission lost its required original due Start/generation binding");
-            }
+        final var births=new HashMap<String,TargetSloObservationSample>();
+        for(var sample:samples)if(sample.eligibility()!=null){
+            final var locator=sample.eligibility().locator();
+            final var token=Bytes.hex(Bytes.concat(locator.messageId().bytes(),Bytes.u32beBits(locator.generation())));
+            if(births.putIfAbsent(token,sample)!=null)throw new IllegalStateException("duplicate ordinary eligibility birth");
         }
-        if(!pending.isEmpty())throw new IllegalStateException("due sample lost its complete original Admission image");
+        for(var message:messages){
+            if(message.nativeDeliveryPolicy()!=NativeDeliveryPolicy.FORBID)continue;
+            final var selected=controls.lowerEntry(message.scheduleSource());if(selected==null)continue;
+            final var generation=selected.getValue();
+            if(generation.stop()!=null&&message.scheduleSource().compareTo(generation.stop().appliedAt().source())>=0)continue;
+            final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==SloPath.ORDINARY_MANAGED).findFirst().orElse(null);
+            if(declaration==null)continue;
+            final var token=Bytes.hex(Bytes.concat(message.locator().messageId().bytes(),Bytes.u32beBits(message.locator().generation())));
+            final var sample=births.get(token);
+            if(sample==null||sample.generation()!=generation.generation()||!sample.eligibility().locator().equals(message.locator())
+                    ||sample.eligibility().deliverAt()!=message.deliverAtEpochMs()||sample.eligibility().expireAt()!=message.expireAtEpochMs()
+                    ||!Arrays.equals(sample.eligibility().source().canonicalBytes(),message.scheduleSource().canonicalBytes())
+                    ||!Arrays.equals(sample.declaration().canonicalBytes(),declaration.canonicalBytes()))
+                throw new IllegalStateException("durable ordinary eligibility is missing its original ALL_ACCEPTED Start, independently of Admission");
+        }
     }
 }

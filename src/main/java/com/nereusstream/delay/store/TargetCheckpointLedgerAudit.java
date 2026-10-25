@@ -150,6 +150,7 @@ final class TargetCheckpointLedgerAudit {
         final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
         final Map<String,TargetQuotaPayloadOwner> payloadOwners=new HashMap<>();
         final var primaryMessages=new java.util.HashSet<String>();
+        final var eligibilityMessages=new ArrayList<TargetMessageRecord>();
         final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new ArrayList<>();
         final List<AttemptProjection> attemptProjections = new ArrayList<>();
         final List<TargetQuotaCounter> counters = new ArrayList<>();
@@ -214,6 +215,7 @@ final class TargetCheckpointLedgerAudit {
                         attemptProjections.add(new AttemptProjection(message.locator(), message.runtime()));
                         dependencies.messageState(message,payload);
                         primaryMessages.add(Bytes.hex(message.locator().messageId().bytes()));
+                        eligibilityMessages.add(message);
                         auditMessageDependencies(message, view);
                     } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
                         auditOrderStateDependencies(TargetOrderState.decode(payload), view);
@@ -382,6 +384,7 @@ final class TargetCheckpointLedgerAudit {
                 proof.root().recoveryLineage(), proof.aggregate().mutation());
         com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireSamples(sloGenerations,sloSamples,
                 resultRows.stream().map(r->TargetResultRecord.decode(r.payload())).toList());
+        com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.requireEligibilityMessages(sloGenerations,sloSamples,eligibilityMessages);
         final var admissions = auditAdmissionResults(attemptBudgets, resultRows, proof.root().identity());
         auditKafkaReceiptReferences(kafkaMappings, kafkaSlots, channelIdentities, admissions, resultRows, proof.root().identity());
         auditExternalEvidenceReferences(kafkaMappings, externalOwners, externalReferences, attemptBudgets, channelControls);

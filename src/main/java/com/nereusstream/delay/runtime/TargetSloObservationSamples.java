@@ -30,28 +30,47 @@ public final class TargetSloObservationSamples {
     /** Only a first business decision reaches this path. Logical retry/replay never creates or rebinds a sample. */
     public static Plan command(TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage,
             PreparedCommand command, TargetQuotaMutation stamp, List<TargetStoreBackend.Edit> business, Authority authority) {
-        final var state = TargetSloObservationVerifier.readState(reader, scope, lineage);
-        if (state == null || !state.active()) return new Plan(List.of(), () -> {});
-        final var generation = Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader, scope, lineage, state.generation()), "original Target SLO generation");
-        state.requireGeneration(generation); generation.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        generation.policy().requireSource(stamp.source()); stamp.requireAfter(generation.mutation());
-        final var declaration = generation.policy().declarations().stream()
-                .filter(d -> d.objective().name() == SloObjectiveName.COMMAND_APPLIED_LATENCY).findFirst().orElse(null);
-        if (declaration == null) return new Plan(List.of(), () -> {});
-        final var firstKey = Bytes.concat(new byte[]{TargetKeyCodec.RESULT_COMMAND_TAG, TargetKeyCodec.KEY_FORMAT}, command.commandId().bytes());
-        if (reader.get(ColumnFamily.DEDUPE, firstKey) != null) throw new IllegalStateException("Target SLO first Command found an existing event");
-        final var first = result(reader, business, firstKey);
-        if (first.kind() != TargetResultRecord.Kind.COMMAND || !first.mutation().equals(stamp)) throw new IllegalStateException("Target SLO Command changed its first Source decision");
-        final var original = CommandDedupeRecord.decode(first.typedPayload());
-        if (!Arrays.equals(original.commandHash(), command.commandHash()) || !original.protocolTuple().equals(command.protocolTuple())
-                || !Arrays.equals(stamp.mutationDigest(), command.canonicalFrameDigest())) throw new IllegalStateException("Target SLO Command lost exact original input");
-        final var sample = new TargetSloObservationSample(scope, lineage, generation.generation(),
-                generation.enable().input().systemMutationId(), generation.enable().appliedAt(), generation.policy().digest(),
-                declaration, first, SloObservationOutbox.open(SloAuthoritativeStartFactory.commandApplied(declaration.objective(), stamp.source())), stamp);
-        return append(reader,generation,sample,stamp,authority);
+        final var state=TargetSloObservationVerifier.readState(reader,scope,lineage);
+        if(state==null||!state.active())return new Plan(List.of(),()->{});
+        final var generation=Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader,scope,lineage,state.generation()),"original Target SLO generation");
+        state.requireGeneration(generation);generation.mutation().requireAtOrBefore(reader.aggregate().mutation());
+        generation.policy().requireSource(stamp.source());stamp.requireAfter(generation.mutation());
+        final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.COMMAND_APPLIED_LATENCY).findFirst().orElse(null);
+        final var due=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==SloPath.ORDINARY_MANAGED).findFirst().orElse(null);
+        final var firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_COMMAND_TAG,TargetKeyCodec.KEY_FORMAT},command.commandId().bytes());
+        if(reader.get(ColumnFamily.DEDUPE,firstKey)!=null)throw new IllegalStateException("SLO birth cannot rebind an existing Command event");
+        final var first=result(reader,business,firstKey);
+        final var original=CommandDedupeRecord.decode(first.typedPayload());
+        if(first.kind()!=TargetResultRecord.Kind.COMMAND||!first.mutation().equals(stamp)||!Arrays.equals(original.commandHash(),command.commandHash())
+                ||!original.protocolTuple().equals(command.protocolTuple())||!Arrays.equals(stamp.mutationDigest(),command.canonicalFrameDigest()))throw new IllegalStateException("SLO birth lost original Command Source");
+        final var samples=new ArrayList<TargetSloObservationSample>();
+        if(declaration!=null)samples.add(new TargetSloObservationSample(scope,lineage,generation.generation(),generation.enable().input().systemMutationId(),
+                generation.enable().appliedAt(),generation.policy().digest(),declaration,first,
+                SloObservationOutbox.open(SloAuthoritativeStartFactory.commandApplied(declaration.objective(),stamp.source())),stamp));
+        for(var edit:business){
+            if(edit.family()!=ColumnFamily.ID||edit.key()[0]!=TargetKeyCodec.MESSAGE_TAG||edit.after()==null)continue;
+            final var message=TargetMessageRecord.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.after(),TargetMessageRecord.VALUE_TYPE).payload(),scope.shard());
+            if(!Arrays.equals(message.scheduleSource().canonicalBytes(),stamp.source().canonicalBytes()))continue;
+            if(edit.before()!=null){
+                final var before=TargetMessageRecord.decodeForStore(edit.key(),TargetValueEnvelope.decode(edit.before(),TargetMessageRecord.VALUE_TYPE).payload(),scope.shard());
+                if(before.locator().generation()==message.locator().generation())continue;
+            }
+            if(message.nativeDeliveryPolicy()!=NativeDeliveryPolicy.FORBID){
+                if(generation.policy().declarations().stream().anyMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG))
+                    throw new IllegalStateException("native-capable Message eligibility requires its original qualified Source observation producer");
+                continue;
+            }
+            if(due==null)continue;
+            final var eligibility=TargetSloMessageEligibility.from(message);
+            if(original.result().applyStatus()!=ApplyStatus.APPLIED||original.result().generation()!=message.locator().generation()
+                    ||original.result().stateVersion()!=message.stateVersion())throw new IllegalStateException("eligibility lost accepted original Message birth result");
+            samples.add(new TargetSloObservationSample(scope,lineage,generation.generation(),generation.enable().input().systemMutationId(),generation.enable().appliedAt(),
+                    generation.policy().digest(),due,first,SloObservationOutbox.open(eligibility.start(due)),stamp,null,eligibility));
+        }
+        return append(reader,generation,samples,stamp,authority);
     }
 
-    /** Only the actual first managed Admission creates a due event; no current-generation retry backfill. */
+    /** Admission is positive completion material, never the ALL_ACCEPTED population's birth authority. */
     public static Plan admission(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
             SystemMutation input,TargetQuotaMutation stamp,List<TargetStoreBackend.Edit> business,
             SystemMutationResult outcome,Authority authority){
@@ -60,47 +79,57 @@ public final class TargetSloObservationSamples {
         if(state==null||!state.active())return new Plan(List.of(),()->{});
         final var body=TargetPublishAdmissionBody.decode(input.canonicalBody());
         if(body.attemptNo()!=1)return new Plan(List.of(),()->{});
-        final var generation=Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader,scope,lineage,state.generation()),"original due observation generation");
-        state.requireGeneration(generation);generation.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        generation.policy().requireSource(stamp.source());stamp.requireAfter(generation.mutation());
-        if(!body.materialized()&&generation.policy().declarations().stream().anyMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG)) {
-            throw new IllegalStateException("declared due observation cannot classify an Admission without its original managed materialization");
+        final var generation=Objects.requireNonNull(TargetSloObservationVerifier.readGeneration(reader,scope,lineage,state.generation()),"original due generation");
+        state.requireGeneration(generation);
+        if(generation.policy().declarations().stream().noneMatch(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG))return new Plan(List.of(),()->{});
+        if(!body.materialized())throw new IllegalStateException("due observation cannot classify an unmaterialized Admission");
+        final var key=TargetKeyCodec.message(body.locator().messageId());
+        final var message=TargetMessageRecord.decodeForStore(key,payload(reader,List.of(),ColumnFamily.ID,key,TargetMessageRecord.VALUE_TYPE),scope.shard());
+        if(message.scheduleSource().compareTo(generation.enable().appliedAt().source())<=0)return new Plan(List.of(),()->{}); // No current-generation backfill.
+        if(body.nativePublication()!=null||message.nativeDeliveryPolicy()!=NativeDeliveryPolicy.FORBID)
+            throw new IllegalStateException("due Admission requires the separately authenticated original native eligibility binding");
+        final var due=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==SloPath.ORDINARY_MANAGED).findFirst().orElse(null);
+        if(due==null)return new Plan(List.of(),()->{});
+        final var positionKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},message.scheduleSource().canonicalBytes());
+        final var prefix=TargetSloObservationSample.referencePrefix(positionKey);
+        final var upper=prefixUpper(prefix);byte[] lower=prefix;
+        for(int count=0;count<TargetSloObservationPolicy.MAX_DECLARATIONS;count++){
+            final var row=reader.first(ColumnFamily.META,lower,upper,List.of());
+            if(row==null)break;
+            final var sample=TargetSloObservationSample.decodeForStore(row.key(),TargetValueEnvelope.decode(row.value(),TargetSloObservationSample.VALUE_TYPE).payload(),scope,lineage);
+            if(sample.eligibility()!=null&&sample.generation()==generation.generation()&&sample.eligibility().locator().equals(body.locator())
+                    &&sample.eligibility().deliverAt()==body.publication().deliverAtEpochMs()&&Arrays.equals(sample.declaration().canonicalBytes(),due.canonicalBytes()))
+                return new Plan(List.of(),()->{});
+            lower=Bytes.concat(row.key(),new byte[]{0});
         }
-        final var path=body.nativePublication()==null?SloPath.ORDINARY_MANAGED:SloPath.MANAGED_PULSAR_HANDOFF;
-        final var declaration=generation.policy().declarations().stream().filter(d->d.objective().name()==SloObjectiveName.DUE_ADMISSION_LAG&&d.path()==path).findFirst().orElse(null);
-        if(declaration==null)return new Plan(List.of(),()->{});
-        final var firstKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},input.systemMutationId());
-        if(reader.get(ColumnFamily.DEDUPE,firstKey)!=null)throw new IllegalStateException("due Start cannot rebind an existing Admission event");
-        final var first=result(reader,business,firstKey);
-        if(!first.mutation().equals(stamp)||!Arrays.equals(stamp.mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("due Start lost its actual original Source input");
-        final var sample=new TargetSloObservationSample(scope,lineage,generation.generation(),generation.enable().input().systemMutationId(),
-                generation.enable().appliedAt(),generation.policy().digest(),declaration,first,
-                SloObservationOutbox.open(TargetSloObservationSample.dueStart(declaration,body)),stamp,input);
-        return append(reader,generation,sample,stamp,authority);
+        throw new IllegalStateException("Admission cannot create a missing ALL_ACCEPTED eligibility Start or change its observation generation");
     }
 
     private static Plan append(TargetStoreBackend.Reader reader,TargetSloObservationGeneration generation,
-            TargetSloObservationSample sample,TargetQuotaMutation stamp,Authority authority){
-        final var limits = generation.policy().limits();
-        if (sample.maximumRecordBytes() > limits.maximumRecordBytes()) throw new IllegalStateException("Target certification cannot retain the bounded Final for this original Start");
-        final var before = generation.counts();
-        final long reservedBefore = Math.addExact(before.outboxBytes(),Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.maximumFutureStoredGrowth(generation.policy())));
-        final long reservedAfter = Math.addExact(reservedBefore, sample.maximumStoredBytes());
-        if (before.outboxRecords() >= limits.maximumOutboxRecords() || reservedAfter > limits.maximumOutboxBytes()) {
-            throw new IllegalStateException("Target certification outbox lacks its original finite sample/Final reservation");
+            List<TargetSloObservationSample> samples,TargetQuotaMutation stamp,Authority authority){
+        if(samples.isEmpty())return new Plan(List.of(),()->{});
+        final var limits=generation.policy().limits();final var before=generation.counts();
+        long actual=0,maximum=0;
+        for(var sample:samples){
+            if(sample.maximumRecordBytes()>limits.maximumRecordBytes())throw new IllegalStateException("certification cannot retain required Final growth");
+            actual=Math.addExact(actual,sample.storedBytes());maximum=Math.addExact(maximum,sample.maximumStoredBytes());
         }
-        final var held = Objects.requireNonNull(authority); held.requireCurrent();
-        held.requireSample(generation, sample, sample.maximumStoredBytes()); held.requireCurrent();
-        final var edits = new ArrayList<TargetStoreBackend.Edit>();
-        for (var key : sample.keys()) {
-            if (reader.get(ColumnFamily.META, key) != null) throw new IllegalStateException("Target SLO event/sample was already bound; no new generation substitution");
-            edits.add(reader.replace(ColumnFamily.META, key, TargetSloObservationSample.VALUE_TYPE, sample.canonicalBytes()));
+        final long reserved=Math.addExact(before.outboxBytes(),Math.multiplyExact(before.outboxRecords(),TargetSloObservationSample.maximumFutureStoredGrowth(generation.policy())));
+        if(Math.addExact(before.outboxRecords(),samples.size())>limits.maximumOutboxRecords()||Math.addExact(reserved,maximum)>limits.maximumOutboxBytes())
+            throw new IllegalStateException("certification lacks the original complete business-mutation sample reservation");
+        final var held=Objects.requireNonNull(authority);held.requireCurrent();
+        final var edits=new ArrayList<TargetStoreBackend.Edit>();
+        for(var sample:samples){
+            held.requireSample(generation,sample,maximum);held.requireCurrent();
+            for(var key:sample.keys()){
+                if(reader.get(ColumnFamily.META,key)!=null)throw new IllegalStateException("SLO event already has its immutable original binding");
+                edits.add(reader.replace(ColumnFamily.META,key,TargetSloObservationSample.VALUE_TYPE,sample.canonicalBytes()));
+            }
         }
-        final var counts = new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),1),
-                Math.addExact(before.outboxRecords(),1), Math.addExact(before.outboxBytes(),sample.storedBytes()), before.custodied());
-        final var next = generation.withCounts(counts, stamp);
+        final var counts=new TargetSloObservationGeneration.Counts(Math.addExact(before.issued(),samples.size()),Math.addExact(before.outboxRecords(),samples.size()),Math.addExact(before.outboxBytes(),actual),before.custodied());
+        final var next=generation.withCounts(counts,stamp);
         edits.add(reader.replace(ColumnFamily.META,next.key(),TargetSloObservationGeneration.VALUE_TYPE,next.canonicalBytes()));
-        return new Plan(edits, held::requireCurrent);
+        return new Plan(edits,held::requireCurrent);
     }
 
     /** Independent causal joins for every actual primary/reference value, including full cold ledger charging. */
@@ -128,6 +157,17 @@ public final class TargetSloObservationSamples {
         final var actual = result(view,overlay,sample.first().key());
         if (!Arrays.equals(actual.canonicalBytes(),sample.first().canonicalBytes())) throw new IllegalStateException("Target SLO sample lost protected original first");
         result(view,overlay,sample.positionKey()).requireFirst(actual);
+        if(sample.eligibility()!=null){
+            final var birth=sample.eligibility();final var accepted=CommandDedupeRecord.decode(actual.typedPayload()).result();
+            if(accepted.applyStatus()!=ApplyStatus.APPLIED||accepted.generation()!=birth.locator().generation()||accepted.stateVersion()!=birth.stateVersion()
+                    ||accepted.messageStatus()!=MessageStatus.SCHEDULED)throw new IllegalStateException("due eligibility lost original accepted Message birth");
+            if(written){
+                final var key=TargetKeyCodec.message(birth.locator().messageId());
+                final var message=TargetMessageRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.ID,key,TargetMessageRecord.VALUE_TYPE),scope.shard());
+                if(!Arrays.equals(TargetSloMessageEligibility.from(message).canonicalBytes(),birth.canonicalBytes()))
+                    throw new IllegalStateException("due Start is not the exact original Message birth projection");
+            }
+        }
         if(sample.admission()!=null){
             final var body=TargetPublishAdmissionBody.decode(sample.admission().canonicalBody());
             final var budgetKey=sample.admissionBudgetKey();
@@ -178,14 +218,15 @@ public final class TargetSloObservationSamples {
     }
     public static boolean hasReference(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] resultKey){
         final var prefix=TargetSloObservationSample.referencePrefix(resultKey);
-        final byte[] upper=Bytes.copy(prefix);
-        for(int i=upper.length-1;i>=0;i--){if(++upper[i]!=0)break;}
-        return view.first(ColumnFamily.META,prefix,upper,overlay)!=null;
+        return view.first(ColumnFamily.META,prefix,prefixUpper(prefix),overlay)!=null;
     }
     public static void requireUnreferenced(TargetCheckpointDependencies dependencies,byte[] resultKey){
         if(dependencies.sloSamples().stream().anyMatch(s->s.references(resultKey))) {
             throw new IllegalStateException("original Source record still has retained Target certification samples");
         }
+    }
+    private static byte[] prefixUpper(byte[] prefix){
+        final byte[] upper=Bytes.copy(prefix);for(int i=upper.length-1;i>=0;i--){if(++upper[i]!=0)break;}return upper;
     }
     private static TargetResultRecord result(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,byte[] key){
         final var record=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));

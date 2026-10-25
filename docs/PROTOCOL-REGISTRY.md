@@ -5993,9 +5993,40 @@ generation and signed input, including detection of a missing sample with self-c
 counts. Existing Admission-image issuer/history/materialization authentication remains mandatory.
 This proves retained-input linkage, not complete external Source-range/Final/custody coverage.
 
-Stable capacity-gated eligibility is still required. The current Target ADMISSION grant operation
-uses existing reserved work; its logical quota exception is not the legacy stable capacity-gated
-Admission event. No such event is synthesized from an exception or ordinary metric here. Its actual
-Source producer, Final/timeout Source events, collector custody/export, protected old-gen drain/
-retirement, full lifecycle/restore consumer and ordinary epoch/cut/gap remain open. Descriptor15/
-body18 activation stays closed until the full original E4 chain is implemented and qualified.
+The first-Admission-only producer above is superseded by the 2026-10-25 eligibility correction
+below. Target ADMISSION remains reserved-work drain and gains no new logical capacity rejection.
+ALL_ACCEPTED requires original durable Message/eligibility Starts, including work that never reaches
+Admission. Real gate observations may use the approved SLO Source event without changing business
+results; metric/exception/empty queue alone cannot establish capacity exclusion or remove a sample.
+Final/timeout, custody/export, old-gen duties and full source-range verification remain open;
+descriptor15/body18 activation stays closed.
+
+
+2026-10-25 Native59 schema3 corrects ordinary ALL_ACCEPTED birth to the actual accepted Message/
+eligibility Source batch. Admission is positive completion material and is not its population oracle.
+Schema1/2 bytes/hashes remain readable unchanged; the schema2 Admission-only writer is no longer
+used to create Starts. Those intermediate bindings cannot establish complete ALL_ACCEPTED coverage.
+
+Schema3 uses common fields2..13, version3 in field1 and field15 = TargetSloMessageEligibility1;
+field14 is absent. The origin field participates in binding and record digests. Eligibility1 exact
+fields:1 version1,2 full original Message locator,3 birth stateVersion,4 deliverAt,5 expireAt,
+6 NativeDeliveryPolicy (FORBID only here),7 original schedule/reschedule SourcePosition,8 exact
+accepted birth Message digest[32],9 eligibility digest[32]. It is compact and duplicates no payload.
+The unchanged v1 due factory uses the original Message generation/deliverAt and this original
+eligibility digest. No poll clock, later publication or successful Admission chooses its denominator.
+
+The original Command batch can now create Command Start and ordinary eligibility Start together,
+with one actual generation increment and complete combined sample/byte/Final-growth qualification.
+Both Starts and all original first/POS references are charged in the same Source batch. Eligibility
+must exactly match the new accepted SCHEDULED Message projection and original Command first; no
+repair/backfill of existing firsts is permitted. Cold retained-first linkage is supplemented by
+positive enumeration of current durable ordinary Message generations, including TIMELINE/CLAIMED
+work that never reached Admission. Full historical Source-range enumeration remains required.
+
+Admission verifies the already-bound original ordinary eligibility through its original birth
+POSITION references; it cannot create a missing Start or assign today's observation generation.
+Native-capable Message eligibility still needs its independently qualified original policy/path
+Source material and bounded observation event. Missing material blocks required certification
+Source/ACK; it is not silently treated as ordinary or as outside ALL_ACCEPTED. This producer is
+still incomplete and descriptor15 stays closed. Genuine physical/execution gate facts may be
+preserved as pure observations; no synthetic ADMISSION_CAPACITY_GATED/HARD_QUOTA result is added.

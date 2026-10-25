@@ -13,7 +13,7 @@ import java.util.Objects;
 public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage, long generation,
         byte[] enableId, TargetQuotaMutation enabledAt, byte[] policyDigest,
         TargetSloObservationPolicy.Declaration declaration, TargetResultRecord first,
-        SloObservationOutbox observation, TargetQuotaMutation mutation, SystemMutation admission) {
+        SloObservationOutbox observation, TargetQuotaMutation mutation, SystemMutation admission,TargetSloMessageEligibility eligibility) {
     public static final int VALUE_TYPE = 59;
     // The v1 Final has fixed hashes, enum tags, uint64s and one bounded endpoint. No variable text.
     public static final int MAX_FINAL_BYTES = 2 + 34 + 34 + 2 + 2 + 11 + 11 + 2
@@ -27,14 +27,19 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
             + TargetSloObservationPolicy.Declaration.MAX_CANONICAL_BYTES + MAX_START_BYTES + MAX_FINAL_BYTES + 384;
     public static final int MAX_ADMISSION_INPUT_BYTES = TargetPublishAdmissionBody.MAX_SUPPORTED_BYTES
             + TargetResultRecord.MAX_AUTHOR_BYTES + 512;
-    public static final int MAX_CANONICAL_BYTES = MAX_COMMAND_BYTES + MAX_ADMISSION_INPUT_BYTES + 8;
+    public static final int MAX_CANONICAL_BYTES = MAX_COMMAND_BYTES+Math.max(MAX_ADMISSION_INPUT_BYTES,TargetSloMessageEligibility.MAX_CANONICAL_BYTES)+8;
     private static final byte[] BINDING_DOMAIN = Bytes.utf8("nereus-delay-target-slo-sample-binding\0");
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-sample\0");
 
     public TargetSloObservationSample(TargetQuotaScope scope,byte[] lineage,long generation,byte[] enableId,
             TargetQuotaMutation enabledAt,byte[] policyDigest,TargetSloObservationPolicy.Declaration declaration,
             TargetResultRecord first,SloObservationOutbox observation,TargetQuotaMutation mutation){
-        this(scope,lineage,generation,enableId,enabledAt,policyDigest,declaration,first,observation,mutation,null);
+        this(scope,lineage,generation,enableId,enabledAt,policyDigest,declaration,first,observation,mutation,null,null);
+    }
+    public TargetSloObservationSample(TargetQuotaScope scope,byte[] lineage,long generation,byte[] enableId,
+            TargetQuotaMutation enabledAt,byte[] policyDigest,TargetSloObservationPolicy.Declaration declaration,
+            TargetResultRecord first,SloObservationOutbox observation,TargetQuotaMutation mutation,SystemMutation admission){
+        this(scope,lineage,generation,enableId,enabledAt,policyDigest,declaration,first,observation,mutation,admission,null);
     }
 
     public TargetSloObservationSample {
@@ -52,7 +57,11 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
         first.mutation().requireAfter(enabledAt); first.mutation().requireAtOrBefore(mutation);
         if (!enabledAt.source().sameSourceIdentity(first.mutation().source())
                 || !enabledAt.source().sameSourceIdentity(mutation.source())) throw new IllegalArgumentException("Target SLO sample crossed physical Source");
-        if(admission==null){
+        if(admission!=null&&eligibility!=null)throw new IllegalArgumentException("Target sample cannot replace original eligibility with a later Admission");
+        if(eligibility!=null){
+            if(first.kind()!=TargetResultRecord.Kind.COMMAND||!Arrays.equals(eligibility.source().canonicalBytes(),first.mutation().source().canonicalBytes()))
+                throw new IllegalArgumentException("Target eligibility Start lost its original Message Source first");
+        }else if(admission==null){
             if(first.kind()!=TargetResultRecord.Kind.COMMAND||declaration.objective().name()!=SloObjectiveName.COMMAND_APPLIED_LATENCY
                     ||declaration.path()!=SloPath.NOT_APPLICABLE)throw new IllegalArgumentException("Target SLO schema1 requires original Command");
         }else{
@@ -64,7 +73,7 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
                 throw new IllegalArgumentException("Target SLO schema2 lost its actual applied Admission input/first");
             }
         }
-        final var expected=admission==null?SloAuthoritativeStartFactory.commandApplied(declaration.objective(),first.mutation().source())
+        final var expected=eligibility!=null?eligibility.start(declaration):admission==null?SloAuthoritativeStartFactory.commandApplied(declaration.objective(),first.mutation().source())
                 :dueStart(declaration,TargetPublishAdmissionBody.decode(admission.canonicalBody()));
         if (!Arrays.equals(expected.canonicalBytes(), observation.start().canonicalBytes())
                 || observation.start().canonicalBytes().length > MAX_START_BYTES
@@ -88,7 +97,7 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
                 Integer.toUnsignedLong(body.locator().generation()),path,actionAt,evidence);
     }
 
-    public int schemaVersion(){return admission==null?1:2;}
+    public int schemaVersion(){return eligibility!=null?3:admission==null?1:2;}
 
     @Override public byte[] lineage() { return Bytes.copy(lineage); }
     @Override public byte[] enableId() { return Bytes.copy(enableId); }
@@ -144,7 +153,8 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
         CanonicalProtobuf.bytes(out, 7, policyDigest); CanonicalProtobuf.bytes(out, 8, declaration.canonicalBytes());
         CanonicalProtobuf.bytes(out, 9, first.canonicalBytes());
     }); }
-    private byte[] admissionField(){return admission==null?new byte[0]:CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,14,admission.canonicalEnvelope()));}
+    private byte[] admissionField(){return eligibility!=null?CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,15,eligibility.canonicalBytes()))
+            :admission==null?new byte[0]:CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,14,admission.canonicalEnvelope()));}
     public byte[] bindingDigest() { return Bytes.sha256(BINDING_DOMAIN, bindingFields(), observation.start().canonicalBytes(),admissionField()); }
     private byte[] fields() { return Bytes.concat(bindingFields(), CanonicalProtobuf.message(out -> {
         CanonicalProtobuf.bytes(out, 10, observation.canonicalBytes()); CanonicalProtobuf.bytes(out, 11, mutation.canonicalBytes());
@@ -153,14 +163,14 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
     public byte[] digest() { return Bytes.sha256(DOMAIN, fields(),admissionField()); }
     public byte[] canonicalBytes() {
         final var value = Bytes.concat(fields(), CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 13, digest())),admissionField());
-        if (value.length > (admission==null?MAX_COMMAND_BYTES:MAX_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO sample exceeds encoded bound");
+        if (value.length > (schemaVersion()==1?MAX_COMMAND_BYTES:MAX_CANONICAL_BYTES)) throw new IllegalArgumentException("Target SLO sample exceeds encoded bound");
         return value;
     }
     public static TargetSloObservationSample decode(byte[] encoded) {
         final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 14, false, "Target SLO sample");
         final int version=QueryCodecSupport.uint32(f.getFirst(),1);
-        if(version<1||version>2)throw new IllegalArgumentException("unknown Target SLO sample schema");
-        QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13}:new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13,14},"Target SLO sample");
+        if(version<1||version>3)throw new IllegalArgumentException("unknown Target SLO sample schema");
+        QueryCodecSupport.requireNumbers(f,version==1?new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13}:version==2?new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13,14}:new int[]{1,2,3,4,5,6,7,8,9,10,11,12,13,15},"Target SLO sample");
         if(version==1&&encoded.length>MAX_COMMAND_BYTES || version==2&&QueryCodecSupport.bytes(f.get(13),14).length>MAX_ADMISSION_INPUT_BYTES)
             throw new IllegalArgumentException("Target SLO sample input exceeds original branch bound");
         final var result = new TargetSloObservationSample(TargetQuotaScope.decode(QueryCodecSupport.bytes(f.get(1),2)),
@@ -168,7 +178,8 @@ public record TargetSloObservationSample(TargetQuotaScope scope, byte[] lineage,
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(5),6)), QueryCodecSupport.fixed(f.get(6),7,32),
                 TargetSloObservationPolicy.Declaration.decode(QueryCodecSupport.bytes(f.get(7),8)),
                 TargetResultRecord.decode(QueryCodecSupport.bytes(f.get(8),9)), SloObservationOutbox.decode(QueryCodecSupport.bytes(f.get(9),10)),
-                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10),11)),version==1?null:SystemMutation.decodeTargetEnvelope(QueryCodecSupport.bytes(f.get(13),14)));
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10),11)),version==2?SystemMutation.decodeTargetEnvelope(QueryCodecSupport.bytes(f.get(13),14)):null,
+                version==3?TargetSloMessageEligibility.decode(QueryCodecSupport.bytes(f.get(13),15)):null);
         if (!Arrays.equals(result.bindingDigest(), QueryCodecSupport.fixed(f.get(11),12,32))
                 || !Arrays.equals(result.digest(), QueryCodecSupport.fixed(f.get(12),13,32))) throw new IllegalArgumentException("Target SLO sample binding/content digest mismatch");
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target SLO sample"); return result;
