@@ -574,6 +574,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final LongSupplier monotonicClock;
     private final boolean recoveryOnly;
     private final Runnable recoveryProtection;
+    private final TargetStoreBootstrap.Initialized sloInitialization;
+    private final TargetStoreBootstrap.Reopened sloReopening;
+    private volatile TargetOwnerRecoveryCoordinator.SloRecoveryQualification recoveredSloQualification;
+    private boolean recoveredSloQualificationBound;
     // Store-read guards revalidate ownership while holding the Store monitor; keep this lock free of Store access.
     private final Object ownerStateLock = new Object();
     private WorkClassExecutionRegistry workClasses;
@@ -592,6 +596,37 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private boolean sourceSubmissionStarted;
     private TargetWorkerRecoverySource recoveryReader;
     private SourcePosition recoveryReaderCut;
+
+    /** Only the original protected recovery can qualify a reopened active Source for E4 work. */
+    synchronized void bindRecoveredSloQualification(TargetOwnerRecoveryCoordinator.SloRecoveryQualification proof) {
+        if (recoveryOnly || sloInitialization != null || sloReopening == null || fenced
+                || sourceSubmissionStarted || recoveredSloQualificationBound) {
+            throw new IllegalStateException("SLO recovery qualification binds once before reopened active Source work");
+        }
+        if (proof != null) {
+            proof.requireRuntimeBinding(sloReopening, store, assignment, lease);
+            proof.requireCurrent();
+        }
+        recoveredSloQualification = proof;
+        recoveredSloQualificationBound = true;
+    }
+
+    boolean sloScopeQualified() {
+        if (sloInitialization != null || recoveryOnly) return true;
+        final var proof = recoveredSloQualification;
+        if (proof == null) return false;
+        proof.requireScope(store, scope, lineage, assignment, lease);
+        proof.requireCurrent();
+        return true;
+    }
+
+    /** Stage configuration and newly supplied Control material never replace original recovery qualification. */
+    void requireSloScopeQualified() {
+        if (!sloScopeQualified()) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "reopened Target SLO scope requires original protected recovery qualification");
+        }
+    }
 
     synchronized void bindRecoveryReader(TargetWorkerRecoverySource source, SourcePosition cut) {
         if (!recoveryOnly || fenced || sourceSubmissionStarted || recoveryReader != null) {
@@ -827,6 +862,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     :com.nereusstream.delay.runtime.TargetSloFinalCandidates.forAdmission(reader,scope,lineage,((SourceReplayMutation)entry).mutation(),first);
         },reads(entry,clock));
         if(candidates.isEmpty())return null;
+        requireIncomingSloScopeQualified();
         if(activeSloFinal!=null)throw new IllegalStateException("another original Source still retains Final continuation");
         final var factory=Objects.requireNonNull(sloFinalContinuations,"required original post-sync Final Source provider");
         final var inspected=candidates.getFirst().syncedFirst().mutation();
@@ -851,17 +887,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     synchronized com.nereusstream.delay.runtime.TargetSloExportPageReader.Page captureSloExportPage(BoundedReadBudget budget,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Cursor cursor,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits pageLimits,LongSupplier clock){
-        requireGcOwner(clock);
+        requireGcOwner(clock);requireSloScopeQualified();
         final var page=backend.guardedRead(budget,reader->com.nereusstream.delay.runtime.TargetSloExportPageReader.read(reader,scope,lineage,cursor,pageLimits),workerReads(clock));
-        requireGcOwner(clock);return page;
+        requireGcOwner(clock);requireSloScopeQualified();return page;
     }
     synchronized void requireSloExportContext(com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){
-        requireGcOwner(clock);
+        requireGcOwner(clock);requireSloScopeQualified();
         if(cut!=null)backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
             cut.requireAtOrBefore(reader.aggregate().mutation());
             if(!cut.source().sameSourceIdentity(reader.source()))throw new IllegalStateException("SLO export cut changed physical Source");return Boolean.TRUE;
         },workerReads(clock));
-        requireGcOwner(clock);
+        requireGcOwner(clock);requireSloScopeQualified();
     }
     synchronized boolean hasSloCustody(com.nereusstream.delay.protocol.TargetSloObservationExport export,LongSupplier clock){
         requireGcOwner(clock);
@@ -879,15 +915,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Applied observeSloWriterEpoch(
             com.nereusstream.delay.protocol.TargetSloWriterContract.Reference reference,LongSupplier clock){
-        requireGcOwner(clock);
+        requireGcOwner(clock);requireSloScopeQualified();
         final var epochs=new com.nereusstream.delay.runtime.TargetSloWriterEpochStore(backend,scope,lineage,limits.counters(),limits.domains());
         final TargetStoreBackend.ReadAuthority reads=(actual,actualScope)->{
             requireOwner(clock); // External lease observation precedes the local Store view.
+            requireSloScopeQualified();
             if(!scope.equals(actualScope)||!Arrays.equals(metadata.encode(),actual.encode()))throw new IllegalStateException("SLO signing read changed its original Store/scope");
             final var captured=lease;
             final var held=Objects.requireNonNull(authorities.reads().acquire(actual,actualScope));
             return new TargetStoreBackend.CommitGuard(){
                 public void requireCurrent(){
+                    requireSloScopeQualified();
                     synchronized(ownerStateLock){
                         final long now=clock.getAsLong();
                         if(fenced||store.isCloseStarted()||!lease.sameIdentity(captured)||lease.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS
@@ -896,6 +934,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         lastOwnerTime=now;
                     }
                     held.requireCurrent();
+                    requireSloScopeQualified();
                 }
                 public void close(){held.close();}
             };
@@ -912,10 +951,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
         final var selected = authorityPreparation;
-        if (selected == null) return true;
+        if (selected == null && (sloInitialization != null || recoveryOnly)) return true;
         requireSubmission(entry, recovery); requireOwner(clock);
         if (authorityRefresh) {
-            if (!selected.complete(entry)) return false;
+            if (selected != null && !selected.complete(entry)) return false;
             authorityRefresh = false;
         }
         final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
@@ -935,8 +974,67 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                                 .requiresConfirmationInputs(budget, mutation, entry.position())) return true;
             }
         } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
-        catch (TargetSourceAuthorityPreparation.Required required) { return selected.prepare(entry, contentFamily(entry)); }
-        return selected.prepare(entry, contentFamily(entry));
+        catch (TargetSourceAuthorityPreparation.Required required) {
+            if (sloFirstRequiresQualification(entry, budget) && !sloScopeQualified()) return false;
+            return selected == null || selected.prepare(entry, contentFamily(entry));
+        }
+        if (sloFirstRequiresQualification(entry, budget) && !sloScopeQualified()) return false;
+        return selected == null || selected.prepare(entry, contentFamily(entry));
+    }
+
+    /** This selects a wait, never a Source rejection or a substitute for the original first/expiry rules. */
+    private boolean sloFirstRequiresQualification(SourceReplayEntry entry, BoundedReadBudget budget) {
+        if (sloInitialization != null || recoveryOnly) return false;
+        if (entry instanceof SourceReplayMutation mutation && !isSloMutation(mutation.mutation())
+                && mutation.mutation().type() != SystemMutationType.TARGET_PUBLISH_ADMISSION) return false;
+        try {
+            return backend.prepareRead(budget, reader -> {
+                if (entry instanceof SourceReplayMutation mutation && isSloMutation(mutation.mutation())) {
+                    // These are the existing verifiers' actual expiry facts, independent of E4 qualification.
+                    return !sloInputExpired(reader, mutation);
+                }
+                if (entry instanceof SourceReplayRecord || entry instanceof SourceReplayMutation mutation
+                        && mutation.mutation().type() == SystemMutationType.TARGET_PUBLISH_ADMISSION) {
+                    final var state = com.nereusstream.delay.runtime.TargetSloObservationVerifier.readState(reader, scope, lineage);
+                    return state != null && state.active();
+                }
+                return false;
+            }).value();
+        } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+    }
+
+    private static boolean sloInputExpired(TargetStoreBackend.Reader reader, SourceReplayMutation entry) {
+        return reader.closedIngressDeadlineThrough() >= entry.mutation().retryUntilEpochMs()
+                || entry.position().brokerPersistenceTimeEpochMs() > entry.mutation().retryUntilEpochMs();
+    }
+
+    private boolean sloInputExpired(SourceReplayMutation entry, BoundedReadBudget budget) {
+        try { return backend.prepareRead(budget, reader -> sloInputExpired(reader, entry)).value(); }
+        catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+    }
+
+    private void requireIncomingSloScopeQualified() {
+        if (!sloScopeQualified()) throw new TargetSourceAuthorityPreparation.Required();
+    }
+
+    private com.nereusstream.delay.runtime.TargetSloObservationSamples.Authority qualifiedSloSamples(
+            com.nereusstream.delay.runtime.TargetSloObservationSamples.Authority original) {
+        return new com.nereusstream.delay.runtime.TargetSloObservationSamples.Authority() {
+            public void requireSample(com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
+                    com.nereusstream.delay.protocol.TargetSloObservationSample sample, long maximumRetainedBytes) {
+                requireIncomingSloScopeQualified();
+                original.requireSample(generation, sample, maximumRetainedBytes);
+            }
+            public void requireCurrent() {
+                requireIncomingSloScopeQualified();
+                original.requireCurrent();
+            }
+        };
+    }
+
+    private static boolean isSloMutation(SystemMutation mutation) {
+        return mutation.type() == SystemMutationType.TARGET_SLO_OBSERVATION
+                || isSloWriterControl(mutation) || isSloObservationControl(mutation);
     }
 
     @Override boolean completeAuthorities(SourceReplayEntry entry) {
@@ -1010,7 +1108,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 lease,
                 authorities,
                 limits,
-                monotonicClock, false, () -> {});
+                monotonicClock, false, () -> {}, initialized, null);
     }
 
     /** Recovery composition uses only the root reconstructed from the persisted fixed Shard anchor. */
@@ -1030,7 +1128,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 lease,
                 authorities,
                 limits,
-                monotonicClock, false, () -> {});
+                monotonicClock, false, () -> {}, null, reopened);
     }
 
     /** Internal replay target; never exposed as an active Worker, Publisher, GC or ACK source runtime. */
@@ -1039,7 +1137,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             LongSupplier monotonicClock, Runnable protection) {
         Objects.requireNonNull(reopened, "reopened");
         return new TargetSourceApplyRuntime(reopened.backend(), reopened.root(), store, assignment, lease,
-                authorities, limits, monotonicClock, true, Objects.requireNonNull(protection, "protection"));
+                authorities, limits, monotonicClock, true, Objects.requireNonNull(protection, "protection"), null, reopened);
     }
 
     private TargetSourceApplyRuntime(
@@ -1052,7 +1150,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final Limits limits,
             final LongSupplier monotonicClock,
             final boolean recoveryOnly,
-            final Runnable recoveryProtection) {
+            final Runnable recoveryProtection,
+            final TargetStoreBootstrap.Initialized sloInitialization,
+            final TargetStoreBootstrap.Reopened sloReopening) {
         this.store = Objects.requireNonNull(store, "store");
         backend = Objects.requireNonNull(openedBackend, "backend");
         backend.requireStore(store);
@@ -1066,6 +1166,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         this.monotonicClock = Objects.requireNonNull(monotonicClock, "monotonicClock");
         this.recoveryOnly = recoveryOnly;
         this.recoveryProtection = recoveryProtection;
+        this.sloReopening = sloReopening;
         final var install = store.recoveryMetadata().installState();
         if (!recoveryOnly && install != null
                 && (install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
@@ -1083,6 +1184,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || !recoveryOnly && !assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())) {
             throw new IllegalArgumentException("Target source runtime lacks exact active Owner/assignment/Store state");
         }
+        boolean initializedAtCurrentSource = false;
         if (!recoveryOnly) {
             // ACTIVE lease alone cannot expose Claims left behind by a previous process or restore.
             final var claimCheck = backend.prepareRead(new BoundedReadBudget(limits.records(), limits.bytes(),
@@ -1094,9 +1196,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new IllegalStateException("Target startup must finish protected reversible Claim recovery before exposure");
                 }
                 reader.requireWithinElapsedBudget();
-                return Boolean.TRUE;
+                return sloInitialization != null && reader.source() != null
+                        && Arrays.equals(reader.source().canonicalBytes(),
+                                sloInitialization.result().appliedSourcePosition())
+                        && Arrays.equals(reader.aggregate().accountingIncarnation(),
+                                exactRoot.identity().accountingIncarnation());
             });
-            backend.completeRead(claimCheck, (actual, actualScope) -> new TargetStoreBackend.CommitGuard() {
+            initializedAtCurrentSource = backend.completeRead(claimCheck, (actual, actualScope) -> new TargetStoreBackend.CommitGuard() {
                 @Override public void requireCurrent() {
                     if (store.runtimeMetadata().lastOpenedOwnerEpoch() != lease.ownerEpoch()) {
                         throw new IllegalStateException("Target startup Owner epoch changed during Claim gate");
@@ -1105,6 +1211,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 @Override public void close() {}
             });
         }
+        // A retained bootstrap handle cannot qualify a Source that has since advanced through recovery or work.
+        this.sloInitialization = initializedAtCurrentSource ? sloInitialization : null;
         lineage = exactRoot.recoveryLineage();
         grants = new TargetQuotaGrantStore(backend, scope, lineage, limits.counters(), limits.domains());
         targetAdmissions = new TargetPublishAdmissionStore(
@@ -1832,6 +1940,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     synchronized void requireTargetControlWriter(final SystemMutation mutation, final LongSupplier clock) {
         requireGcOwner(clock);
+        if (isSloMutation(mutation)) requireSloScopeQualified();
         if(mutation.type()==SystemMutationType.TARGET_SLO_OBSERVATION){
             final var body=com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(mutation.canonicalBody());
             if(!scope.equals(body.scope())||!Arrays.equals(lineage,body.lineage())
@@ -2532,6 +2641,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }
+            final boolean requiresSloQualification = duplicate == null && sloFirstRequiresQualification(entry, budget);
+            if (requiresSloQualification) requireIncomingSloScopeQualified();
             final SystemMutationResult result;
             if (duplicate != null) {
                 result = replay.commit(
@@ -2561,7 +2672,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final TargetPublishAdmissionStore.Prepared first;
                 try {
                     first = targetAdmissions.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority(),control.samples());
+                            budget, mutation.mutation(), entry.position(), control.authority(),qualifiedSloSamples(control.samples()));
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -2637,24 +2748,25 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final com.nereusstream.delay.runtime.TargetSloObservationEventStore.Prepared first;
                 try { first = events.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority()); }
                 catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
-                result = events.commit(first, writes(control.commit(), entry, clock));
+                result = events.commit(first, writes(control.commit(), entry, clock, requiresSloQualification));
             } else if(isSloWriterControl(mutation.mutation())){
                 final var control=Objects.requireNonNull(authorities.sloWriters().resolve(mutation),"original SLO writer Control inputs");
                 final var writers=new com.nereusstream.delay.runtime.TargetSloWriterEpochStore(backend,scope,lineage,limits.counters(),limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloWriterEpochStore.Prepared first;
                 try{first=writers.prepareFirst(budget,control.prepared(),mutation.mutation(),entry.position(),control.authority());}
                 catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
-                result=writers.commit(first,writes(control.commit(),entry,clock));
+                result=writers.commit(first,writes(control.commit(),entry,clock,requiresSloQualification));
             } else if (isSloObservationControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.sloObservations().resolve(mutation), "original Target SLO Control inputs");
                 if(com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(mutation.mutation().canonicalBody()).request().operationKind()
-                        ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION&&(sloFinalContinuations==null||sloCustodyExport==null))
+                        ==com.nereusstream.delay.protocol.ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION
+                        &&(sloFinalContinuations==null||sloCustodyExport==null)&&!sloInputExpired(mutation,budget))
                     throw new TargetSourceAuthorityPreparation.InputUnavailable("certification ENABLE lacks actual post-sync Final Source continuation");
                 final var mode = new com.nereusstream.delay.runtime.TargetSloObservationStore(backend, scope, lineage, limits.counters(), limits.domains());
                 final com.nereusstream.delay.runtime.TargetSloObservationStore.Prepared first;
                 try { first = mode.prepareFirst(budget, control.prepared(), mutation.mutation(), entry.position(), control.authority()); }
                 catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
-                result = mode.commit(first, writes(control.commit(), entry, clock));
+                result = mode.commit(first, writes(control.commit(), entry, clock, requiresSloQualification));
             } else if (isChannelControl(mutation.mutation())) {
                 final var control = Objects.requireNonNull(authorities.channelControls().resolve(mutation),
                         "Target channel lifecycle authority");
@@ -2750,7 +2862,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         try {
             prepared = commandReplay
                     .prepareReplayOrExpired(budget, entry.command(), entry.position(),
-                            () -> Objects.requireNonNull(authorities.commands().resolve(entry), "expired Source sample authority").samples())
+                            () -> qualifiedSloSamples(Objects.requireNonNull(authorities.commands().resolve(entry), "expired Source sample authority").samples()))
                     .orElse(null);
         } catch (ReadIncompleteException incomplete) {
             throw new ReadYield(incomplete);
@@ -2760,6 +2872,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             result = commandReplay.commit(
                     prepared, writes(authorities.duplicateWrites(), entry, clock), reads(entry, clock));
         } else {
+            if (sloFirstRequiresQualification(entry, budget)) requireIncomingSloScopeQualified();
             // Resolve external snapshots outside the zero-write backend retry classifier.
             final var control = Objects.requireNonNull(authorities.commands().resolve(entry), "command control");
             final TargetCommandStore.Prepared first;
@@ -2780,7 +2893,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         control.reservationControls(),
                         control.schedules(),
                         control.payloadProofs(),
-                        control.samples());
+                        qualifiedSloSamples(control.samples()));
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }
@@ -2808,6 +2921,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final TargetStoreBackend.CommitAuthority external,
             final SourceReplayEntry entry,
             final LongSupplier clock) {
+        return writes(external, entry, clock, false);
+    }
+
+    private TargetStoreBackend.CommitAuthority writes(
+            final TargetStoreBackend.CommitAuthority external,
+            final SourceReplayEntry entry,
+            final LongSupplier clock,
+            final boolean requiresSloQualification) {
         return (actual, actualScope, mutation) -> {
             final var stamp = mutation.quota().counters().mutation();
             if (stamp.isLocalMutation()
@@ -2817,7 +2938,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new IllegalStateException("Target source commit changed its exact source/envelope stamp");
             }
             requireOwner(clock);
-            return guard(external.acquire(actual, actualScope, mutation), actual, actualScope, entry, clock);
+            if (requiresSloQualification) requireIncomingSloScopeQualified();
+            final var held = guard(external.acquire(actual, actualScope, mutation), actual, actualScope, entry, clock);
+            if (!requiresSloQualification) return held;
+            return new TargetStoreBackend.CommitGuard() {
+                public void requireCurrent() {
+                    requireIncomingSloScopeQualified();
+                    held.requireCurrent();
+                    requireIncomingSloScopeQualified();
+                }
+                public void close() { held.close(); }
+            };
         };
     }
 

@@ -16,12 +16,15 @@ import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetQuotaUsage;
+import com.nereusstream.delay.protocol.TargetSloObservationGeneration;
+import com.nereusstream.delay.protocol.TargetSloWriterEpoch;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.StoreMetadata;
 import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
+import com.nereusstream.delay.store.TargetCheckpointDependencies;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -115,6 +118,35 @@ public final class TargetStoreBootstrap {
         }
     }
 
+    /** Actual Source-applied SLO material at one audited reopen cut; this does not close any old writer domain. */
+    public static final class SloRecoveryAudit {
+        private final Reopened reopened;
+        private final TargetQuotaMutation cut;
+        private final List<TargetSloObservationGeneration> generations;
+        private final List<TargetSloWriterEpoch> writers;
+        private final long retainedBytes;
+
+        private SloRecoveryAudit(Reopened reopened, SloFacts facts) {
+            this.reopened = reopened;
+            cut = facts.cut(); generations = facts.generations(); writers = facts.writers();
+            retainedBytes = facts.retainedBytes();
+        }
+
+        public Reopened reopened() { return reopened; }
+        public TargetQuotaIncarnation root() { return reopened.root(); }
+        public TargetQuotaScope scope() { return root().scope(); }
+        public byte[] lineage() { return root().recoveryLineage(); }
+        public TargetQuotaMutation cut() { return cut; }
+        public List<TargetSloObservationGeneration> generations() { return generations; }
+        public List<TargetSloWriterEpoch> writers() { return writers; }
+        public long retainedBytes() { return retainedBytes; }
+    }
+
+    private record SloFacts(TargetQuotaMutation cut, List<TargetSloObservationGeneration> generations,
+            List<TargetSloWriterEpoch> writers, long retainedBytes) {}
+    private record ReopenFacts(TargetCheckpointRootVerifier.RootProof proof, SloFacts slo) {}
+    private record ReopenResult(Reopened reopened, SloRecoveryAudit slo) {}
+
     /** Rebuilds the exact Target root after Store reopen; external Owner/recovery authority must guard the read. */
     public static Reopened reopen(
             final ShardStore store,
@@ -133,6 +165,43 @@ public final class TargetStoreBootstrap {
             final BoundedReadBudget budget,
             final TargetStoreBackend.ReadAuthority reads,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0).reopened();
+    }
+
+    public static SloRecoveryAudit reopenForSloRecovery(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final long maximumRetainedBytes) {
+        return reopenForSloRecovery(store, scope, limits, budget, reads, DEFAULT_REOPEN_LEDGER_AUDIT_LIMITS,
+                maximumRetainedBytes);
+    }
+
+    /** Retains every SLO generation and writer row from the original full fold under a separate finite byte bound. */
+    public static SloRecoveryAudit reopenForSloRecovery(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final long maximumRetainedBytes) {
+        if (maximumRetainedBytes <= 0 || maximumRetainedBytes == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("SLO recovery facts require an independent finite retained-byte bound");
+        }
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, maximumRetainedBytes).slo();
+    }
+
+    private static ReopenResult reopen0(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final long maximumRetainedBytes) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
@@ -206,18 +275,46 @@ public final class TargetStoreBootstrap {
                 bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
                 final var proof = new TargetCheckpointRootVerifier.RootProof(
                         store.metadata(), source, sequence, persistedRoot, bookkeeping, aggregate);
-                TargetCheckpointRootVerifier.auditLiveStoreLedger(store, proof, ledgerLimits, budget);
-                return proof;
+                final var dependencies = TargetCheckpointRootVerifier.auditLiveStoreDependencies(
+                        store, proof, ledgerLimits, budget);
+                return new ReopenFacts(proof, maximumRetainedBytes == 0 ? null
+                        : sloFacts(proof, dependencies, maximumRetainedBytes));
             });
             return store.withReadView(plan.view(), () -> {
                 guard.requireCurrent();
-                final var root = plan.value().root();
-                return new Reopened(
+                final var root = plan.value().proof().root();
+                final var reopened = new Reopened(
                         new TargetStoreBackend(
                                 store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),
                         root, plan.view());
+                final var facts = plan.value().slo();
+                return new ReopenResult(reopened, facts == null ? null : new SloRecoveryAudit(reopened, facts));
             });
         }
+    }
+
+    private static SloFacts sloFacts(TargetCheckpointRootVerifier.RootProof proof,
+            TargetCheckpointDependencies dependencies, long maximumRetainedBytes) {
+        final var cut = proof.aggregate().mutation();
+        long bytes = retained(0, proof.root().canonicalBytes().length, maximumRetainedBytes);
+        bytes = retained(bytes, cut.canonicalBytes().length, maximumRetainedBytes);
+        final var generations = dependencies.sloGenerations();
+        final var writers = dependencies.sloWriterEpochs();
+        for (var generation : generations) {
+            bytes = retained(bytes, generation.canonicalBytes().length, maximumRetainedBytes);
+        }
+        for (var writer : writers) {
+            bytes = retained(bytes, writer.canonicalBytes().length, maximumRetainedBytes);
+        }
+        return new SloFacts(cut, List.copyOf(generations), List.copyOf(writers), bytes);
+    }
+
+    private static long retained(long before, int canonicalBytes, long maximumRetainedBytes) {
+        final long after = Math.addExact(before, canonicalBytes);
+        if (after > maximumRetainedBytes) {
+            throw new IllegalArgumentException("SLO recovery facts exceed their independent retained-byte bound");
+        }
+        return after;
     }
 
     /** Invalid first input fails startup without recording a rejection, inventing a root or acknowledging source. */

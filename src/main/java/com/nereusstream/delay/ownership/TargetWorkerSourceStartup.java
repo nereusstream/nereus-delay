@@ -92,6 +92,8 @@ public final class TargetWorkerSourceStartup {
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private long recoveryInputBytesLimit;
     private RecoveryInputsOpening currentRecoveryInputs;
+    private final java.util.List<SloRecoveryOpening> sloRecoveries = new java.util.ArrayList<>(2);
+    private SloRecoveryOpening currentSloRecovery;
     private boolean serviceJournalHandoffComplete;
     private TargetWorkerPublicationDispatch publicationDispatch;
     private TargetWorkerChannelInventory channelInventory;
@@ -251,6 +253,199 @@ public final class TargetWorkerSourceStartup {
         }
     }
 
+    /** Both audits and the exact signed Fence remain with the original Owner/input through every I/O exit. */
+    private static final class SloRecoveryOpening {
+        private final TargetWorkerSourceStartup startup;
+        private final TargetOwnerRecoveryCoordinator coordinator;
+        private final TargetWorkerRecoverySource source;
+        private final RecoveryInputsOpening input;
+        private OwnedCheckpointIo<Boolean> preparation;
+        private OwnedCheckpointIo<Boolean> completion;
+        private TargetStoreBootstrap.SloRecoveryAudit originalAudit;
+        private TargetStoreBootstrap.SloRecoveryAudit replayedAudit;
+        private TargetTimeFenceMutationFactory.Prepared exactFence;
+        private long fenceRetainedBytes;
+        private boolean qualificationRequired;
+        private boolean preparationBound;
+        private boolean completionBound;
+
+        private SloRecoveryOpening(TargetWorkerSourceStartup startup) {
+            this.startup = startup; coordinator = startup.recovery.coordinator();
+            source = startup.recoverySource; input = startup.currentRecoveryInputs;
+        }
+
+        private void requireCurrent() {
+            synchronized (startup) {
+                startup.requireRecoveryReaderCurrent();
+                if (startup.currentSloRecovery != this || startup.recovery == null
+                        || startup.recovery.coordinator() != coordinator || startup.recoverySource != source
+                        || startup.currentRecoveryInputs != input || !startup.sloRecoveries.contains(this)) {
+                    throw new IllegalStateException("SLO recovery lost its original Owner/input/reader");
+                }
+                if (input != null) input.requireValue();
+            }
+        }
+
+        private long retainedBytes() {
+            long bytes = fenceRetainedBytes;
+            if (originalAudit != null) bytes = Math.addExact(bytes, originalAudit.retainedBytes());
+            if (replayedAudit != null) bytes = Math.addExact(bytes, replayedAudit.retainedBytes());
+            return bytes;
+        }
+
+        private void reserveFenceBytes() {
+            synchronized (startup) {
+                if (fenceRetainedBytes != 0) return;
+                final long maximumFrameBytes = startup.graph.config().maximumSourceFrameBytes();
+                if (maximumFrameBytes >= startup.remainingSloRecoveryBytes()) {
+                    throw new IllegalStateException("original SLO recovery cannot reserve its Fence and audit bytes");
+                }
+                // Any failed prepare retains this UNKNOWN allowance until the original input exits.
+                fenceRetainedBytes = maximumFrameBytes;
+            }
+        }
+
+        private void prepare() {
+            synchronized (startup) {
+                requireCurrent();
+                if (preparation != null) return;
+                preparation = OwnedCheckpointIo.submit(guard -> {
+                    guard.run();
+                    if (input != null) {
+                        input.requireValue(); guard.run();
+                        qualificationRequired = input.original.requiresSloRecoveryQualification();
+                        input.requireValue(); guard.run();
+                        if (qualificationRequired) reserveFenceBytes();
+                    }
+                    final var audit = coordinator.captureSloRecoveryAudit(startup.remainingSloRecoveryBytes(), false);
+                    synchronized (startup) { originalAudit = audit; startup.requireSloRecoveryByteBound(); }
+                    guard.run();
+                    if (hasSlo(audit)) qualificationRequired = true;
+                    if (qualificationRequired) {
+                        if (input == null) throw new IllegalStateException("SLO recovery lacks its original protected input hold");
+                        // A newly discovered Native obligation must reserve before its provider can append.
+                        reserveFenceBytes();
+                        input.requireValue(); guard.run();
+                        // The original hold owns append/UNKNOWN and every native cleanup; no Source apply is awaited here.
+                        final var fence = input.original.prepareSloRecoveryFence(audit, guard);
+                        synchronized (startup) {
+                            exactFence = fence;
+                            final long actualFrameBytes = fence == null ? 0 : fence.mutation().encodeFrame().length;
+                            if (actualFrameBytes > fenceRetainedBytes) {
+                                throw new IllegalArgumentException("original SLO recovery Fence exceeds the Source frame bound");
+                            }
+                            fenceRetainedBytes = actualFrameBytes;
+                            startup.requireSloRecoveryByteBound();
+                        }
+                        input.requireValue(); guard.run();
+                        if (hasSlo(audit) && fence == null) {
+                            throw new IllegalStateException("original SLO recovery returned no exact Fence for its retained domain");
+                        }
+                    }
+                    guard.run(); return Boolean.TRUE;
+                }, this::requireCurrent, startup.graph.io());
+            }
+        }
+
+        private boolean bindPreparation() {
+            final var io = preparation;
+            if (io == null) return false;
+            io.retryCleanup();
+            if (!io.operationExited() || !io.receipt().isDone()) return false;
+            io.receipt().join();
+            if (!io.ioExited()) return false;
+            requireCurrent();
+            if (!preparationBound) {
+                coordinator.bindSloRecoveryPreparation(Objects.requireNonNull(originalAudit), exactFence,
+                        input == null ? null : input.original, qualificationRequired);
+                preparationBound = true;
+            }
+            return true;
+        }
+
+        private void complete() {
+            synchronized (startup) {
+                requireCurrent();
+                if (!preparationBound) throw new IllegalStateException("SLO recovery preparation has not actually exited");
+                if (completion != null) return;
+                completion = OwnedCheckpointIo.submit(guard -> {
+                    guard.run();
+                    final var audit = coordinator.captureSloRecoveryAudit(startup.remainingSloRecoveryBytes(), true);
+                    synchronized (startup) { replayedAudit = audit; startup.requireSloRecoveryByteBound(); }
+                    guard.run();
+                    if (input != null) {
+                        input.requireValue(); guard.run();
+                        final boolean requested = input.original.requiresSloRecoveryQualification();
+                        input.requireValue(); guard.run();
+                        if (requested && !qualificationRequired) {
+                            throw new IllegalStateException("ordinary recovery cannot acquire SLO qualification after its preparation cut");
+                        }
+                    }
+                    if (qualificationRequired && input == null) {
+                        throw new IllegalStateException("replayed SLO recovery lacks its original protected input hold");
+                    }
+                    if (!qualificationRequired && (exactFence != null || hasSlo(originalAudit) || hasSlo(audit))) {
+                        throw new IllegalStateException("ordinary recovery cannot close a retained or newly replayed SLO obligation");
+                    }
+                    coordinator.completeSloRecovery(audit, input == null ? null : input.original, guard);
+                    guard.run(); return Boolean.TRUE;
+                }, this::requireCurrent, startup.graph.io());
+            }
+        }
+
+        private boolean bindCompletion() {
+            final var io = completion;
+            if (io == null) return false;
+            io.retryCleanup();
+            if (!io.operationExited() || !io.receipt().isDone()) return false;
+            io.receipt().join();
+            if (!io.ioExited()) return false;
+            requireCurrent();
+            if (!completionBound) {
+                coordinator.bindSloRecoveryCompletion(Objects.requireNonNull(replayedAudit), input == null ? null : input.original);
+                completionBound = true;
+            }
+            return true;
+        }
+
+        private boolean operationsExited(boolean stop) {
+            boolean exited = true;
+            for (var io : new OwnedCheckpointIo<?>[] {preparation, completion}) {
+                if (io == null) continue;
+                if (stop) io.requestStop();
+                exited &= io.operationExited();
+            }
+            return exited;
+        }
+
+        private boolean cleanupExited() {
+            boolean exited = true;
+            for (var io : new OwnedCheckpointIo<?>[] {preparation, completion}) {
+                if (io == null) continue;
+                io.retryCleanup(); exited &= io.ioExited();
+            }
+            return exited;
+        }
+
+        private static boolean hasSlo(TargetStoreBootstrap.SloRecoveryAudit audit) {
+            return !audit.generations().isEmpty() || !audit.writers().isEmpty();
+        }
+    }
+
+    /** One aggregate bound covers both phases and both retained Owner handles; input holds keep their own bound. */
+    private synchronized long remainingSloRecoveryBytes() {
+        long remaining = content.maximumBytes();
+        for (var opening : sloRecoveries) remaining = Math.subtractExact(remaining, opening.retainedBytes());
+        if (remaining < 1) throw new IllegalStateException("original SLO recovery audit/Fence byte reservation is occupied");
+        return remaining;
+    }
+
+    private synchronized void requireSloRecoveryByteBound() {
+        long bytes = 0;
+        for (var opening : sloRecoveries) bytes = Math.addExact(bytes, opening.retainedBytes());
+        if (bytes > content.maximumBytes()) throw new IllegalStateException("retained SLO recovery audits/Fences exceed their aggregate bound");
+    }
+
     /** Private root-issued close permission; no apply/ACK/append authority and no hold release. */
     public static final class JournalHandoff {
         private final RecoveryInputsOpening input;
@@ -348,6 +543,7 @@ public final class TargetWorkerSourceStartup {
 
     private boolean recoveryInputOperationsExited(boolean stop) {
         boolean exited = true;
+        for (var opening : sloRecoveries) exited &= opening.operationsExited(stop);
         if(recoveryTailCapture!=null){
             if(stop)recoveryTailCapture.requestStop();
             exited&=recoveryTailCapture.operationExited();
@@ -362,6 +558,7 @@ public final class TargetWorkerSourceStartup {
 
     private boolean recoveryInputCleanupExited() {
         boolean exited = true;
+        for (var opening : sloRecoveries) exited &= opening.cleanupExited();
         if(recoveryTailCapture!=null){recoveryTailCapture.retryCleanup();exited&=recoveryTailCapture.ioExited();}
         for (var input : recoveryInputs) {
             if (input.io == null) continue;
@@ -382,6 +579,7 @@ public final class TargetWorkerSourceStartup {
             channelInventory.releaseAfterExit();
             process.releaseChannelInventory(this, channelInventory); channelInputsReleased = true;
         }
+        if (released) { sloRecoveries.clear(); currentSloRecovery = null; }
         return released;
     }
 
@@ -546,6 +744,7 @@ public final class TargetWorkerSourceStartup {
             if (!startup.settleRecoveryJournal(previousInputs, this)) return false;
             synchronized (startup) {
                 requireCurrent();
+                if (!startup.recoveryInputOperationsExited(false) || !startup.recoveryInputCleanupExited()) return false;
                 if (prepared.ownedBackendGroup() != startup.backend || startup.backend == null) {
                     throw new IllegalArgumentException("prepared P1 consumer belongs to another original SDK owner");
                 }
@@ -595,6 +794,7 @@ public final class TargetWorkerSourceStartup {
                     }
                     startup.activation = null; startup.failedAssembly = null;
                     startup.recovery = null; startup.recoverySource = null;startup.recoveryTailCapture=null;
+                    startup.currentSloRecovery = null;
                     startup.recoveryCleanupFailure = null;
                     openedSuccessor = true;
                 }
@@ -1014,7 +1214,20 @@ public final class TargetWorkerSourceStartup {
         }
         try (original) {
             original.requireCurrent();
-            if(recovery.coordinator().awaitingReplayTailCapture()&&recoveryTailCapture==null){
+            final var coordinator = recovery.coordinator();
+            if (coordinator.needsSloRecoveryPreparation()) {
+                final SloRecoveryOpening opening;
+                synchronized (this) {
+                    if (currentSloRecovery == null) {
+                        if (sloRecoveries.size() == 2) throw new IllegalStateException("two original SLO recovery Owner handles are already retained");
+                        currentSloRecovery = new SloRecoveryOpening(this); sloRecoveries.add(currentSloRecovery);
+                    }
+                    opening = currentSloRecovery;
+                }
+                opening.prepare();
+                if (!opening.bindPreparation()) return coordinator.replayTailCaptureTurn();
+            }
+            if(coordinator.awaitingReplayTailCapture()&&recoveryTailCapture==null){
                 final var source=recoverySource;
                 recoveryTailCapture=OwnedCheckpointIo.submit(guard->{
                     guard.run();source.captureReplayTail();guard.run();return Boolean.TRUE;
@@ -1023,24 +1236,29 @@ public final class TargetWorkerSourceStartup {
             final var capture=recoveryTailCapture;
             if(capture!=null){
                 capture.retryCleanup();
-                if(!capture.operationExited()||!capture.receipt().isDone())return recovery.coordinator().replayTailCaptureTurn();
+                if(!capture.operationExited()||!capture.receipt().isDone())return coordinator.replayTailCaptureTurn();
                 capture.receipt().join();
-                if(!capture.ioExited())return recovery.coordinator().replayTailCaptureTurn();
-                recovery.coordinator().replayTailCaptured(recoverySource);
+                if(!capture.ioExited())return coordinator.replayTailCaptureTurn();
+                coordinator.replayTailCaptured(recoverySource);
+            }
+            if (coordinator.awaitingSloRecoveryCompletion()) {
+                final var opening = Objects.requireNonNull(currentSloRecovery, "original SLO recovery handle");
+                opening.complete();
+                if (!opening.bindCompletion()) return coordinator.sloRecoveryCompletionTurn();
             }
             original.requireCurrent();
-            var turn = recovery.coordinator().runTurn();
-            if (recovery.coordinator().sourceReadyForReactivation()) {
-                synchronized (this) { lease = recovery.coordinator().sourcePreparationLease(); }
+            var turn = coordinator.runTurn();
+            if (coordinator.sourceReadyForReactivation()) {
+                synchronized (this) { lease = coordinator.sourcePreparationLease(); }
                 try { recoverySource.close(); }
                 catch (RuntimeException | Error failure) {
                     synchronized (this) { if (recoveryCleanupFailure == null) recoveryCleanupFailure = failure; }
                 }
-                if (recoverySource.cleanupComplete()) recovery.coordinator().releaseReaderForSourceReactivation(recoverySource);
+                if (recoverySource.cleanupComplete()) coordinator.releaseReaderForSourceReactivation(recoverySource);
                 return turn;
             }
             if (turn.complete()) {
-                synchronized (this) { lease = recovery.coordinator().activeLease(); }
+                synchronized (this) { lease = coordinator.activeLease(); }
                 try { recoverySource.close(); }
                 catch (RuntimeException | Error failure) {
                     synchronized (this) { if (recoveryCleanupFailure == null) recoveryCleanupFailure = failure; }

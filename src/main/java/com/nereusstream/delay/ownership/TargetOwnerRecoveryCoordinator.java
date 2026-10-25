@@ -4,6 +4,7 @@ import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.RecoveryInstallPhase;
 import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -68,6 +69,73 @@ public final class TargetOwnerRecoveryCoordinator {
     private TargetWorkerRecoverySource replayTailReader;
     private SourcePosition replayTailAppliedAt;
     private boolean replayTailCaptured;
+    private TargetStoreBootstrap.SloRecoveryAudit sloRecoveryOriginal;
+    private TargetStoreBootstrap.SloRecoveryAudit sloRecoveryReplayed;
+    private TargetStoreBootstrap.SloRecoveryAudit sloRecoveryCompleted;
+    private TargetTimeFenceMutationFactory.Prepared sloRecoveryFence;
+    private TargetSourceRecoveryInputs sloRecoveryInput;
+    private boolean sloRecoveryBound;
+    private boolean sloRecoveryQualificationRequired;
+    private boolean sloRecoveryPhaseComplete;
+    private SloRecoveryQualification sloRecoveryQualification;
+
+    /**
+     * Qualification of one actual original recovery hold, not a caller assertion or a Native census.
+     * Only the strict completion callback can create this proof. Ordinary recovery remains unqualified.
+     */
+    public static final class SloRecoveryQualification {
+        private final ShardStore store;
+        private final TargetStoreBootstrap.SloRecoveryAudit original;
+        private final TargetStoreBootstrap.SloRecoveryAudit replayed;
+        private final TargetTimeFenceMutationFactory.Prepared exactFence;
+        private final TargetSourceRecoveryInputs input;
+        private final SourceAssignment assignment;
+        private final OwnerLease owner;
+        private TargetStoreBootstrap.Reopened runtimeRoot;
+
+        private SloRecoveryQualification(ShardStore store, TargetStoreBootstrap.SloRecoveryAudit original,
+                TargetStoreBootstrap.SloRecoveryAudit replayed, TargetTimeFenceMutationFactory.Prepared exactFence,
+                TargetSourceRecoveryInputs input, SourceAssignment assignment, OwnerLease owner) {
+            this.store = store; this.original = original; this.replayed = replayed; this.exactFence = exactFence;
+            this.input = input; this.assignment = assignment; this.owner = owner;
+        }
+
+        private synchronized void bindRuntimeRoot(TargetStoreBootstrap.Reopened root) {
+            if (runtimeRoot != null && runtimeRoot != root) {
+                throw new IllegalStateException("SLO qualification cannot move to another actual recovery root");
+            }
+            root.backend().requireStore(store);
+            if (!root.root().identity().equals(original.root().identity())
+                    || !Arrays.equals(root.root().recoveryLineage(), original.lineage())) {
+                throw new IllegalStateException("SLO qualification changed its original Root incarnation/lineage");
+            }
+            runtimeRoot = root;
+        }
+
+        /** Exact final audited root and physical Store/Source/Owner binding; lease renewal preserves identity. */
+        public synchronized void requireRuntimeBinding(TargetStoreBootstrap.Reopened root, ShardStore actualStore,
+                SourceAssignment actualAssignment, OwnerLease actualOwner) {
+            if (runtimeRoot == null || runtimeRoot != root) {
+                throw new IllegalStateException("SLO qualification lacks its actual completed recovery root");
+            }
+            requireScope(actualStore, root.root().scope(), root.root().recoveryLineage(), actualAssignment, actualOwner);
+        }
+
+        /** Retained identity checks only; no replacement input, authoritative reread or Store scan. */
+        public void requireScope(ShardStore actualStore, TargetQuotaScope scope, byte[] lineage,
+                SourceAssignment actualAssignment, OwnerLease actualOwner) {
+            if (store != actualStore || !original.scope().equals(scope.shardScope())
+                    || !Arrays.equals(original.lineage(), lineage)
+                    || !assignment.sameIdentity(actualAssignment) || !owner.sameIdentity(actualOwner)
+                    || !original.root().identity().equals(replayed.root().identity())
+                    || exactFence != null && !exactFence.body().shard().equals(scope.shard())) {
+                throw new IllegalStateException("SLO qualification changed its original Store/Scope/lineage/Source/Owner");
+            }
+        }
+
+        /** Only this hold's already-retained local version/pin/Scope protections remain valid at apply. */
+        public void requireCurrent() { input.requireSourceCurrent(); }
+    }
 
     synchronized void bindReplayTail(TargetWorkerRecoverySource reader){
         if(turnNumber!=0||replay!=null||replayTailReader!=null)throw new IllegalStateException("finite replay tail must bind before recovery starts");
@@ -83,13 +151,184 @@ public final class TargetOwnerRecoveryCoordinator {
     synchronized void replayTailCaptured(TargetWorkerRecoverySource reader){
         if(replayTailReader!=reader)throw new IllegalArgumentException("captured tail changed its original recovery reader");
         if(replayTailCaptured)return;
-        if(!awaitingReplayTailCapture())throw new IllegalStateException("tail captured before original Source barrier/action completion");
+        if(!awaitingReplayTailCapture()||!sloRecoveryBound)throw new IllegalStateException("tail captured before original Source barrier/SLO preparation completion");
         replayTailCaptured=true;
     }
 
     synchronized OwnerRecoveryTurn replayTailCaptureTurn(){
         if(!awaitingReplayTailCapture())throw new IllegalStateException("original Source is not paused for tail capture");
         return new OwnerRecoveryTurn(List.of(),false,turnNumber);
+    }
+
+    synchronized boolean needsSloRecoveryPreparation(){return awaitingReplayTailCapture()&&!sloRecoveryBound;}
+
+    synchronized boolean awaitingSloRecoveryCompletion(){
+        return replayTailReader!=null&&sloRecoveryBound&&!sloRecoveryPhaseComplete&&replayTailCaptured
+                &&pending==null&&pendingEntry==null
+                &&(lastSourceAction==null||workClasses.state(lastSourceAction).isEmpty())&&replayTailReached();
+    }
+
+    synchronized OwnerRecoveryTurn sloRecoveryCompletionTurn(){
+        if(!awaitingSloRecoveryCompletion())throw new IllegalStateException("original Source is not paused for SLO recovery authentication");
+        return new OwnerRecoveryTurn(List.of(),false,turnNumber);
+    }
+
+    /** Complete local facts only. Independent old-writer/range/time authority is acquired after this view exits. */
+    synchronized TargetStoreBootstrap.SloRecoveryAudit captureSloRecoveryAudit(long maximumRetainedBytes,boolean afterTail){
+        requireSloAuditPhase(afterTail);beginReplay();requireLease(false);
+        final var audit=TargetStoreBootstrap.reopenForSloRecovery(store,initial.root().scope(),
+                new TargetStoreBackend.WriteLimits(limits.records(),limits.bytes()),
+                Objects.requireNonNull(auditBudgets.get(),"SLO recovery audit budget"),sloRecoveryReads(afterTail),ledgerLimits,maximumRetainedBytes);
+        requireLease(false);requireSloAuditPhase(afterTail);
+        if(afterTail)sloRecoveryReplayed=audit;else sloRecoveryOriginal=audit;
+        return audit;
+    }
+
+    private TargetStoreBackend.ReadAuthority sloRecoveryReads(boolean afterTail){
+        return (metadata,scope)->{
+            requireLease(false);requireSloAuditPhase(afterTail);
+            if(!scope.equals(initial.root().scope())||!Arrays.equals(metadata.encode(),store.metadata().encode()))
+                throw new IllegalStateException("SLO recovery read changed its original Store/scope");
+            final var captured=lease;
+            final var original=Objects.requireNonNull(authorities.reads().acquire(metadata,scope));
+            return new TargetStoreBackend.CommitGuard(){
+                public void requireCurrent(){
+                    // No authoritative lease I/O while the native Store view is held.
+                    protection.run();requireSloAuditPhase(afterTail);
+                    final long now=clock.getAsLong();
+                    if(!lease.sameIdentity(captured)||lease.state()!=ShardLifecycleState.CATCHING_UP
+                            ||store.isCloseStarted()||store.runtimeMetadata().lastOpenedOwnerEpoch()!=captured.ownerEpoch()
+                            ||now<lastNow||!lease.validAt(now))throw new IllegalStateException("SLO recovery read lost its original local Owner");
+                    original.requireCurrent();
+                }
+                public void close(){original.close();}
+            };
+        };
+    }
+
+    private void requireSloAuditPhase(boolean afterTail){
+        if(afterTail?!awaitingSloRecoveryCompletion():!needsSloRecoveryPreparation())
+            throw new IllegalStateException("SLO recovery audit crossed its original paused Source phase");
+    }
+
+    synchronized void bindSloRecoveryPreparation(TargetStoreBootstrap.SloRecoveryAudit audit,
+            TargetTimeFenceMutationFactory.Prepared exactFence,TargetSourceRecoveryInputs originalInput,
+            boolean qualificationRequired){
+        requireSloAuditPhase(false);requireLease(false);
+        if(sloRecoveryOriginal!=audit)throw new IllegalStateException("SLO recovery changed its actual captured original census");
+        if(!qualificationRequired&&(hasSlo(audit)||exactFence!=null))
+            throw new IllegalStateException("ordinary recovery cannot prepare an E4 domain or Fence");
+        if(qualificationRequired&&originalInput==null)
+            throw new IllegalStateException("strict SLO recovery requires its original protected input hold");
+        requireSloAudit(audit);requireFenceCovers(audit,exactFence);
+        requireSloInput(originalInput);
+        store.withReadView(audit.reopened().view(),()->null);
+        sloRecoveryFence=exactFence;sloRecoveryInput=originalInput;
+        sloRecoveryQualificationRequired=qualificationRequired;sloRecoveryBound=true;
+    }
+
+    /** Exact APPLIED first/POS, not append return or an empty finite prefix, closes the expected Fence dependency. */
+    synchronized void requireSloRecoveryFenceApplied(TargetStoreBootstrap.SloRecoveryAudit replayed){
+        requireSloAuditPhase(true);requireLease(false);requireSloAudit(replayed);requireFenceCovers(replayed,sloRecoveryFence);
+        if(sloRecoveryReplayed!=replayed)throw new IllegalStateException("SLO recovery changed its actual captured post-prefix census");
+        store.withReadView(replayed.reopened().view(),()->null);
+        if(sloRecoveryFence!=null){
+            replayed.reopened().backend().guardedRead(Objects.requireNonNull(auditBudgets.get()),reader->{
+                com.nereusstream.delay.runtime.TargetSloRecoveryFenceVerifier.requireApplied(reader,replayed.scope(),replayed.lineage(),
+                        sloRecoveryFence.mutation(),replayed.cut());return Boolean.TRUE;
+            },sloRecoveryReads(true));
+        }
+        requireLease(false);requireSloAuditPhase(true);
+    }
+
+    /**
+     * Runs on the original I/O task. The independent original-history callback is deliberately outside
+     * Startup, Coordinator and Store monitors. Its success, including a strict null-Fence result, is
+     * the only path that can mint an E4 proof; empty censuses complete only the ordinary recovery phase.
+     */
+    void completeSloRecovery(TargetStoreBootstrap.SloRecoveryAudit replayed,
+            TargetSourceRecoveryInputs originalInput,Runnable guard){
+        final TargetStoreBootstrap.SloRecoveryAudit original;
+        final TargetTimeFenceMutationFactory.Prepared exactFence;
+        final boolean qualificationRequired;
+        final OwnerLease originalOwner;
+        synchronized(this){
+            requireSloRecoveryFenceApplied(replayed);requireSloCompletionInput(originalInput);
+            if(sloRecoveryCompleted!=null)throw new IllegalStateException("SLO recovery completion was already authenticated");
+            original=Objects.requireNonNull(sloRecoveryOriginal,"original SLO recovery census");
+            exactFence=sloRecoveryFence;qualificationRequired=sloRecoveryQualificationRequired;originalOwner=lease;
+            if(!qualificationRequired&&(hasSlo(original)||hasSlo(replayed)||exactFence!=null))
+                throw new IllegalStateException("ordinary recovery observed an E4 obligation without original qualification");
+        }
+        final var actualGuard=Objects.requireNonNull(guard,"original SLO recovery I/O guard");
+        actualGuard.run();
+        if(originalInput!=null){
+            originalInput.requireSourceCurrent();actualGuard.run();
+            if(!qualificationRequired&&originalInput.requiresSloRecoveryQualification())
+                throw new IllegalStateException("original recovery hold now requires strict E4 qualification");
+        }
+        if(qualificationRequired){
+            originalInput.requireSloRecoveryComplete(original,replayed,exactFence,actualGuard);
+            originalInput.requireSourceCurrent();
+        }
+        actualGuard.run();
+        synchronized(this){
+            requireSloAuditPhase(true);requireLease(false);requireSloCompletionInput(originalInput);
+            if(sloRecoveryOriginal!=original||sloRecoveryReplayed!=replayed||sloRecoveryFence!=exactFence
+                    ||sloRecoveryQualificationRequired!=qualificationRequired||!originalOwner.sameIdentity(lease))
+                throw new IllegalStateException("SLO recovery changed its actual held authentication inputs");
+            requireSloAudit(replayed);store.withReadView(replayed.reopened().view(),()->null);
+            if(qualificationRequired)sloRecoveryQualification=new SloRecoveryQualification(
+                    store,original,replayed,exactFence,originalInput,assignment,originalOwner);
+            sloRecoveryCompleted=replayed;
+        }
+    }
+
+    /** I/O receipt and native cleanup must have exited before Startup binds this already-authenticated phase. */
+    synchronized void bindSloRecoveryCompletion(TargetStoreBootstrap.SloRecoveryAudit replayed,
+            TargetSourceRecoveryInputs originalInput){
+        requireSloAuditPhase(true);requireLease(false);requireSloCompletionInput(originalInput);
+        if(sloRecoveryCompleted!=replayed||sloRecoveryReplayed!=replayed
+                ||sloRecoveryQualificationRequired!=(sloRecoveryQualification!=null))
+            throw new IllegalStateException("SLO recovery has no actual original completion receipt");
+        requireSloAudit(replayed);store.withReadView(replayed.reopened().view(),()->null);
+        sloRecoveryPhaseComplete=true;
+    }
+
+    private void requireSloCompletionInput(TargetSourceRecoveryInputs originalInput){
+        if(sloRecoveryInput!=originalInput)throw new IllegalStateException("SLO recovery changed its original input hold");
+        requireSloInput(originalInput);
+    }
+
+    private void requireSloInput(TargetSourceRecoveryInputs input){
+        if(input!=null&&(recoveryOwner==null||!recoveryOwner.equals(input.owner())
+                ||input.owner().ownerEpoch()!=lease.ownerEpoch()
+                ||!Arrays.equals(input.owner().leaseFencingDigest(),lease.leaseToken())))
+            throw new IllegalStateException("SLO recovery input changed its original actual Owner");
+    }
+
+    private static boolean hasSlo(TargetStoreBootstrap.SloRecoveryAudit audit){
+        return !audit.generations().isEmpty()||!audit.writers().isEmpty();
+    }
+
+    private void requireSloAudit(TargetStoreBootstrap.SloRecoveryAudit audit){
+        Objects.requireNonNull(audit);
+        audit.reopened().backend().requireStore(store);
+        if(!initial.root().scope().equals(audit.scope())||!initial.root().identity().equals(audit.root().identity())
+                ||!Arrays.equals(initial.root().recoveryLineage(),audit.lineage())
+                ||!Arrays.equals(store.appliedShardLogPosition().canonicalBytes(),audit.cut().source().canonicalBytes()))
+            throw new IllegalStateException("SLO recovery audit changed its actual Root/lineage/Source cut");
+    }
+
+    private static void requireFenceCovers(TargetStoreBootstrap.SloRecoveryAudit audit,TargetTimeFenceMutationFactory.Prepared fence){
+        if(fence==null){
+            if(!audit.generations().isEmpty()||!audit.writers().isEmpty())
+                throw new IllegalStateException("retained or newly replayed SLO writers require complete original range/Fence qualification");
+            return;
+        }
+        if(!audit.scope().shard().equals(fence.body().shard()))throw new IllegalStateException("recovery Fence changed its original Shard");
+        for(var writer:audit.writers())if(writer.contract().maximumRetryUntil()>fence.body().closeThrough())
+            throw new IllegalStateException("recovery Fence omits a restored writer deadline; observed maxima do not prove the old domain complete");
     }
 
     /** A real consumed prefix, distinct from the immutable assignment and from old-writer settlement. */
@@ -305,6 +544,7 @@ public final class TargetOwnerRecoveryCoordinator {
                         turnNumber=turn;return new OwnerRecoveryTurn(outcomes,false,turn);
                     }
                     if(replayTailReached()){
+                        if(replayTailReader!=null&&!sloRecoveryPhaseComplete){turnNumber=turn;return new OwnerRecoveryTurn(outcomes,false,turn);}
                         final boolean finished = finish();
                         complete = finished;
                         turnNumber = turn;
@@ -321,6 +561,7 @@ public final class TargetOwnerRecoveryCoordinator {
                 if (pendingEntry == null) {
                     if (!source.hasNext()) {
                         if(assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())&&replayTailReached()){
+                            if(replayTailReader!=null&&!sloRecoveryPhaseComplete){turnNumber=turn;return new OwnerRecoveryTurn(outcomes,false,turn);}
                             final boolean finished=finish();complete=finished;turnNumber=turn;
                             return new OwnerRecoveryTurn(outcomes,finished,turn);
                         }
@@ -422,6 +663,7 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     private boolean finish() {
+        if(replayTailReader!=null&&!sloRecoveryPhaseComplete)throw new IllegalStateException("bounded pre/post recovery census phase must precede Claim takeover/Source freeze");
         if (deferForSourceReactivation) {
             beginReplay();
             requireCatalog();
@@ -554,14 +796,23 @@ public final class TargetOwnerRecoveryCoordinator {
         final var root = completedRoot();
         requireCatalog();
         final var active = activeLease();
-        if (authorityPreparation == null) return new TargetSourceApplyRuntime(root, store, assignment, active,
-                authorities.withSuccessor(activeSuccessor), limits, monotonic);
-        if (!authorityPreparation.ioExited()) throw new IllegalStateException("recovery content I/O is still live");
-        final var preparation = authorityPreparation.fork();
-        final var selected = preparation.authorities(authorities.leases(), activeSuccessor,
-                authorities.duplicateWrites(), authorities.reads());
-        final var runtime = new TargetSourceApplyRuntime(root, store, assignment, active, selected, limits, monotonic);
-        runtime.configureAuthorityPreparation(preparation, clock,evidenceCatalog);
+        final TargetSourceApplyRuntime runtime;
+        if (authorityPreparation == null) {
+            runtime = new TargetSourceApplyRuntime(root, store, assignment, active,
+                    authorities.withSuccessor(activeSuccessor), limits, monotonic);
+        } else {
+            if (!authorityPreparation.ioExited()) throw new IllegalStateException("recovery content I/O is still live");
+            final var preparation = authorityPreparation.fork();
+            final var selected = preparation.authorities(authorities.leases(), activeSuccessor,
+                    authorities.duplicateWrites(), authorities.reads());
+            runtime = new TargetSourceApplyRuntime(root, store, assignment, active, selected, limits, monotonic);
+            runtime.configureAuthorityPreparation(preparation, clock,evidenceCatalog);
+        }
+        if(sloRecoveryQualification!=null){
+            if(!sloRecoveryPhaseComplete)throw new IllegalStateException("E4 qualification has not completed its original I/O exit");
+            sloRecoveryQualification.bindRuntimeRoot(root);
+        }
+        runtime.bindRecoveredSloQualification(sloRecoveryQualification);
         return runtime;
     }
 

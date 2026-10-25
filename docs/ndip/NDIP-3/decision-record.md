@@ -1779,3 +1779,43 @@ E4 SERVICE签名不授予Fence权；未到时间保持等待，不把Fence推到
 companion/Source/collector须保管完整契约、原Control与Fence实际锚点/必要公开认证材料及
 恢复cut/census引用；hash/DTO不授权。逻辑闭合不等于NOT_PERSISTED/NOT_PUBLISHED，也不
 统一退款、释放物理UNKNOWN、其它attempt/Journal或原保护。当前不执行真实Fence或环境操作。
+
+
+## 2026-10-25：E4恢复采用受限B，普通恢复与正向资格分离
+
+主裁定受限B：无已知E4 Native代次/writer/其它义务，未显式请求或配置准备E4职责，完整
+pre audit与新native tail actualreplay后的完整post audit均空，且原Source/Owner/pin/hold
+保护持续成立时，允许普通Claim/P1恢复继续。结果必须E4 UNQUALIFIED，只是普通恢复
+phaseComplete，不得称no-old-domain、E4 COMPLETE或完整历史无缺口。Native结构/计费
+失败不作empty，generic first不能独立重建遗失Control body；原Source/Control历史仍必要。
+ordinary不降低原Source/Control/Manifest/ledger检查；correlateControlImages或已认证Source
+明确APPLIED E4 Control应有Native而缺失仍拒绝。generic first未分类不自动qualified也不
+自行判损坏，不为ordinary新增全旧E4历史证明/全扫描，更不回到有Input即一律strict。
+
+已知E4/旧UNKNOWN闭合职责、原hold明确请求或pre发现E4均走严格原actualhold协议：实际
+旧writer退出、完整REGISTER/legacy合法range和有限D、独立FENCE/UTC/原精确frame、覆盖
+该Fence的新实际replay cut及post独立census。声明boolean只选strict，资格失败直接阻断，
+不catch后回退普通。ordinary postpositive同样不能finish；policy1无完整原range/D继续
+UNKNOWN，不被新epoch追认。strict null可表示原hold独立持续保护的无旧域，但null本身
+不是资格，即使双audit空仍必须真实strict complete回调。
+
+恢复正向资格只能由Coordinator在原严格恢复根中，实际核Fence first/POS/累计IngressFence、
+锁外原hold完整认证回调及回锁复核真实cut后私有铸造opaque proof；Owned I/O/cleanup
+退出才bind完成，再绑定原Store/Root/Scope/lineage/Source/Owner/hold的新Runtime。
+普通路径bind null，后继P1不自动提升，Root类型、Stage配置、新Control或调用者boolean
+不能铸positive，也不新增运行中热setter、产品mode、Control或CF。
+首次fresh初始化仍由实际constructor reader核原initial Source完整canonical及Root
+accountingIncarnation，Initialized类型本身不能授权；stale Initialized保持UNQUALIFIED。
+
+UNQUALIFIED Runtime对ENABLE/REGISTER及其它新E4 Control、type15 confirmedGap/timeout/
+custody、active采样与Final/writer/export/coverage相关入口保持负门禁。合法晚帧保留
+pending、暂停apply/ACK，不制造durable rejection；原actual first及真实expiry遵原replay。
+recoveryOnly按原authority实际重放不授权后继active，postpositive仍必须严格或停止。
+complete只认证已replayed cut内旧域闭合/保护census，不等待自身新CLOSE/gap/timeout后继
+apply；Native62.closed=false不否定已APPLIED累计Fence>=D，显式CLOSE和实际producer仍OPEN。
+
+本包已接严格恢复根→实际hold opaque proof→新Runtime负/正门禁的源码路径；实际SDK
+recovery Source writer/provider、old-process custody/full old REGISTER与legacy原材料、
+完整Scope资源/retention、timeout/gap producer、独立全人口coverage与真实恢复验证仍
+OPEN。逻辑屏障不证明远端从未落盘、不释放physical UNKNOWN/attempt/Journal或退款；
+不改Source exhausted/cursor、Route/schema/descriptor，不提升任何完成/生产flags。

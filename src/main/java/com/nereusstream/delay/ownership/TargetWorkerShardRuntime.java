@@ -1498,13 +1498,14 @@ public final class TargetWorkerShardRuntime
         target.registerSloCustodyExport(exporter);sloCustodyExport=exporter;
     }
     @Override public Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn(){
-        final var exporter=sloCustodyExport;return exporter==null?Optional.empty():exporter.runTurn();
+        final var exporter=sloCustodyExport;
+        return exporter==null||!target.sloScopeQualified()?Optional.empty():exporter.runTurn();
     }
     synchronized com.nereusstream.delay.runtime.TargetSloExportPageReader.Page captureSloExportPage(BoundedReadBudget budget,
             com.nereusstream.delay.runtime.TargetSloExportPageReader.Cursor cursor,com.nereusstream.delay.runtime.TargetSloExportPageReader.Limits limits,LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.captureSloExportPage(budget,cursor,limits,clock);
     }
-    synchronized void submitSloExportAction(WorkClassTask task,Runnable action){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);}
+    synchronized void submitSloExportAction(WorkClassTask task,Runnable action){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloScopeQualified();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);}
     synchronized boolean withdrawSloExportAction(WorkClassTask task){return workClasses.withdrawQueued(task);}
     synchronized boolean sloExportActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
     synchronized void requireSloExportContext(com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloExportContext(cut,clock);}
@@ -1538,13 +1539,13 @@ public final class TargetWorkerShardRuntime
                 this,appender,originalExecutor,candidates,inspected,entry,outcome,provider,maximumBytes));
     }
     synchronized void submitSloFinalContinuationAction(WorkClassTask task,Runnable action){
-        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloScopeQualified();workClasses.requireTaskServiceable(task);workClasses.submit(task,action);
     }
     synchronized boolean withdrawSloFinalContinuationAction(WorkClassTask task){return workClasses.withdrawQueued(task);}
     synchronized boolean sloFinalContinuationActionExited(WorkClassTask task){return workClasses.state(task).isEmpty();}
     synchronized void requireSloFinalContinuation(SourceReplayEntry entry,SourceReplayOutcome outcome,
             com.nereusstream.delay.protocol.TargetQuotaMutation inspected,LongSupplier clock){
-        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloFinalContinuation(entry,outcome,inspected,clock);
+        requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireSloScopeQualified();target.requireSloFinalContinuation(entry,outcome,inspected,clock);
     }
     synchronized void requireSloFinalWriter(SystemMutation image,LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();target.requireTargetControlWriter(image,clock);
