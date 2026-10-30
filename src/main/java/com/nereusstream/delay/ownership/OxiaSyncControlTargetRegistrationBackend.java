@@ -319,7 +319,11 @@ public final class OxiaSyncControlTargetRegistrationBackend
             final var root = TargetSloControlScopeRoot.decode(observed.value()); requireHeader(root.header());
             if (!root.header().reference().equals(requested))
                 throw new IllegalArgumentException("original Scope ID is already bound to another immutable header/epoch");
-            return new TargetSloControlScopeAuthority.RootRecord(root, observed.version().versionId());
+            if(root.schemaVersion()==TargetSloControlScopeRoot.LEGACY_VERSION)
+                return new TargetSloControlScopeAuthority.RootRecord(root, observed.version().versionId());
+            final var birth=readBirth(root.header());
+            if(birth==null)throw new IllegalStateException("Root2 lost its actual immutable original birth marker");
+            return new TargetSloControlScopeAuthority.RootRecord(root, observed.version().versionId(),birth.versionId());
         }
 
         private BirthEntry readBirth(TargetSloControlScopeHeader header) {
@@ -389,23 +393,34 @@ public final class OxiaSyncControlTargetRegistrationBackend
                 TargetSloControlScopeAuthority.RootRecord expected, TargetSloControlScopeRoot next) {
             Objects.requireNonNull(expected); Objects.requireNonNull(next); requireHeader(expected.value().header());
             if (!expected.value().header().equals(next.header())) throw new IllegalArgumentException("Scope CAS cannot replace its original header");
-            if (expected.value().equals(next)) return readRoot(next.header().reference());
-            if (expected.value().sealed() || next.revision() != Math.incrementExact(expected.value().revision()))
-                throw new IllegalArgumentException("Scope CAS cannot reopen a SEALED root or skip its monotonic revision");
+            if (expected.value().equals(next)) return sameBirth(expected,readRoot(next.header().reference()));
+            next.requireTransitionFrom(expected.value());
+            if(expected.value().schemaVersion()!=TargetSloControlScopeRoot.LEGACY_VERSION){
+                final var birth=readBirth(expected.value().header());
+                if(birth==null||expected.birthVersionId()==null||birth.versionId()!=expected.birthVersionId())
+                    throw new IllegalStateException("Scope exposure CAS changed its actual original birth identity");
+            }
             final var reference = next.header().reference();
             try {
                 putExact(scopeBase(reference.scopeId()) + "/root", next.canonicalBytes(), Set.of(PutOption.IfVersionIdEquals(expected.versionId())));
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException race) {
-                final var observed = rootAfterFailure(reference, race);
+                final var observed = sameBirth(expected,rootAfterFailure(reference, race));
                 if (observed == null) throw new IllegalStateException("original Scope Root disappeared after CAS; retain UNKNOWN", race);
                 return observed;
             } catch (RuntimeException originalFailure) {
-                final var observed = rootAfterFailure(reference, originalFailure);
+                final var observed = sameBirth(expected,rootAfterFailure(reference, originalFailure));
                 if (observed != null && observed.value().equals(next)) return observed;
                 throw originalFailure;
             }
-            final var observed = readRoot(reference);
+            final var observed = sameBirth(expected,readRoot(reference));
             if (observed == null) throw new IllegalStateException("Scope CAS has no actual Root reread; retain UNKNOWN");
+            return observed;
+        }
+        private TargetSloControlScopeAuthority.RootRecord sameBirth(TargetSloControlScopeAuthority.RootRecord expected,
+                TargetSloControlScopeAuthority.RootRecord observed){
+            if(observed!=null&&expected.value().schemaVersion()!=TargetSloControlScopeRoot.LEGACY_VERSION
+                    &&!Objects.equals(expected.birthVersionId(),observed.birthVersionId()))
+                throw new IllegalStateException("Scope CAS observation changed its actual original birth; retain UNKNOWN");
             return observed;
         }
         private TargetSloControlScopeAuthority.RootRecord rootAfterFailure(TargetSloControlScopeHeader.Reference reference,

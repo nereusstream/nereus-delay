@@ -67,6 +67,15 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
             Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
             CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
             SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        return open(settings, operational, sdkJar, configuration, worker, assignment, owner, credential, time,
+                clock, pool, cost, writers, classes, resources, io, null);
+    }
+    public static KafkaClientArtifactOwnedSystemWriter open(Settings settings, Map<String,Object> operational,
+            byte[] sdkJar, TargetWorkerRuntimeConfig configuration, TargetWorkerShardRuntime worker,
+            SourceAssignment assignment, OwnerIdentity owner, LocalBrokerMtlsResolver.SourceReceipt credential,
+            Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
+            CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io, TargetScopeExposureSource.Issuer exposureIssuer) {
         configuration.requireRuntime(classes, resources); worker.requireFleetComposition(classes, resources); pool.requireWorker(classes, resources);
         credential.authorization().requireAssignment(assignment);
         credential.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
@@ -87,6 +96,7 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         config.put(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, Math.toIntExact(configuration.maximumSourceFrameBytes()));
         config.put(ProducerConfig.SEND_BUFFER_CONFIG, settings.socketBytes()); config.put(ProducerConfig.RECEIVE_BUFFER_CONFIG, settings.socketBytes());
         config.put(ProducerConfig.ACKS_CONFIG, "all"); config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        config.put(ProducerConfig.RETRIES_CONFIG, 1);
         config.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1); config.put(ProducerConfig.LINGER_MS_CONFIG, 0L);
         config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, (long) millis); config.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, millis);
         config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, Math.min(10_000, millis)); config.put(ProducerConfig.ENABLE_METRICS_PUSH_CONFIG, false);
@@ -94,8 +104,18 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         final var checked = new HashMap<>(sealed);
         checked.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
         checked.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
-        new ProducerConfig(checked);
-        TargetSdkArtifactIdentity.requireExact(KafkaProducer.class, sdkJar);
+        final var frozen = new ProducerConfig(checked);
+        final byte[] activatedJar = Bytes.copy(sdkJar);
+        TargetSdkArtifactIdentity.requireExact(KafkaProducer.class, activatedJar);
+        final var copyContract = new TargetScopeExposureSource.CopyContract(2, Bytes.sha256(
+                Bytes.utf8("nereus-k1-guarded-send-retries-v1\n"), activatedJar,
+                Bytes.utf8("retries=" + frozen.getInt(ProducerConfig.RETRIES_CONFIG)
+                        + "\nacks=" + frozen.getString(ProducerConfig.ACKS_CONFIG)
+                        + "\nenable.idempotence=" + frozen.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)
+                        + "\nmax.in.flight.requests.per.connection=" + frozen.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION)
+                        + "\nmax.block.ms=" + frozen.getLong(ProducerConfig.MAX_BLOCK_MS_CONFIG)
+                        + "\ndelivery.timeout.ms=" + frozen.getInt(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG)
+                        + "\nrequest.timeout.ms=" + frozen.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG) + "\n")));
         final var allocation = pool.reserve(settings.allocationId(), cost);
         final SystemWriterAppendBudget.Writer writer;
         try { writer = writers.registerWriter(assignment.shardId()); }
@@ -117,7 +137,7 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
                 guard.run(); worker.requirePublicationOwner(owner, clock);
                 backend.credentialUse = worker.bindSystemWriterCredential(credential, assignment, owner, nativeProducer, time, clock);
                 return new KafkaClientArtifactShardLogMutationAppender(nativeProducer, assignment.shardId(), resource.authenticatedClusterId(),
-                        auth.physicalTopic(), uuid, settings.timeout(), writer, backend::requireAppend);
+                        auth.physicalTopic(), uuid, settings.timeout(), writer, backend::requireAppend, copyContract, exposureIssuer);
             }, () -> { synchronized (backend.gate) { if (backend.frozen) throw new IllegalStateException("Source producer opening is frozen"); } }, io);
             backend.opening.receipt().whenComplete((value, failed) -> {
                 if (failed != null) backend.remember(CheckpointInputFuture.ownedFailure(backend.opening.receipt()));
@@ -223,6 +243,8 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
                         if (producer != null) {
                             producer.closeGuardedResources(settings.timeout());
                             if (!producer.guardedResourcesTerminated()) throw new IllegalStateException("Source producer native cleanup is incomplete");
+                            final var current = appender == null ? opening.completedValue().orElse(null) : appender;
+                            if (current != null) current.producerNativeClosed();
                             if (producer.guardedFirstCloseFailure() != null) firstClose.completeExceptionally(producer.guardedFirstCloseFailure());
                         } else if (openingFailure() instanceof KafkaProducer.ConstructionCleanupFailure partial) {
                             partial.reconcile(settings.timeout());

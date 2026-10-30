@@ -46,6 +46,15 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
             Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
             CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
             SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        return open(allocationId, group, source, configuration, worker, assignment, owner, credential, timeout,
+                time, clock, pool, cost, writers, classes, resources, io, null);
+    }
+    public static PulsarClientArtifactOwnedSystemWriter open(String allocationId, PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> source, TargetWorkerRuntimeConfig configuration, TargetWorkerShardRuntime worker,
+            SourceAssignment assignment, OwnerIdentity owner, LocalBrokerMtlsResolver.SourceReceipt credential,
+            Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
+            CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io, TargetScopeExposureSource.Issuer exposureIssuer) {
         configuration.requireRuntime(classes, resources); worker.requireFleetComposition(classes, resources); pool.requireWorker(classes, resources);
         group.requireWorkerGraph(classes, resources);
         if (PulsarClientArtifactOwnedBackendGroup.findNative(source) != group || timeout.toMillis() < 1 || timeout.toMillis() > 60_000)
@@ -80,17 +89,26 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
                 credential.requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
                 final var builder = PulsarClientArtifactProducerFactory.builder(client, resource.authenticatedClusterId(),
                         resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(),
-                        "nereus-source-system-" + java.util.UUID.randomUUID()).sendTimeout(Math.toIntExact(timeout.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
+                        "nereus-source-system-" + java.util.UUID.randomUUID()).guardedNativeSendLimit(2)
+                        .sendTimeout(Math.toIntExact(timeout.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
                 PulsarClientArtifactOwnedBackendGroup.createProducer(client, builder, allocation).whenComplete((value, failed) -> {
                     if (failed == null) backend.creating.complete(value); else backend.creating.completeExceptionally(failed);
                 });
                 try { return backend.nativeOpening.read(timeout.toMillis(), value -> {
                     active.run(); worker.requirePublicationOwner(owner, clock); group.requireProducerArtifact(value);
                     if (!resource.physicalTopic().equals(value.getTopic())) throw new IllegalStateException("P1 Source producer changes its signed topic");
+                    final var nativeContract = value.guardedNativeSendContract().orElseThrow(
+                            () -> new IllegalStateException("P1 Source producer lacks its finite guarded native submission contract"));
+                    if (nativeContract.maximumNativeSubmissions() != 2)
+                        throw new IllegalStateException("P1 Source producer changed its frozen native submission limit");
+                    final var copyContract = new TargetScopeExposureSource.CopyContract(nativeContract.maximumNativeSubmissions(),
+                            Bytes.sha256(Bytes.utf8("nereus-p1-source-native-send-v1\n"), group.activatedSdkJarSha256(), nativeContract.sha256(),
+                                    Bytes.u64be(timeout.toMillis())));
                     synchronized (backend.gate) { backend.producer = value; }
                     backend.credentialUse = worker.bindSystemWriterCredential(credential, assignment, owner, value, time, clock);
                     return new PulsarClientArtifactShardLogMutationAppender(value, source, assignment.shardId(), resource.authenticatedClusterId(),
-                            resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), timeout, writer, backend::requireAppend);
+                            resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), timeout,
+                            writer, backend::requireAppend, copyContract, exposureIssuer);
                 }); } catch (Exception failed) {
                     if (failed instanceof InterruptedException) Thread.currentThread().interrupt();
                     throw new IllegalStateException("Original P1 Source producer opening did not complete", failed);
@@ -135,7 +153,14 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
         try { return current.append(mutation); }
         finally { synchronized (gate) { activeAppends--; } group.cleanupProgress(); }
     }
-    private void releaseNative() { synchronized (gate) { if (nativeClosed) return; writer.producerClosed(); allocation.closed(); nativeClosed = true; ready = false; } }
+    private void releaseNative() {
+        synchronized (gate) {
+            if (nativeClosed) return;
+            final var current = appender != null ? appender : opening == null ? null : opening.completedValue().orElse(null);
+            if (current != null) current.producerNativeClosed();
+            writer.producerClosed(); allocation.closed(); nativeClosed = true; ready = false;
+        }
+    }
     @Override public TargetWorkerShardRuntime sourceWriterWorker() { return worker; }
     @Override public TargetOwnedBackendGroup ownedBackendGroup() { return group; }
     @Override public boolean readyForAppending() { synchronized (gate) { return ready && !nativeClosed && group.workerReady(worker); } }

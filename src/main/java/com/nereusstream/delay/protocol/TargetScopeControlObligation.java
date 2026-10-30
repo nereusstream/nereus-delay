@@ -8,7 +8,9 @@ import java.util.Objects;
 public final class TargetScopeControlObligation {
     public static final int VERSION = 1;
     public static final int SETTLEMENT_VERSION = 2;
+    public static final int EXPOSURE_VERSION = 3;
     public static final int V1_MAX_CANONICAL_BYTES = 5_286_012;
+    public static final int V2_MAX_CANONICAL_BYTES = 5_288_071;
     public static final int VALUE_TYPE = 64;
     public static final int KEY_TAG = 58;
     public static final int MAX_CANONICAL_BYTES = 64 + 6 + Control.MAX_CANONICAL_BYTES
@@ -19,6 +21,7 @@ public final class TargetScopeControlObligation {
     /** Full header/parent/plan definition. The plan has no header digest, so these codec bounds are acyclic. */
     public record Definition(TargetParentControlCredit.Reference parentReference, TargetSloControlScopeHeader header,
             TargetSloScopeNativePlan plan) {
+        public static final int V2_MAX_CANONICAL_BYTES = 3_185_345;
         public static final int MAX_CANONICAL_BYTES = 64 + 6 + TargetParentControlCredit.Reference.MAX_CANONICAL_BYTES
                 + 6 + TargetSloControlScopeHeader.MAX_CANONICAL_BYTES + 6 + TargetSloScopeNativePlan.MAX_CANONICAL_BYTES;
         public Definition {
@@ -42,9 +45,10 @@ public final class TargetScopeControlObligation {
         public void requireRoot(TargetQuotaIncarnation root) { plan.requireRoot(root); }
         public void requireSource(SourcePosition source) { plan.requireSource(source); }
         public CapacityVector futureNative() { return plan.futureNative(header); }
+        public int schemaVersion() { return plan.schemaVersion() == EXPOSURE_VERSION ? EXPOSURE_VERSION : VERSION; }
         private byte[] fields() {
             return CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, VERSION); CanonicalProtobuf.bytes(out, 2, parentReference.canonicalBytes());
+                CanonicalProtobuf.uint32(out, 1, schemaVersion()); CanonicalProtobuf.bytes(out, 2, parentReference.canonicalBytes());
                 CanonicalProtobuf.bytes(out, 3, header.canonicalBytes()); CanonicalProtobuf.bytes(out, 4, plan.canonicalBytes());
             });
         }
@@ -52,11 +56,14 @@ public final class TargetScopeControlObligation {
         public static Definition decode(byte[] encoded) {
             final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false, "Scope obligation definition");
             QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4, 5}, "Scope obligation definition");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != VERSION) throw new IllegalArgumentException("unknown Scope obligation definition schema");
+            final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
+            if (version != VERSION && version != EXPOSURE_VERSION) throw new IllegalArgumentException("unknown Scope obligation definition schema");
             final var value = new Definition(TargetParentControlCredit.Reference.decode(QueryCodecSupport.bytes(f.get(1), 2)),
                     TargetSloControlScopeHeader.decode(QueryCodecSupport.bytes(f.get(2), 3)), TargetSloScopeNativePlan.decode(QueryCodecSupport.bytes(f.get(3), 4)));
             if (!value.plan().settlementEnabled() && encoded.length > 3_185_218)
                 throw new IllegalArgumentException("legacy Scope definition exceeds its unchanged codec bound");
+            if (value.schemaVersion() != version || version == VERSION && encoded.length > V2_MAX_CANONICAL_BYTES)
+                throw new IllegalArgumentException("Scope definition changed its original schema or codec bound");
             if (!Arrays.equals(value.digest(), QueryCodecSupport.fixed(f.get(4), 5, 32))) throw new IllegalArgumentException("Scope obligation definition digest mismatch");
             QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "Scope obligation definition"); return value;
         }
@@ -66,6 +73,8 @@ public final class TargetScopeControlObligation {
 
     /** Complete original signed Control and actual Source stamp. Independent first/POS/parent joins remain required. */
     public record Control(SystemMutation input, TargetQuotaMutation appliedAt) {
+        public static final int V2_MAX_INPUT_BYTES = 3_186_625;
+        public static final int V2_MAX_CANONICAL_BYTES = 4_235_360;
         public static final int MAX_INPUT_BYTES = TargetScopeControlObligationBody.MAX_INPUT_BYTES;
         public static final int MAX_CANONICAL_BYTES = 16 + MAX_INPUT_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
         public Control {
@@ -76,6 +85,7 @@ public final class TargetScopeControlObligation {
             final var definition = body.request().definition(); definition.requireSource(appliedAt.source());
             if (body.schemaVersion() != definition.plan().schemaVersion()
                     || !definition.plan().settlementEnabled() && input.canonicalEnvelope().length > 3_186_498
+                    || body.schemaVersion() == SETTLEMENT_VERSION && input.canonicalEnvelope().length > V2_MAX_INPUT_BYTES
                     || !Arrays.equals(input.logicalOperationIdentity(), body.logicalIdentity()) || !input.shardId().equals(body.shard())
                     || !input.shardId().equals(appliedAt.source().shardId()) || input.retryUntilEpochMs() != body.retryUntil()
                     || appliedAt.source().brokerPersistenceTimeEpochMs() > input.retryUntilEpochMs()
@@ -91,23 +101,28 @@ public final class TargetScopeControlObligation {
         public Definition definition() { return body().request().definition(); }
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, VERSION); CanonicalProtobuf.bytes(out, 2, input.canonicalEnvelope());
+                CanonicalProtobuf.uint32(out, 1, schemaVersion() == EXPOSURE_VERSION ? EXPOSURE_VERSION : VERSION);
+                CanonicalProtobuf.bytes(out, 2, input.canonicalEnvelope());
                 CanonicalProtobuf.bytes(out, 3, appliedAt.canonicalBytes());
             });
         }
         public static Control decode(byte[] encoded) {
             final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 3, false, "Scope obligation original Control");
             QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3}, "Scope obligation original Control");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != VERSION) throw new IllegalArgumentException("unknown Scope obligation Control schema");
+            final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
+            if (version != VERSION && version != EXPOSURE_VERSION) throw new IllegalArgumentException("unknown Scope obligation Control schema");
             final var input = QueryCodecSupport.bytes(f.get(1), 2);
             if (input.length > MAX_INPUT_BYTES) throw new IllegalArgumentException("Scope obligation original Control exceeds bound");
             final var value = new Control(SystemMutation.decodeTargetEnvelope(input, SystemMutationType.APPLY_SHARD_CONTROL),
                     TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(2), 3)));
+            if ((value.schemaVersion() == EXPOSURE_VERSION ? EXPOSURE_VERSION : VERSION) != version
+                    || version == VERSION && encoded.length > V2_MAX_CANONICAL_BYTES)
+                throw new IllegalArgumentException("Scope obligation Control changed its original schema or codec bound");
             QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "Scope obligation original Control"); return value;
         }
     }
 
-    /** Schema 1 stays zero-only; schema 2 is a projection of independently verified retained Native facts. */
+    /** Schema 1 stays zero-only; schemas 2/3 project independently verified retained Native facts. */
     public record Usage(int schemaVersion, CapacityVector consumedNative, long sourceOccurrences, long samples, long writerEpochs,
             long generations, TargetQuotaMutation latestApplied) {
         public static final int MAX_CANONICAL_BYTES = 1_049_737;
@@ -117,7 +132,7 @@ public final class TargetScopeControlObligation {
         }
         public Usage {
             TargetSloScopeNativePlan.requireFiniteNative(consumedNative); Objects.requireNonNull(latestApplied).requireSourceApplied();
-            if (schemaVersion != VERSION && schemaVersion != SETTLEMENT_VERSION
+            if (schemaVersion != VERSION && schemaVersion != SETTLEMENT_VERSION && schemaVersion != EXPOSURE_VERSION
                     || consumedNative.canonicalBytes().length > TargetSloScopeNativePlan.V1_VECTOR_BYTES
                     || latestApplied.source().canonicalBytes().length > TargetSloScopeNativePlan.V1_SOURCE_BYTES
                     || sourceOccurrences < 0 || sourceOccurrences == Long.MAX_VALUE || samples < 0 || samples == Long.MAX_VALUE
@@ -187,7 +202,7 @@ public final class TargetScopeControlObligation {
             throw new IllegalArgumentException("Scope changed its original metadata ceiling");
         digest = Bytes.sha256(RECORD_DOMAIN, fields());
         final long actualBytes = canonicalBytes().length;
-        if (actualBytes > (settlementEnabled() ? MAX_CANONICAL_BYTES : V1_MAX_CANONICAL_BYTES)
+        if (actualBytes > maximumCanonicalBytes(schemaVersion())
                 || usage.canonicalBytes().length > definition.plan().maximumUsageBytes())
             throw new IllegalArgumentException("Scope metadata exceeds its original codec/Usage shape");
         actualStateCharge = definition.plan().metadataCharge(key().length, actualBytes);
@@ -215,7 +230,7 @@ public final class TargetScopeControlObligation {
                 new Usage(definition.plan().schemaVersion(), CapacityVector.empty(), 0, 0, 0, 0, fundedAt), null, null);
     }
     public int schemaVersion() { return definition.plan().schemaVersion(); }
-    public boolean settlementEnabled() { return schemaVersion() == SETTLEMENT_VERSION; }
+    public boolean settlementEnabled() { return definition.plan().settlementEnabled(); }
     public Definition definition() { return definition; }
     public Control funding() { return funding; }
     public TargetQuotaMutation fundedAt() { return funding.appliedAt(); }
@@ -251,7 +266,7 @@ public final class TargetScopeControlObligation {
         Objects.requireNonNull(actual).requireSourceApplied(); definition.requireSource(actual.source()); actual.requireAfter(mutation());
         if (addedOccurrences < 0 || addedSamples < 0 || addedWriterEpochs < 0 || addedGenerations < 0)
             throw new IllegalArgumentException("Scope lifetime counters cannot decrease");
-        final var next = new Usage(SETTLEMENT_VERSION, convertedNative,
+        final var next = new Usage(schemaVersion(), convertedNative,
                 Math.addExact(usage.sourceOccurrences(), addedOccurrences), Math.addExact(usage.samples(), addedSamples),
                 Math.addExact(usage.writerEpochs(), addedWriterEpochs), Math.addExact(usage.generations(), addedGenerations), actual);
         return new TargetScopeControlObligation(funding, bootstrapResultsCharge, next, futureNative, metadataCeiling);
@@ -278,14 +293,13 @@ public final class TargetScopeControlObligation {
         if (f.isEmpty()) throw new IllegalArgumentException("missing Scope obligation version");
         final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
         QueryCodecSupport.requireNumbers(f, version == VERSION ? new int[]{1,2,3,4,5} : new int[]{1,2,3,4,5,6,7}, "Scope Control obligation");
-        if (version != VERSION && version != SETTLEMENT_VERSION || version == VERSION && encoded.length > V1_MAX_CANONICAL_BYTES)
-            throw new IllegalArgumentException("unknown or oversized Scope obligation schema");
+        if (encoded.length > maximumCanonicalBytes(version)) throw new IllegalArgumentException("oversized Scope obligation schema");
         final var bootstrap = QueryCodecSupport.bytes(f.get(2), 3);
         if (bootstrap.length > TargetSloScopeNativePlan.V1_VECTOR_BYTES) throw new IllegalArgumentException("Scope bootstrap vector exceeds bound");
         final var value = new TargetScopeControlObligation(Control.decode(QueryCodecSupport.bytes(f.get(1), 2)),
                 CapacityVector.decode(bootstrap), Usage.decode(QueryCodecSupport.bytes(f.get(3), 4)),
-                version == SETTLEMENT_VERSION ? decodeFrozenVector(QueryCodecSupport.bytes(f.get(4), 5)) : null,
-                version == SETTLEMENT_VERSION ? decodeFrozenVector(QueryCodecSupport.bytes(f.get(5), 6)) : null);
+                version == VERSION ? null : decodeFrozenVector(QueryCodecSupport.bytes(f.get(4), 5)),
+                version == VERSION ? null : decodeFrozenVector(QueryCodecSupport.bytes(f.get(5), 6)));
         if (value.schemaVersion() != version || !Arrays.equals(value.digest, QueryCodecSupport.fixed(f.getLast(), version == VERSION ? 5 : 7, 32)))
             throw new IllegalArgumentException("Scope obligation version/digest mismatch");
         QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "Scope Control obligation"); return value;
@@ -322,6 +336,10 @@ public final class TargetScopeControlObligation {
         if (encoded.length > TargetSloScopeNativePlan.V1_VECTOR_BYTES) throw new IllegalArgumentException("frozen Scope vector exceeds numeric format bound");
         return TargetSloScopeNativePlan.requireFiniteNative(CapacityVector.decode(encoded));
     }
+    private static int maximumCanonicalBytes(int version) { return switch (version) {
+        case VERSION -> V1_MAX_CANONICAL_BYTES; case SETTLEMENT_VERSION -> V2_MAX_CANONICAL_BYTES; case EXPOSURE_VERSION -> MAX_CANONICAL_BYTES;
+        default -> throw new IllegalArgumentException("unknown Scope obligation schema");
+    }; }
     private static long lengthDelimitedBytes(long payloadBytes) {
         if (payloadBytes < 0) throw new IllegalArgumentException("negative Scope usage encoding length");
         long remaining = payloadBytes; int lengthBytes = 1;

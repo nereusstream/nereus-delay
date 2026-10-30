@@ -9,16 +9,17 @@ import java.util.Objects;
 
 /** Finite original registry Scope declaration. Neither its construction nor its digest grants authority. */
 public final class TargetSloControlScopeHeader {
-    public static final int VERSION = 1;
+    public static final int LEGACY_VERSION = 1;
+    public static final int VERSION = 2;
     public static final int MAX_SLOTS = 4096;
     public static final int MAX_SERVICE_ALIASES = 32;
     public static final int MAX_PROTOCOLS = 16;
     public static final int MAX_REGISTRY_KEY_PREFIX_BYTES = 4096;
-    public static final int MAX_CANONICAL_BYTES = TargetSourcePosition.MAX_CANONICAL_BYTES
-            + TargetQuotaScope.MAX_CANONICAL_BYTES + MAX_REGISTRY_KEY_PREFIX_BYTES
-            + MAX_SERVICE_ALIASES * (TargetSloObservationPolicy.MAX_SERVICE_BYTES + 6)
-            + MAX_PROTOCOLS * 46 + 512;
+    public static final int LEGACY_MAX_CANONICAL_BYTES = 1_087_100;
+    public static final int MAX_CANONICAL_BYTES = LEGACY_MAX_CANONICAL_BYTES
+            + TargetScopeExposurePolicy.MAX_CANONICAL_BYTES + 6;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-control-scope-header\0");
+    private static final byte[] EXPOSURE_DOMAIN = Bytes.utf8("nereus-delay-target-slo-control-scope-header-2\0");
 
     /** Closed codec ceilings, independently authorized as part of the original resource contract. */
     public record Limits(int maximumSlots, int maximumRootBytes, int maximumEntryBytes, long maximumEntriesBytes) {
@@ -35,7 +36,7 @@ public final class TargetSloControlScopeHeader {
         }
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, VERSION);
+                CanonicalProtobuf.uint32(out, 1, LEGACY_VERSION);
                 CanonicalProtobuf.uint32(out, 2, maximumSlots);
                 CanonicalProtobuf.uint32(out, 3, maximumRootBytes);
                 CanonicalProtobuf.uint32(out, 4, maximumEntryBytes);
@@ -45,7 +46,7 @@ public final class TargetSloControlScopeHeader {
         public static Limits decode(byte[] encoded) {
             final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false, "SLO Control Scope limits");
             QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4, 5}, "SLO Control Scope limits");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != VERSION) throw new IllegalArgumentException("unknown Scope limits schema");
+            if (QueryCodecSupport.uint32(f.getFirst(), 1) != LEGACY_VERSION) throw new IllegalArgumentException("unknown Scope limits schema");
             final var value = new Limits(QueryCodecSupport.uint32(f.get(1), 2), QueryCodecSupport.uint32(f.get(2), 3),
                     QueryCodecSupport.uint32(f.get(3), 4), QueryCodecSupport.uint64Bits(f.get(4), 5));
             QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "SLO Control Scope limits");
@@ -65,14 +66,14 @@ public final class TargetSloControlScopeHeader {
         @Override public byte[] headerDigest() { return Bytes.copy(headerDigest); }
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, VERSION); CanonicalProtobuf.bytes(out, 2, scopeId);
+                CanonicalProtobuf.uint32(out, 1, LEGACY_VERSION); CanonicalProtobuf.bytes(out, 2, scopeId);
                 CanonicalProtobuf.uint64(out, 3, epoch); CanonicalProtobuf.bytes(out, 4, headerDigest);
             });
         }
         public static Reference decode(byte[] encoded) {
             final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4, false, "SLO Control Scope reference");
             QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4}, "SLO Control Scope reference");
-            if (QueryCodecSupport.uint32(f.getFirst(), 1) != VERSION) throw new IllegalArgumentException("unknown Scope reference schema");
+            if (QueryCodecSupport.uint32(f.getFirst(), 1) != LEGACY_VERSION) throw new IllegalArgumentException("unknown Scope reference schema");
             final var value = new Reference(QueryCodecSupport.fixed(f.get(1), 2, 32), QueryCodecSupport.uint64Bits(f.get(2), 3),
                     QueryCodecSupport.fixed(f.get(3), 4, 32));
             QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "SLO Control Scope reference");
@@ -85,6 +86,7 @@ public final class TargetSloControlScopeHeader {
         @Override public int hashCode() { return Objects.hash(Arrays.hashCode(scopeId), epoch, Arrays.hashCode(headerDigest)); }
     }
 
+    private final int schemaVersion;
     private final byte[] scopeId;
     private final long epoch;
     private final TargetQuotaScope scope;
@@ -97,12 +99,35 @@ public final class TargetSloControlScopeHeader {
     private final byte[] birthAuthorizationDigest;
     private final byte[] resourceContractDigest;
     private final Limits limits;
+    private final TargetScopeExposurePolicy exposurePolicy;
     private final byte[] digest;
 
     public TargetSloControlScopeHeader(byte[] scopeId, long epoch, TargetQuotaScope scope, byte[] lineage,
             SourcePosition sourceAnchor, byte[] registryNamespaceBinding, String registryKeyPrefix,
             List<AuthorIdentity> serviceAliases, List<ProtocolTuple> protocols, byte[] birthAuthorizationDigest,
             byte[] resourceContractDigest, Limits limits) {
+        this(LEGACY_VERSION, scopeId, epoch, scope, lineage, sourceAnchor, registryNamespaceBinding, registryKeyPrefix,
+                serviceAliases, protocols, birthAuthorizationDigest, resourceContractDigest, limits, null);
+    }
+
+    /** Explicit new-format declaration; the original constructor retains schema-1 bytes and ceilings. */
+    public TargetSloControlScopeHeader(byte[] scopeId, long epoch, TargetQuotaScope scope, byte[] lineage,
+            SourcePosition sourceAnchor, byte[] registryNamespaceBinding, String registryKeyPrefix,
+            List<AuthorIdentity> serviceAliases, List<ProtocolTuple> protocols, byte[] birthAuthorizationDigest,
+            byte[] resourceContractDigest, Limits limits, TargetScopeExposurePolicy exposurePolicy) {
+        this(VERSION, scopeId, epoch, scope, lineage, sourceAnchor, registryNamespaceBinding, registryKeyPrefix,
+                serviceAliases, protocols, birthAuthorizationDigest, resourceContractDigest, limits,
+                Objects.requireNonNull(exposurePolicy));
+    }
+
+    private TargetSloControlScopeHeader(int schemaVersion, byte[] scopeId, long epoch, TargetQuotaScope scope, byte[] lineage,
+            SourcePosition sourceAnchor, byte[] registryNamespaceBinding, String registryKeyPrefix,
+            List<AuthorIdentity> serviceAliases, List<ProtocolTuple> protocols, byte[] birthAuthorizationDigest,
+            byte[] resourceContractDigest, Limits limits, TargetScopeExposurePolicy exposurePolicy) {
+        if ((schemaVersion != LEGACY_VERSION && schemaVersion != VERSION)
+                || (schemaVersion == LEGACY_VERSION) != (exposurePolicy == null))
+            throw new IllegalArgumentException("Scope header schema and exposure policy must be explicitly paired");
+        this.schemaVersion = schemaVersion; this.exposurePolicy = exposurePolicy;
         this.scopeId = TargetCompatibilityCodec.assigned(scopeId, 32, "SLO Control Scope ID");
         if (epoch < 1 || epoch == Long.MAX_VALUE) throw new IllegalArgumentException("Scope epoch must be finite positive");
         this.epoch = epoch; this.scope = Objects.requireNonNull(scope); this.limits = Objects.requireNonNull(limits);
@@ -115,12 +140,14 @@ public final class TargetSloControlScopeHeader {
         this.serviceAliases = services(serviceAliases); this.protocols = tuples(protocols);
         this.birthAuthorizationDigest = TargetCompatibilityCodec.assigned(birthAuthorizationDigest, 32, "Scope birth authorization digest");
         this.resourceContractDigest = TargetCompatibilityCodec.assigned(resourceContractDigest, 32, "Scope resource contract digest");
-        digest = Bytes.sha256(DOMAIN, fields());
-        if (canonicalBytes().length > MAX_CANONICAL_BYTES
+        digest = Bytes.sha256(schemaVersion == LEGACY_VERSION ? DOMAIN : EXPOSURE_DOMAIN, fields());
+        if (canonicalBytes().length > (schemaVersion == LEGACY_VERSION ? LEGACY_MAX_CANONICAL_BYTES : MAX_CANONICAL_BYTES)
+                || schemaVersion == LEGACY_VERSION && limits.maximumRootBytes() > TargetSloControlScopeRoot.LEGACY_MAX_CANONICAL_BYTES
                 || TargetSloControlScopeRoot.maximumRootReservation(this) > limits.maximumRootBytes())
             throw new IllegalArgumentException("Scope header and every possible MEMBER/seal revision exceed the original root reservation");
     }
 
+    public int schemaVersion() { return schemaVersion; }
     public byte[] scopeId() { return Bytes.copy(scopeId); }
     public long epoch() { return epoch; }
     public TargetQuotaScope scope() { return scope; }
@@ -133,6 +160,8 @@ public final class TargetSloControlScopeHeader {
     public byte[] birthAuthorizationDigest() { return Bytes.copy(birthAuthorizationDigest); }
     public byte[] resourceContractDigest() { return Bytes.copy(resourceContractDigest); }
     public Limits limits() { return limits; }
+    /** Null only for the original schema-1 domain; it cannot borrow new-format exposure space. */
+    public TargetScopeExposurePolicy exposurePolicy() { return exposurePolicy; }
     public byte[] digest() { return Bytes.copy(digest); }
     public Reference reference() { return new Reference(scopeId, epoch, digest); }
     public boolean matches(Reference reference) { return reference().equals(reference); }
@@ -188,7 +217,7 @@ public final class TargetSloControlScopeHeader {
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, VERSION); CanonicalProtobuf.bytes(out, 2, scopeId);
+            CanonicalProtobuf.uint32(out, 1, schemaVersion); CanonicalProtobuf.bytes(out, 2, scopeId);
             CanonicalProtobuf.uint64(out, 3, epoch); CanonicalProtobuf.bytes(out, 4, scope.canonicalBytes());
             CanonicalProtobuf.bytes(out, 5, lineage); CanonicalProtobuf.bytes(out, 6, sourceAnchor.canonicalBytes());
             CanonicalProtobuf.bytes(out, 7, registryNamespaceBinding); CanonicalProtobuf.bytes(out, 8, Bytes.utf8(registryKeyPrefix));
@@ -196,16 +225,20 @@ public final class TargetSloControlScopeHeader {
             for (var protocol : protocols) CanonicalProtobuf.bytes(out, 10, protocol.canonicalBytes());
             CanonicalProtobuf.bytes(out, 11, birthAuthorizationDigest); CanonicalProtobuf.bytes(out, 12, resourceContractDigest);
             CanonicalProtobuf.bytes(out, 13, limits.canonicalBytes());
+            if (schemaVersion == VERSION) CanonicalProtobuf.bytes(out, 14, exposurePolicy.canonicalBytes());
         });
     }
     public byte[] canonicalBytes() {
-        return CanonicalProtobuf.message(out -> { out.writeBytes(fields()); CanonicalProtobuf.bytes(out, 14, digest); });
+        return CanonicalProtobuf.message(out -> { out.writeBytes(fields()); CanonicalProtobuf.bytes(out, schemaVersion == LEGACY_VERSION ? 14 : 15, digest); });
     }
     public static TargetSloControlScopeHeader decode(byte[] encoded) {
-        final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 12 + MAX_SERVICE_ALIASES + MAX_PROTOCOLS, true, "SLO Control Scope header");
+        final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 13 + MAX_SERVICE_ALIASES + MAX_PROTOCOLS, true, "SLO Control Scope header");
         if (f.size() < 14) throw new IllegalArgumentException("incomplete SLO Control Scope header");
         for (int n = 0; n < 8; n++) if (f.get(n).number() != n + 1) throw new IllegalArgumentException("invalid Scope header field order");
-        if (QueryCodecSupport.uint32(f.getFirst(), 1) != VERSION) throw new IllegalArgumentException("unknown Scope header schema");
+        final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
+        if (version != LEGACY_VERSION && version != VERSION
+                || version == LEGACY_VERSION && encoded.length > LEGACY_MAX_CANONICAL_BYTES)
+            throw new IllegalArgumentException("unknown or oversized Scope header schema");
         int at = 8; final var services = new ArrayList<AuthorIdentity>(); final var protocols = new ArrayList<ProtocolTuple>();
         while (at < f.size() && f.get(at).number() == 9) {
             final var raw = QueryCodecSupport.bytes(f.get(at++), 9);
@@ -218,17 +251,19 @@ public final class TargetSloControlScopeHeader {
             if (protocols.size() == MAX_PROTOCOLS || raw.length > 40) throw new IllegalArgumentException("Scope protocol range bound exceeded");
             protocols.add(ProtocolTuple.decode(raw));
         }
-        if (at + 4 != f.size()) throw new IllegalArgumentException("invalid Scope header suffix");
+        if (at + (version == LEGACY_VERSION ? 4 : 5) != f.size()) throw new IllegalArgumentException("invalid Scope header suffix");
         final var prefix = QueryCodecSupport.bytes(f.get(7), 8);
         if (prefix.length > MAX_REGISTRY_KEY_PREFIX_BYTES) throw new IllegalArgumentException("registry key prefix exceeds bound");
         final var prefixText = new String(prefix, StandardCharsets.UTF_8);
         if (!Arrays.equals(prefix, prefixText.getBytes(StandardCharsets.UTF_8))) throw new IllegalArgumentException("invalid registry key prefix UTF-8");
-        final var value = new TargetSloControlScopeHeader(QueryCodecSupport.fixed(f.get(1), 2, 32), QueryCodecSupport.uint64Bits(f.get(2), 3),
+        final var value = new TargetSloControlScopeHeader(version, QueryCodecSupport.fixed(f.get(1), 2, 32), QueryCodecSupport.uint64Bits(f.get(2), 3),
                 TargetQuotaScope.decode(QueryCodecSupport.bytes(f.get(3), 4)), QueryCodecSupport.fixed(f.get(4), 5, 16),
                 TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(5), 6)), QueryCodecSupport.fixed(f.get(6), 7, 32), prefixText,
                 services, protocols, QueryCodecSupport.fixed(f.get(at), 11, 32), QueryCodecSupport.fixed(f.get(at + 1), 12, 32),
-                Limits.decode(QueryCodecSupport.bytes(f.get(at + 2), 13)));
-        if (!Arrays.equals(value.digest, QueryCodecSupport.fixed(f.get(at + 3), 14, 32))) throw new IllegalArgumentException("Scope header digest mismatch");
+                Limits.decode(QueryCodecSupport.bytes(f.get(at + 2), 13)),
+                version == LEGACY_VERSION ? null : TargetScopeExposurePolicy.decode(QueryCodecSupport.bytes(f.get(at + 3), 14)));
+        if (!Arrays.equals(value.digest, QueryCodecSupport.fixed(f.get(at + (version == LEGACY_VERSION ? 3 : 4)),
+                version == LEGACY_VERSION ? 14 : 15, 32))) throw new IllegalArgumentException("Scope header digest mismatch");
         QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "SLO Control Scope header"); return value;
     }
 

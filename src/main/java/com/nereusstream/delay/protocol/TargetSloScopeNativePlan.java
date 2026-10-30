@@ -8,8 +8,11 @@ import java.util.Objects;
 public final class TargetSloScopeNativePlan {
     public static final int VERSION = 1;
     public static final int SETTLEMENT_VERSION = 2;
+    public static final int EXPOSURE_VERSION = 3;
     public static final int V1_MAX_CANONICAL_BYTES = 2_097_908;
-    public static final int MAX_CANONICAL_BYTES = V1_MAX_CANONICAL_BYTES + 6 + Ceilings.MAX_CANONICAL_BYTES;
+    public static final int V2_MAX_CANONICAL_BYTES = 2_098_035;
+    public static final int MAX_CANONICAL_BYTES = 2_098_242;
+    private static final int EXPOSURE_POLICY_MAX_CANONICAL_BYTES = 172;
     public static final int MAX_REGISTRY_WRAPPER_BYTES = 256;
     static final int V1_SOURCE_BYTES = 1_048_670;
     static final int V1_ROOT_BYTES = 1_049_078;
@@ -51,6 +54,37 @@ public final class TargetSloScopeNativePlan {
             QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Scope frozen formats");return value;
         }
     }
+    /** Schema-3 Root2 reservation coefficients, independent of later registry codec ceilings. */
+    public record ExposureFormat3(int registryRootFixedBytes, int registrySlotBytes, int registryDebitBytes) {
+        public static final int MAX_CANONICAL_BYTES = 23;
+        public ExposureFormat3 {
+            if (registryRootFixedBytes != 128 || registrySlotBytes != 110 || registryDebitBytes != 278)
+                throw new IllegalArgumentException("unknown Scope exposure Root format");
+        }
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.uint32(out, 1, EXPOSURE_VERSION);
+                CanonicalProtobuf.uint32(out, 2, registryRootFixedBytes);
+                CanonicalProtobuf.uint32(out, 3, registrySlotBytes);
+                CanonicalProtobuf.uint32(out, 4, registryDebitBytes);
+            });
+        }
+        public static ExposureFormat3 decode(byte[] encoded) {
+            final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4, false, "Scope exposure Root format");
+            QueryCodecSupport.requireNumbers(f, new int[]{1, 2, 3, 4}, "Scope exposure Root format");
+            if (QueryCodecSupport.uint32(f.getFirst(), 1) != EXPOSURE_VERSION)
+                throw new IllegalArgumentException("unknown Scope exposure Root format schema");
+            final var value = new ExposureFormat3(QueryCodecSupport.uint32(f.get(1), 2),
+                    QueryCodecSupport.uint32(f.get(2), 3), QueryCodecSupport.uint32(f.get(3), 4));
+            QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "Scope exposure Root format");
+            return value;
+        }
+        public long maximumRootReservation(TargetSloControlScopeHeader header, TargetScopeExposurePolicy policy) {
+            return Math.addExact(Math.addExact(header.canonicalBytes().length, registryRootFixedBytes),
+                    Math.addExact(Math.multiplyExact((long) header.limits().maximumSlots(), registrySlotBytes),
+                            Math.multiplyExact((long) policy.maximumDebits(), registryDebitBytes)));
+        }
+    }
     public enum NativeClass { FIRST, POSITION, SAMPLE_PRIMARY, SAMPLE_PROJECTION, WRITER_EPOCH, GENERATION, HEAD, EVENT, CUSTODY }
     private final int schemaVersion;
     private final TargetQuotaIncarnation originalRoot;
@@ -58,11 +92,13 @@ public final class TargetSloScopeNativePlan {
     private final long maximumSourceOccurrences, maximumSourceFrameBytes, maximumSamples;
     private final int maximumWriterEpochs, maximumGenerations;
     private final Ceilings ceilings;
+    private final ExposureFormat3 exposureFormat;
+    private final TargetScopeExposurePolicy exposurePolicy;
     private final byte[] digest;
 
     /** The original constructor retains schema-1 bytes and its zero-only settlement boundary. */
     public TargetSloScopeNativePlan(TargetQuotaIncarnation root,SourcePosition anchor,long n,long f,long s,int w,int g) {
-        this(VERSION,root,anchor,n,f,s,w,g,null);
+        this(VERSION,root,anchor,n,f,s,w,g,null,null,null);
     }
     /** Explicit schema-2 creation freezes the complete current codecs, including cross-Scope CLOSE/STOP frames. */
     public static TargetSloScopeNativePlan frozen(TargetQuotaIncarnation root,SourcePosition anchor,long n,long f,long s,int w,int g) {
@@ -75,27 +111,44 @@ public final class TargetSloScopeNativePlan {
                 TargetQuotaAccounting.VALUE_ENVELOPE_BYTES,TargetSloWriterEpoch.key(root.scope(),new byte[32],1).length,
                 TargetSloObservationGeneration.key(root.scope(),1).length,TargetSloObservationState.key(root.scope()).length,
                 MAX_REGISTRY_WRAPPER_BYTES,TargetSloControlScopeRoot.ROOT_FIXED_RESERVED_BYTES,TargetSloControlScopeRoot.Slot.RESERVED_BYTES);
-        return new TargetSloScopeNativePlan(SETTLEMENT_VERSION,root,anchor,n,f,s,w,g,formats);
+        return new TargetSloScopeNativePlan(SETTLEMENT_VERSION,root,anchor,n,f,s,w,g,formats,null,null);
     }
-    private TargetSloScopeNativePlan(int version,TargetQuotaIncarnation root,SourcePosition anchor,long n,long f,long s,int w,int g,Ceilings formats) {
+    /** Explicit schema-3 creation binds its paid exposure policy and complete worst-case Root2 shape. */
+    public static TargetSloScopeNativePlan frozen(TargetQuotaIncarnation root,SourcePosition anchor,long n,long f,long s,int w,int g,
+            TargetScopeExposurePolicy policy) {
+        final var nativePlan = frozen(root,anchor,n,f,s,w,g);
+        return new TargetSloScopeNativePlan(EXPOSURE_VERSION,root,anchor,n,f,s,w,g,nativePlan.ceilings,
+                new ExposureFormat3(128,110,278),Objects.requireNonNull(policy));
+    }
+    private TargetSloScopeNativePlan(int version,TargetQuotaIncarnation root,SourcePosition anchor,long n,long f,long s,int w,int g,
+            Ceilings formats,ExposureFormat3 exposureFormat,TargetScopeExposurePolicy exposurePolicy) {
         schemaVersion=version;originalRoot=Objects.requireNonNull(root);sourceAnchor=TargetSourcePosition.requireBounded(anchor);
-        if((version!=VERSION&&version!=SETTLEMENT_VERSION)||(version==VERSION)!=(formats==null)
+        if((version!=VERSION&&version!=SETTLEMENT_VERSION&&version!=EXPOSURE_VERSION)||(version==VERSION)!=(formats==null)
+                ||(version==EXPOSURE_VERSION)!=(exposureFormat!=null)||(version==EXPOSURE_VERSION)!=(exposurePolicy!=null)
                 ||root.identity().kind()!=TargetQuotaIdentity.Kind.SHARD||root.draining()||root.canonicalBytes().length>V1_ROOT_BYTES
                 ||anchor.canonicalBytes().length>V1_SOURCE_BYTES||root.allocation().source().canonicalBytes().length>V1_SOURCE_BYTES
                 ||n<1||n==Long.MAX_VALUE||f<1||f==Long.MAX_VALUE||s<0||s==Long.MAX_VALUE||w<0||g<0)
             throw new IllegalArgumentException("Scope plan requires its actual OPEN SHARD Root and finite limits");
         maximumSourceOccurrences=n;maximumSourceFrameBytes=f;maximumSamples=s;maximumWriterEpochs=w;maximumGenerations=g;ceilings=formats;
-        Math.multiplyExact(n,f);requireSource(root.allocation().source());
+        this.exposureFormat=exposureFormat;this.exposurePolicy=exposurePolicy;
+        final long maximumSourceBytes=Math.multiplyExact(n,f);requireSource(root.allocation().source());
         if(anchor.compareTo(root.allocation().source())<0)throw new IllegalArgumentException("Scope anchor precedes Root allocation");
-        if(version==SETTLEMENT_VERSION&&(formats.physicalSourceBytes()!=legacyMaximumSourceBytes(anchor)
+        if(settlementEnabled()&&(formats.physicalSourceBytes()!=legacyMaximumSourceBytes(anchor)
                 ||formats.writerKeyBytes()!=2+scope().keySuffix().length+40||formats.generationKeyBytes()!=2+scope().keySuffix().length+8
                 ||formats.headKeyBytes()!=2+scope().keySuffix().length))
             throw new IllegalArgumentException("Scope frozen formats changed physical Source or original key shapes");
+        if(exposurePolicy!=null&&exposurePolicy.canonicalBytes().length>EXPOSURE_POLICY_MAX_CANONICAL_BYTES)
+            throw new IllegalArgumentException("Scope exposure policy exceeds its frozen format bound");
+        if(exposurePolicy!=null&&(exposurePolicy.maximumFrameBytes()>f||exposurePolicy.lifetime().records()>n
+                ||exposurePolicy.lifetime().bytes()>maximumSourceBytes))
+            throw new IllegalArgumentException("Scope exposure exceeds its paid Source occurrence/frame bounds");
         digest=Bytes.sha256(DOMAIN,fields());
-        if(canonicalBytes().length>(version==VERSION?V1_MAX_CANONICAL_BYTES:MAX_CANONICAL_BYTES))throw new IllegalArgumentException("Scope plan exceeds codec bound");
+        if(canonicalBytes().length>maximumCanonicalBytes(version))throw new IllegalArgumentException("Scope plan exceeds codec bound");
     }
     public int schemaVersion(){return schemaVersion;}
-    public boolean settlementEnabled(){return schemaVersion==SETTLEMENT_VERSION;}
+    public boolean settlementEnabled(){return schemaVersion==SETTLEMENT_VERSION||schemaVersion==EXPOSURE_VERSION;}
+    public ExposureFormat3 exposureFormat(){return exposureFormat;}
+    public TargetScopeExposurePolicy exposurePolicy(){return exposurePolicy;}
     public TargetQuotaIncarnation originalRoot(){return originalRoot;}
     public TargetQuotaScope scope(){return originalRoot.scope();}
     public byte[] lineage(){return originalRoot.recoveryLineage();}
@@ -136,7 +189,8 @@ public final class TargetSloScopeNativePlan {
     }
     public void requireHeader(TargetSloControlScopeHeader header){
         final var exact=Objects.requireNonNull(header);requireSource(exact.sourceAnchor());
-        if(!scope().equals(exact.scope())||!Arrays.equals(lineage(),exact.lineage())||!Arrays.equals(digest,exact.resourceContractDigest())
+        if((schemaVersion==EXPOSURE_VERSION?exact.schemaVersion()!=2||!exposurePolicy.equals(exact.exposurePolicy()):exact.schemaVersion()!=1)
+                ||!scope().equals(exact.scope())||!Arrays.equals(lineage(),exact.lineage())||!Arrays.equals(digest,exact.resourceContractDigest())
                 ||maximumWriterEpochs>exact.limits().maximumSlots()||maximumGenerations>exact.limits().maximumSlots()
                 ||Math.addExact((long)maximumWriterEpochs,maximumGenerations)>exact.limits().maximumSlots())
             throw new IllegalArgumentException("Scope header changed frozen plan/Source/Control slots");
@@ -186,7 +240,9 @@ public final class TargetSloScopeNativePlan {
         CapacityVector future=nativeBudget(header,maximumSourceOccurrences,maximumSamples,maximumWriterEpochs,maximumGenerations);
         final var c=effectiveCeilings();final var a=accounting();final long prefix=Bytes.utf8(header.registryKeyPrefix()).length;
         final long base=Math.addExact(prefix,74);
-        final long root=Math.addExact(Math.addExact(c.registryRootFixedBytes(),header.canonicalBytes().length),Math.multiplyExact((long)header.limits().maximumSlots(),c.registrySlotBytes()));
+        final long root=exposureFormat==null
+                ?Math.addExact(Math.addExact(c.registryRootFixedBytes(),header.canonicalBytes().length),Math.multiplyExact((long)header.limits().maximumSlots(),c.registrySlotBytes()))
+                :exposureFormat.maximumRootReservation(header,exposurePolicy);
         future=future.add(a.externalEvidenceCharge(Math.addExact(base,5),root));
         future=future.add(a.externalEvidenceCharge(Math.addExact(base,6),Math.addExact(header.canonicalBytes().length,c.registryWrapperBytes())));
         future=future.add(multiply(a.externalEvidenceCharge(Math.addExact(prefix,75),c.registryWrapperBytes()),header.limits().maximumSlots()));
@@ -206,20 +262,29 @@ public final class TargetSloScopeNativePlan {
         CanonicalProtobuf.uint64(out,4,maximumSourceOccurrences);CanonicalProtobuf.uint64(out,5,maximumSourceFrameBytes);CanonicalProtobuf.uint64(out,6,maximumSamples);
         CanonicalProtobuf.uint32(out,7,maximumWriterEpochs);CanonicalProtobuf.uint32(out,8,maximumGenerations);
         if(settlementEnabled())CanonicalProtobuf.bytes(out,9,ceilings.canonicalBytes());
+        if(schemaVersion==EXPOSURE_VERSION){
+            CanonicalProtobuf.bytes(out,10,exposureFormat.canonicalBytes());CanonicalProtobuf.bytes(out,11,exposurePolicy.canonicalBytes());
+        }
     });}
-    public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{out.writeBytes(fields());CanonicalProtobuf.bytes(out,settlementEnabled()?10:9,digest);});}
+    public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{out.writeBytes(fields());CanonicalProtobuf.bytes(out,schemaVersion==EXPOSURE_VERSION?12:settlementEnabled()?10:9,digest);});}
     public static TargetSloScopeNativePlan decode(byte[] encoded){
-        final var f=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,10,false,"Scope Native plan");
+        final var f=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,12,false,"Scope Native plan");
         if(f.isEmpty())throw new IllegalArgumentException("missing Scope plan version");final int version=QueryCodecSupport.uint32(f.getFirst(),1);
-        QueryCodecSupport.requireNumbers(f,version==VERSION?new int[]{1,2,3,4,5,6,7,8,9}:new int[]{1,2,3,4,5,6,7,8,9,10},"Scope Native plan");
-        if(version!=VERSION&&version!=SETTLEMENT_VERSION||version==VERSION&&encoded.length>V1_MAX_CANONICAL_BYTES)throw new IllegalArgumentException("unknown or oversized Scope plan");
+        QueryCodecSupport.requireNumbers(f,version==VERSION?new int[]{1,2,3,4,5,6,7,8,9}:version==SETTLEMENT_VERSION
+                ?new int[]{1,2,3,4,5,6,7,8,9,10}:new int[]{1,2,3,4,5,6,7,8,9,10,11,12},"Scope Native plan");
+        if(encoded.length>maximumCanonicalBytes(version))throw new IllegalArgumentException("oversized Scope plan");
         final var root=QueryCodecSupport.bytes(f.get(1),2);if(root.length>V1_ROOT_BYTES)throw new IllegalArgumentException("Scope Root exceeds original bound");
         final var value=new TargetSloScopeNativePlan(version,TargetQuotaIncarnation.decode(root),TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(2),3)),
                 QueryCodecSupport.uint64Bits(f.get(3),4),QueryCodecSupport.uint64Bits(f.get(4),5),QueryCodecSupport.uint64Bits(f.get(5),6),
-                QueryCodecSupport.uint32(f.get(6),7),QueryCodecSupport.uint32(f.get(7),8),version==SETTLEMENT_VERSION?Ceilings.decode(QueryCodecSupport.bytes(f.get(8),9)):null);
-        if(!Arrays.equals(value.digest,QueryCodecSupport.fixed(f.getLast(),version==VERSION?9:10,32)))throw new IllegalArgumentException("Scope plan digest mismatch");
+                QueryCodecSupport.uint32(f.get(6),7),QueryCodecSupport.uint32(f.get(7),8),version==VERSION?null:Ceilings.decode(QueryCodecSupport.bytes(f.get(8),9)),
+                version==EXPOSURE_VERSION?ExposureFormat3.decode(QueryCodecSupport.bytes(f.get(9),10)):null,
+                version==EXPOSURE_VERSION?TargetScopeExposurePolicy.decode(QueryCodecSupport.bytes(f.get(10),11)):null);
+        if(!Arrays.equals(value.digest,QueryCodecSupport.fixed(f.getLast(),version==EXPOSURE_VERSION?12:version==VERSION?9:10,32)))throw new IllegalArgumentException("Scope plan digest mismatch");
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Scope Native plan");return value;
     }
+    private static int maximumCanonicalBytes(int version){return switch(version){
+        case VERSION->V1_MAX_CANONICAL_BYTES;case SETTLEMENT_VERSION->V2_MAX_CANONICAL_BYTES;case EXPOSURE_VERSION->MAX_CANONICAL_BYTES;
+        default->throw new IllegalArgumentException("unknown Scope plan schema");};}
     @Override public boolean equals(Object other){return other instanceof TargetSloScopeNativePlan that&&Arrays.equals(canonicalBytes(),that.canonicalBytes());}
     @Override public int hashCode(){return Arrays.hashCode(digest);}
 }

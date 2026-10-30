@@ -9,6 +9,8 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.security.SecureRandom;
+import com.nereusstream.delay.runtime.TrustedUtcInterval;
 
 /** Bounded E4 admission on the original registry. Only an observed MEMBER CAS admits an exact Source frame. */
 public final class TargetSloControlScopeAuthority {
@@ -26,6 +28,17 @@ public final class TargetSloControlScopeAuthority {
         default void requireBirth(){throw new IllegalStateException("original Scope birth authority is unavailable");}
         /** Independent manager; SERVICE, Owner exit and TIME_FENCE authority cannot seal a registry Scope. */
         default void requireSeal(TargetSloControlScopeRoot original){throw new IllegalStateException("original Scope seal authority is unavailable");}
+        /** Independent manager authority. Closing issuance neither exits old permits nor releases unused resources. */
+        default void requireCloseIssuance(TargetSloControlScopeRoot original){throw new IllegalStateException("original exposure issuance authority is unavailable");}
+        /**
+         * Already-held actual Native64 payment, original input/writer, SDK expansion, physical Source,
+         * retention and closure margins. A policy or SDK contract alone cannot implement this authority.
+         * Returned UTC intervals must come from the original qualified clock and require no remote I/O.
+         */
+        default ExposureQualification requireExposure(TargetSloControlScopeRoot original,SystemMutation exact,
+                TargetScopeExposureDebit.Origin origin,TargetScopeExposureSource.CopyContract sdk){
+            throw new IllegalStateException("actual paid Source exposure qualification is unavailable");
+        }
         /** Original signatures, authorized alias/protocol range and prepaid storage/retention, including orphans. */
         void requireInput(TargetSloControlRegisteredInput original);
         /** Resolve all SERVICE ranges introduced or referenced by this original input; empty preserves UNKNOWN. */
@@ -34,8 +47,25 @@ public final class TargetSloControlScopeAuthority {
         @Override void close();
     }
 
-    record RootRecord(TargetSloControlScopeRoot value,long versionId) {
-        RootRecord {Objects.requireNonNull(value);if(versionId<0||versionId==Long.MAX_VALUE)throw new IllegalArgumentException("actual root version required");}
+    public interface ExposureQualification {
+        TargetScopeExposurePolicy.Kind kind();
+        /** Local live projection; returning old evidence as current time is not permitted. */
+        TrustedUtcInterval currentUtcInterval();
+        /** Recheck the same held origin, paid plan and actual SDK/physical expansion contract locally. */
+        void requireCurrent();
+        /**
+         * Actual bounded handoff protection, including delay until the SDK accepts ownership. An
+         * instantaneous clock sample cannot supply this guarantee across an uncertain boundary.
+         */
+        default void requireHandoffWindow(TargetScopeExposurePolicy policy,long chargedWindow){
+            throw new IllegalStateException("actual SDK handoff window protection is unavailable");
+        }
+    }
+
+    record RootRecord(TargetSloControlScopeRoot value,long versionId,Long birthVersionId) {
+        RootRecord(TargetSloControlScopeRoot value,long versionId){this(value,versionId,null);}
+        RootRecord {Objects.requireNonNull(value);if(versionId<0||versionId==Long.MAX_VALUE
+                ||birthVersionId!=null&&(birthVersionId<0||birthVersionId==Long.MAX_VALUE))throw new IllegalArgumentException("actual root/birth versions required");}
     }
     record InputRecord(TargetSloControlRegisteredInput value,long versionId) {
         InputRecord {Objects.requireNonNull(value);if(versionId<0||versionId==Long.MAX_VALUE)throw new IllegalArgumentException("actual entry version required");}
@@ -52,6 +82,7 @@ public final class TargetSloControlScopeAuthority {
     }
     private final Storage storage;
     private final Protections protections;
+    private final SecureRandom attempts=new SecureRandom();
     TargetSloControlScopeAuthority(Storage storage,Protections protections){
         this.storage=Objects.requireNonNull(storage);this.protections=Objects.requireNonNull(protections);
     }
@@ -83,6 +114,78 @@ public final class TargetSloControlScopeAuthority {
             }
             check(protection,guard);return new RootHold(root,protection,rootBytes(root,protection));
         }catch(RuntimeException|Error failure){throw retainFailure(protection,failure);}
+    }
+
+    public RootHold closeExposureIssuance(TargetSloControlScopeHeader.Reference reference,long maximumBytes,Runnable guard){
+        final var protection=acquire(reference,maximumBytes,guard,false);
+        try{
+            var root=requireRoot(storage.readRoot(reference),protection.header());
+            protection.requireCloseIssuance(root.value());check(protection,guard);
+            if(!root.value().issuanceClosed()){
+                root=requireRoot(storage.compareRoot(root,root.value().closeIssuance()),protection.header());
+                if(!root.value().issuanceClosed())throw new ConcurrentModificationException("original issuance close must retry the same root");
+            }
+            check(protection,guard);return new RootHold(root,protection,rootBytes(root,protection));
+        }catch(RuntimeException|Error failure){throw retainFailure(protection,failure);}
+    }
+
+    /**
+     * One new append invocation, one privately assigned durable debit. A response loss cannot be
+     * repaired by restoring a permit from an old slot. Callers retain the charged UNKNOWN instead.
+     */
+    public ExposurePermit acquireExposure(TargetSloControlScopeHeader.Reference reference,SystemMutation exact,
+            TargetScopeExposureDebit.Origin origin,TargetScopeExposureSource.CopyContract sdk,long maximumBytes,Runnable guard){
+        Objects.requireNonNull(exact);Objects.requireNonNull(origin);Objects.requireNonNull(sdk);
+        final var protection=acquire(reference,maximumBytes,guard,false);
+        try{
+            final var root=requireRoot(storage.readRoot(reference),protection.header());
+            if(root.value().schemaVersion()!=TargetSloControlScopeRoot.VERSION||root.value().issuanceClosed())
+                throw new IllegalStateException("original Scope has no open paid exposure issuance");
+            long retained=rootBytes(root,protection);
+            if(origin instanceof TargetScopeExposureDebit.ControlMember member){
+                final var slot=root.value().member(member.memberSlot());
+                final var stored=Objects.requireNonNull(storage.readInput(slot.operationId()),"exposure lost its exact immutable Control MEMBER");
+                root.value().requireMember(stored.value(),stored.versionId());
+                if(!Arrays.equals(member.registeredInputDigest(),stored.value().digest())
+                        ||!Arrays.equals(exact.encodeFrame(),stored.value().mutation().encodeFrame()))
+                    throw new IllegalArgumentException("exposure changed its exact original Control MEMBER/frame");
+                protection.requireInput(stored.value());retained=Math.addExact(retained,stored.value().entryBytes());
+            }else{
+                if(exact.type()!=SystemMutationType.TARGET_SLO_OBSERVATION
+                        ||!Objects.equals(((TargetScopeExposureDebit.ServiceWriter)origin).exactWriter(),
+                        TargetSloObservationEventBody.decode(exact.canonicalBody()).writerEpoch()))
+                    throw new IllegalArgumentException("SERVICE exposure changed its exact original writer reference");
+            }
+            final var qualification=Objects.requireNonNull(protection.requireExposure(root.value(),exact,origin,sdk));
+            qualification.requireCurrent();check(protection,guard);
+            final var policy=Objects.requireNonNull(root.value().header().exposurePolicy());
+            final var interval=Objects.requireNonNull(qualification.currentUtcInterval());
+            final long window=qualifiedWindow(policy,interval);
+            final var frame=exact.encodeFrame();final byte[] attemptId=new byte[32];attempts.nextBytes(attemptId);
+            final var debit=new TargetScopeExposureDebit(root.value().exposureDebits().size(),attemptId,Bytes.sha256(frame),
+                    origin,Objects.requireNonNull(qualification.kind()),sdk.maximumCopies(),frame.length,window,
+                    interval.earliestEpochMs(),sdk.digest());
+            final var next=root.value().appendExposureDebit(debit);
+            qualification.requireCurrent();check(protection,guard);
+            final var observed=requireRoot(storage.compareRoot(root,next),protection.header());
+            if(!Objects.equals(observed.birthVersionId(),root.birthVersionId())
+                    ||observed.value().exposureDebits().size()<=debit.index()
+                    ||!observed.value().debit(debit.index()).equals(debit))
+                throw new ConcurrentModificationException("own exact exposure debit was not confirmed; retain UNKNOWN without an SDK permit");
+            qualification.requireCurrent();check(protection,guard);
+            final long bytes=Math.addExact(retained,observed.value().canonicalBytes().length);
+            if(bytes>maximumBytes)throw new IllegalStateException("exposure material exceeds its original bounded hold");
+            return new ExposurePermit(observed,protection,bytes,debit,sdk,qualification);
+        }catch(RuntimeException|Error failure){throw retainFailure(protection,failure);}
+    }
+
+    private static long qualifiedWindow(TargetScopeExposurePolicy policy,TrustedUtcInterval interval){
+        if(!interval.qualified()||interval.latestEpochMs()==Long.MAX_VALUE)
+            throw new IllegalStateException("exposure requires an actual qualified finite handoff interval");
+        final long first=policy.windowIndex(interval.earliestEpochMs());
+        if(first!=policy.windowIndex(interval.latestEpochMs()))
+            throw new IllegalStateException("qualified handoff interval straddles exposure windows");
+        return first;
     }
 
     /** Reservation CAS is not admission. Entry put alone cannot return this private MEMBER hold. */
@@ -158,8 +261,14 @@ public final class TargetSloControlScopeAuthority {
                     deadline=Math.max(deadline,writer.contract().maximumRetryUntil());
             }
             final var after=requireRoot(storage.readRoot(reference),protection.header());
-            if(after.versionId()!=root.versionId()||!Arrays.equals(after.value().canonicalBytes(),root.value().canonicalBytes()))
-                throw new IllegalStateException("sealed Scope root/version changed during complete original input read");
+            if(root.value().schemaVersion()==TargetSloControlScopeRoot.LEGACY_VERSION){
+                if(after.versionId()!=root.versionId()||!Arrays.equals(after.value().canonicalBytes(),root.value().canonicalBytes()))
+                    throw new IllegalStateException("sealed Scope root/version changed during complete original input read");
+            }else{
+                if(!Objects.equals(root.birthVersionId(),after.birthVersionId()))
+                    throw new IllegalStateException("sealed Scope original birth changed during complete member read");
+                root.value().requireSameSealedMembership(after.value());
+            }
             check(protection,guard);
             return new SealedInputs(root,protection,bytes,inputs,known?OptionalLong.of(deadline):OptionalLong.empty());
         }catch(RuntimeException|Error failure){throw retainFailure(protection,failure);}
@@ -188,6 +297,8 @@ public final class TargetSloControlScopeAuthority {
     private static RootRecord requireRoot(RootRecord root,TargetSloControlScopeHeader expected){
         if(root==null)throw new IllegalStateException("original Scope root is unavailable; never recreate it during admission or recovery");
         if(!Arrays.equals(root.value().header().canonicalBytes(),expected.canonicalBytes()))throw new IllegalStateException("Scope root changed its immutable original header");
+        if(root.value().schemaVersion()!=TargetSloControlScopeRoot.LEGACY_VERSION&&root.birthVersionId()==null)
+            throw new IllegalStateException("Root2 lost its actual immutable birth identity");
         return root;
     }
     private static void requireInput(InputRecord stored,TargetSloControlRegisteredInput expected){
@@ -211,6 +322,7 @@ public final class TargetSloControlScopeAuthority {
         private boolean closed;
         private RootHold(RootRecord root,Protection protection,long bytes){this.root=root;this.protection=protection;this.bytes=bytes;this.protectionBytes=protection.retainedBytes();}
         public final TargetSloControlScopeRoot root(){requireCurrent();return root.value();}
+        /** Actual observed physical Root version, never an immutable Root2 seal version or current exposure balance. */
         public final long rootVersion(){requireCurrent();return root.versionId();}
         public final long retainedBytes(){return bytes;}
         public synchronized void requireCurrent(){
@@ -220,6 +332,48 @@ public final class TargetSloControlScopeAuthority {
             protection.requireCurrent();
         }
         @Override public synchronized void close(){if(!closed){protection.close();closed=true;}}
+    }
+    public static final class ExposurePermit extends RootHold implements CheckpointInputFuture.Cleanup {
+        private final TargetScopeExposureDebit debit;
+        private final TargetScopeExposureSource.CopyContract sdk;
+        private final ExposureQualification qualification;
+        private boolean claimed,localExited,cleanupComplete;
+        private ExposurePermit(RootRecord root,Protection protection,long bytes,TargetScopeExposureDebit debit,
+                TargetScopeExposureSource.CopyContract sdk,ExposureQualification qualification){
+            super(root,protection,bytes);this.debit=debit;this.sdk=sdk;this.qualification=qualification;
+        }
+        public TargetScopeExposureDebit debit(){return debit;}
+        /** Local only, immediately before this exact SDK invocation accepts the frame. No permit restoration. */
+        public synchronized void claim(byte[] frame,TargetScopeExposureSource.CopyContract actual){
+            if(claimed||localExited)throw new IllegalStateException("exposure permit is one-shot for its original SDK invocation");
+            claimed=true;requireCurrent();qualification.requireCurrent();debit.requireFrame(frame);
+            if(actual==null||sdk.maximumCopies()!=actual.maximumCopies()||!Arrays.equals(sdk.digest(),actual.digest())
+                    ||qualification.kind()!=debit.kind()
+                    ||qualifiedWindow(root().header().exposurePolicy(),Objects.requireNonNull(qualification.currentUtcInterval()))!=debit.windowIndex())
+                throw new IllegalStateException("exposure SDK contract or actual handoff window changed after its debit");
+            qualification.requireCurrent();requireCurrent();
+            qualification.requireHandoffWindow(root().header().exposurePolicy(),debit.windowIndex());
+        }
+        /** Only local SDK non-entry/exit releases this loan. Durable debit and physical obligations remain. */
+        public synchronized void notInvoked(){localExited=true;close();}
+        public synchronized void sdkCompleted(){localExited=true;close();}
+        @Override public synchronized void close(){
+            if(!localExited)throw new IllegalStateException("original exposure SDK operation has not locally exited");
+            try{super.close();cleanupComplete=true;}
+            catch(RuntimeException|Error failure){throw new ExposureCleanupFailure(this,failure);}
+        }
+        @Override public synchronized boolean cleanupComplete(){return cleanupComplete;}
+        @Override public synchronized CompletableFuture<Void> retryCleanup(){
+            try{close();return CompletableFuture.completedFuture(null);}
+            catch(RuntimeException|Error failure){return CompletableFuture.failedFuture(failure);}
+        }
+    }
+    private static final class ExposureCleanupFailure extends IllegalStateException implements CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID=1L;
+        private final transient ExposurePermit permit;
+        private ExposureCleanupFailure(ExposurePermit permit,Throwable failure){super("original exposure read-loan cleanup retained",failure);this.permit=permit;}
+        public boolean cleanupComplete(){return permit.cleanupComplete();}
+        public CompletableFuture<Void> retryCleanup(){return permit.retryCleanup();}
     }
     public static final class MemberHold extends RootHold {
         private final InputRecord input;
@@ -240,6 +394,7 @@ public final class TargetSloControlScopeAuthority {
             super(root,protection,bytes);this.inputs=List.copyOf(inputs);this.maximumRetryUntil=maximumRetryUntil;
         }
         public List<TargetSloControlRegisteredInput> inputs(){requireCurrent();return inputs;}
+        public long membershipRevision(){return root().membershipRevision();}
         /** This root's complete MEMBER range only; no claim about older/unscoped domains or physical UNKNOWN. */
         public OptionalLong maximumRetryUntil(){requireCurrent();return maximumRetryUntil;}
     }

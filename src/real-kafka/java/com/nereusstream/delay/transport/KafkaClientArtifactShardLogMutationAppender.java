@@ -2,11 +2,16 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.ShardLogMutationAppender;
 import com.nereusstream.delay.ownership.SystemWriterAppendBudget;
+import com.nereusstream.delay.ownership.CheckpointInputFuture;
+import com.nereusstream.delay.ownership.TargetScopeExposureSource;
+import com.nereusstream.delay.ownership.TargetSloControlScopeAuthority;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -43,6 +48,9 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private final Duration responseTimeout;
     private final SystemWriterAppendBudget.Writer writer;
     private final Runnable sourceGate;
+    private final TargetScopeExposureSource.CopyContract copyContract;
+    private final TargetScopeExposureSource.Issuer exposureIssuer;
+    private final Set<NativeAppend> retainedAppends = new HashSet<>();
     private int nativeAppends;
     private boolean nativeTerminated;
 
@@ -69,6 +77,13 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     KafkaClientArtifactShardLogMutationAppender(GuardedProducer<byte[],byte[]> producer, ShardId shard,
             String authenticatedClusterId, String physicalTopic, UUID nativeTopicUuid, Duration responseTimeout,
             SystemWriterAppendBudget.Writer writer, Runnable sourceGate) {
+        this(producer, shard, authenticatedClusterId, physicalTopic, nativeTopicUuid, responseTimeout,
+                writer, sourceGate, null, null);
+    }
+    KafkaClientArtifactShardLogMutationAppender(GuardedProducer<byte[],byte[]> producer, ShardId shard,
+            String authenticatedClusterId, String physicalTopic, UUID nativeTopicUuid, Duration responseTimeout,
+            SystemWriterAppendBudget.Writer writer, Runnable sourceGate, TargetScopeExposureSource.CopyContract copyContract,
+            TargetScopeExposureSource.Issuer exposureIssuer) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.shard = Objects.requireNonNull(shard, "shard");
         this.authenticatedClusterId = requireText(authenticatedClusterId, "authenticatedClusterId");
@@ -86,6 +101,8 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         }
         this.writer = writer;
         this.sourceGate = sourceGate;
+        this.copyContract = copyContract;
+        this.exposureIssuer = exposureIssuer;
         if (writer != null) {
             writer.bindProducer(producer);
         }
@@ -125,7 +142,14 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             return AppendOutcome.definitelyNotPersisted();
         }
         final CompletableFuture<Observation> completion = new CompletableFuture<>();
-        final NativeAppend nativeAppend = new NativeAppend();
+        final NativeAppend nativeAppend;
+        try {
+            nativeAppend = new NativeAppend(TargetScopeExposureSource.acquire(exact, copyContract, exposureIssuer));
+            synchronized (this) { retainedAppends.add(nativeAppend); }
+        } catch (RuntimeException | Error failed) {
+            if (reservation != null) reservation.sdkCompleted();
+            throw failed;
+        }
         try {
             final java.util.function.Supplier<java.util.concurrent.Future<GuardedRecordMetadata>> send = () -> {
                 if (sourceGate != null) {
@@ -133,32 +157,48 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
                     catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 }
                 nativeStarted(nativeAppend);
+                try {
+                    if (nativeAppend.exposure != null) {
+                        nativeAppend.exposure.claim(frame, copyContract);
+                        nativeAppend.claimed = true;
+                    }
+                } catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 return producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
                             (metadata, failure) -> {
                                 try {
+                                    if (reservation != null) reservation.sdkCompleted();
+                                    nativeExited(nativeAppend);
                                     completion.complete(new Observation(metadata, failure));
-                                } finally {
-                                    try { if (reservation != null) { reservation.sdkCompleted(); } }
-                                    finally { nativeExited(nativeAppend); }
+                                } catch (RuntimeException | Error cleanup) {
+                                    completion.completeExceptionally(cleanup);
+                                    throw cleanup;
                                 }
                             });
             };
             if (writer == null) {
                 send.get();
             } else if (!writer.invokeSdk(reservation, send).started()) {
+                notInvoked(nativeAppend);
                 return AppendOutcome.definitelyNotPersisted();
             }
         } catch (RuntimeException failure) {
             if (failure instanceof SourceWriteNotStarted) {
                 if (reservation != null) reservation.sdkCompleted();
-                nativeExited(nativeAppend);
+                notInvoked(nativeAppend);
+                if (failure.getCause() instanceof CheckpointInputFuture.Cleanup
+                        && failure.getCause() instanceof RuntimeException cleanup) throw cleanup;
                 return AppendOutcome.definitelyNotPersisted();
             }
             final ResourceGuardException proof = unwrap(failure);
+            if (!nativeAppend.started) {
+                if (reservation != null) reservation.sdkCompleted();
+                notInvoked(nativeAppend);
+            }
             if (reservation != null && proof != null && proof.definitelyNotPersisted()) {
                 reservation.sdkCompleted();
             }
             if (proof != null && proof.definitelyNotPersisted()) nativeExited(nativeAppend);
+            if (failure instanceof CheckpointInputFuture.Cleanup) throw failure;
             return failure(failure);
         }
         final Observation observation;
@@ -168,6 +208,8 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
             Thread.currentThread().interrupt();
             return AppendOutcome.unknown();
         } catch (ExecutionException execution) {
+            if (execution.getCause() instanceof CheckpointInputFuture.Cleanup
+                    && execution.getCause() instanceof RuntimeException cleanup) throw cleanup;
             return failure(execution.getCause());
         } catch (TimeoutException timeout) {
             return AppendOutcome.unknown();
@@ -183,19 +225,43 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         nativeAppends = Math.incrementExact(nativeAppends); append.started = true;
     }
 
-    private synchronized void nativeExited(NativeAppend append) {
-        if (!append.started || append.exited) return;
-        append.exited = true;
-        if (!nativeTerminated) nativeAppends--;
+    private void nativeExited(NativeAppend append) {
+        synchronized (this) {
+            if (!append.exited) {
+                append.exited = true;
+                if (append.started && !nativeTerminated) nativeAppends--;
+            }
+        }
+        if (append.exposure != null) append.exposure.sdkCompleted();
+        synchronized (this) { retainedAppends.remove(append); }
+    }
+
+    private void notInvoked(NativeAppend append) {
+        synchronized (this) {
+            if (!append.exited) {
+                append.exited = true;
+                if (append.started && !nativeTerminated) nativeAppends--;
+            }
+        }
+        if (append.exposure != null) {
+            if (append.claimed) append.exposure.sdkCompleted();
+            else append.exposure.notInvoked();
+        }
+        synchronized (this) { retainedAppends.remove(append); }
     }
 
     /** An UNKNOWN result keeps its original native callback obligation until completion or actual producer exit. */
     synchronized boolean nativeOperationsExited() { return nativeAppends == 0; }
 
     /** Only the same producer's actual guarded native termination settles callbacks with no observed response. */
-    synchronized void producerNativeClosed() {
+    void producerNativeClosed() {
         if (!producer.guardedResourcesTerminated()) throw new IllegalStateException("original Kafka producer resources remain live");
-        nativeTerminated = true; nativeAppends = 0;
+        final Set<NativeAppend> pending;
+        synchronized (this) {
+            nativeTerminated = true; nativeAppends = 0;
+            pending = Set.copyOf(retainedAppends);
+        }
+        for (NativeAppend append : pending) nativeExited(append);
     }
 
     @Override
@@ -259,7 +325,11 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     }
 
     private record Observation(GuardedRecordMetadata metadata, Throwable failure) {}
-    private static final class NativeAppend { private boolean started; private boolean exited; }
+    private static final class NativeAppend {
+        private final TargetSloControlScopeAuthority.ExposurePermit exposure;
+        private boolean started, exited, claimed;
+        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) { this.exposure = exposure; }
+    }
     private static final class SourceWriteNotStarted extends RuntimeException {
         private static final long serialVersionUID = 1L;
         private SourceWriteNotStarted(Throwable cause) { super("Source credential denied before native append", cause); }

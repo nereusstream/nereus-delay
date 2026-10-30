@@ -8,6 +8,8 @@ public record TargetScopeControlObligationBody(ShardId shard,long retryUntil,Con
         TargetScopeControlObligationRequest request,int expectedRecordState) {
     public static final int BODY_VERSION=24;
     public static final int FROZEN_BODY_VERSION=25;
+    public static final int EXPOSURE_BODY_VERSION=26;
+    public static final int V2_MAX_CANONICAL_BYTES=3_185_601;
     public static final int MAX_CANONICAL_BYTES=TargetScopeControlObligationRequest.MAX_CANONICAL_BYTES+192;
     public static final int MAX_INPUT_BYTES=MAX_CANONICAL_BYTES+1024;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-scope-control-obligation\0");
@@ -21,7 +23,9 @@ public record TargetScopeControlObligationBody(ShardId shard,long retryUntil,Con
     }
     public byte[] logicalIdentity(){return controlRef.logicalOperationIdentity(TargetScopeControlObligationRequest.CONTROL_KIND);}
     public int schemaVersion(){return requirePlanSchema(request.definition().plan().schemaVersion());}
-    public ProtocolTuple tuple(){return schemaVersion()==1?ProtocolTuple.targetScopeControlObligation():ProtocolTuple.targetScopeControlObligationFrozen();}
+    public ProtocolTuple tuple(){return switch(schemaVersion()){
+        case 1->ProtocolTuple.targetScopeControlObligation();case 2->ProtocolTuple.targetScopeControlObligationFrozen();
+        case 3->ProtocolTuple.targetScopeControlObligationExposure();default->throw new IllegalStateException("unknown Scope Control obligation schema");};}
     public byte[] semanticHash(){return Bytes.sha256(DOMAIN,Bytes.u16be(TargetScopeControlObligationRequest.CONTROL_KIND),request.canonicalBytes());}
     public static boolean isControl(SystemMutation input){
         if(input.type()!=SystemMutationType.APPLY_SHARD_CONTROL)return false;
@@ -44,7 +48,8 @@ public record TargetScopeControlObligationBody(ShardId shard,long retryUntil,Con
             CanonicalProtobuf.bytes(out,15,CanonicalProtobuf.message(payload->
                     CanonicalProtobuf.bytes(payload,TargetScopeControlObligationRequest.CONTROL_KIND,request.canonicalBytes())));
         });
-        if(encoded.length>MAX_CANONICAL_BYTES)throw new IllegalArgumentException("Scope Control obligation body exceeds its codec bound");return encoded;
+        if(encoded.length>(schemaVersion()==3?MAX_CANONICAL_BYTES:V2_MAX_CANONICAL_BYTES))
+            throw new IllegalArgumentException("Scope Control obligation body exceeds its codec bound");return encoded;
     }
     public static TargetScopeControlObligationBody decode(byte[] encoded){
         final var fields=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,9,false,"Target Scope Control obligation body");
@@ -52,7 +57,7 @@ public record TargetScopeControlObligationBody(ShardId shard,long retryUntil,Con
         final int schema=QueryCodecSupport.uint32(fields.get(5),12);
         if(QueryCodecSupport.uint32(fields.get(1),2)!=SystemMutationType.APPLY_SHARD_CONTROL.wireValue()
                 ||QueryCodecSupport.uint32(fields.get(4),11)!=TargetScopeControlObligationRequest.CONTROL_KIND
-                ||(schema!=1&&schema!=2))
+                ||(schema!=1&&schema!=2&&schema!=3))
             throw new IllegalArgumentException("unknown Scope Control obligation type/kind/schema");
         final var shard=QueryCodecSupport.bytes(fields.getFirst(),1);TargetCompatibilityCodec.read(shard,24,2,false,"Scope Control obligation Shard subject");
         final var ref=QueryCodecSupport.bytes(fields.get(3),10);TargetCompatibilityCodec.read(ref,74,3,false,"Scope Control obligation ControlRef");
@@ -68,7 +73,7 @@ public record TargetScopeControlObligationBody(ShardId shard,long retryUntil,Con
         QueryCodecSupport.requireCanonical(encoded,result.canonicalBytes(),"Target Scope Control obligation body");return result;
     }
     private static int requirePlanSchema(int schema){
-        if(schema!=1&&schema!=2)throw new IllegalArgumentException("unknown Scope Control obligation Native plan schema");
+        if(schema!=1&&schema!=2&&schema!=3)throw new IllegalArgumentException("unknown Scope Control obligation Native plan schema");
         return schema;
     }
 }

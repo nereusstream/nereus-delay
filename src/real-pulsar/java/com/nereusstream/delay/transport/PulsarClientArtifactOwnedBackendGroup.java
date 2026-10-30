@@ -414,6 +414,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         if (credential != null) { requireTargetCredential(channel); }
     }
     void requireProducerArtifact(Producer<?> producer) { TargetSdkArtifactIdentity.requireExact(producer.getClass(), sdkJar); }
+    byte[] activatedSdkJarSha256() { return Bytes.copy(sdkJar); }
 
     @Override public void requireWorkerGraph(WorkClassExecutionRegistry expected, SharedRocksDbResources shared) {
         if (classes != expected || resources != shared) { throw new IllegalArgumentException("P1 group belongs to another Worker"); }
