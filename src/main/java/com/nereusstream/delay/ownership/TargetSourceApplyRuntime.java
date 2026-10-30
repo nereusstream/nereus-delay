@@ -2480,10 +2480,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         requireGcOwner(clock);return actual;
     }
 
-    synchronized TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
+    TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget, final TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        final var checkpoint = checkpointReads(clock);
+        if (checkpoint != null) {
+            return publishRecoveryDiscovery.scanCheckpointInputs(budget, continuation, maximumRows, checkpoint);
+        }
         requireGcOwner(clock);
         final var page = publishRecoveryDiscovery.scanRetainedInputs(
                 budget, continuation, maximumRows, workerReads(clock));
@@ -2499,19 +2503,23 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return admitted;
     }
 
-    synchronized void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
+    void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
             final TargetPublishRecoveryDiscovery.Cursor cursor, final LongSupplier ownerClock) {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        final var checkpoint = checkpointReads(clock);
+        if (checkpoint != null) {
+            publishRecoveryDiscovery.requireCheckpointCursorCurrent(budget, cursor, checkpoint);
+            return;
+        }
         requireGcOwner(clock);
         publishRecoveryDiscovery.requireRetainedCursorCurrent(budget, cursor, workerReads(clock));
         requireGcOwner(clock);
     }
 
-    synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
+    TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
             final com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final LongSupplier ownerClock) {
-        requireGcOwner(ownerClock);
-        final var captured = backend.guardedRead(budget, reader -> {
+        final var captured = checkpointRead(budget, reader -> {
             final var bookkeeping = com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(
                     TargetValueEnvelope.decode(reader.get(ColumnFamily.META,
                             com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
@@ -2539,24 +2547,21 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             return new TargetCheckpointControlInputs.Cut(this,
                     new TargetQueueSnapshotReader.Cut(reader.metadata().storeIncarnation(), reader.nativeSequence()),
                     dependencies);
-        }, workerReads(ownerClock));
-        requireGcOwner(ownerClock);
+        }, ownerClock);
         return captured;
     }
 
-    synchronized void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
+    void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
             final TargetCheckpointControlInputs.Cut cut, final LongSupplier ownerClock) {
-        requireGcOwner(ownerClock);
         if (cut.owner != this) { throw new IllegalArgumentException("Control history cut belongs to another Worker"); }
-        backend.guardedRead(budget, reader -> {
+        checkpointRead(budget, reader -> {
             if (!cut.view.equals(new TargetQueueSnapshotReader.Cut(
                     reader.metadata().storeIncarnation(), reader.nativeSequence()))) {
                 throw new IllegalStateException("Control history cut changed its physical Store view");
             }
             reader.requireWithinElapsedBudget();
             return Boolean.TRUE;
-        }, workerReads(ownerClock));
-        requireGcOwner(ownerClock);
+        }, ownerClock);
     }
 
     synchronized void requireOutcomeWriter(final SystemMutation mutation, final LongSupplier clock) {
@@ -3100,6 +3105,71 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return (actual, actualScope) -> {
             requireGcOwner(clock);
             return gcGuard(authorities.reads().acquire(actual, actualScope), actual, actualScope, clock);
+        };
+    }
+
+    void requireCheckpointReadCapability() {
+        if (!(authorities.reads() instanceof TargetStoreBackend.CheckpointReadAuthority)) {
+            throw new UnsupportedOperationException("checkpoint preparation requires original local read-hold authority");
+        }
+    }
+
+    /** Legacy providers remain confined to the original component path; configured services require the new capability. */
+    private <T> T checkpointRead(final BoundedReadBudget budget,
+            final java.util.function.Function<TargetStoreBackend.Reader, T> projection, final LongSupplier clock) {
+        final var checkpoint = checkpointReads(clock);
+        if (checkpoint != null) return backend.checkpointRead(budget, projection, checkpoint);
+        requireGcOwner(clock);
+        final var value = backend.guardedRead(budget, projection, workerReads(clock));
+        requireGcOwner(clock);
+        return value;
+    }
+
+    private TargetStoreBackend.CheckpointReadAuthority checkpointReads(final LongSupplier clock) {
+        if (!(authorities.reads() instanceof TargetStoreBackend.CheckpointReadAuthority original)) return null;
+        return (actual, actualScope) -> {
+            requireGcOwner(clock);
+            if (!scope.equals(actualScope) || !Arrays.equals(metadata.encode(), actual.encode())) {
+                throw new IllegalStateException("checkpoint read hold belongs to another Source Store/scope");
+            }
+            final OwnerLease acquiredLease = lease;
+            final var external = Objects.requireNonNull(
+                    original.acquireCheckpointRead(actual, actualScope), "original checkpoint read hold");
+            return new TargetStoreBackend.CheckpointReadHold() {
+                private long lastNow = -1;
+
+                @Override public void requireExternalCurrent() {
+                    requireGcOwner(clock);
+                    external.requireExternalCurrent();
+                    requireGcOwner(clock);
+                    requireLocalCurrent();
+                }
+
+                @Override public synchronized void requireLocalCurrent() {
+                    requireLocalOwner();
+                    external.requireLocalCurrent();
+                    requireLocalOwner();
+                }
+
+                private void requireLocalOwner() {
+                    final OwnerLease current = lease;
+                    final long now = clock.getAsLong();
+                    if (recoveryOnly || fenced || store.isCloseStarted() || now < lastNow
+                            || !acquiredLease.sameIdentity(current) || !acquiredLease.validAt(now) || !current.validAt(now)
+                            || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                            || store.runtimeMetadata().lastOpenedOwnerEpoch() != acquiredLease.ownerEpoch()
+                            || !scope.equals(actualScope) || !Arrays.equals(metadata.encode(), actual.encode())) {
+                        throw new IllegalStateException("checkpoint read lost its original local Source Owner/Store");
+                    }
+                    lastNow = now;
+                }
+
+                @Override public void close() { external.close(); }
+                @Override public boolean cleanupComplete() { return external.cleanupComplete(); }
+                @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+                    return external.retryCleanup();
+                }
+            };
         };
     }
 

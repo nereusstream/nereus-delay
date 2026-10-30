@@ -1,5 +1,7 @@
 package com.nereusstream.delay.store;
 
+import com.nereusstream.delay.ownership.CheckpointInputFuture;
+import com.nereusstream.delay.ownership.OwnedCheckpointIo;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
@@ -27,6 +29,104 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         Throwable pendingIoFailure();
         default void requestStop() {}
         default void retryCleanup() {}
+    }
+    public interface PublicationValidationLoan extends PreparationIo, AutoCloseable {
+        boolean cleanupComplete();
+        @Override void close();
+    }
+
+    /** One exact CHECKPOINT identity lends the existing finite executor to one held-publication validation. */
+    public static final class PublicationValidationAttempt<T extends PublicationValidationLoan> implements PreparationIo {
+        private final WorkClassExecutionRegistry registry;
+        private final WorkClassTask task;
+        private final java.util.concurrent.ThreadPoolExecutor executor;
+        private final java.util.function.BiFunction<Runnable, java.util.function.Consumer<T>, T> operation;
+        private OwnedCheckpointIo<T> io;
+        private java.util.concurrent.CompletableFuture<T> receipt;
+        private volatile T held;
+        private boolean stopping;
+        private boolean closeRequested;
+        private OwnedCheckpointIo<Boolean> closeIo;
+        private OwnedCheckpointIo<Boolean> cleanupIo;
+        private Throwable failure;
+
+        private PublicationValidationAttempt(WorkClassExecutionRegistry registry, WorkClassTask task,
+                java.util.concurrent.ThreadPoolExecutor executor,
+                java.util.function.BiFunction<Runnable, java.util.function.Consumer<T>, T> operation) {
+            this.registry = registry; this.task = task; this.executor = executor; this.operation = operation;
+        }
+
+        private void enqueue() {
+            try { registry.submit(task, this::start); }
+            catch (RuntimeException | Error rejected) { failure = rejected; stopping = true; }
+        }
+
+        private synchronized void start() {
+            if (stopping) { return; }
+            try {
+                io = OwnedCheckpointIo.submitResource(current -> {
+                    final var value = Objects.requireNonNull(operation.apply(current, original -> {
+                        if (held != null && held != original)
+                            throw new IllegalStateException("publication validation replaced its retained loan");
+                        held = Objects.requireNonNull(original, "original validation loan");
+                    }), "publication validation hold");
+                    if (held != value)
+                        throw new IllegalStateException("publication validation did not retain its exact returned loan");
+                    return value;
+                }, () -> {}, value -> closeHeld(), executor);
+                receipt = io.receipt();
+            } catch (RuntimeException | Error rejected) { failure = rejected; stopping = true; }
+        }
+
+        public synchronized Optional<T> ready() {
+            if (failure != null) { throw new IllegalStateException("checkpoint publication validation failed", failure); }
+            if (stopping) { return Optional.empty(); }
+            if (io == null || !io.operationExited() || !receipt.isDone()) { return Optional.empty(); }
+            final T value = Objects.requireNonNull(receipt.join(), "publication validation hold");
+            if (!io.ioExited() || !value.ioExited()) { return Optional.empty(); }
+            return Optional.of(value);
+        }
+
+        private synchronized void closeHeld() {
+            if (held == null || closeRequested || io != null && !io.ioExited()) { return; }
+            try {
+                closeIo = OwnedCheckpointIo.submit(ignored -> { held.close(); return true; }, () -> {}, executor);
+                closeRequested = true;
+            } catch (RuntimeException | Error rejected) { failure = rejected; }
+        }
+
+        @Override public synchronized void requestStop() {
+            stopping = true;
+            registry.withdrawQueued(task);
+            if (io != null) { io.requestStop(); }
+            closeHeld();
+        }
+        @Override public synchronized void retryCleanup() {
+            if (io != null) { io.retryCleanup(); }
+            if (stopping) { closeHeld(); }
+            if (closeIo != null) { closeIo.retryCleanup(); }
+            if (cleanupIo != null) { cleanupIo.retryCleanup(); }
+            if (held != null && closeRequested && closeIo.ioExited() && !held.cleanupComplete()
+                    && (cleanupIo == null || cleanupIo.ioExited())) {
+                try {
+                    cleanupIo = OwnedCheckpointIo.submit(ignored -> { held.retryCleanup(); return true; },
+                            () -> {}, executor);
+                } catch (RuntimeException | Error rejected) { failure = rejected; }
+            }
+        }
+        @Override public synchronized boolean ioExited() {
+            return stopping && registry.state(task).isEmpty() && (io == null || io.ioExited())
+                    && (closeIo == null || closeIo.ioExited()) && (cleanupIo == null || cleanupIo.ioExited())
+                    && (held == null || closeRequested && held.ioExited() && held.cleanupComplete());
+        }
+        @Override public synchronized Throwable pendingIoFailure() {
+            if (failure != null) { return failure; }
+            if (receipt != null && CheckpointInputFuture.ownedFailure(receipt) != null)
+                return CheckpointInputFuture.ownedFailure(receipt);
+            if (closeIo != null && CheckpointInputFuture.ownedFailure(closeIo.receipt()) != null)
+                return CheckpointInputFuture.ownedFailure(closeIo.receipt());
+            return held == null ? null : held.pendingIoFailure();
+        }
     }
     @FunctionalInterface
     public interface IntentRegistration {
@@ -176,9 +276,84 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             Supplier<Optional<TargetCheckpointSemanticSnapshot>> inputs,
             TargetCheckpointSemanticSnapshot.Limits limits, Runnable protection, PublicationPlan publication,
             IntentRegistration registration) {
+        final byte[] identity = canonicalIdentity(Objects.requireNonNull(request, "request"));
+        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                (registration == null ? "target-collected-semantic/" : "target-register-collected-semantic/")
+                        + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
+                Math.addExact(identity.length, limits.maximumBytes()));
+        final var submission = new Submission(task);
+        requireServiceable(task);
+        continueCollectedSemantic(submission, request, inputs, limits, protection, publication, registration);
+        submission.nextStep.run();
+        return submission;
+    }
+
+    /** The original CHECKPOINT task owns metadata preparation before a pending intent can exist. */
+    public static Submission submitDeferredCollectedSemantic(WorkClassExecutionRegistry registry,
+            String localIdentity, long maximumTaskBytes, PreparationIo preparationIo, Runnable localGuard,
+            java.util.function.Consumer<Submission> preparation,
+            java.util.function.Consumer<Submission> accepted, SchedulerBudget settlementBudget,
+            java.util.concurrent.ThreadPoolExecutor executor) {
+        Objects.requireNonNull(registry, "registry");
+        Objects.requireNonNull(preparationIo, "preparationIo");
+        Objects.requireNonNull(localGuard, "localGuard");
+        Objects.requireNonNull(preparation, "preparation");
+        Objects.requireNonNull(accepted, "accepted");
+        if (Objects.requireNonNull(localIdentity, "localIdentity").isBlank()) {
+            throw new IllegalArgumentException("deferred checkpoint local identity is empty");
+        }
+        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+                "target-deferred-collected-semantic/" + localIdentity, maximumTaskBytes);
+        final var submission = new Submission(task);
+        submission.preparationIo = preparationIo;
+        submission.preparationGuard = localGuard;
+        submission.preparationRegistry = registry;
+        submission.preparationExecutor = Objects.requireNonNull(executor, "executor");
+        submission.preparationBudget = settlementBudget;
+        submission.ownedStepGuard = localGuard;
+        submission.deferredRequestPending = true;
+        submission.nextStep = () -> submission.submitPreparationAction(() -> {
+            try {
+                localGuard.run();
+                preparation.accept(submission);
+            } catch (RuntimeException | Error failure) {
+                submission.complete(new Outcome(null, failure));
+                if (failure instanceof CheckpointInputFuture.Cleanup) { throw failure; }
+            }
+        });
+        try {
+            accepted.accept(submission);
+            localGuard.run();
+            if (settlementBudget == null) { registry.requireTaskServiceable(task); }
+            else { registry.requireTaskServiceable(task, settlementBudget); }
+            submission.nextStep.run();
+        } catch (RuntimeException | Error failure) {
+            // Admission failure still belongs to this exact cut until provider cleanup actually exits.
+            submission.complete(new Outcome(null, failure));
+        }
+        return submission;
+    }
+
+    /** Freezes one complete request and installs the existing registration/history/image/publication sequence. */
+    public void continueCollectedSemantic(Submission submission, Request request,
+            Supplier<Optional<TargetCheckpointSemanticSnapshot>> inputs,
+            TargetCheckpointSemanticSnapshot.Limits limits, Runnable protection, PublicationPlan publication,
+            IntentRegistration registration) {
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(request, "request");
         Objects.requireNonNull(inputs, "inputs");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(protection, "protection");
+        if (submission.preparationStopped) {
+            throw new IllegalStateException("Target collected checkpoint preparation is stopped");
+        }
+        if (submission.collectedRequestFrozen) {
+            throw new IllegalStateException("Target collected checkpoint request is already frozen");
+        }
+        submission.collectedRequestFrozen = true;
+        if (inputs instanceof PreparationIo io) {
+            submission.preparationIo = joinPreparationIo(submission.preparationIo, io);
+        }
         if (publication != null && publication.coordinator().resources() != store.sharedResources()) {
             throw new IllegalArgumentException("Target publication uses another Worker resource graph");
         }
@@ -187,18 +362,20 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             requireCurrent(request, false, registered.get());
             protection.run();
         };
-        guard.run();
         final byte[] identity = canonicalIdentity(request);
-        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
-                (registration == null ? "target-collected-semantic/" : "target-register-collected-semantic/")
-                        + Bytes.hex(Bytes.sha256(TASK_DOMAIN, identity)),
-                Math.addExact(identity.length, limits.maximumBytes()));
-        final var submission = new Submission(task);
+        final var task = submission.task();
+        if (Math.addExact(identity.length, limits.maximumBytes()) > task.bytes()) {
+            throw new IllegalArgumentException("prepared checkpoint exceeds its original task byte reservation");
+        }
         requireServiceable(task);
+        if (submission.preparationRegistry != null && submission.preparationRegistry != workClasses) {
+            throw new IllegalArgumentException("prepared checkpoint uses another WorkClass graph");
+        }
+        guard.run();
         submission.preparationGuard = guard;
         submission.preparationRegistry = workClasses;
-        submission.preparationIo = inputs instanceof PreparationIo io ? io : null;
-        submission.nextStep = () -> workClasses.submit(task, () -> {
+        submission.deferredRequestPending = false;
+        submission.nextStep = () -> submission.submitPreparationAction(() -> {
             try {
                 guard.run();
                 if (!registered.get()) {
@@ -233,14 +410,32 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             } catch (ReadIncompleteException incomplete) {
                 // A fresh bounded read may continue on the next exact task invocation.
             } catch (RuntimeException failure) {
-                if (submission.outcome().isEmpty()) { submission.complete(new Outcome(null, failure)); }
+                if (!submission.hasCompletion()) { submission.complete(new Outcome(null, failure)); }
+                if (submission.usesOwnedPreparation() && failure instanceof CheckpointInputFuture.Cleanup) {
+                    throw failure;
+                }
             } catch (Error failure) {
-                if (submission.outcome().isEmpty()) { submission.complete(new Outcome(null, failure)); }
+                if (!submission.hasCompletion()) { submission.complete(new Outcome(null, failure)); }
                 throw failure;
             }
         });
-        submission.nextStep.run();
-        return submission;
+    }
+
+    private static PreparationIo joinPreparationIo(PreparationIo original, PreparationIo inputs) {
+        if (original == null || original == inputs) { return inputs; }
+        return new PreparationIo() {
+            @Override public boolean ioExited() { return original.ioExited() && inputs.ioExited(); }
+            @Override public Throwable pendingIoFailure() {
+                final var failure = original.pendingIoFailure();
+                return failure == null ? inputs.pendingIoFailure() : failure;
+            }
+            @Override public void requestStop() {
+                try { original.requestStop(); } finally { inputs.requestStop(); }
+            }
+            @Override public void retryCleanup() {
+                try { original.retryCleanup(); } finally { inputs.retryCleanup(); }
+            }
+        };
     }
 
     private void executeSemantic(SemanticRequest semantic, Submission submission, PublicationPlan publication) {
@@ -297,6 +492,9 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
             submission.complete(new Outcome(path, null));
         } catch (RuntimeException failure) {
             submission.complete(new Outcome(null, failure));
+            if (submission.usesOwnedPreparation() && failure instanceof CheckpointInputFuture.Cleanup) {
+                throw failure;
+            }
         } catch (Error failure) {
             submission.complete(new Outcome(null, failure));
             throw failure;
@@ -476,23 +674,105 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
         private PreparationIo preparationIo;
         private Runnable preparationGuard;
         private WorkClassExecutionRegistry preparationRegistry;
+        private boolean deferredRequestPending;
+        private boolean collectedRequestFrozen;
+        private volatile boolean preparationStopped;
+        private java.util.concurrent.ThreadPoolExecutor preparationExecutor;
+        private SchedulerBudget preparationBudget;
+        private Runnable ownedStepGuard;
+        private OwnedCheckpointIo<Boolean> ownedStep;
+        private java.util.concurrent.CompletableFuture<Boolean> ownedStepReceipt;
+        private final java.util.List<PublicationValidationAttempt<?>> publicationValidations = new java.util.ArrayList<>();
 
         private Submission(final WorkClassTask task) {
             this.task = task;
+        }
+
+        private void submitPreparationAction(Runnable action) {
+            preparationRegistry.submit(task, preparationExecutor == null ? action : () -> startOwnedStep(action));
+        }
+
+        private synchronized void startOwnedStep(Runnable action) {
+            if (outcome != null || retainedOutcome != null) { return; }
+            if (preparationStopped) {
+                complete(new Outcome(null, new IllegalStateException("Target checkpoint preparation stopped")));
+                return;
+            }
+            if (ownedStep != null) {
+                throw new IllegalStateException("Target checkpoint still owns its preceding I/O step");
+            }
+            try {
+                ownedStep = OwnedCheckpointIo.submit(guard -> {
+                    guard.run();
+                    action.run();
+                    return true;
+                }, ownedStepGuard, preparationExecutor);
+                ownedStepReceipt = ownedStep.receipt();
+            } catch (RuntimeException | Error failure) {
+                complete(new Outcome(null, failure));
+            }
+        }
+
+        private boolean observeOwnedStep() {
+            if (ownedStep == null) { return true; }
+            if (!ownedStep.ioExited() || !ownedStepReceipt.isDone()) { return false; }
+            try { ownedStepReceipt.join(); }
+            catch (RuntimeException | Error failure) {
+                if (retainedOutcome == null) { complete(new Outcome(null, failure)); }
+                else if (retainedOutcome.failure() == null) {
+                    retainedOutcome = new Outcome(null, failure);
+                    if (registration != null) { registration.requestStop(); }
+                    if (preparationIo != null) { preparationIo.requestStop(); }
+                } else if (retainedOutcome.failure() != failure) {
+                    retainedOutcome.failure().addSuppressed(failure);
+                }
+            }
+            ownedStep = null;
+            ownedStepReceipt = null;
+            return true;
         }
 
         public WorkClassTask task() {
             return task;
         }
 
+        public boolean usesOwnedPreparation() { return preparationExecutor != null; }
+
+        public synchronized <T extends PublicationValidationLoan> PublicationValidationAttempt<T> beginPublishedValidation(
+                java.util.function.BiFunction<Runnable, java.util.function.Consumer<T>, T> operation) {
+            if (publication().isEmpty() || preparationExecutor == null) {
+                throw new IllegalStateException("publication validation requires the original deferred publication");
+            }
+            publicationValidations.removeIf(PublicationValidationAttempt::ioExited);
+            if (publicationValidations.stream().anyMatch(attempt -> !attempt.ioExited())) {
+                throw new IllegalStateException("original publication validation is still retained");
+            }
+            final var attempt = new PublicationValidationAttempt<T>(preparationRegistry, task,
+                    preparationExecutor, Objects.requireNonNull(operation, "operation"));
+            publicationValidations.add(attempt);
+            attempt.enqueue();
+            return attempt;
+        }
+
+        /** Runs only the original bounded registry turn; its deferred handler merely starts the original I/O loan. */
+        public void advancePublishedValidation() {
+            if (preparationBudget == null) {
+                throw new IllegalStateException("publication validation has no original fixed checkpoint budget");
+            }
+            preparationRegistry.runTurn(preparationBudget);
+        }
+
         public Optional<Outcome> outcome() {
             return Optional.ofNullable(outcome);
         }
+
+        private synchronized boolean hasCompletion() { return outcome != null || retainedOutcome != null; }
 
         public boolean preparing() { return outcome == null && nextStep != null; }
 
         /** Stops only an existing registration between bounded actions; completed history preparation is unchanged. */
         public synchronized void requestRegistrationStop() {
+            if (deferredRequestPending) { requestPreparationStop(); return; }
             if (registration == null || registrationAccepted || outcome != null || retainedOutcome != null
                     || preparationRegistry.state(task).isPresent()) { return; }
             complete(new Outcome(null, new IllegalStateException("Target checkpoint registration stopped")));
@@ -500,31 +780,44 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         /** Stops only the retained preparation between actions, preserving running I/O/native cleanup. */
         public synchronized void requestPreparationStop() {
+            for (var attempt : publicationValidations) { attempt.requestStop(); }
+            preparationStopped = true;
             if (retainedOutcome != null) {
+                if (ownedStep != null) { ownedStep.requestStop(); }
                 if (preparationIo != null) { preparationIo.requestStop(); }
                 return;
             }
-            if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
+            if (!preparing()) { return; }
+            final var state = preparationRegistry.state(task);
+            if (state.isPresent() && !preparationRegistry.withdrawQueued(task)) {
+                if (ownedStep != null) { ownedStep.requestStop(); }
+                if (preparationIo != null) { preparationIo.requestStop(); }
+                return;
+            }
             complete(new Outcome(null, new IllegalStateException("Target checkpoint preparation stopped")));
         }
 
         /** Only the owning Worker uses this to admit history reads while its ordinary turns are paused. */
         public void requirePreparationCurrent() {
-            if (!preparing()) { throw new IllegalStateException("Target checkpoint history is no longer preparing"); }
+            if (preparationStopped || !preparing()) {
+                throw new IllegalStateException("Target checkpoint history is no longer preparing");
+            }
             preparationGuard.run();
         }
 
         /** Reoffers an unfinished preparation only after its previous bounded invocation left the registry. */
         public synchronized void enqueueNextPreparation() {
             if (settleFailedRegistrationIo()) { return; }
+            if (!observeOwnedStep()) { return; }
             if (!preparing() || preparationRegistry.state(task).isPresent()) { return; }
-            try { requirePreparationCurrent(); nextStep.run(); }
+            try { nextStep.run(); }
             catch (RuntimeException failure) { complete(new Outcome(null, failure)); }
             catch (Error failure) { complete(new Outcome(null, failure)); throw failure; }
         }
 
         /** Local failure settlement only; no Owner, Store, history or new business admission is performed. */
         public synchronized boolean settleFailedRegistrationIo() {
+            observeOwnedStep();
             if (retainedOutcome != null) {
                 if (preparationRegistry.state(task).isEmpty() && ioExited()) {
                     outcome = retainedOutcome;
@@ -537,18 +830,30 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         /** Nonterminal diagnostic preserves native cleanup handles without granting completion/publication. */
         public synchronized Optional<Throwable> pendingIoFailure() {
+            if (ownedStepReceipt != null) {
+                final var failure = CheckpointInputFuture.ownedFailure(ownedStepReceipt);
+                if (failure != null) { return Optional.of(failure); }
+            }
             if (retainedOutcome == null) { return Optional.empty(); }
             final var cleanup = preparationIo == null ? null : preparationIo.pendingIoFailure();
             return Optional.ofNullable(cleanup == null ? retainedOutcome.failure() : cleanup);
         }
 
         public synchronized void retryPendingIoCleanup() {
+            for (var attempt : publicationValidations) { attempt.retryCleanup(); }
+            if (ownedStep != null) { ownedStep.retryCleanup(); }
             if (retainedOutcome != null && preparationIo != null) { preparationIo.retryCleanup(); }
         }
 
         private boolean ioExited() {
-            return (registration == null || registration.ioExited())
+            return ownedExecutionIoExited()
                     && (preparationIo == null || preparationIo.ioExited());
+        }
+        /** Local execution/registration observation, excluding provider callbacks to avoid ownership recursion. */
+        public synchronized boolean ownedExecutionIoExited() {
+            return (ownedStep == null || ownedStep.ioExited() && ownedStepReceipt.isDone())
+                    && (registration == null || registration.ioExited())
+                    && publicationValidations.stream().allMatch(PublicationValidationAttempt::ioExited);
         }
         public synchronized boolean ownedIoExited() { return ioExited(); }
 
@@ -585,17 +890,34 @@ public final class TargetCheckpointCandidateWorkClassExecutor {
 
         private synchronized void complete(final Outcome completed) {
             if (outcome != null || retainedOutcome != null) {
+                if (preparationStopped) { return; }
                 throw new IllegalStateException("Target candidate action already completed");
             }
             Objects.requireNonNull(completed, "completed");
-            if (registration != null && completed.failure() != null) { registration.requestStop(); }
-            if (preparationIo != null && completed.failure() != null) { preparationIo.requestStop(); }
+            if (completed.failure() != null) {
+                stopAfterFailure(completed.failure());
+            }
             if (!ioExited()) {
                 retainedOutcome = completed;
                 nextStep = null;
                 return;
             }
             outcome = completed;
+        }
+
+        private void stopAfterFailure(Throwable failure) {
+            try { if (ownedStep != null) { ownedStep.requestStop(); } }
+            catch (RuntimeException | Error stopFailure) {
+                if (stopFailure != failure) { failure.addSuppressed(stopFailure); }
+            }
+            try { if (registration != null) { registration.requestStop(); } }
+            catch (RuntimeException | Error stopFailure) {
+                if (stopFailure != failure) { failure.addSuppressed(stopFailure); }
+            }
+            try { if (preparationIo != null) { preparationIo.requestStop(); } }
+            catch (RuntimeException | Error stopFailure) {
+                if (stopFailure != failure) { failure.addSuppressed(stopFailure); }
+            }
         }
     }
 

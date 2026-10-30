@@ -65,6 +65,8 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         private boolean readStarted;
         private boolean openStarted;
         private boolean closing;
+        private volatile Throwable failedConstruction;
+        private volatile boolean readExited;
 
         private Query(final Map<String, Object> configuration, final String physicalTopic,
                 final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
@@ -120,6 +122,8 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                                 applied.authenticatedClusterId(), physicalTopic, applied.nativeTopicUuid(),
                                 applied.shardId().partition()));
                     } catch (RuntimeException | Error failure) {
+                        // The exact factory owns failed-constructor/bind cleanup, including a retained partial SDK.
+                        failedConstruction = failure;
                         opening.completeExceptionally(failure);
                         throw failure;
                     }
@@ -129,6 +133,7 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                 if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
                 throw new TargetSourceBacklogRead.Failure(this, failure);
             } finally {
+                readExited = true;
                 requestClose();
             }
         }
@@ -179,17 +184,37 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         public synchronized CompletableFuture<Void> requestClose() {
             closing = true;
             if (!openStarted && !owned.cleanupComplete()) { owned.abandonBeforeOpen(); }
+            if (failedConstruction != null && readExited) return failedConstructionCleanup(false);
             return owned.requestClose();
         }
 
         @Override
-        public CompletableFuture<Void> retryClose() { return owned.retryClose(); }
+        public CompletableFuture<Void> retryClose() {
+            if (failedConstruction != null && readExited) return failedConstructionCleanup(true);
+            return owned.retryClose();
+        }
 
         @Override
-        public boolean cleanupComplete() { return owned.cleanupComplete(); }
+        public boolean cleanupComplete() {
+            final var failure = failedConstruction;
+            if (failure == null) return owned.cleanupComplete();
+            return readExited && (!(failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup)
+                    || cleanup.cleanupComplete());
+        }
 
         @Override
-        public Throwable cleanupFailure() { return owned.cleanupFailure(); }
+        public Throwable cleanupFailure() { return failedConstruction == null ? owned.cleanupFailure() : failedConstruction; }
+
+        /** A factory exception is not a cursor handle: only its original constructor-cleanup fact can settle it. */
+        private CompletableFuture<Void> failedConstructionCleanup(boolean retry) {
+            final var failure = failedConstruction;
+            if (failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                    && !cleanup.cleanupComplete()) {
+                return retry ? cleanup.retryCleanup() : CompletableFuture.failedFuture(failure);
+            }
+            // The pinned factory returns ordinary constructor/bind failure only after native cleanup returned.
+            return CompletableFuture.completedFuture(null);
+        }
     }
 
 }

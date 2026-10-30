@@ -155,6 +155,12 @@ public final class TargetPublishRecoveryDiscovery {
         return scan(budget, continuation, maximumRows, authority, true);
     }
 
+    /** The production checkpoint path uses an original hold with a real Store-local validation token. */
+    public Page scanCheckpointInputs(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
+            final TargetStoreBackend.CheckpointReadAuthority authority) {
+        return scan(budget, continuation, maximumRows, null, Objects.requireNonNull(authority, "authority"), true);
+    }
+
     /** Enumerates only immutable K2 mappings whose exact attempt still has a Source UNKNOWN hold. */
     public Page scanKafkaUnknown(BoundedReadBudget budget, Cursor continuation, int maximumRows,
             TargetStoreBackend.ReadAuthority authority) {
@@ -207,11 +213,18 @@ public final class TargetPublishRecoveryDiscovery {
 
     private Page scan(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
             final TargetStoreBackend.ReadAuthority authority, final boolean retainedInputs) {
+        return scan(budget, continuation, maximumRows, Objects.requireNonNull(authority, "authority"), null, retainedInputs);
+    }
+
+    private Page scan(final BoundedReadBudget budget, final Cursor continuation, final int maximumRows,
+            final TargetStoreBackend.ReadAuthority authority,
+            final TargetStoreBackend.CheckpointReadAuthority checkpointAuthority, final boolean retainedInputs) {
         if (maximumRows < 1 || continuation != null
                 && (continuation.owner != this || continuation.retainedInputs != retainedInputs || continuation.kafkaUnknown)) {
             throw new IllegalArgumentException("invalid Target recovery page limit or foreign continuation");
         }
-        return backend.guardedRead(Objects.requireNonNull(budget, "budget"), reader -> {
+        Objects.requireNonNull(budget, "budget");
+        final java.util.function.Function<TargetStoreBackend.Reader, Page> projection = reader -> {
             final var cut = new TargetQueueSnapshotReader.Cut(
                     reader.metadata().storeIncarnation(), reader.nativeSequence());
             if (continuation != null && !continuation.cut.equals(cut)) {
@@ -243,7 +256,9 @@ public final class TargetPublishRecoveryDiscovery {
                 }
             }
             return new Page(entries, new Cursor(this, after, cut, retainedInputs), Stop.PAGE_LIMIT);
-        }, Objects.requireNonNull(authority, "authority"));
+        };
+        return checkpointAuthority == null ? backend.guardedRead(budget, projection, authority)
+                : backend.checkpointRead(budget, projection, checkpointAuthority);
     }
 
     /** Validates the original retained-input Store cut without advancing its continuation. */
@@ -259,6 +274,21 @@ public final class TargetPublishRecoveryDiscovery {
             if (!cursor.cut.equals(cut)) {
                 throw new StaleCursor();
             }
+            return true;
+        }, authority);
+    }
+
+    /** Same retained-input cut validation, with external checks kept outside the Store monitor. */
+    public void requireCheckpointCursorCurrent(final BoundedReadBudget budget, final Cursor cursor,
+            final TargetStoreBackend.CheckpointReadAuthority authority) {
+        if (cursor == null || cursor.owner != this || !cursor.retainedInputs) {
+            throw new IllegalArgumentException("retained input validation requires its exact continuation");
+        }
+        backend.checkpointRead(budget, reader -> {
+            reader.requireWithinElapsedBudget();
+            final var cut = new TargetQueueSnapshotReader.Cut(
+                    reader.metadata().storeIncarnation(), reader.nativeSequence());
+            if (!cursor.cut.equals(cut)) throw new StaleCursor();
             return true;
         }, authority);
     }

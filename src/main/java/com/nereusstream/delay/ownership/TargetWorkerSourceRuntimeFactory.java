@@ -287,7 +287,7 @@ public final class TargetWorkerSourceRuntimeFactory {
             AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication, String workerId,
             ShardStore store, SourceAssignment assignment, OwnerLease expected, TargetStoreBackend.ReadAuthority physical,
             LongSupplier clock) {
-        return (metadata, scope) -> {
+        final TargetStoreBackend.ReadAuthority legacy = (metadata, scope) -> {
             if (!metadata.equals(store.metadata()) || !scope.shard().equals(assignment.shardId())) {
                 throw new IllegalArgumentException("Source reopen changes its actual Store/Shard");
             }
@@ -313,6 +313,74 @@ public final class TargetWorkerSourceRuntimeFactory {
                 @Override public void close() { actual.close(); }
             };
         };
+        if (!(physical instanceof TargetStoreBackend.CheckpointReadAuthority original)) return legacy;
+        record CheckpointOwnerRead(OwnerLease lease, long now) {}
+        class CheckpointStartupReads implements TargetStoreBackend.ReadAuthority, TargetStoreBackend.CheckpointReadAuthority {
+            @Override public TargetStoreBackend.CommitGuard acquire(
+                    com.nereusstream.delay.store.StoreMetadata metadata, TargetQuotaScope scope) {
+                return legacy.acquire(metadata, scope);
+            }
+
+            @Override public TargetStoreBackend.CheckpointReadHold acquireCheckpointRead(
+                    com.nereusstream.delay.store.StoreMetadata metadata, TargetQuotaScope scope) {
+                if (!metadata.equals(store.metadata()) || !scope.shard().equals(assignment.shardId())) {
+                    throw new IllegalArgumentException("Source checkpoint read changes its actual Store/Shard");
+                }
+                final var acquired = requireExternalOwner(-1);
+                final OwnerLease acquiredLease = acquired.lease();
+                final var actual = Objects.requireNonNull(
+                        original.acquireCheckpointRead(metadata, scope), "original physical checkpoint read hold");
+                return new TargetStoreBackend.CheckpointReadHold() {
+                    private long lastNow = acquired.now();
+
+                    @Override public void requireExternalCurrent() {
+                        actual.requireExternalCurrent();
+                        lastNow = requireExternalOwner(lastNow).now();
+                        actual.requireExternalCurrent();
+                        requireLocalCurrent();
+                    }
+
+                    @Override public synchronized void requireLocalCurrent() {
+                        requireLocalOwner();
+                        actual.requireLocalCurrent();
+                        requireLocalOwner();
+                    }
+
+                    private void requireLocalOwner() {
+                        final long now = clock.getAsLong();
+                        if (now < lastNow || !acquiredLease.validAt(now)
+                                || store.isCloseStarted() || !metadata.equals(store.metadata())
+                                || Long.compareUnsigned(store.runtimeMetadata().lastOpenedOwnerEpoch(), acquiredLease.ownerEpoch()) > 0) {
+                            throw new IllegalStateException("Source checkpoint read lost its original local Owner/session/Store");
+                        }
+                        lastNow = now;
+                    }
+
+                    @Override public void close() { actual.close(); }
+                    @Override public boolean cleanupComplete() { return actual.cleanupComplete(); }
+                    @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+                        return actual.retryCleanup();
+                    }
+                };
+            }
+
+            private CheckpointOwnerRead requireExternalOwner(long lastNow) {
+                accept(oxia, tenant, publication, workerId);
+                requireLeaseContext(oxia, assignment, expected);
+                final var current = oxia.providers().leases().current(assignment.shardId())
+                        .orElseThrow(() -> new IllegalStateException("original Source Owner disappeared during checkpoint read"));
+                final long now = clock.getAsLong();
+                if (now < 0 || now < lastNow || !expected.sameIdentity(current) || !current.validAt(now)
+                        || current.state() != ShardLifecycleState.ACQUIRING
+                            && current.state() != ShardLifecycleState.CATCHING_UP
+                            && current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                        || store.isCloseStarted() || Long.compareUnsigned(store.runtimeMetadata().lastOpenedOwnerEpoch(), current.ownerEpoch()) > 0) {
+                    throw new IllegalStateException("Source checkpoint read lost its actual Owner/session/Store");
+                }
+                return new CheckpointOwnerRead(current, now);
+            }
+        }
+        return new CheckpointStartupReads();
     }
 
     static void requireScope(TargetWorkerOxiaRuntime oxia, AuthenticatedTenantContext tenant,

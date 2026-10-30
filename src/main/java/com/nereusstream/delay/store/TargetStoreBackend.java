@@ -627,6 +627,44 @@ public final class TargetStoreBackend {
         CommitGuard acquire(StoreMetadata metadata, TargetQuotaScope scope);
     }
 
+    /**
+     * Checkpoint-only authority supplied by the original read/retention provider. Implementing the legacy
+     * ReadAuthority does not supply this capability: its CommitGuard may perform remote checks.
+     */
+    @FunctionalInterface
+    public interface CheckpointReadAuthority {
+        /** Acquires the actual finite hold; an exceptional late acquisition must retain its Cleanup handle. */
+        CheckpointReadHold acquireCheckpointRead(StoreMetadata metadata, TargetQuotaScope scope);
+    }
+
+    /**
+     * The same actual acquisition protects the read, both external checks and final local delivery.
+     * Original Store/retention/Pin protection remains held until release; a longer-lived consumer needs its
+     * own retained original loan rather than relying on this completed projection's immutable bytes.
+     */
+    public interface CheckpointReadHold extends AutoCloseable,
+            com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        /** Complete original Owner/session/acquisition and retention validation; called outside the Store monitor. */
+        void requireExternalCurrent();
+
+        /**
+         * Validates this acquisition's actual local token, finite validity and revocation/stop state.
+         * Must not perform RPC, wait for external I/O, or reconstruct authority from an epoch projection.
+         */
+        void requireLocalCurrent();
+
+        /** Starts release of this exact hold; cleanupComplete must retain any actual late I/O/release obligation. */
+        @Override
+        void close();
+
+        /** Local observation of actual acquisition/read/release exit, including failure and late completion. */
+        @Override
+        boolean cleanupComplete();
+
+        @Override
+        java.util.concurrent.CompletableFuture<Void> retryCleanup();
+    }
+
     public static final class ReadPlan<T> {
         private final TargetStoreBackend backend;
         private final ShardStore.ReadView view;
@@ -684,6 +722,111 @@ public final class TargetStoreBackend {
                 guard.requireCurrent();
                 return plan.value;
             });
+        }
+    }
+
+    /** Checkpoint projection with external validation outside the Store and only the same hold's local token inside. */
+    public <T> T checkpointRead(
+            final BoundedReadBudget budget, final Function<Reader, T> planner,
+            final CheckpointReadAuthority authority) {
+        Objects.requireNonNull(budget, "budget");
+        Objects.requireNonNull(planner, "planner");
+        Objects.requireNonNull(authority, "authority");
+        requireCheckpointTime(budget);
+        final var hold = Objects.requireNonNull(
+                authority.acquireCheckpointRead(store.metadata(), scope), "checkpoint read hold");
+        T value = null;
+        Throwable failure = null;
+        try {
+            for (;;) {
+                requireCheckpointTime(budget);
+                hold.requireExternalCurrent();
+                requireCheckpointTime(budget);
+                final var plan = prepareRead(budget, reader -> {
+                    hold.requireLocalCurrent();
+                    final T projected = Objects.requireNonNull(planner.apply(reader), "checkpoint read result");
+                    hold.requireLocalCurrent();
+                    reader.requireWithinElapsedBudget();
+                    return projected;
+                });
+                hold.requireExternalCurrent();
+                requireCheckpointTime(budget);
+                final var delivered = store.withCheckpointReadView(plan.view, () -> {
+                    hold.requireLocalCurrent();
+                    requireCheckpointTime(budget);
+                    return plan.value;
+                });
+                if (delivered.isPresent()) {
+                    value = delivered.orElseThrow();
+                    break;
+                }
+                // Preserve this actual acquisition and the original cumulative byte/record/deadline budget.
+            }
+        } catch (RuntimeException | Error rejected) {
+            failure = rejected;
+        }
+        final Throwable readFailure = failure;
+        try {
+            hold.close();
+        } catch (RuntimeException | Error releaseFailure) {
+            if (failure != null && releaseFailure != failure) releaseFailure.addSuppressed(failure);
+            failure = releaseFailure;
+        }
+        if (!hold.cleanupComplete()
+                || failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                        && !cleanup.cleanupComplete()
+                || readFailure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup readCleanupState
+                        && !readCleanupState.cleanupComplete()) {
+            throw new CheckpointReadCleanup(hold, failure, readFailure);
+        }
+        if (failure instanceof RuntimeException rejected) throw rejected;
+        if (failure instanceof Error rejected) throw rejected;
+        return Objects.requireNonNull(value, "completed checkpoint projection");
+    }
+
+    private static void requireCheckpointTime(final BoundedReadBudget budget) {
+        if (!budget.beforeTimedWork()) throw budget.incomplete();
+    }
+
+    /** Keeps the original release/failure handles visible to the caller's OwnedCheckpointIo/PreparationIo. */
+    private static final class CheckpointReadCleanup extends IllegalStateException
+            implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient CheckpointReadHold hold;
+        private final transient com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup failureCleanup;
+        private final transient com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup readCleanup;
+
+        private CheckpointReadCleanup(final CheckpointReadHold hold, final Throwable failure, final Throwable readFailure) {
+            super("original checkpoint read hold has not completed actual cleanup", failure);
+            this.hold = hold;
+            failureCleanup = failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                    ? cleanup : null;
+            readCleanup = readFailure != failure
+                    && readFailure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                    ? cleanup : null;
+        }
+
+        @Override public boolean cleanupComplete() {
+            return hold.cleanupComplete() && (failureCleanup == null || failureCleanup.cleanupComplete())
+                    && (readCleanup == null || readCleanup.cleanupComplete());
+        }
+
+        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            final var original = retry(hold);
+            final var failed = retry(failureCleanup);
+            final var read = retry(readCleanup);
+            return java.util.concurrent.CompletableFuture.allOf(original, failed, read);
+        }
+
+        private static java.util.concurrent.CompletableFuture<Void> retry(
+                final com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup) {
+            try {
+                return cleanup == null || cleanup.cleanupComplete()
+                        ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                        : Objects.requireNonNull(cleanup.retryCleanup(), "checkpoint read cleanup future");
+            } catch (RuntimeException | Error failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
         }
     }
 

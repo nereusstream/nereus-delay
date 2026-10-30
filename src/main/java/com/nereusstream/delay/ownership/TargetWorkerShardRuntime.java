@@ -103,6 +103,7 @@ public final class TargetWorkerShardRuntime
     private volatile TargetMessageExpiryWorkClassExecutor messageExpiryHandoff;
     private volatile TargetMessageExpiryMaintenance messageExpiryMaintenance;
     private volatile TargetCheckpointCandidateWorkClassExecutor.Submission pendingCheckpoint;
+    private boolean checkpointTurnInProgress;
     private com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend evidenceRecoveryCatalog;
     private TargetPublishRecoveryMaintenance publishRecoveryMaintenance;
     private volatile TargetJournalNegativeSettlementMaintenance journalSettlement;
@@ -247,6 +248,7 @@ public final class TargetWorkerShardRuntime
     private int publicationMaintenanceCursor;
     private boolean publicationMaintenanceStopping;
     private final java.util.Map<String,OwnedSourceSystemWriter> systemWriterBackends = new java.util.HashMap<>();
+    private final java.util.List<TargetOwnedBackendGroup> preparedPublicationBackends = new java.util.ArrayList<>();
     private OwnedTargetJournal journalBackend;
     private TargetWorkerChannelInventory channelInventory;
 
@@ -515,8 +517,24 @@ public final class TargetWorkerShardRuntime
         if (host != null && backend != null) { host.registerPublicationBackend(this, backend); }
     }
 
+    /** Retains a concrete pre-Host SDK owner before its first native opening can be queued. */
+    public synchronized void retainPublicationBackend(TargetOwnedBackendGroup original,
+            TargetDestinationSdkBudget budget) {
+        Objects.requireNonNull(original).requireWorkerGraph(workClasses, resources);
+        Objects.requireNonNull(budget).requireWorker(workClasses, resources);
+        resources.requireRuntimeBusinessAdmission();
+        if (publicationHost != null || backendQuarantined || publicationMaintenanceStopping)
+            throw new IllegalStateException("original publication construction is no longer admitted");
+        preparedPublicationBackends.removeIf(TargetOwnedBackendGroup::resourcesTerminated);
+        if (preparedPublicationBackends.stream().anyMatch(value -> value == original)) return;
+        if (preparedPublicationBackends.size() >= budget.maximumClients())
+            throw new IllegalStateException("original prepared publication owner window is full");
+        preparedPublicationBackends.add(original);
+    }
+
     synchronized java.util.List<TargetOwnedBackendGroup> publicationBackendGroups() {
         final var groups = new java.util.ArrayList<TargetOwnedBackendGroup>();
+        groups.addAll(preparedPublicationBackends);
         if (journalBackend != null) groups.add(journalBackend.ownedBackendGroup());
         if (recoveryBackend != null && !groups.contains(recoveryBackend)) groups.add(recoveryBackend);
         if (priorRecoveryBackend != null && !groups.contains(priorRecoveryBackend)) groups.add(priorRecoveryBackend);
@@ -1131,7 +1149,7 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Enumerates all retained Admission inputs for checkpoint/history protection under this active Worker. */
-    public synchronized com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
+    public com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Page discoverCheckpointInputs(
             final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor continuation,
             final int maximumRows, final LongSupplier ownerClock) {
@@ -1141,7 +1159,7 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Revalidates the retained-input cut under the current Worker and Owner guards. */
-    synchronized void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
+    void requireCheckpointInputsCurrent(final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor cursor,
             final LongSupplier ownerClock) {
         requireCheckpointHistoryOwner(ownerClock);
@@ -1149,7 +1167,7 @@ public final class TargetWorkerShardRuntime
         target.requireCheckpointInputsCurrent(budget, cursor, ownerClock);
     }
 
-    synchronized void requireCheckpointAdmissionInputsSameCut(BoundedReadBudget budget,
+    void requireCheckpointAdmissionInputsSameCut(BoundedReadBudget budget,
             com.nereusstream.delay.runtime.TargetPublishRecoveryDiscovery.Cursor cursor,
             TargetCheckpointControlInputs.Cut expected, LongSupplier ownerClock) {
         requireCheckpointHistoryOwner(ownerClock);
@@ -1158,7 +1176,7 @@ public final class TargetWorkerShardRuntime
         cursor.requireSameRetainedCut(expected.view);
     }
 
-    synchronized TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
+    TargetCheckpointControlInputs.Cut captureCheckpointControlInputs(final BoundedReadBudget budget,
             final com.nereusstream.delay.store.TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final LongSupplier ownerClock) {
         requireCheckpointHistoryOwner(ownerClock);
@@ -1166,7 +1184,7 @@ public final class TargetWorkerShardRuntime
         return target.captureCheckpointControlInputs(budget, ledgerLimits, ownerClock);
     }
 
-    synchronized void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
+    void requireCheckpointControlInputsCurrent(final BoundedReadBudget budget,
             final TargetCheckpointControlInputs.Cut cut, final LongSupplier ownerClock) {
         requireCheckpointHistoryOwner(ownerClock);
         resources.requireRuntimeBusinessAdmission();
@@ -1400,12 +1418,13 @@ public final class TargetWorkerShardRuntime
         target.requirePublishRecoveryOwner(clock);
     }
 
-    synchronized void requireCheckpointHistoryOwner(LongSupplier clock) {
-        if (pendingCheckpoint == null) {
-            requireNewTurnsAdmitted();
-        } else {
-            pendingCheckpoint.requirePreparationCurrent();
+    void requireCheckpointHistoryOwner(LongSupplier clock) {
+        final TargetCheckpointCandidateWorkClassExecutor.Submission checkpoint;
+        synchronized (this) {
+            checkpoint = pendingCheckpoint;
+            if (checkpoint == null) { requireNewTurnsAdmitted(); }
         }
+        if (checkpoint != null) { checkpoint.requirePreparationCurrent(); }
         resources.requireRuntimeBusinessAdmission();
         target.requirePublishRecoveryOwner(clock);
     }
@@ -2028,6 +2047,51 @@ public final class TargetWorkerShardRuntime
                 protectCheckpointCut());
     }
 
+    synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitDeferredCollectedSemanticCheckpointCandidate(
+            TargetCheckpointCandidateSchedule.DeferredPreparation preparation,
+            SourceRecordConsumer.CheckpointCut cut, SchedulerBudget settlementBudget) {
+        requireNewTurnsAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        if (preparedCheckpointCut != Objects.requireNonNull(cut, "cut") || maintenance.hasPendingTurn()
+                || hasUnsettledMessageExpiry()) {
+            throw new IllegalStateException("Target deferred checkpoint cut is no longer prepared for this Shard");
+        }
+        Objects.requireNonNull(preparation, "preparation");
+        cut.requireCurrent();
+        final Runnable localGuard = () -> {
+            requireRuntimeAdmitted();
+            resources.requireRuntimeBusinessAdmission();
+            if (target.fenced() || store.isCloseStarted() || store.isWriteOutcomeUncertain()) {
+                throw new IllegalStateException("Target deferred checkpoint Owner/Store is fenced");
+            }
+            cut.requireCurrent();
+        };
+        final var expectedLease = target.snapshotDrainLease();
+        final var submitted = TargetCheckpointCandidateWorkClassExecutor.submitDeferredCollectedSemantic(
+                workClasses, preparation.localTaskIdentity(), preparation.maximumTaskBytes(), preparation,
+                localGuard, original -> {
+                    target.requireCheckpointReadCapability();
+                    final var ready = Objects.requireNonNull(preparation.preparedRequest(), "prepared request");
+                    localGuard.run();
+                    if (ready.isEmpty()) { return; }
+                    final var request = ready.orElseThrow();
+                    final var candidate = request.candidate();
+                    bindEvidenceRecoveryCatalog(request.publication());
+                    final var executor = new TargetCheckpointCandidateWorkClassExecutor(workClasses, store,
+                            target.drainAuthority(), candidate.intents(), candidate.ownerClock(), localGuard,
+                            settlementBudget);
+                    executor.continueCollectedSemantic(original,
+                            new TargetCheckpointCandidateWorkClassExecutor.Request(candidate.checkpointPath(),
+                                    candidate.pending(), expectedLease, candidate.physicalLimits(),
+                                    candidate.quotaLimits(), candidate.ledgerLimits()),
+                            request.inputs(), request.semanticLimits(), request.protection(), request.publication(),
+                            request.registration());
+                }, preparation::accepted, settlementBudget, preparation.checkpointExecutor());
+        pendingCheckpoint = submitted;
+        preparedCheckpointCut = null;
+        return submitted;
+    }
+
     synchronized TargetCheckpointCandidateWorkClassExecutor.Submission submitCollectedSemanticCheckpointCandidate(
             TargetCheckpointCandidateSchedule.CollectedSemanticRequest request,
             SourceRecordConsumer.CheckpointCut cut) {
@@ -2068,26 +2132,29 @@ public final class TargetWorkerShardRuntime
     }
 
     /** Runs one shared bounded turn and releases the local source/maintenance cut only after settlement. */
-    public synchronized Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
+    public Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(
             final SchedulerBudget budget) {
-        if (pendingCheckpoint == null) {
-            return Optional.empty();
+        final TargetCheckpointCandidateWorkClassExecutor.Submission checkpoint;
+        synchronized (this) {
+            checkpoint = pendingCheckpoint;
+            if (checkpoint == null || checkpointTurnInProgress) { return Optional.empty(); }
+            checkpointTurnInProgress = true;
         }
-        if (pendingCheckpoint.settleFailedRegistrationIo()) {
-            final var failed = pendingCheckpoint.outcome();
-            if (failed.isPresent()) { pendingCheckpoint = null; }
-            return failed;
+        try {
+            if (!checkpoint.settleFailedRegistrationIo() && checkpoint.outcome().isEmpty()) {
+                if (!checkpoint.usesOwnedPreparation()) { resources.requireRuntimeBusinessAdmission(); }
+                checkpoint.enqueueNextPreparation();
+                workClasses.runTurn(Objects.requireNonNull(budget, "budget"));
+            }
+            checkpoint.settleFailedRegistrationIo();
+            final var outcome = checkpoint.outcome();
+            synchronized (this) {
+                if (outcome.isPresent() && pendingCheckpoint == checkpoint) { pendingCheckpoint = null; }
+            }
+            return outcome;
+        } finally {
+            synchronized (this) { checkpointTurnInProgress = false; }
         }
-        resources.requireRuntimeBusinessAdmission();
-        if (pendingCheckpoint.outcome().isEmpty()) {
-            pendingCheckpoint.enqueueNextPreparation();
-            workClasses.runTurn(Objects.requireNonNull(budget, "budget"));
-        }
-        final var outcome = pendingCheckpoint.outcome();
-        if (outcome.isPresent()) {
-            pendingCheckpoint = null;
-        }
-        return outcome;
     }
 
     /** Exact queued checkpoint task, if it has not yet reached a terminal outcome. */
@@ -2095,6 +2162,27 @@ public final class TargetWorkerShardRuntime
         return pendingCheckpoint == null || pendingCheckpoint.outcome().isPresent()
                 ? Optional.empty()
                 : Optional.of(pendingCheckpoint.task());
+    }
+
+    /** Local original-Owner identity checks for consuming a separately held publication validation. */
+    synchronized void requirePublishedCheckpointOwnerCurrent(
+            TargetCheckpointCandidateWorkClassExecutor.Submission original) {
+        requireRuntimeAdmitted();
+        resources.requireRuntimeBusinessAdmission();
+        final var publication = original.publication().orElseThrow(
+                () -> new IllegalStateException("Target checkpoint has no original successful publication"));
+        final var pending = publication.uploadIntent();
+        final var lease = target.snapshotDrainLease();
+        if (target.fenced() || store.isCloseStarted() || store.isWriteOutcomeUncertain()
+                || !lease.validAt(ownerClock.getAsLong())
+                || lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                || lease.ownerEpoch() != pending.owner().ownerEpoch()
+                || !com.nereusstream.delay.protocol.Bytes.constantTimeEquals(
+                        lease.leaseToken(), pending.owner().leaseFencingDigest())
+                || !com.nereusstream.delay.protocol.Bytes.constantTimeEquals(
+                        store.metadata().storeIncarnation(), pending.sourceStoreIncarnation())) {
+            throw new IllegalStateException("Target published checkpoint lost its original local Owner/Store");
+        }
     }
 
     /** Exact nonterminal provider failure, including its original native cursor cleanup handle. */
@@ -2162,7 +2250,7 @@ public final class TargetWorkerShardRuntime
 
     @Override
     public synchronized boolean canPublishFinalCheckpoint() {
-        return !target.fenced() && !store.isCloseStarted()
+        return !sourceAndMaintenancePaused && !target.fenced() && !store.isCloseStarted()
                 && !store.isWriteOutcomeUncertain();
     }
 

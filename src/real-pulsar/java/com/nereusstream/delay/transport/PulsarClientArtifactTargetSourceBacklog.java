@@ -81,11 +81,6 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                 final String subscription) {
             this.subscription = subscription;
             this.client = Objects.requireNonNull(client, "client");
-            backend = PulsarClientArtifactOwnedBackendGroup.find(client);
-            owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
-            if (backend != null) { backend.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
-                proof.requireClient(client); requestClose(); owned.backendShutdownCompleted(backend);
-            }); }
             this.resource = Objects.requireNonNull(resource, "resource");
             if (!(Objects.requireNonNull(cut, "cut").applied() instanceof PulsarSourcePosition position)
                     || !Bytes.constantTimeEquals(position.brokerResourceIncarnation(), resource.resourceIncarnation())) {
@@ -93,6 +88,11 @@ public final class PulsarClientArtifactTargetSourceBacklog {
             }
             applied = position;
             collector = new TargetSourceBacklog.Collector(cut, limits, System::nanoTime, protection);
+            backend = PulsarClientArtifactOwnedBackendGroup.find(client);
+            owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
+            if (backend != null) { backend.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
+                proof.requireClient(client); requestClose(); owned.backendShutdownCompleted(backend);
+            }); }
         }
 
         @Override

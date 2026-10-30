@@ -361,6 +361,11 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             }
             recoveryProvider = Objects.requireNonNull(provider); maximumRecoveryInputBytes = maximumRetainedBytes;
         }
+        synchronized PulsarClientArtifactOwnedBackendGroup actualBackend() {
+            if (worker == null || failed) throw new IllegalStateException("original P1 Source Worker is unavailable");
+            return group;
+        }
+
         /** Explicit driver turn; subscribe/native proof waits retain their original finite SDK bounds. */
         public synchronized java.util.Optional<TargetWorkerShardRuntime> advance() {
             if (failed) throw new IllegalStateException("original P1 Source opening failed");

@@ -147,6 +147,32 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         return Optional.ofNullable(read().state().catalog().initialization());
     }
 
+    /** One actual record read for a caller preparing a later local checkpoint cut. */
+    public record CheckpointHead(long catalogGeneration, CatalogInitialization initialization,
+            CheckpointManifest latest) {}
+
+    public CheckpointHead checkpointHead() {
+        final var snapshot = read().state().catalog();
+        final var latest = snapshot.manifests().stream().max((left, right) ->
+                Long.compareUnsigned(left.lineageGeneration(), right.lineageGeneration())).orElse(null);
+        return new CheckpointHead(snapshot.catalogGeneration(), snapshot.initialization(), latest);
+    }
+
+    /** Reads the exact already-published immutable pair; it creates no Pin or restoration authority. */
+    public CheckpointDownloadRequest publishedDownload(com.nereusstream.delay.protocol.RecoveryCandidateRef candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        final var snapshot = read().state().catalog();
+        final var catalog = RecoveryCatalog.fromSnapshot(snapshot);
+        final var manifest = catalog.manifest(candidate.checkpointId()).orElseThrow();
+        catalog.validatePublishedRestoreCandidate(manifest);
+        if (!Bytes.constantTimeEquals(manifest.recoveryLineageId(), candidate.recoveryLineageId())
+                || !Bytes.constantTimeEquals(manifest.manifestSha256(), candidate.manifestSha256()))
+            throw new IllegalArgumentException("published download changed its original candidate identity");
+        final var resource = snapshot.manifestResources().get(Bytes.hex(candidate.checkpointId()));
+        return new CheckpointDownloadRequest(manifest,
+                Objects.requireNonNull(resource, "published checkpoint has no bound immutable resource"));
+    }
+
     @Override
     public CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
         return create(pending, () -> {});

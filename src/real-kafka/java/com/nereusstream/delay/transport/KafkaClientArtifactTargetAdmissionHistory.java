@@ -51,6 +51,37 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
                 sdkJar, MAX_FRAME_BYTES, reference::requireImage);
     }
+
+    /** The service's declared Source frame bound applies to every legal mutation kind. */
+    public static SystemMutation readVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar, int maximumSourceFrameBytes) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
+                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    public static SystemMutation readControlVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar, int maximumSourceFrameBytes) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
+                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    public static SystemMutation readOutcomeVerified(Map<String,Object> configuration, String physicalTopic,
+            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar, int maximumSourceFrameBytes) {
+        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
+                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    private static int requireFrameBound(int frameBytes) {
+        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE)
+            throw new IllegalArgumentException("history requires the finite declared Source frame bound");
+        return frameBytes;
+    }
     private static SystemMutation readVerified(Map<String,Object> configuration, String topic, SourcePosition source,
             Duration timeout, Runnable originalProtection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,

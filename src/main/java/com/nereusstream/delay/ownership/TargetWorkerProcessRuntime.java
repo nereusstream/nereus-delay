@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
+import com.nereusstream.delay.protocol.ShardCapacityEnvelope;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourceActivationBarrier;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
@@ -21,6 +22,7 @@ import io.oxia.client.api.Authentication;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -135,7 +137,19 @@ public final class TargetWorkerProcessRuntime {
     private ThreadPoolExecutor io;
     private BoundedAsyncMetricExporter metrics;
     private SystemWriterAppendBudget systemWriters;
+    private TargetDestinationSdkBudget destinationSdkBudget;
     private TargetWorkerPublicationDispatch publicationDispatch;
+    private static final class CheckpointComposition {
+        private final TargetWorkerCheckpointConfiguration configuration;
+        private final TargetWorkerCheckpointComposition owner;
+        private boolean heapReleased;
+        private CheckpointComposition(TargetWorkerCheckpointConfiguration configuration,
+                TargetWorkerCheckpointComposition owner) {
+            this.configuration = configuration; this.owner = owner;
+        }
+    }
+    private final java.util.Map<ShardId, CheckpointComposition> checkpointCompositions = new java.util.LinkedHashMap<>();
+    private long checkpointInputBytes;
     private record ChannelInputs(TargetWorkerChannelInventory inventory, long bytes) {}
     private final java.util.Map<TargetWorkerSourceStartup, ChannelInputs> channelInputs = new java.util.IdentityHashMap<>();
     private long channelInputBytes;
@@ -145,6 +159,11 @@ public final class TargetWorkerProcessRuntime {
     private long scopeInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
+    private TargetWorkerHostRuntime.PreparationAttempt hostPreparation;
+    private List<TargetWorkerShardRuntime> hostPreparationWorkers = List.of();
+    private boolean hostPreparationStarted;
+    private boolean hostPreparationRetired;
+    private Throwable controlledStartupFailure;
     private boolean assemblyBorrowed;
     private boolean preparingHost;
     private boolean startupTurnActive;
@@ -233,6 +252,56 @@ public final class TargetWorkerProcessRuntime {
         return new Assembly(configuration.worker(), classes, resources, io, oxia);
     }
 
+    /** One destination window for this actual Process, shared by every controlled Source generation. */
+    public synchronized TargetDestinationSdkBudget createDestinationSdkBudget(List<ShardCapacityEnvelope> shards,
+            CapacityVector otherFixedCost, CapacityVector transitionDemand, CapacityVector limit, int maximumClients) {
+        requireAssemblyAdmission(); oxia.providers();
+        if (destinationSdkBudget != null) throw new IllegalStateException("original Process destination SDK budget already exists");
+        destinationSdkBudget = new TargetDestinationSdkBudget(configuration.worker(), List.copyOf(shards),
+                otherFixedCost, transitionDemand, limit, maximumClients, classes, resources);
+        return destinationSdkBudget;
+    }
+
+    /** Registers the original local owner and heap charge before its first external preparation attempt. */
+    public TargetWorkerCheckpointComposition openCheckpointComposition(TargetWorkerCheckpointConfiguration requested,
+            TargetWorkerCheckpointComposition.TrustedDeployment deployment,
+            TargetWorkerCheckpointComposition.Histories histories, Clock clock) {
+        Objects.requireNonNull(requested); Objects.requireNonNull(deployment);
+        Objects.requireNonNull(histories); Objects.requireNonNull(clock);
+        final TargetWorkerCheckpointComposition original;
+        synchronized (this) {
+            requireAssemblyAdmission(); oxia.providers();
+            final long next = Math.addExact(checkpointInputBytes, requested.retainedHeapBytes());
+            if (assemblyBorrowed || checkpointCompositions.containsKey(requested.scope().shard())
+                    || checkpointCompositions.size() >= configuration.worker().store().maxOwnedShards()
+                    || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), next)
+                            > configuration.worker().resources().certifiedJvmHeapBytes())
+                throw new IllegalStateException("checkpoint composition exceeds its original Process Shard/heap envelope");
+            original = TargetWorkerCheckpointComposition.create(
+                    new Assembly(configuration.worker(), classes, resources, io, oxia),
+                    requested, deployment, histories, clock, nanos);
+            checkpointCompositions.put(requested.scope().shard(), new CheckpointComposition(requested, original));
+            checkpointInputBytes = next;
+        }
+        try { original.startPreparation(); return original; }
+        catch (RuntimeException | Error failure) {
+            retain(failure);
+            try { original.close(); }
+            catch (RuntimeException | Error cleanup) { retain(cleanup); }
+            throw failure;
+        }
+    }
+
+    synchronized void requireCheckpointComposition(TargetWorkerSourceStartup source,
+            TargetWorkerCheckpointComposition original, byte[] recoveryLineageId) {
+        requireSourceAssemblyAdmission(source);
+        final var retained = checkpointCompositions.get(source.sourceScopeForExitBinding().shard());
+        if (retained == null || retained.owner != original || retained.heapReleased
+                || !retained.configuration.scope().equals(source.sourceScopeForExitBinding())
+                || !Bytes.constantTimeEquals(retained.configuration.recoveryLineageId(), recoveryLineageId))
+            throw new IllegalArgumentException("checkpoint composition differs from this original Process Source/lineage");
+    }
+
     /** Opens the actual Target Store and commits the genuine initial grant before exposing a Source activation. */
     public TargetWorkerSourceStartup initializeSource(TargetWorkerSourceStartup.Owner owner,
             TargetWorkerSourceStartup.Initial initial, TargetWorkerSourceRuntimeFactory.Content content,
@@ -312,13 +381,27 @@ public final class TargetWorkerProcessRuntime {
         return prepareHost(workers, checkpoints, checkpointClock, failures);
     }
 
+    public TargetWorkerHostRuntime prepareHostWithDeferredCheckpoints(
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock, Consumer<Throwable> failures) {
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) { requireAssemblyAdmission(); original = List.copyOf(sources.values()); }
+        if (original.isEmpty()) throw new IllegalStateException("process has no actual Source startups");
+        final var workers = original.stream().filter(source -> !source.failedCleanupComplete())
+                .map(source -> source.workerForHost(this)).toList();
+        if (workers.isEmpty()) throw new IllegalStateException("all original Source startups have retired");
+        return prepareHost(workers, null, Objects.requireNonNull(checkpoints), checkpointClock, failures);
+    }
+
     private void requireAssemblyAdmission() {
-        if (stopping || receiptManagementFailed || host != null || preparingHost || startupTurnActive)
+        if (stopping || controlledStartupFailure != null || receiptManagementFailed || host != null
+                || hostPreparationStarted || preparingHost || startupTurnActive)
             throw new IllegalStateException("process assembly is closed");
     }
 
     synchronized void requireSourceAssemblyAdmission(TargetWorkerSourceStartup original) {
-        if (stopping || receiptManagementFailed || host != null || preparingHost || !sources.containsValue(original)) {
+        if (stopping || controlledStartupFailure != null || receiptManagementFailed || host != null
+                || hostPreparationStarted || preparingHost || !sources.containsValue(original)) {
             throw new IllegalStateException("original process Source assembly is no longer admitted");
         }
     }
@@ -480,7 +563,8 @@ public final class TargetWorkerProcessRuntime {
         requireSourceAssemblyAdmission(source);
         final long bytes = Math.addExact(original.limits().maximumRetainedBytes(), original.limits().readBytes());
         final long next = Math.addExact(channelInputBytes, bytes);
-        if (channelInputs.containsKey(source) || Math.addExact(Math.addExact(next, reclaimInputBytes), scopeInputBytes)
+        if (channelInputs.containsKey(source)
+                || Math.addExact(Math.addExact(Math.addExact(next, reclaimInputBytes), scopeInputBytes), checkpointInputBytes)
                 > configuration.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalStateException("original channel input reservations exceed the process heap envelope");
         }
@@ -497,7 +581,8 @@ public final class TargetWorkerProcessRuntime {
     synchronized ReclaimInputs reserveReclaimInputs(TargetWorkerSourceStartup source, long bytes) {
         requireSourceAssemblyAdmission(source);
         if (bytes <= 0 || bytes == Long.MAX_VALUE || reclaimInputs.containsKey(source)
-                || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), bytes)
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
+                        scopeInputBytes), checkpointInputBytes), bytes)
                         > configuration.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalStateException("original Native GC input reservation exceeds process envelope or is already owned");
         }
@@ -532,7 +617,8 @@ public final class TargetWorkerProcessRuntime {
     synchronized ScopeInputs reserveScopeInputs(TargetWorkerSourceStartup source, long bytes) {
         requireSourceAssemblyAdmission(source);
         if (bytes <= 0 || bytes == Long.MAX_VALUE || scopeInputs.containsKey(source)
-                || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), bytes)
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
+                        scopeInputBytes), checkpointInputBytes), bytes)
                         > configuration.worker().resources().certifiedJvmHeapBytes())
             throw new IllegalStateException("original Scope inputs exceed the process heap envelope or are already retained");
         final var retained = new ScopeInputs(this, source, bytes);
@@ -560,12 +646,70 @@ public final class TargetWorkerProcessRuntime {
         }
     }
 
+    /** Fences original construction immediately; an in-flight Host handoff must actually return before exit. */
+    public boolean failControlledStartup(Throwable cause, TargetOwnerDrainCoordinator.Request request) {
+        Objects.requireNonNull(cause); Objects.requireNonNull(request);
+        final TargetWorkerHostRuntime.PreparationAttempt preparation;
+        synchronized (this) {
+            if (assemblyBorrowed) throw new IllegalStateException("borrowed application graph must exit through its original Host");
+            retain(cause);
+            if (controlledStartupFailure == null) controlledStartupFailure = cause;
+            preparation = hostPreparation;
+        }
+        if (preparation != null) preparation.requestStop();
+        if (!retireUntransferredHostPreparation()) return false;
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) {
+            if (host != null) throw new IllegalStateException("transferred application graph must exit through its original Host");
+            if (preparingHost) return false;
+            stopping = true;
+            original = List.copyOf(sources.values());
+        }
+        for (var source : original) {
+            try { source.failResourceStartup(cause); }
+            catch (RuntimeException | Error failure) { retain(failure); }
+        }
+        if (original.isEmpty()) {
+            stopBeforeAssembly();
+            return cleanupComplete();
+        }
+        return stopFailedSourceAssembly(request);
+    }
+
+    private boolean retireUntransferredHostPreparation() {
+        final TargetWorkerHostRuntime.PreparationAttempt preparation;
+        final List<TargetWorkerShardRuntime> original;
+        synchronized (this) {
+            if (preparingHost) return false;
+            if (host != null) throw new IllegalStateException("transferred application graph must exit through its original Host");
+            if (!hostPreparationStarted || hostPreparationRetired) return true;
+            preparation = hostPreparation;
+            original = hostPreparationWorkers;
+            // The original call has returned without invoking any Host factory.
+            if (preparation == null) { hostPreparationRetired = true; return true; }
+        }
+        if (preparation.backendTransferAttempted())
+            throw new IllegalStateException("original Host transfer must settle through its retained Host");
+        final Optional<TargetWorkerHostRuntime.NoTransferCompletion> completion;
+        try { completion = preparation.retryNoTransferCleanup(); }
+        catch (RuntimeException | Error failure) { retain(failure); return false; }
+        if (completion.isEmpty()) return false;
+        completion.orElseThrow().requireOriginal(this, preparation, original);
+        synchronized (this) {
+            if (hostPreparation != preparation || preparingHost || host != null)
+                throw new IllegalStateException("original Host preparation changed during no-transfer cleanup");
+            hostPreparationRetired = true;
+        }
+        return true;
+    }
+
     /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
     public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
         Objects.requireNonNull(request);
         final List<TargetWorkerSourceStartup> original;
         synchronized (this) {
-            if (assemblyBorrowed || host != null || preparingHost || sources.isEmpty()) {
+            if (assemblyBorrowed || host != null || preparingHost
+                    || hostPreparationStarted && !hostPreparationRetired || sources.isEmpty()) {
                 throw new IllegalStateException("failed controlled Sources require their original unborrowed assembly graph");
             }
             original = List.copyOf(sources.values());
@@ -575,7 +719,8 @@ public final class TargetWorkerProcessRuntime {
             if (source.firstFailure().isEmpty()) throw new IllegalStateException("Source startup is still admitted");
         }
         synchronized (this) {
-            if (assemblyBorrowed || host != null || preparingHost || !original.equals(List.copyOf(sources.values()))) {
+            if (assemblyBorrowed || host != null || preparingHost || hostPreparationStarted && !hostPreparationRetired
+                    || !original.equals(List.copyOf(sources.values()))) {
                 throw new IllegalStateException("Source assembly changed during failed startup stop");
             }
             stopping = true;
@@ -589,7 +734,8 @@ public final class TargetWorkerProcessRuntime {
     }
 
     synchronized void requireFailedSourceCleanup(TargetWorkerSourceStartup original) {
-        if (!stopping || host != null || preparingHost || assemblyBorrowed || !sources.containsValue(original)) {
+        if (!stopping || host != null || preparingHost || assemblyBorrowed
+                || hostPreparationStarted && !hostPreparationRetired || !sources.containsValue(original)) {
             throw new IllegalStateException("failed Source cleanup lacks its original stopped pre-Host process");
         }
     }
@@ -597,6 +743,13 @@ public final class TargetWorkerProcessRuntime {
     /** Transfers actual Source Workers into the prepared Host before starting any background loop. */
     public TargetWorkerHostRuntime prepareHost(List<TargetWorkerShardRuntime> workers,
             TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock, Consumer<Throwable> failures) {
+        return prepareHost(workers, Objects.requireNonNull(checkpoints), null, checkpointClock, failures);
+    }
+
+    private TargetWorkerHostRuntime prepareHost(List<TargetWorkerShardRuntime> workers,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {
         final var original = List.copyOf(workers);
         final List<TargetWorkerSourceStartup> controlled;
@@ -615,12 +768,24 @@ public final class TargetWorkerProcessRuntime {
                 throw new IllegalStateException("original Source/receipt construction has not exited before Host transfer");
             if (receiptManagement.values().stream().anyMatch(owner -> !owner.ready()))
                 throw new IllegalStateException("original receipt management backing is not ready for Host transfer");
-            preparingHost = true; assemblyBorrowed = true;
+            hostPreparationWorkers = original;
+            hostPreparationStarted = true;
+            preparingHost = true;
         }
         try {
             for (var worker : original) oxia.requireWorker(worker);
-            final var prepared = TargetWorkerHostRuntime.prepareWithCollectedCheckpoints(configuration.worker(),
-                    classes, resources, original, checkpoints, checkpointClock, failures);
+            final TargetWorkerHostRuntime.PreparationAttempt preparation;
+            synchronized (this) {
+                if (controlledStartupFailure != null)
+                    throw new IllegalStateException("original Host preparation was stopped before its factory", controlledStartupFailure);
+                preparation = deferredCheckpoints == null
+                        ? TargetWorkerHostRuntime.newPreparationAttempt(this, configuration.worker(), classes,
+                                resources, original, checkpoints, checkpointClock, failures)
+                        : TargetWorkerHostRuntime.newDeferredPreparationAttempt(this, configuration.worker(), classes,
+                                resources, original, deferredCheckpoints, checkpointClock, failures);
+                hostPreparation = preparation;
+            }
+            final var prepared = preparation.prepare();
             synchronized (this) { host = prepared; }
             retryHostTransfer();
             for (var source : controlled) {
@@ -632,10 +797,20 @@ public final class TargetWorkerProcessRuntime {
                     throw failure;
                 }
             }
+            final Throwable stopped;
+            synchronized (this) { stopped = controlledStartupFailure; }
+            if (stopped != null) {
+                final var failure = new IllegalStateException("original Host preparation failed controlled startup", stopped);
+                try { prepared.quarantineOwnedBackends(); }
+                catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                throw failure;
+            }
             return prepared;
         } catch (RuntimeException | Error failure) {
-            if (failure instanceof TargetWorkerHostRuntime.CompositionFailure partial) {
-                synchronized (this) { host = partial.failedHost(); }
+            final TargetWorkerHostRuntime.PreparationAttempt preparation;
+            synchronized (this) { preparation = hostPreparation; }
+            if (preparation != null && preparation.backendTransferAttempted()) {
+                synchronized (this) { host = preparation.failedHost().orElseThrow(); }
                 try { retryHostTransfer(); }
                 catch (RuntimeException | Error transfer) { if (transfer != failure) failure.addSuppressed(transfer); }
             }
@@ -652,6 +827,9 @@ public final class TargetWorkerProcessRuntime {
             if (host == null || stopping) throw new IllegalStateException("no original prepared Host to transfer");
             actual = host;
         }
+        actual.retryCompositionBackendTransfers();
+        if (actual.hasPendingCompositionBackendTransfers())
+            throw new IllegalStateException("original Host backend transfer remains pending");
         actual.registerOxiaRuntime(oxia);
         actual.registerProcessRuntime(this);
         synchronized (this) { hostTransferred = true; }
@@ -667,6 +845,22 @@ public final class TargetWorkerProcessRuntime {
         for (var worker : workers) oxia.requireWorker(worker);
     }
 
+    void requireRetainedHostComposition(TargetWorkerHostRuntime actual,
+            TargetWorkerHostRuntime.PreparationAttempt original, List<TargetWorkerShardRuntime> workers) {
+        synchronized (this) {
+            if (assemblyBorrowed || preparingHost || host != actual || hostPreparation != original
+                    || !hostPreparationStarted || hostPreparationRetired
+                    || !sourceConstructions.isEmpty() || !receiptConstructions.isEmpty()
+                    || workers.size() != hostPreparationWorkers.size())
+                throw new IllegalStateException("retained Host composition differs from its original unborrowed Process graph");
+            for (int index = 0; index < workers.size(); index++) {
+                if (workers.get(index) != hostPreparationWorkers.get(index))
+                    throw new IllegalArgumentException("retained Host composition changed its original Worker identity/order");
+            }
+        }
+        for (var worker : workers) oxia.requireWorker(worker);
+    }
+
     /** Installs the configured observer and existing Source/publisher/maintenance loops on the owned graph. */
     public TargetWorkerOrdinaryLoop activate(BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
             TargetSourceBacklogRead> observations, TargetWorkerOrdinaryDrr.Requests requests,
@@ -674,7 +868,8 @@ public final class TargetWorkerProcessRuntime {
         retryHostTransfer();
         final TargetWorkerHostRuntime actual;
         synchronized (this) {
-            if (host == null || preparingHost || stopping) throw new IllegalStateException("process Host is not prepared");
+            if (host == null || preparingHost || stopping || controlledStartupFailure != null)
+                throw new IllegalStateException("process Host is not prepared");
             actual = host;
         }
         return actual.activateConfiguredService(configuration.worker().newSourceBacklogCache(io, nanos),
@@ -682,6 +877,9 @@ public final class TargetWorkerProcessRuntime {
     }
 
     public DrainResult drain(TargetOwnerDrainCoordinator.Request request, LongSupplier ownerClock) {
+        synchronized (this) {
+            if (preparingHost) throw new IllegalStateException("original Host preparation has not returned");
+        }
         retryHostTransfer();
         final TargetWorkerHostRuntime actual = host().orElseThrow();
         var result = actual.drainAll(request, configuration.worker().sourceTurn(), ownerClock);
@@ -691,9 +889,12 @@ public final class TargetWorkerProcessRuntime {
 
     public List<TargetWorkerHostRuntime.QuarantinedShardExit> exitForReplay(
             TargetOwnerDrainCoordinator.Request request, LongSupplier ownerClock) {
+        synchronized (this) {
+            if (preparingHost) throw new IllegalStateException("original Host preparation has not returned");
+        }
         retryHostTransfer();
         final TargetWorkerHostRuntime actual = host().orElseThrow();
-        actual.quarantineOwnedBackends();
+        actual.quarantineRetainedCompositionForReplay(this);
         var result = actual.exitQuarantinedForReplay(request, ownerClock);
         retryCleanup();
         return result;
@@ -715,6 +916,51 @@ public final class TargetWorkerProcessRuntime {
         return released;
     }
 
+    /** The actual Host dependency-exit permit precedes checkpoint loans, owned Pins and shared Oxia closure. */
+    boolean closeCheckpointCompositionsForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(oxia);
+        synchronized (this) { stopping = true; }
+        return closeCheckpointCompositionsAfterDependencies();
+    }
+
+    /** The failed Source retains an alias; the original Process registration remains the only close owner. */
+    boolean closeSourceCheckpointComposition(TargetWorkerSourceStartup source) {
+        final CheckpointComposition original;
+        synchronized (this) {
+            requireFailedSourceCleanup(source);
+            original = checkpointCompositions.get(source.sourceScopeForExitBinding().shard());
+        }
+        return original == null || closeCheckpointComposition(original);
+    }
+
+    private boolean closeCheckpointCompositionsAfterDependencies() {
+        final List<CheckpointComposition> original;
+        synchronized (this) { original = List.copyOf(checkpointCompositions.values()); }
+        boolean exited = true;
+        for (var composition : original) {
+            try { composition.owner.requestStop(); }
+            catch (RuntimeException | Error failure) { retain(failure); exited = false; }
+        }
+        for (var composition : original) exited &= closeCheckpointComposition(composition);
+        return exited;
+    }
+
+    private boolean closeCheckpointComposition(CheckpointComposition original) {
+        try {
+            original.owner.close();
+            final var failure = original.owner.pendingIoFailure();
+            if (failure != null) retain(failure);
+            if (!original.owner.ioExited()) return false;
+            synchronized (this) {
+                if (!original.heapReleased) {
+                    checkpointInputBytes = Math.subtractExact(checkpointInputBytes, original.configuration.retainedHeapBytes());
+                    original.heapReleased = true;
+                }
+            }
+            return true;
+        } catch (RuntimeException | Error failure) { retain(failure); return false; }
+    }
+
     /** Host has already observed actual Source/producer/SDK exit; keep I/O and Oxia alive for their final loans. */
     boolean closeScopeResourcesForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
         permit.requireOriginalRoot(oxia);
@@ -728,7 +974,8 @@ public final class TargetWorkerProcessRuntime {
     /** Before the graph escapes, only SDK startup IO exists. Borrowed assembly must retire through its actual Host. */
     public void stopBeforeAssembly() {
         synchronized (this) {
-            if (assemblyBorrowed || host != null || preparingHost || !sources.isEmpty()) {
+            if (assemblyBorrowed || host != null || preparingHost
+                    || hostPreparationStarted && !hostPreparationRetired || !sources.isEmpty()) {
                 throw new IllegalStateException("borrowed application graph must exit through its original Host");
             }
             stopping = true; dependenciesExited = true;
@@ -739,6 +986,7 @@ public final class TargetWorkerProcessRuntime {
     /** Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread. */
     public void retryCleanup() {
         synchronized (this) { if (!stopping || !dependenciesExited || resourcesClosed) return; }
+        if (!closeCheckpointCompositionsAfterDependencies()) return;
         if (!closeReceiptManagementAfterDependencies()) return;
         final List<TargetWorkerSourceStartup> originalSources;
         synchronized (this) { originalSources = List.copyOf(sources.values()); }
@@ -753,7 +1001,8 @@ public final class TargetWorkerProcessRuntime {
                 final var usage = systemWriters.usage();
                 if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
             }
-            if (!channelInputs.isEmpty() || channelInputBytes != 0 || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
+            if (checkpointInputBytes != 0 || !channelInputs.isEmpty() || channelInputBytes != 0
+                    || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
                     || !scopeInputs.isEmpty() || scopeInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
@@ -884,6 +1133,7 @@ public final class TargetWorkerProcessRuntime {
 
     public synchronized boolean cleanupComplete() { return resourcesClosed; }
     public synchronized Optional<TargetWorkerHostRuntime> host() { return Optional.ofNullable(host); }
+    public synchronized boolean hostPreparationPending() { return preparingHost; }
     public synchronized Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
     public BoundedAsyncMetricExporter.Snapshot metricSnapshot() { return metrics.snapshot(); }
 

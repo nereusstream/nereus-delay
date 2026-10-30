@@ -56,6 +56,37 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
         return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_FRAME_BYTES, reference::requireImage);
     }
+
+    /** Uses the actual Worker's frame contract, including Control kinds larger than the historical default. */
+    public static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            int maximumSourceFrameBytes) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
+                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    public static SystemMutation readControlVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            int maximumSourceFrameBytes) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
+                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    public static SystemMutation readOutcomeVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            int maximumSourceFrameBytes) {
+        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
+                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+    }
+    private static int requireFrameBound(int frameBytes) {
+        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE)
+            throw new IllegalArgumentException("history requires the finite declared Source frame bound");
+        return frameBytes;
+    }
     private static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
             SourcePosition source, Duration timeout, Runnable originalProtection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,

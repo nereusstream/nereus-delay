@@ -277,9 +277,14 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
     /** No native SDK or request is created until this exact owner and cost have been retained by the original root. */
     public static Opening openConfigured(TargetWorkerProcessRuntime root, Path path,
             TargetDestinationSdkBudget budget, TrustInputs inputs) throws IOException {
+        return openConfigured(root, load(path), budget, inputs);
+    }
+
+    public static Opening openConfigured(TargetWorkerProcessRuntime root, Configuration config,
+            TargetDestinationSdkBudget budget, TrustInputs inputs) {
         Objects.requireNonNull(inputs, "original trusted CONTROL providers");
         Objects.requireNonNull(inputs.current(), "actual current whole-topic scope authority");
-        final var config=load(path);
+        Objects.requireNonNull(config);
         return openLoaded(root,config,budget,guard->inputs,null,Math.addExact(retainedConfigurationBytes(config.management(),config.admin(),config.receipts()),
                 inputs.catalogRoot()==null?0:inputs.catalogRoot().maximumRetainedBytes()));
     }

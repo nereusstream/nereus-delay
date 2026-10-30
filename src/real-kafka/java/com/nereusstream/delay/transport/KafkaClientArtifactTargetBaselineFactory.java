@@ -70,7 +70,19 @@ public final class KafkaClientArtifactTargetBaselineFactory {
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget) throws java.io.IOException {
-        final var config = load(configuration);
+        return openConfigured(startup, dispatch, channelDigest, load(configuration), resolver, profiles, trust, time, reads, budget);
+    }
+
+    public static TargetDestinationChannelRuntime openConfigured(
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
+            com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch dispatch, byte[] channelDigest, Configuration config,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver resolver,
+            com.nereusstream.delay.runtime.ProfileCatalog profiles,
+            com.nereusstream.delay.runtime.CredentialAttestationTrustSet trust,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            java.util.function.Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads,
+            com.nereusstream.delay.ownership.TargetDestinationSdkBudget budget) {
+        Objects.requireNonNull(config);
         try {
             final var activation = startup.preparePublicationChannel(channelDigest, resolver, profiles, trust, reads, time);
             final var factory = opening(new HashMap<>(config.operational()), activation.channel(), activation.physical(),

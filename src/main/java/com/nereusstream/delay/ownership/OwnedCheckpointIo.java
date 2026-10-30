@@ -7,6 +7,11 @@ import java.util.function.Function;
 
 /** Owns the exact queued Runnable and serializes no-start proof against the actual executor start. */
 public final class OwnedCheckpointIo<T> implements Runnable {
+    /** An explicit local stop, distinct from an operation, authority or provider failure. */
+    public static final class StoppedException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private StoppedException(String message) { super(message); }
+    }
     private final Function<Runnable, T> operation;
     private final Runnable guard;
     private final ThreadPoolExecutor executor;
@@ -105,7 +110,7 @@ public final class OwnedCheckpointIo<T> implements Runnable {
             exited = true;
         }
         executor.remove(this);
-        receipt.completeExceptionally(new IllegalStateException("checkpoint input stopped before I/O"));
+        receipt.completeExceptionally(new StoppedException("checkpoint input stopped before I/O"));
     }
 
     private void requireCurrent() {
@@ -115,7 +120,7 @@ public final class OwnedCheckpointIo<T> implements Runnable {
     }
 
     private synchronized void requireNotStopped() {
-        if (stopping) { throw new IllegalStateException("checkpoint input I/O stop requested"); }
+        if (stopping) { throw new StoppedException("checkpoint input I/O stop requested"); }
     }
 
     @Override
@@ -135,7 +140,7 @@ public final class OwnedCheckpointIo<T> implements Runnable {
         }
         synchronized (this) {
             if (stopping && failure == null) {
-                failure = new IllegalStateException("checkpoint input I/O stop requested");
+                failure = new StoppedException("checkpoint input I/O stop requested");
             }
             if(failure==null)exited=true;
         }

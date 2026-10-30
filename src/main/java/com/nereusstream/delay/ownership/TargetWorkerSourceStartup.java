@@ -37,7 +37,7 @@ public final class TargetWorkerSourceStartup {
             Objects.requireNonNull(scope); Objects.requireNonNull(prepared); Objects.requireNonNull(entry);
             Objects.requireNonNull(grants); Objects.requireNonNull(start); Objects.requireNonNull(snapshot);
             Objects.requireNonNull(snapshotAuthority);
-            Bytes.requireLength(lineage, 32, "Source startup lineage"); lineage = Bytes.copy(lineage);
+            Bytes.requireLength(lineage, 16, "Source startup lineage"); lineage = Bytes.copy(lineage);
             if (scope.target() != null || !scope.shard().equals(entry.position().shardId())) {
                 throw new IllegalArgumentException("Source startup needs its original initial Shard grant");
             }
@@ -95,6 +95,9 @@ public final class TargetWorkerSourceStartup {
     private com.nereusstream.delay.protocol.OwnerIdentity registryIdentity;
     // Set only from a genuinely committed/reopened Root, before its Store can close.
     private byte[] sourceExitLineage;
+    private com.nereusstream.delay.protocol.SourcePosition sourceExitSource;
+    private TargetWorkerCheckpointComposition checkpointComposition;
+    private byte[] checkpointExpectedLineage;
     private final java.util.List<RecoveryInputsOpening> recoveryInputs = new java.util.ArrayList<>(2);
     private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -466,6 +469,7 @@ public final class TargetWorkerSourceStartup {
                     final var audit = coordinator.captureSloRecoveryAudit(startup.remainingSloRecoveryBytes(), false);
                     synchronized (startup) {
                         originalAudit = audit;startup.sourceExitLineage=audit.lineage();
+                        startup.sourceExitSource=audit.cut().source();
                         startup.requireSloRecoveryByteBound();
                     }
                     guard.run();
@@ -1732,7 +1736,7 @@ public final class TargetWorkerSourceStartup {
                     @Override public void close() { original.close(); }
                 };
             });
-            synchronized(this){sourceExitLineage=committed.root().recoveryLineage();}
+            synchronized(this){sourceExitLineage=committed.root().recoveryLineage();sourceExitSource=initial.entry().position();}
             initialCommitted = true;
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) return;
             final var sourceContent = scopeContent();
@@ -1786,6 +1790,17 @@ public final class TargetWorkerSourceStartup {
     TargetWorkerProcessRuntime sourceProcessForExitBinding(){return process;}
     TargetQuotaScope sourceScopeForExitBinding(){return scope;}
 
+    /** Tracks the Process-owned composition; this binding alone grants no Native lineage or read rights. */
+    void retainCheckpointComposition(TargetWorkerCheckpointComposition original, byte[] expectedLineage) {
+        process.requireCheckpointComposition(this, Objects.requireNonNull(original), expectedLineage);
+        synchronized (this) {
+            if (stopping || firstFailure != null || checkpointComposition != null && checkpointComposition != original)
+                throw new IllegalStateException("original checkpoint composition is no longer admitted or differs");
+            Bytes.requireLength(expectedLineage, 16, "original checkpoint lineage");
+            checkpointComposition = original; checkpointExpectedLineage = Bytes.copy(expectedLineage);
+        }
+    }
+
     /** Immutable local snapshot only; never reads a closed Store or re-enters stopped Source/Owner admission. */
     synchronized SourceExitBinding sourceExitBinding() {
         final var runtime=activation==null?null:activation.runtime();
@@ -1796,7 +1811,7 @@ public final class TargetWorkerSourceStartup {
         final var verified=registryIdentity==null||actualLease==null?null:
                 new com.nereusstream.delay.protocol.OwnerIdentity(registryIdentity.deploymentId(),registryIdentity.workerRunId(),
                         actualLease.ownerEpoch(),actualLease.leaseToken());
-        return new SourceExitBinding(process,graph,scope,actualAssignment,verified,sourceExitLineage);
+        return new SourceExitBinding(process,graph,scope,actualAssignment,verified,sourceExitLineage,sourceExitSource);
     }
 
     /** Internal identity material, not an exit receipt; only the actual Process can certify its completed cleanup. */
@@ -1807,11 +1822,13 @@ public final class TargetWorkerSourceStartup {
         final SourceAssignment assignment;
         final com.nereusstream.delay.protocol.OwnerIdentity verifiedOwner;
         final byte[] lineage;
+        final com.nereusstream.delay.protocol.SourcePosition source;
         private SourceExitBinding(TargetWorkerProcessRuntime process,TargetWorkerProcessRuntime.Assembly graph,
                 TargetQuotaScope scope,SourceAssignment assignment,com.nereusstream.delay.protocol.OwnerIdentity verifiedOwner,
-                byte[] lineage){
+                byte[] lineage,com.nereusstream.delay.protocol.SourcePosition source){
             this.process=process;this.graph=graph;this.scope=scope;this.assignment=assignment;
             this.verifiedOwner=verifiedOwner;this.lineage=lineage==null?null:Bytes.copy(lineage);
+            this.source=source==null?null:com.nereusstream.delay.protocol.TargetSourcePosition.decode(source.canonicalBytes());
         }
     }
 
@@ -2016,6 +2033,18 @@ public final class TargetWorkerSourceStartup {
         }catch(RuntimeException|Error failure){failResourceStartup(failure);throw failure;}
     }
 
+    /** The original construction retains a concrete backend before any native SDK work is queued. */
+    public void retainPublicationBackend(TargetWorkerShardRuntime actualWorker, TargetOwnedBackendGroup original,
+            TargetDestinationSdkBudget budget) {
+        synchronized (this) {
+            if (worker != actualWorker || constructionThread != Thread.currentThread() || stopping || firstFailure != null)
+                throw new IllegalStateException("publication opening requires its original active construction");
+        }
+        Objects.requireNonNull(original).requireWorkerGraph(graph.classes(), graph.resources());
+        Objects.requireNonNull(budget).requireWorker(graph.classes(), graph.resources());
+        actualWorker.retainPublicationBackend(original, budget);
+    }
+
     /** Builds the actual single-flight driver and its mandatory recovery/Journal maintenance, never a supplied runtime. */
     public TargetPulsarPublishRuntime configurePublishing(OwnedSourceSystemWriter writer,
             TargetWorkerPublishingConfiguration configuration) {
@@ -2173,6 +2202,11 @@ public final class TargetWorkerSourceStartup {
         requireCurrent();
         graph.oxia().requireWorker(actual);
         synchronized (this) {
+            if (checkpointComposition != null) {
+                if (sourceExitLineage == null || !Arrays.equals(sourceExitLineage, checkpointExpectedLineage))
+                    throw new IllegalArgumentException("checkpoint composition differs from the actual reopened Native lineage");
+                process.requireCheckpointComposition(this, checkpointComposition, sourceExitLineage);
+            }
             activation().requireGraph(graph.classes(), graph.resources(), store());
             actual.requireSourceStartup(activation.runtime(), store);
             if (!recoveryInputOperationsExited(false) || !recoveryInputCleanupExited()) {
@@ -2298,6 +2332,7 @@ public final class TargetWorkerSourceStartup {
                 for (var publication : worker.publicationBackendGroups()) {
                     publication.closeBeforeHostBinding(); if (!publication.resourcesTerminated()) return false;
                 }
+                if (!process.closeSourceCheckpointComposition(this)) return false;
                 if (!closeScopeResourcesAfterDependencies()) return false;
                 if (failedWorkerExit == null) {
                     var exited = worker.exitQuarantinedForReplay(request, owner.clock());
@@ -2309,6 +2344,7 @@ public final class TargetWorkerSourceStartup {
                 failedCleanupComplete = true;
                 return true;
             }
+            if (!process.closeSourceCheckpointComposition(this)) return false;
             if (!closeScopeResourcesAfterDependencies()) return false;
             if (!storeClosed && store != null) {
                 if (!store.isWriteOutcomeUncertain()) store.flushForUncleanClose();

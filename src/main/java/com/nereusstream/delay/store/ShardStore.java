@@ -3171,6 +3171,26 @@ public final class ShardStore implements AutoCloseable {
         return Objects.requireNonNull(action, "action").get();
     }
 
+    /** Checkpoint-only delivery retry signal; authority, budget and Store failures still propagate unchanged. */
+    public synchronized <T> java.util.Optional<T> withCheckpointReadView(
+            final ReadView view, final java.util.function.Supplier<T> action) {
+        ensureOpen();
+        Objects.requireNonNull(view, "view");
+        Objects.requireNonNull(action, "action");
+        if (activeReadBudget != null) {
+            throw new IllegalStateException("cannot publish while a Store read plan is active");
+        }
+        if (view.store != this) {
+            throw new IllegalArgumentException("checkpoint read view belongs to another Store");
+        }
+        if (view.successfulWrites != successfulWriteCalls
+                || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(Objects.requireNonNull(action.get(), "checkpoint read result"));
+    }
+
     /** Process-only binding; cannot be reconstructed for another Store incarnation. */
     public static final class ReadView {
         private final ShardStore store;

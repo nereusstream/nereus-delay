@@ -72,6 +72,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     private final Object construction = new Object();
     private final CompletableFuture<Void> terminated = new CompletableFuture<>();
     private OwnedCheckpointIo<PulsarClient> opening;
+    private Throwable unsubmittedOpeningFailure;
     private OwnedCheckpointIo<Boolean> teardown;
     private PulsarClient client;
     private TargetWorkerHostRuntime host;
@@ -164,6 +165,15 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        return openVerifiedSourceMtls(settings, sdkJar, receipt, time, actualActivation, budget, cost, classes, resources, io, null);
+    }
+
+    static PulsarClientArtifactOwnedBackendGroup openVerifiedSourceMtls(Settings settings, byte[] sdkJar,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io,
+            Consumer<PulsarClientArtifactOwnedBackendGroup> retainBeforeOpening) {
         receipt.requirePulsarEndpoint(settings.serviceUrl());
         final var authorization = receipt.authorization();
         if (authorization.resource().kind() != com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.PULSAR
@@ -177,7 +187,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         final var group = openInternal(settings, null, sdkJar, authentication, () -> {
             actualActivation.run();
             receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
-        }, budget, cost, classes, resources, io, null, receipt);
+        }, budget, cost, classes, resources, io, null, receipt, retainBeforeOpening);
         group.sourceCredentialTime = Objects.requireNonNull(time);
         return group;
     }
@@ -281,6 +291,33 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io) {
+        return openVerifiedMtls(settings, credential, sdkJar, receipt, time, actualActivation, budget, cost,
+                classes, resources, io, null);
+    }
+
+    /** Retains the original destination client before queueing its first native allocation. */
+    public static PulsarClientArtifactOwnedBackendGroup openVerifiedMtlsForStartup(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, TargetWorkerShardRuntime worker) {
+        try (var construction = startup.beginWorkerResourceConstruction(worker)) {
+            construction.requireCurrent();
+            final var graph = startup.graph();
+            final var group = openVerifiedMtls(settings, credential, sdkJar, receipt, time, actualActivation,
+                    budget, cost, graph.classes(), graph.resources(), graph.io(),
+                    original -> startup.retainPublicationBackend(worker, original, budget));
+            construction.requireCurrent();
+            return group;
+        } catch (RuntimeException | Error failure) { startup.failResourceStartup(failure); throw failure; }
+    }
+
+    private static PulsarClientArtifactOwnedBackendGroup openVerifiedMtls(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            Runnable actualActivation, TargetDestinationSdkBudget budget, CapacityVector cost,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, ThreadPoolExecutor io,
+            Consumer<PulsarClientArtifactOwnedBackendGroup> retainBeforeOpening) {
         receipt.requireBinding(credential);
         receipt.requirePulsarEndpoint(settings.serviceUrl());
         if (!settings.serviceUrl().startsWith("pulsar+ssl://")) {
@@ -292,7 +329,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
                 () -> new java.io.ByteArrayInputStream(trust));
         return openInternal(settings, credential, sdkJar, authentication, () -> {
             actualActivation.run(); receipt.requireActive(time.get());
-        }, budget, cost, classes, resources, io, receipt);
+        }, budget, cost, classes, resources, io, receipt, null, retainBeforeOpening);
     }
 
     @Override public com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt credentialReceipt() { return credentialReceipt; }
@@ -333,12 +370,26 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             SharedRocksDbResources resources, ThreadPoolExecutor io,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceReceipt) {
+        return openInternal(settings, credential, sdkJar, authentication, actualActivation, budget, cost, classes,
+                resources, io, receipt, sourceReceipt, null);
+    }
+
+    private static PulsarClientArtifactOwnedBackendGroup openInternal(Settings settings, CredentialBinding credential,
+            byte[] sdkJar, Authentication authentication, Runnable actualActivation,
+            TargetDestinationSdkBudget budget, CapacityVector cost, WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources, ThreadPoolExecutor io,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.Receipt receipt,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt sourceReceipt,
+            Consumer<PulsarClientArtifactOwnedBackendGroup> retainBeforeOpening) {
         final var group = new PulsarClientArtifactOwnedBackendGroup(settings, credential, sdkJar, budget, cost,
                 classes, resources, io, sourceReceipt);
         group.credentialReceipt = receipt;
         group.sourceCredentialReceipt = sourceReceipt;
         if (sourceReceipt != null) { group.sourceCredentials.put(sourceReceipt.authorization().shard(), sourceReceipt); }
+        boolean submitting = false;
         try {
+            if (retainBeforeOpening != null) retainBeforeOpening.accept(group);
+            submitting = true;
             group.opening = OwnedCheckpointIo.submit(guard -> {
                 guard.run(); actualActivation.run();
                 final var builder = PulsarClient.builder();
@@ -371,8 +422,40 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             });
             return group;
         } catch (RuntimeException | Error failure) {
-            group.allocation.releaseUnstarted();
+            group.recordFailure(failure);
+            if (group.opening == null && (!submitting || failure instanceof RejectedExecutionException)) {
+                try { group.retireUnsubmittedOpening(failure); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            } else if (group.opening != null) {
+                // An accepted operation keeps its original receipt and late SDK/constructor cleanup obligation.
+                group.opening.requestStop();
+            }
             throw failure;
+        }
+    }
+
+    /** Exact AbortPolicy rejection (or failure before submit) proves that no native opening action ran. */
+    private void retireUnsubmittedOpening(Throwable failure) {
+        synchronized (gate) {
+            if (opening != null || client != null || !users.isEmpty() || !participants.isEmpty()) {
+                throw new IllegalStateException("P1 opening lacks its original no-submission proof");
+            }
+            allocation.releaseUnstarted();
+            unsubmittedOpeningFailure = failure;
+            frozen = true;
+            ready = false;
+            sdkTerminated = true;
+        }
+        terminated.complete(null);
+    }
+
+    CompletableFuture<?> sourceReadOpeningReceipt() {
+        synchronized (gate) {
+            if (opening == null) {
+                if (unsubmittedOpeningFailure != null) return CompletableFuture.failedFuture(unsubmittedOpeningFailure);
+                throw new IllegalStateException("original P1 read client opening is not queued");
+            }
+            return opening.receipt().copy();
         }
     }
 
@@ -730,7 +813,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
             teardownStarting = true;
             try {
                 teardown = OwnedCheckpointIo.submit(ignored -> {
-                    if (!opening.ioExited()) { return false; }
+                    if (opening == null || !opening.ioExited()) { return false; }
                     final PulsarClient actual;
                     synchronized (gate) { actual = client; }
                     if (!sdkTerminated) {
@@ -831,6 +914,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     }
 
     private Throwable openingFailure() {
+        if (opening == null) return unsubmittedOpeningFailure == null ? firstFailure : unsubmittedOpeningFailure;
         return com.nereusstream.delay.ownership.CheckpointInputFuture.ownedFailure(opening.receipt());
     }
     private void recordFailure(Throwable failure) { synchronized (gate) { if (firstFailure == null) { firstFailure = failure; } } }

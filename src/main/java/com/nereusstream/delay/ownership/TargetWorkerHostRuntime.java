@@ -251,6 +251,20 @@ public final class TargetWorkerHostRuntime {
     private boolean backendBarrierEstablished;
     private long quarantineGeneration;
     private final List<TargetOwnedBackendGroup> ownedBackends = new ArrayList<>();
+    private final List<TargetOwnedBackendGroup> pendingCompositionBackendTransfers = new ArrayList<>();
+    private final List<TargetOwnedBackendGroup> terminatedUnresolvedCompositionTransfers = new ArrayList<>();
+    private List<TargetOwnedBackendGroup> originalCompositionBackends = List.of();
+    private PreparationAttempt preparationAttempt;
+    private PreparationAttempt retainedCompositionBarrierAttempt;
+    private boolean compositionBackendTransferAttempted;
+    private boolean compositionTransferRetryActive;
+    private final List<TargetOwnedBackendGroup> untransferredCompositionBackends = new ArrayList<>();
+    private final Map<TargetOwnedBackendGroup, java.util.concurrent.CompletableFuture<Void>> untransferredCompositionCloses =
+            new java.util.IdentityHashMap<>();
+    private boolean untransferredCompositionCloseActive;
+    private Throwable compositionFailure;
+    private final List<Shard> compositionSignalBindings = new ArrayList<>();
+    private final List<Shard> compositionPublicationBindings = new ArrayList<>();
     private final Map<TargetOwnedBackendGroup, BackendClosePermit> backendClosePermits = new java.util.IdentityHashMap<>();
     private TargetSourceBacklogCache sourceObservationCache;
     private java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
@@ -321,6 +335,58 @@ public final class TargetWorkerHostRuntime {
         };
         return registerPeriodicCheckpointSchedule(
                 TargetCheckpointCandidateSchedule.collectedSemantic(this, scheduler, checked, budget), clock, budget);
+    }
+
+    /** Defers external history reads to the original retained CHECKPOINT task. */
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicDeferredCollectedSemanticCheckpoints(
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory factory, LongSupplier clock) {
+        if (runtimeConfig == null) {
+            throw new IllegalStateException("Target host has no unified runtime configuration");
+        }
+        final var checkpoint = runtimeConfig.checkpoint();
+        return configurePeriodicDeferredCollectedSemanticCheckpoints(
+                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()), factory, clock,
+                checkpoint.settlementTurn());
+    }
+
+    public synchronized TargetCheckpointCandidateSchedule configurePeriodicDeferredCollectedSemanticCheckpoints(
+            com.nereusstream.delay.store.CheckpointScheduler scheduler,
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory factory, LongSupplier clock,
+            SchedulerBudget budget) {
+        final var supplied = Objects.requireNonNull(factory, "factory");
+        if (runtimeConfig != null) {
+            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+        }
+        final TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checked =
+                (worker, claim, cut) -> {
+                    final var preparation = Objects.requireNonNull(supplied.create(worker, claim, cut), "preparation");
+                    return new TargetCheckpointCandidateSchedule.DeferredPreparation() {
+                        @Override public String localTaskIdentity() { return preparation.localTaskIdentity(); }
+                        @Override public long maximumTaskBytes() { return preparation.maximumTaskBytes(); }
+                        @Override public java.util.concurrent.ThreadPoolExecutor checkpointExecutor() {
+                            return preparation.checkpointExecutor();
+                        }
+                        @Override public Optional<TargetCheckpointCandidateSchedule.CollectedSemanticRequest> preparedRequest() {
+                            final var request = preparation.preparedRequest();
+                            if (runtimeConfig != null) request.ifPresent(runtimeConfig.checkpoint()::requireRequest);
+                            return request;
+                        }
+                        @Override public void accepted(TargetCheckpointCandidateWorkClassExecutor.Submission original) {
+                            preparation.accepted(original);
+                        }
+                        @Override public TargetCheckpointCandidateSchedule.PublishedValidationHold acquirePublishedValidation(
+                                TargetCheckpointCandidateSchedule.PublishedValidationRequest request, Runnable current) {
+                            return preparation.acquirePublishedValidation(request, current);
+                        }
+                        @Override public boolean ioExited() { return preparation.ioExited(); }
+                        @Override public Throwable pendingIoFailure() { return preparation.pendingIoFailure(); }
+                        @Override public void requestStop() { preparation.requestStop(); }
+                        @Override public void retryCleanup() { preparation.retryCleanup(); }
+                    };
+                };
+        return registerPeriodicCheckpointSchedule(
+                TargetCheckpointCandidateSchedule.deferredCollectedSemantic(this, scheduler, checked, budget),
+                clock, budget);
     }
 
     private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(
@@ -552,101 +618,320 @@ public final class TargetWorkerHostRuntime {
         return compose(config, classes, resources, shards, budget, interval, failures, checkpoints, checkpointClock, true);
     }
 
+    /** Compose the same prepared Host with history preparation deferred to its original bounded task. */
+    public static TargetWorkerHostRuntime prepareWithDeferredCollectedCheckpoints(
+            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            List<TargetWorkerShardRuntime> shards,
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock, Consumer<Throwable> failureConsumer) {
+        final var selected = Objects.requireNonNull(config, "config");
+        return compose(selected, classes, resources, shards, selected.maintenanceTurn(), selected.maintenanceInterval(),
+                failureConsumer, null, Objects.requireNonNull(checkpoints, "checkpoints"),
+                Objects.requireNonNull(checkpointClock, "checkpointClock"), false, null);
+    }
+
+    static PreparationAttempt newPreparationAttempt(TargetWorkerProcessRuntime process, TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, List<TargetWorkerShardRuntime> workers,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints, LongSupplier checkpointClock,
+            Consumer<Throwable> failures) {
+        return new PreparationAttempt(process, config, classes, resources, workers, checkpoints, null,
+                checkpointClock, failures);
+    }
+
+    static PreparationAttempt newDeferredPreparationAttempt(TargetWorkerProcessRuntime process,
+            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            List<TargetWorkerShardRuntime> workers,
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock, Consumer<Throwable> failures) {
+        return new PreparationAttempt(process, config, classes, resources, workers, null, checkpoints,
+                checkpointClock, failures);
+    }
+
+    /** The original process attempt retains even a Host that has acquired only local bindings. */
+    static final class PreparationAttempt {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerRuntimeConfig config;
+        private final WorkClassExecutionRegistry classes;
+        private final SharedRocksDbResources resources;
+        private final List<TargetWorkerShardRuntime> workers;
+        private final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints;
+        private final TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpoints;
+        private final LongSupplier checkpointClock;
+        private final Consumer<Throwable> failures;
+        private TargetWorkerMaintenanceLoop loop;
+        private TargetWorkerHostRuntime partialHost;
+        private boolean invoked;
+        private boolean active;
+        private boolean exited;
+        private boolean succeeded;
+        private boolean cleanupActive;
+        private boolean loopExited;
+        private volatile boolean stopRequested;
+        private Throwable failure;
+        private NoTransferCompletion noTransfer;
+
+        private PreparationAttempt(TargetWorkerProcessRuntime process, TargetWorkerRuntimeConfig config,
+                WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+                List<TargetWorkerShardRuntime> workers,
+                TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+                TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpoints,
+                LongSupplier checkpointClock, Consumer<Throwable> failures) {
+            this.process = process;
+            this.config = config;
+            this.classes = classes;
+            this.resources = resources;
+            this.workers = List.copyOf(workers);
+            this.checkpoints = checkpoints;
+            this.deferredCheckpoints = deferredCheckpoints;
+            this.checkpointClock = checkpointClock;
+            this.failures = failures;
+        }
+
+        TargetWorkerHostRuntime prepare() {
+            synchronized (this) {
+                if (invoked) throw new IllegalStateException("original Host preparation was already invoked");
+                invoked = true; active = true;
+            }
+            try {
+                requireContinue();
+                final var selected = Objects.requireNonNull(config, "config");
+                if (checkpoints == null && deferredCheckpoints == null) {
+                    throw new NullPointerException("checkpoints");
+                }
+                Objects.requireNonNull(checkpointClock, "checkpointClock");
+                final var prepared = compose(selected, classes, resources, workers, selected.maintenanceTurn(),
+                        selected.maintenanceInterval(), failures, checkpoints, deferredCheckpoints, checkpointClock,
+                        false, this);
+                synchronized (this) { requireContinue(); succeeded = true; }
+                prepared.forgetCompositionBindingCleanup();
+                return prepared;
+            } catch (RuntimeException | Error caught) {
+                final TargetWorkerHostRuntime retained;
+                synchronized (this) { retained = partialHost; }
+                boolean stopBackends = false;
+                if (retained != null) {
+                    synchronized (retained) {
+                        retained.stopping = true;
+                        if (retained.compositionBackendTransferAttempted && retained.compositionFailure == null) {
+                            retained.compositionFailure = caught; stopBackends = true;
+                        }
+                    }
+                }
+                if (stopBackends) {
+                    retained.advanceUntransferredCompositionClose();
+                    if (retained.hasOwnedBackends()) {
+                        try { retained.quarantineOwnedBackends(); }
+                        catch (RuntimeException | Error cleanup) { retained.retainCompositionFailure(cleanup); }
+                    }
+                    retained.observeUntransferredCompositionCloseFailures();
+                }
+                retainFailure(caught);
+                throw caught;
+            } finally {
+                synchronized (this) { active = false; exited = true; }
+            }
+        }
+
+        void requestStop() { stopRequested = true; }
+
+        private void requireContinue() {
+            if (stopRequested) throw new IllegalStateException("original Host preparation was stopped");
+        }
+
+        synchronized Optional<TargetWorkerHostRuntime> failedHost() { return Optional.ofNullable(partialHost); }
+
+        synchronized boolean backendTransferAttempted() {
+            return partialHost != null && partialHost.compositionBackendTransferAttempted;
+        }
+
+        private synchronized void retainFailure(Throwable caught) {
+            if (failure == null) failure = caught;
+            else if (failure != caught) failure.addSuppressed(caught);
+        }
+
+        /** One finite retry of the original local cleanup; never authorizes cleanup while preparation still runs. */
+        Optional<NoTransferCompletion> retryNoTransferCleanup() {
+            final TargetWorkerHostRuntime localHost;
+            final TargetWorkerMaintenanceLoop localLoop;
+            final Throwable original;
+            synchronized (this) {
+                if (noTransfer != null) return Optional.of(noTransfer);
+                if (active || !exited || succeeded || cleanupActive || backendTransferAttempted()) return Optional.empty();
+                cleanupActive = true;
+                localHost = partialHost; localLoop = loop; original = failure;
+            }
+            try {
+                if (!loopExited) {
+                    if (localLoop == null) loopExited = true;
+                    else {
+                        try { localLoop.close(); loopExited = true; }
+                        catch (RuntimeException | Error cleanup) { retainFailure(cleanup); }
+                    }
+                }
+                final boolean bindingsExited = loopExited
+                        && (localHost == null || localHost.rollbackCompositionBindings(original));
+                synchronized (this) {
+                    if (bindingsExited && loopExited && !backendTransferAttempted()) {
+                        noTransfer = new NoTransferCompletion(this);
+                        return Optional.of(noTransfer);
+                    }
+                    return Optional.empty();
+                }
+            } finally {
+                synchronized (this) { cleanupActive = false; }
+            }
+        }
+    }
+
+    /** Minted only by the original Host attempt after every locally acquired binding and loop has exited. */
+    static final class NoTransferCompletion {
+        private final PreparationAttempt attempt;
+        private NoTransferCompletion(PreparationAttempt attempt) { this.attempt = attempt; }
+        void requireOriginal(TargetWorkerProcessRuntime process, PreparationAttempt original,
+                List<TargetWorkerShardRuntime> workers) {
+            synchronized (attempt) {
+                if (attempt != original || attempt.process != process || attempt.noTransfer != this
+                        || attempt.active || !attempt.exited || attempt.succeeded || !attempt.loopExited
+                        || attempt.backendTransferAttempted() || workers.size() != attempt.workers.size()) {
+                    throw new IllegalStateException("pre-Host cleanup lacks its original no-transfer completion");
+                }
+                for (int index = 0; index < workers.size(); index++) {
+                    if (workers.get(index) != attempt.workers.get(index)) {
+                        throw new IllegalStateException("no-transfer completion belongs to another Worker graph");
+                    }
+                }
+            }
+        }
+    }
+
     private static TargetWorkerHostRuntime compose(
-            final TargetWorkerRuntimeConfig config,
-            final WorkClassExecutionRegistry workClasses,
-            final SharedRocksDbResources resources,
-            final List<TargetWorkerShardRuntime> shards,
-            final SchedulerBudget maintenanceBudget,
-            final Duration maintenanceInterval,
+            final TargetWorkerRuntimeConfig config, final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources, final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget maintenanceBudget, final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer,
             final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
             final LongSupplier checkpointClock, final boolean activateMaintenance) {
-        if (config != null) {
-            config.requireRuntime(workClasses, resources);
-        }
-        final var exactShards = List.copyOf(Objects.requireNonNull(shards, "shards"));
-        if (config != null) {
-            if (exactShards.size() > config.store().maxOwnedShards()) {
-                throw new IllegalArgumentException("configured Host exceeds its Shard ownership bound");
-            }
-            exactShards.forEach(worker -> worker.requireRuntimeConfiguration(config));
-        }
-        exactShards.forEach(TargetWorkerShardRuntime::requireMessageExpiryMaintenanceConfigured);
-        final var fleet = new TargetWorkerShardFleetRuntime(workClasses, resources, exactShards);
-        final var loop =
-                TargetWorkerMaintenanceLoop.create(fleet, maintenanceBudget, maintenanceInterval, failureConsumer);
+        return compose(config, workClasses, resources, shards, maintenanceBudget, maintenanceInterval,
+                failureConsumer, checkpointFactory, null, checkpointClock, activateMaintenance, null);
+    }
+
+    private static TargetWorkerHostRuntime compose(
+            final TargetWorkerRuntimeConfig config, final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources, final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget maintenanceBudget, final Duration maintenanceInterval,
+            final Consumer<Throwable> failureConsumer,
+            final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
+            final TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpointFactory,
+            final LongSupplier checkpointClock, final boolean activateMaintenance, final PreparationAttempt attempt) {
+        TargetWorkerMaintenanceLoop loop = null;
         TargetWorkerHostRuntime host = null;
         try {
+            if (config != null) config.requireRuntime(workClasses, resources);
+            final var exactShards = List.copyOf(Objects.requireNonNull(shards, "shards"));
+            if (config != null) {
+                if (exactShards.size() > config.store().maxOwnedShards()) {
+                    throw new IllegalArgumentException("configured Host exceeds its Shard ownership bound");
+                }
+                exactShards.forEach(worker -> worker.requireRuntimeConfiguration(config));
+            }
+            exactShards.forEach(TargetWorkerShardRuntime::requireMessageExpiryMaintenanceConfigured);
+            final var fleet = new TargetWorkerShardFleetRuntime(workClasses, resources, exactShards);
+            Objects.requireNonNull(maintenanceBudget, "maintenanceBudget");
+            Objects.requireNonNull(failureConsumer, "failureConsumer");
+            final var interval = Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
+            if (interval.isNegative() || interval.isZero()) {
+                throw new IllegalArgumentException("Target maintenance interval must be positive");
+            }
+            try { interval.toNanos(); }
+            catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("Target maintenance interval exceeds nanoseconds", overflow);
+            }
+            if (attempt != null) attempt.requireContinue();
+            loop = TargetWorkerMaintenanceLoop.create(fleet, maintenanceBudget, interval, failureConsumer);
+            if (attempt != null) { synchronized (attempt) { attempt.loop = loop; } }
             host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
+            if (attempt != null) {
+                host.preparationAttempt = attempt;
+                synchronized (attempt) { attempt.partialHost = host; }
+            }
+            host.bindCompositionShards(attempt);
+            if (attempt != null) attempt.requireContinue();
             if (checkpointFactory != null) {
                 host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
+            } else if (deferredCheckpointFactory != null) {
+                host.configurePeriodicDeferredCollectedSemanticCheckpoints(deferredCheckpointFactory, checkpointClock);
             }
             final var backends = new ArrayList<TargetOwnedBackendGroup>();
             for (var worker : exactShards) {
+                if (attempt != null) attempt.requireContinue();
                 final var backend = worker.sourceBackendGroup();
-                if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) {
-                    backends.add(backend);
-                }
+                if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) backends.add(backend);
                 for (var publication : worker.publicationBackendGroups()) {
-                    if (backends.stream().noneMatch(existing -> existing == publication)) { backends.add(publication); }
+                    if (backends.stream().noneMatch(existing -> existing == publication)) backends.add(publication);
                 }
             }
-            // Reject a borrowed/unready group before any other group transfers to this Host.
-            for (var backend : backends) { backend.requireHostComposition(host, exactShards); }
-            for (var backend : backends) { host.registerOwnedBackend(backend); }
-            if (activateMaintenance) { host.startMaintenance(); }
+            host.originalCompositionBackends = List.copyOf(backends);
+            host.untransferredCompositionBackends.addAll(backends);
+            for (var backend : backends) {
+                if (attempt != null) attempt.requireContinue();
+                backend.requireWorkerGraph(workClasses, resources);
+                backend.requireHostComposition(host, exactShards);
+            }
+            for (var backend : backends) {
+                if (attempt != null) attempt.requireContinue();
+                host.registerOwnedBackend(backend);
+            }
+            if (attempt != null) attempt.requireContinue();
+            if (activateMaintenance) host.startMaintenance();
+            if (attempt == null) host.forgetCompositionBindingCleanup();
             return host;
         } catch (RuntimeException | Error failure) {
             if (host != null) { synchronized (host) { host.stopping = true; } }
-            if (host != null && host.ownedBackends.isEmpty()) {
-                host.rollbackTargetQueueChangeSignalBindings(host.shards, failure);
-            }
-            try {
-                loop.close();
-            } catch (RuntimeException | Error closeFailure) {
-                if (closeFailure != failure) {
-                    failure.addSuppressed(closeFailure);
+            if (host != null && host.compositionBackendTransferAttempted) {
+                // Unknown binds and never-attempted groups retain different original cleanup authority.
+                synchronized (host) { host.compositionFailure = failure; }
+                host.advanceUntransferredCompositionClose();
+                if (host.hasOwnedBackends()) {
+                    try { host.quarantineOwnedBackends(); }
+                    catch (RuntimeException | Error cleanup) { host.retainCompositionFailure(cleanup); }
                 }
+                host.observeUntransferredCompositionCloseFailures();
+                throw new CompositionFailure(failure, host);
             }
-            if (host != null && !host.ownedBackends.isEmpty()) {
-                // Keep the original Store bindings exclusive until this failed Host completes fault exit.
-                // Unbinding here would let another Host reuse a Worker that our quarantine still fences.
-                synchronized (host) { host.stopping = true; }
-                for (var backend : host.ownedBackends) {
-                    try { backend.freezeRegistrations(); }
+            if (attempt == null) {
+                boolean loopExited = loop == null;
+                if (loop != null) {
+                    try { loop.close(); loopExited = true; }
                     catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
                 }
-                throw new CompositionFailure(failure, host);
+                final boolean bindingsExited = loopExited && (host == null || host.rollbackCompositionBindings(failure));
+                if (host != null && (!bindingsExited || !loopExited)) throw new CompositionFailure(failure, host);
             }
             throw failure;
         }
     }
 
-    /** Keeps the exact partially composed Host and its bound SDK owners available for explicit fault cleanup. */
+    /** Keeps the exact partially composed Host available for its original local or backend cleanup. */
     public static final class CompositionFailure extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         private final transient TargetWorkerHostRuntime failedHost;
         private CompositionFailure(Throwable original, TargetWorkerHostRuntime failedHost) {
-            super("Target Host composition failed after backend ownership transfer", original);
+            super("Target Host composition failed with retained original ownership", original);
             this.failedHost = failedHost;
         }
         public TargetWorkerHostRuntime failedHost() { return failedHost; }
     }
 
-    /** Test seam; production creates the fleet and scheduler from the same exact shards. */
-    TargetWorkerHostRuntime(
-            final TargetWorkerShardFleetRuntime fleet,
-            final TargetWorkerMaintenanceLoop maintenanceLoop,
-            final List<? extends Shard> shards) {
+    /** Test seam; production retains the Host before installing its first Store binding. */
+    TargetWorkerHostRuntime(TargetWorkerShardFleetRuntime fleet, TargetWorkerMaintenanceLoop maintenanceLoop,
+            List<? extends Shard> shards) {
         this(fleet, maintenanceLoop, shards, null);
+        try { bindCompositionShards(null); forgetCompositionBindingCleanup(); }
+        catch (RuntimeException | Error failure) { rollbackCompositionBindings(failure); throw failure; }
     }
 
-    private TargetWorkerHostRuntime(
-            final TargetWorkerShardFleetRuntime fleet,
-            final TargetWorkerMaintenanceLoop maintenanceLoop,
-            final List<? extends Shard> shards,
-            final TargetWorkerRuntimeConfig runtimeConfig) {
+    private TargetWorkerHostRuntime(TargetWorkerShardFleetRuntime fleet, TargetWorkerMaintenanceLoop maintenanceLoop,
+            List<? extends Shard> shards, TargetWorkerRuntimeConfig runtimeConfig) {
         this.fleet = Objects.requireNonNull(fleet, "fleet");
         this.maintenanceLoop = Objects.requireNonNull(maintenanceLoop, "maintenanceLoop");
         this.runtimeConfig = runtimeConfig;
@@ -654,19 +939,20 @@ public final class TargetWorkerHostRuntime {
         if (!fleet.shardIds().equals(this.shards.stream().map(Shard::shardId).toList())) {
             throw new IllegalArgumentException("Target host drain shards differ from maintenance fleet");
         }
-        final var attemptedBindings = new ArrayList<Shard>();
-        try {
-            for (Shard shard : this.shards) {
-                attemptedBindings.add(shard);
-                bindTargetQueueChangeSignal(shard);
+    }
+
+    private void bindCompositionShards(PreparationAttempt attempt) {
+        for (Shard shard : shards) {
+            if (attempt != null) attempt.requireContinue();
+            compositionSignalBindings.add(shard);
+            bindTargetQueueChangeSignal(shard);
+        }
+        for (Shard shard : shards) {
+            if (attempt != null) attempt.requireContinue();
+            if (shard instanceof TargetWorkerShardRuntime worker) {
+                compositionPublicationBindings.add(shard);
+                worker.bindPublicationHost(this);
             }
-            // Publish the Host only after every Store signal has established its exclusive binding.
-            for (Shard shard : this.shards) {
-                if (shard instanceof TargetWorkerShardRuntime worker) { worker.bindPublicationHost(this); }
-            }
-        } catch (RuntimeException | Error failure) {
-            rollbackTargetQueueChangeSignalBindings(attemptedBindings, failure);
-            throw failure;
         }
     }
 
@@ -900,24 +1186,33 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    private void unbindTargetQueueChangeSignal(final Shard shard) {
-        if (shard instanceof TargetWorkerShardRuntime worker) {
-            worker.unbindTargetQueueChangeSignal(targetQueueChangeSignal);
-            worker.unbindPublicationHost(this);
-        }
+    private synchronized void forgetCompositionBindingCleanup() {
+        compositionSignalBindings.clear();
+        compositionPublicationBindings.clear();
     }
 
-    private void rollbackTargetQueueChangeSignalBindings(
-            final List<? extends Shard> candidates, final Throwable failure) {
-        for (int index = candidates.size() - 1; index >= 0; index--) {
+    private boolean rollbackCompositionBindings(final Throwable failure) {
+        // Each independently acquired component retains its own retry obligation.
+        for (int index = compositionPublicationBindings.size() - 1; index >= 0; index--) {
             try {
-                unbindTargetQueueChangeSignal(candidates.get(index));
-            } catch (RuntimeException | Error rollbackFailure) {
-                if (rollbackFailure != failure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+                ((TargetWorkerShardRuntime) compositionPublicationBindings.get(index)).unbindPublicationHost(this);
+                compositionPublicationBindings.remove(index);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure != null && cleanup != failure) failure.addSuppressed(cleanup);
             }
         }
+        for (int index = compositionSignalBindings.size() - 1; index >= 0; index--) {
+            try {
+                final var shard = compositionSignalBindings.get(index);
+                if (shard instanceof TargetWorkerShardRuntime worker) {
+                    worker.unbindTargetQueueChangeSignal(targetQueueChangeSignal);
+                }
+                compositionSignalBindings.remove(index);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure != null && cleanup != failure) failure.addSuppressed(cleanup);
+            }
+        }
+        return compositionPublicationBindings.isEmpty() && compositionSignalBindings.isEmpty();
     }
 
     /** Calls at most one Shard source turn while whole-fleet admission is open. */
@@ -1104,18 +1399,31 @@ public final class TargetWorkerHostRuntime {
         final OxiaClosePermit permit;
         synchronized (this) {
             root = oxiaRuntime;
-            if (root == null) return true;
-            if (!stopping || ownedBackends.stream().anyMatch(backend -> !backend.resourcesTerminated())
+            if (!stopping || compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
+                    || !untransferredCompositionBackendsTerminated()
+                    || !terminatedUnresolvedCompositionBackendsExited()
+                    || ownedBackends.stream().anyMatch(backend ->
+                            !backend.resourcesTerminated() || !backend.nativeResourcesTerminated())
                     || shards.stream().anyMatch(shard -> fault ? !faultExited.containsKey(shard.shardId())
                             : !completed.containsKey(shard.shardId()))) {
                 return false;
             }
             if (fault != backendQuarantined) throw new IllegalStateException("Oxia close normal/fault lineage changed");
-            if (oxiaClosePermit == null) oxiaClosePermit = new OxiaClosePermit(this, root);
-            permit = oxiaClosePermit;
+            if (root == null) permit = null;
+            else {
+                if (oxiaClosePermit == null) oxiaClosePermit = new OxiaClosePermit(this, root);
+                permit = oxiaClosePermit;
+            }
         }
         final TargetWorkerProcessRuntime process;
-        synchronized (this) { process = processRuntime; }
+        final TargetCheckpointCandidateSchedule schedule;
+        synchronized (this) { process = processRuntime; schedule = checkpointSchedule; }
+        if (schedule != null) {
+            schedule.requestPublishedValidationStop();
+            if (!schedule.settlePublishedValidationCleanup()) return false;
+        }
+        if (root == null) return true;
+        if (process != null && !process.closeCheckpointCompositionsForHost(permit)) return false;
         if (process != null && !process.releaseRecoveryPinsForHost(permit)) return false;
         if (process != null && !process.closeReceiptManagementForHost(permit)) return false;
         if (process != null && !process.closeScopeResourcesForHost(permit)) return false;
@@ -1495,13 +1803,14 @@ public final class TargetWorkerHostRuntime {
             }
         }
         try {
+            final Optional<WorkClassTask> pending;
             synchronized (shard) {
-                final Optional<WorkClassTask> pending = shard.pendingCheckpointTask();
+                pending = shard.pendingCheckpointTask();
                 if (expectedTask != null && (pending.isEmpty() || pending.orElseThrow() != expectedTask)) {
                     throw new IllegalStateException("Target host checkpoint task has changed");
                 }
-                return pending.isEmpty() ? Optional.empty() : shard.runCheckpointTurn(budget);
             }
+            return pending.isEmpty() ? Optional.empty() : shard.runCheckpointTurn(budget);
         } finally {
             synchronized (this) {
                 draining.remove(shardId);
@@ -1739,33 +2048,39 @@ public final class TargetWorkerHostRuntime {
             final TargetOwnerDrainCoordinator.Request request,
             final SchedulerBudget sourceBudget,
             final LongSupplier ownerClock) {
-        synchronized (shard) {
-            SourceApplyCoordinator.TurnResult sourceTurn = null;
-            try {
-                requireNormalDrain();
+        SourceApplyCoordinator.TurnResult sourceTurn = null;
+        try {
+            requireNormalDrain();
+            final var schedule = checkpointSchedule;
+            final boolean finalFlight;
+            final Optional<WorkClassTask> checkpoint;
+            synchronized (shard) {
                 shard.requestResourceReclaimStop();
-                final var schedule = checkpointSchedule;
-                final boolean finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
+                finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
                 if (!finalFlight) { shard.requestCheckpointPreparationStop(); }
-                final Optional<WorkClassTask> checkpoint = shard.pendingCheckpointTask();
-                if (finalFlight) {
-                    final var settled = schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
-                    if (settled.isEmpty()) {
-                        return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, null,
-                                schedule.pendingTask(shard.shardId()).orElseThrow(), null, null);
-                    }
-                    if (settled.orElseThrow().failure() != null) {
-                        throw new IllegalStateException("final Target checkpoint failed",
-                                settled.orElseThrow().failure());
-                    }
-                } else if (checkpoint.isPresent()) {
-                    return new ShardDrain(
-                            shard.shardId(), Status.PENDING_CHECKPOINT, null, checkpoint.orElseThrow(), null, null);
+                checkpoint = shard.pendingCheckpointTask();
+            }
+            if (finalFlight) {
+                final var settled = schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
+                if (settled.isEmpty()) {
+                    return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, null,
+                            schedule.pendingTask(shard.shardId()).orElseThrow(), null, null);
                 }
-                if (schedule != null && schedule.pendingTask(shard.shardId()).isPresent()) {
-                    // A separately settled old task still owns its process-local claim.
-                    schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
+                if (settled.orElseThrow().failure() != null) {
+                    throw new IllegalStateException("final Target checkpoint failed",
+                            settled.orElseThrow().failure());
                 }
+            } else if (checkpoint.isPresent()) {
+                return new ShardDrain(
+                        shard.shardId(), Status.PENDING_CHECKPOINT, null, checkpoint.orElseThrow(), null, null);
+            }
+            if (schedule != null && schedule.pendingTask(shard.shardId()).isPresent()) {
+                // A separately settled old task still owns its process-local claim.
+                schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
+            }
+            final boolean finalCheckpointRequired;
+            synchronized (shard) {
+                requireNormalDrain();
                 final Optional<WorkClassTask> channel = shard.settlePendingChannelControlForDrain(
                         request.gcBudget(), sourceBudget, ownerClock);
                 if (channel.isPresent()) {
@@ -1809,7 +2124,8 @@ public final class TargetWorkerHostRuntime {
                 final var resources=shard.settlePendingPublicationResourcesForDrain();
                 if(resources.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_PUBLICATION,sourceTurn,
                         null,null,null,null,null,resources.orElseThrow());
-                if (finalCheckpointOnDrain && shard.canPublishFinalCheckpoint()) {
+                finalCheckpointRequired = finalCheckpointOnDrain && shard.canPublishFinalCheckpoint();
+                if (finalCheckpointRequired) {
                     final var gc = shard.settlePendingGcForDrain(request.gcBudget());
                     if (gc.isPresent()) {
                         return new ShardDrain(shard.shardId(), Status.PENDING_GC, sourceTurn, null,
@@ -1820,21 +2136,49 @@ public final class TargetWorkerHostRuntime {
                         return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION, sourceTurn,
                                 null, null, null, null, null, settledJournal.orElseThrow());
                     }
-                    if (!schedule.hasCurrentPublishedCut(shard)) {
+                }
+            }
+            final TargetCheckpointCandidateSchedule.PublishedCutValidation validation;
+            if (finalCheckpointRequired) {
+                validation = schedule.validateCurrentPublishedCutForDrain(shard);
+                switch (validation.state()) {
+                    case PENDING -> {
+                        return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn,
+                                validation.task(), null, null);
+                    }
+                    case VALID, NO_MATCH -> { }
+                }
+            } else { validation = null; }
+            synchronized (shard) {
+                requireNormalDrain();
+                if (finalCheckpointRequired) {
+                    final boolean current;
+                    switch (validation.state()) {
+                        case VALID -> {
+                            current = schedule.consumeCurrentPublishedCutForDrain(shard, validation);
+                            if (!current) {
+                                return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn,
+                                        validation.task(), null, null);
+                            }
+                        }
+                        case NO_MATCH -> current = false;
+                        case PENDING -> throw new IllegalStateException("Target checkpoint validation is still pending");
+                        default -> throw new IllegalStateException("unknown Target checkpoint validation state");
+                    }
+                    if (!current) {
                         final var task = schedule.submitFinalForDrain(shard, checkpointClock.getAsLong());
                         return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn, task, null, null);
                     }
                 }
-                requireNormalDrain();
                 final var journalResources = shard.settlePendingJournalResourcesForDrain();
                 if (journalResources.isPresent()) return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION,
                         sourceTurn, null, null, null, null, null, journalResources.orElseThrow());
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
                 return new ShardDrain(
                         shard.shardId(), map(drained.status()), sourceTurn, null, drained.pendingGcTask(), null);
-            } catch (RuntimeException failure) {
-                return new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, null, failure);
             }
+        } catch (RuntimeException failure) {
+            return new ShardDrain(shard.shardId(), Status.FAILED, sourceTurn, null, null, failure);
         }
     }
 
@@ -1854,6 +2198,10 @@ public final class TargetWorkerHostRuntime {
             if (!stopping || shards.stream().anyMatch(shard -> !completed.containsKey(shard.shardId()))) {
                 throw new IllegalStateException("owned SDK close requires the completed normal Host drain");
             }
+            if (compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
+                    || !untransferredCompositionBackendsTerminated() || !terminatedUnresolvedCompositionBackendsExited()) {
+                return false;
+            }
             backends = List.copyOf(ownedBackends);
             if (backends.isEmpty()) { return true; }
             if (quarantineGeneration == 0) { quarantineGeneration++; }
@@ -1867,22 +2215,29 @@ public final class TargetWorkerHostRuntime {
             }
         }
         advanceOwnedBackendClose(backends);
-        return backends.stream().allMatch(TargetOwnedBackendGroup::resourcesTerminated);
+        return backends.stream().allMatch(backend ->
+                backend.resourcesTerminated() && backend.nativeResourcesTerminated());
     }
 
     /** Reuses only permits already issued after this Host's actual barriers; does not fence or authorize a new group. */
     private void advanceOwnedBackendClose(List<TargetOwnedBackendGroup> backends) {
+        Throwable failure = null;
         for (var backend : backends) {
-            final BackendClosePermit closing;
-            synchronized (this) {
-                closing = Objects.requireNonNull(backendClosePermits.get(backend), "original backend close permit");
-            }
-            backend.closeOwnedBackend(closing);
+            try {
+                final BackendClosePermit closing;
+                synchronized (this) {
+                    closing = Objects.requireNonNull(backendClosePermits.get(backend), "original backend close permit");
+                }
+                backend.closeOwnedBackend(closing);
+            } catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
         }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error fatal) throw fatal;
     }
 
     /** Binds an actual backend once to the admitted Worker graph, before its first application use. */
     public void registerOwnedBackend(TargetOwnedBackendGroup backend) {
+        Objects.requireNonNull(backend, "backend");
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
             requireServiceActivationCaller();
@@ -1894,9 +2249,201 @@ public final class TargetWorkerHostRuntime {
                 }
                 return worker;
             }).toList();
+            compositionBackendTransferAttempted = true;
+            forgetCompositionBindingCleanup();
+            untransferredCompositionBackends.removeIf(original -> original == backend);
+            if (pendingCompositionBackendTransfers.stream().noneMatch(pending -> pending == backend)) {
+                pendingCompositionBackendTransfers.add(backend);
+            }
             backend.bindHost(this, workers);
             ownedBackends.add(backend);
+            pendingCompositionBackendTransfers.removeIf(pending -> pending == backend);
         }
+    }
+
+    /** Retries only original unknown binds; a failed group cannot suppress stopping the other original groups. */
+    boolean retryCompositionBackendTransfers() {
+        final List<TargetOwnedBackendGroup> pending;
+        final List<TargetWorkerShardRuntime> workers;
+        final PreparationAttempt original;
+        synchronized (this) {
+            if (compositionTransferRetryActive) return false;
+            if (pendingCompositionBackendTransfers.isEmpty()) return true;
+            if (!stopping) throw new IllegalStateException("original Host composition is still active");
+            original = preparationAttempt;
+        }
+        if (original != null) {
+            if (original.process.hostPreparationPending()) return false;
+            requireOriginalFailedComposition(original.process);
+        }
+        synchronized (this) {
+            if (compositionTransferRetryActive) return false;
+            compositionTransferRetryActive = true;
+            pending = List.copyOf(pendingCompositionBackendTransfers);
+            workers = currentTargetWorkers();
+        }
+        try {
+            advanceUntransferredCompositionClose();
+            for (var backend : pending) {
+                try {
+                    if (original != null) {
+                        backend.requireWorkerGraph(original.classes, original.resources);
+                        if (backend.resourcesTerminated() && backend.nativeResourcesTerminated()) {
+                            synchronized (this) {
+                                pendingCompositionBackendTransfers.removeIf(member -> member == backend);
+                                if (terminatedUnresolvedCompositionTransfers.stream().noneMatch(member -> member == backend)) {
+                                    terminatedUnresolvedCompositionTransfers.add(backend);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    backend.bindHost(this, workers);
+                    synchronized (this) {
+                        if (ownedBackends.stream().noneMatch(owned -> owned == backend)) ownedBackends.add(backend);
+                        pendingCompositionBackendTransfers.removeIf(member -> member == backend);
+                    }
+                } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+            }
+        } finally {
+            synchronized (this) { compositionTransferRetryActive = false; notifyAll(); }
+        }
+        if (hasOwnedBackends()) {
+            try { quarantineOwnedBackends(); }
+            catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+        } else if (original != null) {
+            final boolean terminatedUnknown;
+            synchronized (this) { terminatedUnknown = !terminatedUnresolvedCompositionTransfers.isEmpty(); }
+            if (terminatedUnknown) {
+                try { quarantineRetainedCompositionForReplay(original.process); }
+                catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+            }
+        }
+        observeUntransferredCompositionCloseFailures();
+        synchronized (this) { return pendingCompositionBackendTransfers.isEmpty(); }
+    }
+
+    private PreparationAttempt requireOriginalFailedComposition(TargetWorkerProcessRuntime process) {
+        final PreparationAttempt original;
+        final List<TargetWorkerShardRuntime> workers;
+        synchronized (this) {
+            if (!compositionBackendTransferAttempted || compositionFailure == null) {
+                throw new IllegalStateException("Host has no retained failed composition transfer");
+            }
+            original = preparationAttempt; workers = currentTargetWorkers();
+        }
+        if (original == null || original.process != process) {
+            throw new IllegalStateException("failed composition has no original controlled Process attempt");
+        }
+        synchronized (original) {
+            if (original.partialHost != this || original.active || !original.exited || original.succeeded
+                    || workers.size() != original.workers.size()) {
+                throw new IllegalStateException("original Host composition call has not exited with its exact graph");
+            }
+            for (int index = 0; index < workers.size(); index++) {
+                if (workers.get(index) != original.workers.get(index)) {
+                    throw new IllegalStateException("failed composition Worker graph was replaced");
+                }
+            }
+        }
+        final boolean originalAuthorityChecked;
+        synchronized (this) { originalAuthorityChecked = retainedCompositionBarrierAttempt == original; }
+        // The same private attempt retains this binding after the original Oxia root starts closing.
+        // Host admission already forbids a second assembly/Worker graph; do not reopen stopped providers.
+        if (!originalAuthorityChecked) process.requireRetainedHostComposition(this, original, workers);
+        for (var worker : workers) worker.requireFleetComposition(original.classes, original.resources);
+        synchronized (this) {
+            for (var backend : pendingCompositionBackendTransfers) {
+                if (originalCompositionBackends.stream().noneMatch(member -> member == backend)) {
+                    throw new IllegalStateException("unresolved transfer was not registered by the original composition");
+                }
+            }
+            for (var backend : terminatedUnresolvedCompositionTransfers) {
+                if (originalCompositionBackends.stream().noneMatch(member -> member == backend)) {
+                    throw new IllegalStateException("native termination belongs to another composition");
+                }
+            }
+        }
+        return original;
+    }
+
+    private boolean terminatedUnresolvedCompositionBackendsExited() {
+        return terminatedUnresolvedCompositionTransfers.stream().allMatch(backend ->
+                backend.resourcesTerminated() && backend.nativeResourcesTerminated());
+    }
+
+    /** Retained cleanup responsibility is not backend ownership or a no-transfer completion. */
+    BackendQuarantineResult quarantineRetainedCompositionForReplay(TargetWorkerProcessRuntime process) {
+        if (hasOwnedBackends()) return quarantineOwnedBackends();
+        requireOriginalFailedComposition(process);
+        synchronized (this) {
+            if (compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()) {
+                return backendQuarantineStatus();
+            }
+            if (terminatedUnresolvedCompositionTransfers.isEmpty() || !terminatedUnresolvedCompositionBackendsExited()) {
+                throw new IllegalStateException("failed composition lacks actual termination of its original unknown SDK");
+            }
+            retainedCompositionBarrierAttempt = preparationAttempt;
+        }
+        return quarantineBackends(true);
+    }
+
+    private synchronized void retainCompositionFailure(Throwable failure) {
+        compositionFailure = appendFailure(compositionFailure, failure);
+    }
+
+    private static Throwable appendFailure(Throwable first, Throwable next) {
+        if (first == null) return next;
+        if (first != next) {
+            for (var suppressed : first.getSuppressed()) if (suppressed == next) return first;
+            first.addSuppressed(next);
+        }
+        return first;
+    }
+
+    /** Never-attempted groups use only their existing unbound-owner close, never a Host permit or a bind retry. */
+    private void advanceUntransferredCompositionClose() {
+        final List<TargetOwnedBackendGroup> original;
+        synchronized (this) {
+            if (!compositionBackendTransferAttempted || untransferredCompositionCloseActive) return;
+            untransferredCompositionCloseActive = true;
+            original = List.copyOf(untransferredCompositionBackends);
+        }
+        try {
+            // Issue every original stop before observing any group's termination.
+            for (var backend : original) {
+                try {
+                    final var close = Objects.requireNonNull(backend.closeBeforeHostBinding(), "original unbound close");
+                    synchronized (this) { untransferredCompositionCloses.putIfAbsent(backend, close); }
+                } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+            }
+        } finally {
+            synchronized (this) { untransferredCompositionCloseActive = false; notifyAll(); }
+        }
+    }
+
+    private void observeUntransferredCompositionCloseFailures() {
+        final List<java.util.concurrent.CompletableFuture<Void>> closes;
+        synchronized (this) { closes = List.copyOf(untransferredCompositionCloses.values()); }
+        for (var close : closes) {
+            if (!close.isDone()) continue;
+            try { close.join(); }
+            catch (java.util.concurrent.CompletionException failure) {
+                retainCompositionFailure(failure.getCause() == null ? failure : failure.getCause());
+            } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+        }
+    }
+
+    private boolean untransferredCompositionBackendsTerminated() {
+        return !untransferredCompositionCloseActive && untransferredCompositionBackends.stream().allMatch(backend ->
+                untransferredCompositionCloses.containsKey(backend)
+                        && backend.resourcesTerminated() && backend.nativeResourcesTerminated());
+    }
+
+    synchronized boolean hasOwnedBackends() { return !ownedBackends.isEmpty(); }
+
+    synchronized boolean hasPendingCompositionBackendTransfers() {
+        return compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty();
     }
 
     /** Publication ownership transfers before its asynchronous SDK opening may start. */
@@ -1913,41 +2460,84 @@ public final class TargetWorkerHostRuntime {
      * The returned result is unrelated to normal drain/final-checkpoint/Owner release. Repeat calls retain permits.
      */
     public BackendQuarantineResult quarantineOwnedBackends() {
+        return quarantineBackends(false);
+    }
+
+    private BackendQuarantineResult quarantineBackends(boolean retainedTerminatedComposition) {
         final List<Shard> frozenShards;
         final List<TargetOwnedBackendGroup> backends;
         final TargetWorkerOrdinaryLoop ordinary;
+        final TargetCheckpointCandidateSchedule schedule;
         synchronized (this) {
-            if (quarantineActive || faultExitActive) { return backendQuarantineStatus(); }
-            if (ownedBackends.isEmpty()) { throw new IllegalStateException("Host has no actually owned backend group"); }
+            if (quarantineActive || faultExitActive || compositionTransferRetryActive) return backendQuarantineStatus();
+            if (ownedBackends.isEmpty() && (!retainedTerminatedComposition
+                    || terminatedUnresolvedCompositionTransfers.isEmpty()
+                    || !pendingCompositionBackendTransfers.isEmpty()
+                    || !terminatedUnresolvedCompositionBackendsExited())) {
+                throw new IllegalStateException("Host has no actually owned backend group");
+            }
             quarantineActive = true;
             if (!backendQuarantined && backendClosePermits.isEmpty()) { quarantineGeneration++; }
             backendQuarantined = true;
             stopping = true;
             ordinary = ordinaryLoop;
+            schedule = checkpointSchedule;
             frozenShards = List.copyOf(shards);
             backends = List.copyOf(ownedBackends);
         }
         try {
+            advanceUntransferredCompositionClose();
             final Map<TargetOwnedBackendGroup, List<Object>> frozen = new java.util.IdentityHashMap<>();
-            for (var backend : backends) { frozen.put(backend, backend.freezeRegistrations()); }
+            Throwable failure = null;
+            if (schedule != null) {
+                try { schedule.requestPublishedValidationStop(); }
+                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            }
+            for (var backend : backends) {
+                try { frozen.put(backend, backend.freezeRegistrations()); }
+                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            }
             // Store and runtime fences are independent of Worker monitors held by a native receive/ACK wait.
+            boolean storesFenced = true;
             for (Shard shard : frozenShards) {
-                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
-                    throw new IllegalStateException("quarantine requires actual Store/runtime barriers");
+                try {
+                    if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                        throw new IllegalStateException("quarantine requires actual Store/runtime barriers");
+                    }
+                    worker.quarantineBackendWrites();
+                } catch (RuntimeException | Error cleanup) {
+                    storesFenced = false; failure = appendFailure(failure, cleanup);
                 }
-                worker.quarantineBackendWrites();
             }
-            if (ordinary != null) { ordinary.requestStop(); }
-            maintenanceLoop.requestStop();
-            if (sourceObservationCache != null) { sourceObservationCache.stop(); }
+            if (ordinary != null) {
+                try { ordinary.requestStop(); }
+                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            }
+            try { maintenanceLoop.requestStop(); }
+            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            if (sourceObservationCache != null) {
+                try { sourceObservationCache.stop(); }
+                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            }
+            final var closing = new ArrayList<TargetOwnedBackendGroup>();
             synchronized (this) {
-                backendBarrierEstablished = true;
-                for (var backend : backends) {
-                    backendClosePermits.computeIfAbsent(backend, ignored ->
-                            new BackendClosePermit(this, backend, quarantineGeneration, frozen.get(backend)));
+                if (storesFenced) {
+                    backendBarrierEstablished = true;
+                    for (var backend : backends) {
+                        if (frozen.containsKey(backend)) {
+                            backendClosePermits.computeIfAbsent(backend, ignored ->
+                                    new BackendClosePermit(this, backend, quarantineGeneration, frozen.get(backend)));
+                        }
+                    }
                 }
+                for (var backend : backends) if (backendClosePermits.containsKey(backend)) closing.add(backend);
             }
-            advanceOwnedBackendClose(backends);
+            try { advanceOwnedBackendClose(closing); }
+            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            observeUntransferredCompositionCloseFailures();
+            if (failure != null) retainCompositionFailure(failure);
+            if (failure instanceof RuntimeException runtime) throw runtime;
+            if (failure instanceof Error fatal) throw fatal;
             return backendQuarantineStatus();
         } finally {
             synchronized (this) { quarantineActive = false; notifyAll(); }
@@ -1956,9 +2546,15 @@ public final class TargetWorkerHostRuntime {
 
     public synchronized BackendQuarantineResult backendQuarantineStatus() {
         final var failures = new ArrayList<Throwable>();
-        boolean terminated = backendBarrierEstablished;
+        boolean terminated = backendBarrierEstablished && !compositionTransferRetryActive
+                && pendingCompositionBackendTransfers.isEmpty() && untransferredCompositionBackendsTerminated()
+                && terminatedUnresolvedCompositionBackendsExited();
+        if (compositionFailure != null) failures.add(compositionFailure);
+        for (var backend : terminatedUnresolvedCompositionTransfers) {
+            if (backend.cleanupFailure() != null) failures.add(backend.cleanupFailure());
+        }
         for (var backend : ownedBackends) {
-            terminated &= backend.resourcesTerminated();
+            terminated &= backend.resourcesTerminated() && backend.nativeResourcesTerminated();
             if (backend.cleanupFailure() != null) { failures.add(backend.cleanupFailure()); }
         }
         return new BackendQuarantineResult(terminated ? BackendQuarantineStatus.BACKEND_TERMINATED
@@ -1974,16 +2570,26 @@ public final class TargetWorkerHostRuntime {
         final List<Shard> current;
         final List<TargetOwnedBackendGroup> closing;
         final TargetWorkerOrdinaryLoop ordinary;
+        final TargetCheckpointCandidateSchedule schedule;
         synchronized (this) {
-            if (!backendQuarantined || quarantineActive || faultExitActive || drainAllActive || !draining.isEmpty()) {
+            if (!backendQuarantined || quarantineActive || faultExitActive || drainAllActive || !draining.isEmpty()
+                    || compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
+                    || untransferredCompositionCloseActive) {
                 throw new IllegalStateException("quarantined fault exit still has a concurrent Host lifecycle owner");
             }
-            current = List.copyOf(shards); ordinary = ordinaryLoop;
-            closing = backendBarrierEstablished ? List.copyOf(ownedBackends) : List.of();
+            current = List.copyOf(shards); ordinary = ordinaryLoop; schedule = checkpointSchedule;
+            closing = backendBarrierEstablished
+                    ? ownedBackends.stream().filter(backendClosePermits::containsKey).toList() : List.of();
             faultExitActive = true;
         }
         try {
             advanceOwnedBackendClose(closing);
+            if (schedule != null) {
+                schedule.requestPublishedValidationStop();
+                if (!schedule.settlePublishedValidationCleanup()) {
+                    return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
+                }
+            }
             if (backendQuarantineStatus().status() != BackendQuarantineStatus.BACKEND_TERMINATED) {
                 return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
             }

@@ -651,6 +651,11 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }
 
+        synchronized KafkaClientArtifactOwnedSourceBackend actualBackend() {
+            if (worker == null || failed) throw new IllegalStateException("original K1 Source Worker is unavailable");
+            return owner;
+        }
+
         /** Explicit driver turn; positioning/credential binding use the existing finite SDK timeout. */
         public synchronized java.util.Optional<TargetWorkerShardRuntime> advance() {
             if (failed) throw new IllegalStateException("original K1 Source opening failed");

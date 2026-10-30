@@ -76,12 +76,24 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
     }
 
     @FunctionalInterface
-    public interface OriginalAuthorityFactory {
+    public interface OriginalAuthorityFactory extends
+            com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.PreparationIo {
         /** Binds trusted authorities to the exact original collected inputs; cannot infer rights from their bytes. */
         OriginalAuthorities create(TargetCheckpointControlInputs.Result controls,
                 TargetCheckpointOutcomeInputs.Result outcomes,
                 List<TargetCheckpointDependencies.AdmissionImage> admissions,
                 TargetCheckpointDependencies dependencies);
+
+        /** A production owner may acquire its exact cut loan on the existing bounded I/O executor. */
+        default Optional<OriginalAuthorities> prepare(TargetCheckpointControlInputs.Result controls,
+                TargetCheckpointOutcomeInputs.Result outcomes,
+                List<TargetCheckpointDependencies.AdmissionImage> admissions,
+                TargetCheckpointDependencies dependencies) {
+            return Optional.of(Objects.requireNonNull(create(controls, outcomes, admissions, dependencies)));
+        }
+
+        @Override default boolean ioExited() { return true; }
+        @Override default Throwable pendingIoFailure() { return null; }
     }
 
     /** All I/O, audit and authority dependencies for one complete preparation on the existing pending task. */
@@ -121,16 +133,27 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
         RegistrySnapshotFactory(Preparation preparation) { this.preparation = preparation; }
 
         @Override
-        public boolean ioExited() { return registry == null || registry.ioExited(); }
+        public boolean ioExited() {
+            return (registry == null || registry.ioExited()) && preparation.authorities().ioExited();
+        }
 
         @Override
-        public Throwable pendingIoFailure() { return registry == null ? null : registry.pendingIoFailure(); }
+        public Throwable pendingIoFailure() {
+            final var failure = registry == null ? null : registry.pendingIoFailure();
+            return failure == null ? preparation.authorities().pendingIoFailure() : failure;
+        }
 
         @Override
-        public void requestStop() { if (registry != null) { registry.requestStop(); } }
+        public void requestStop() {
+            if (registry != null) { registry.requestStop(); }
+            preparation.authorities().requestStop();
+        }
 
         @Override
-        public void retryCleanup() { if (registry != null) { registry.retryCleanup(); } }
+        public void retryCleanup() {
+            if (registry != null) { registry.retryCleanup(); }
+            preparation.authorities().retryCleanup();
+        }
 
         @Override
         public Optional<TargetCheckpointSemanticSnapshot> create(TargetCheckpointControlInputs.Result control,
@@ -145,8 +168,10 @@ public final class TargetCheckpointSemanticInputs implements Supplier<Optional<T
                         input.reference().source(), input.image())).toList();
                 final var complete = control.cut().dependencies().withAdmissionInputs(retained,
                         p.semanticLimits().maximumAdmissionFrameBytes());
-                final var supplied = Objects.requireNonNull(p.authorities().create(control, outcome, images, complete),
-                        "original authorities");
+                final var prepared = Objects.requireNonNull(
+                        p.authorities().prepare(control, outcome, images, complete), "original authority preparation");
+                if (prepared.isEmpty()) { return Optional.empty(); }
+                final var supplied = prepared.orElseThrow();
                 final var authenticated = authenticate(complete, images, supplied);
                 registry = new TargetCheckpointRegistryInputs(p.worker(), control.cut(), authenticated, p.reads(),
                         p.ownerClock(), p.protection(), p.providers(), p.registryLimits());

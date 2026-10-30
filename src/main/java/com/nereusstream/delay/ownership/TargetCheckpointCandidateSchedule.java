@@ -82,6 +82,43 @@ public final class TargetCheckpointCandidateSchedule {
                 SourceRecordConsumer.CheckpointCut cut);
     }
 
+    @FunctionalInterface
+    public interface DeferredCollectedSemanticRequestFactory {
+        /** Captures only local identity and the original claim/cut; external reads start on the retained task. */
+        DeferredPreparation create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
+                SourceRecordConsumer.CheckpointCut cut);
+    }
+
+    public interface DeferredPreparation extends TargetCheckpointCandidateWorkClassExecutor.PreparationIo {
+        String localTaskIdentity();
+        long maximumTaskBytes();
+        java.util.concurrent.ThreadPoolExecutor checkpointExecutor();
+        /** Empty is normal preparation progress. The first complete request is frozen by the original task. */
+        Optional<CollectedSemanticRequest> preparedRequest();
+        /** Local ownership handoff, before queue admission or the first external read. */
+        default void accepted(TargetCheckpointCandidateWorkClassExecutor.Submission original) {}
+        default PublishedValidationHold acquirePublishedValidation(PublishedValidationRequest request,
+                Runnable current) {
+            throw new UnsupportedOperationException("original checkpoint publication validation hold is unavailable");
+        }
+    }
+
+    public record PublishedValidationRequest(TargetCheckpointCandidateWorkClassExecutor.Submission original,
+            long validationGeneration) {
+        public PublishedValidationRequest { Objects.requireNonNull(original, "original"); }
+    }
+
+    public interface PublishedValidationHold extends TargetCheckpointCandidateWorkClassExecutor.PublicationValidationLoan {
+        PublishedValidationRequest request();
+        /** Checks the exact still-held original authority allocation; no external reads are permitted. */
+        void requireLocalCurrent();
+    }
+
+    public enum PublishedCutState { VALID, PENDING, NO_MATCH }
+
+    public record PublishedCutValidation(PublishedCutState state, WorkClassTask task, long generation,
+            Object originalCut) {}
+
     public record CollectedSemanticRequest(Request candidate,
             Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
@@ -120,6 +157,29 @@ public final class TargetCheckpointCandidateSchedule {
         });
     }
 
+    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler, DeferredCollectedSemanticRequestFactory factory) {
+        return deferredCollectedSemantic(host, scheduler, factory, null);
+    }
+
+    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler, DeferredCollectedSemanticRequestFactory factory,
+            SchedulerBudget settlementBudget) {
+        Objects.requireNonNull(factory, "factory");
+        return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
+            final var worker = (TargetWorkerShardRuntime) shard;
+            final var cut = worker.protectCheckpointCut();
+            final var preparation = Objects.requireNonNull(factory.create(worker, claim, cut),
+                    "deferred collected preparation");
+            final var submission = worker.submitDeferredCollectedSemanticCheckpointCandidate(
+                    preparation, cut, settlementBudget);
+            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence, submission::requirePublicationCurrent,
+                    preparation, submission, cut::requireCurrent,
+                    () -> worker.requirePublishedCheckpointOwnerCurrent(submission));
+        });
+    }
+
     /** Schedules complete semantic candidates under the same native cut captured before request construction. */
     public static TargetCheckpointCandidateSchedule semantic(TargetWorkerHostRuntime host,
             CheckpointScheduler scheduler, SemanticRequestFactory factory) {
@@ -149,7 +209,14 @@ public final class TargetCheckpointCandidateSchedule {
 
     record Candidate(
             WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
-            BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent) {
+            BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent,
+            DeferredPreparation deferred, TargetCheckpointCandidateWorkClassExecutor.Submission submission,
+            Runnable requireLocalCutCurrent, Runnable requireLocalOwnerCurrent) {
+        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+                BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent) {
+            this(task, outcome, published, publicationStoreSequence, requirePublicationCurrent,
+                    null, null, () -> {}, () -> {});
+        }
         Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome) {
             this(task, outcome, () -> false, () -> 0, () -> {});
         }
@@ -173,7 +240,21 @@ public final class TargetCheckpointCandidateSchedule {
     private record Flight(TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim, Candidate candidate,
             boolean finalDrain) {}
 
-    private record PublishedCut(TargetWorkerHostRuntime.Shard shard, long nativeSequence, Runnable requireCurrent) {}
+    private static final class PublishedCut {
+        private final TargetWorkerHostRuntime.Shard shard;
+        private final long nativeSequence;
+        private final Candidate candidate;
+        private long generation;
+        private PublishedValidationRequest request;
+        private TargetCheckpointCandidateWorkClassExecutor.PublicationValidationAttempt<PublishedValidationHold> validation;
+        private boolean stopping;
+        PublishedCut(TargetWorkerHostRuntime.Shard shard, long nativeSequence, Candidate candidate) {
+            this.shard = shard; this.nativeSequence = nativeSequence; this.candidate = candidate;
+        }
+        void stop() { stopping = true; if (validation != null) { validation.requestStop(); } }
+        void retryCleanup() { if (validation != null) { validation.retryCleanup(); } }
+        boolean exited() { return validation == null || validation.ioExited(); }
+    }
 
     private final TargetWorkerHostRuntime host;
     private final CheckpointScheduler scheduler;
@@ -181,6 +262,8 @@ public final class TargetCheckpointCandidateSchedule {
     private final Map<ShardId, TargetWorkerHostRuntime.Shard> registered = new HashMap<>();
     private final Map<ShardId, Flight> flights = new HashMap<>();
     private final Map<ShardId, PublishedCut> publishedCuts = new HashMap<>();
+    private final List<PublishedCut> retiredPublishedCuts = new ArrayList<>();
+    private boolean publicationValidationStopping;
 
     public TargetCheckpointCandidateSchedule(
             final TargetWorkerHostRuntime host, final CheckpointScheduler scheduler, final RequestFactory factory) {
@@ -231,7 +314,8 @@ public final class TargetCheckpointCandidateSchedule {
     public synchronized void unregister(final ShardId shardId) {
         scheduler.unregister(shardId);
         registered.remove(shardId);
-        publishedCuts.remove(shardId);
+        final var removed = publishedCuts.remove(shardId);
+        if (removed != null) { retire(removed); }
     }
 
     /**
@@ -358,19 +442,169 @@ public final class TargetCheckpointCandidateSchedule {
     boolean hasCurrentPublishedCut(TargetWorkerHostRuntime.Shard shard) {
         final PublishedCut cut;
         synchronized (this) { cut = publishedCuts.get(shard.shardId()); }
-        if (cut == null || cut.shard() != shard || cut.nativeSequence() != shard.checkpointStoreSequence()) {
+        if (cut == null || cut.shard != shard || cut.nativeSequence != shard.checkpointStoreSequence()) {
             return false;
         }
-        cut.requireCurrent().run();
-        return cut.nativeSequence() == shard.checkpointStoreSequence();
+        cut.candidate.requirePublicationCurrent().run();
+        return cut.nativeSequence == shard.checkpointStoreSequence();
+    }
+
+    PublishedCutValidation validateCurrentPublishedCutForDrain(TargetWorkerHostRuntime.Shard shard) {
+        final PublishedCut cut;
+        synchronized (this) {
+            if (publicationValidationStopping) throw new IllegalStateException("checkpoint validation is stopping");
+            cut = publishedCuts.get(shard.shardId());
+        }
+        cleanupRetiredPublications();
+        if (cut == null) return new PublishedCutValidation(PublishedCutState.NO_MATCH, null, 0, null);
+        if (cut.shard != shard) {
+            synchronized (cut) {
+                cut.stop(); cut.retryCleanup();
+                requireNoValidationFailure(cut);
+                return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
+            }
+        }
+        cut.candidate.requireLocalOwnerCurrent().run();
+        final boolean initialMatch = matchesLocalCut(cut, shard);
+        synchronized (cut) {
+            if (!initialMatch) {
+                cut.stop(); cut.retryCleanup();
+                requireNoValidationFailure(cut);
+                return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
+            }
+            if (cut.stopping) {
+                cut.retryCleanup();
+                requireNoValidationFailure(cut);
+                return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
+            }
+            if (cut.candidate.deferred() == null) {
+                // Legacy synchronous providers retain their original authority semantics outside Host/Shard locks.
+                cut.candidate.requirePublicationCurrent().run();
+                return validationResult(cut, PublishedCutState.VALID);
+            }
+            if (cut.validation == null) {
+                cut.request = new PublishedValidationRequest(cut.candidate.submission(), ++cut.generation);
+                cut.validation = cut.candidate.submission().beginPublishedValidation((current, retain) -> {
+                    final var hold = Objects.requireNonNull(cut.candidate.deferred()
+                            .acquirePublishedValidation(cut.request, current), "original publication validation loan");
+                    retain.accept(hold);
+                    if (hold.request() != cut.request)
+                        throw new IllegalStateException("publication validation changed its original request");
+                    current.run();
+                    cut.candidate.requirePublicationCurrent().run();
+                    hold.requireLocalCurrent();
+                    current.run();
+                    return hold;
+                });
+            }
+        }
+        cut.candidate.submission().advancePublishedValidation();
+        final boolean currentCut;
+        synchronized (this) { currentCut = publishedCuts.get(shard.shardId()) == cut; }
+        cut.candidate.requireLocalOwnerCurrent().run();
+        final boolean finalMatch = matchesLocalCut(cut, shard);
+        synchronized (cut) {
+            requireNoValidationFailure(cut);
+            if (!currentCut) {
+                cut.stop();
+                return validationResult(cut, PublishedCutState.PENDING);
+            }
+            if (!finalMatch) {
+                cut.stop(); cut.retryCleanup();
+                requireNoValidationFailure(cut);
+                return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
+            }
+            final Optional<PublishedValidationHold> ready;
+            try { ready = cut.validation.ready(); }
+            catch (RuntimeException | Error failure) { cut.stop(); throw failure; }
+            if (ready.isEmpty()) return validationResult(cut, PublishedCutState.PENDING);
+            final var hold = ready.orElseThrow();
+            if (hold.request() != cut.request)
+                throw new IllegalStateException("publication validation loan changed its original generation");
+            hold.requireLocalCurrent();
+            return validationResult(cut, PublishedCutState.VALID);
+        }
+    }
+
+    boolean consumeCurrentPublishedCutForDrain(TargetWorkerHostRuntime.Shard shard, PublishedCutValidation result) {
+        if (result.state() != PublishedCutState.VALID) return false;
+        final PublishedCut cut;
+        synchronized (this) { cut = publishedCuts.get(shard.shardId()); }
+        if (cut == null || result.originalCut() != cut) return false;
+        cut.candidate.requireLocalOwnerCurrent().run();
+        final boolean sameLocalCut = matchesLocalCut(cut, shard);
+        synchronized (cut) {
+            requireNoValidationFailure(cut);
+            if (cut.stopping || result.generation() != cut.generation || !sameLocalCut) {
+                cut.stop();
+                return false;
+            }
+            if (cut.candidate.deferred() != null && cut.validation == null) return false;
+            if (cut.validation != null) {
+                final var hold = cut.validation.ready().orElseThrow(
+                        () -> new IllegalStateException("validated publication lost its held authority loan"));
+                if (hold.request() != cut.request)
+                    throw new IllegalStateException("consumed publication validation changed generation");
+                hold.requireLocalCurrent();
+            }
+            return true;
+        }
+    }
+
+    private boolean matchesLocalCut(PublishedCut cut, TargetWorkerHostRuntime.Shard shard) {
+        if (cut.shard != shard || cut.nativeSequence != shard.checkpointStoreSequence()) return false;
+        try { cut.candidate.requireLocalCutCurrent().run(); return true; }
+        catch (IllegalStateException changed) { return false; }
+    }
+
+    private PublishedCutValidation validationResult(PublishedCut cut, PublishedCutState state) {
+        return new PublishedCutValidation(state, cut.candidate.task(), cut.generation, cut);
+    }
+
+    private void requireNoValidationFailure(PublishedCut cut) {
+        if (cut.validation == null) return;
+        final var failure = cut.validation.pendingIoFailure();
+        if (failure == null || cut.stopping && failure instanceof OwnedCheckpointIo.StoppedException) return;
+        cut.stop();
+        throw new IllegalStateException("original published checkpoint validation or cleanup failed", failure);
+    }
+
+    private synchronized void retire(PublishedCut cut) {
+        synchronized (cut) { cut.stop(); }
+        if (!retiredPublishedCuts.contains(cut)) retiredPublishedCuts.add(cut);
+    }
+
+    private void cleanupRetiredPublications() {
+        final List<PublishedCut> retired;
+        synchronized (this) { retired = List.copyOf(retiredPublishedCuts); }
+        for (var cut : retired) { cut.retryCleanup(); }
+        synchronized (this) { retiredPublishedCuts.removeIf(PublishedCut::exited); }
+    }
+
+    public void requestPublishedValidationStop() {
+        final List<PublishedCut> cuts;
+        synchronized (this) {
+            publicationValidationStopping = true;
+            cuts = new ArrayList<>(publishedCuts.values()); cuts.addAll(retiredPublishedCuts);
+        }
+        for (var cut : cuts) { synchronized (cut) { cut.stop(); } }
+    }
+
+    public boolean settlePublishedValidationCleanup() {
+        final List<PublishedCut> cuts;
+        synchronized (this) { cuts = new ArrayList<>(publishedCuts.values()); cuts.addAll(retiredPublishedCuts); }
+        for (var cut : cuts) { cut.retryCleanup(); }
+        cleanupRetiredPublications();
+        return cuts.stream().allMatch(PublishedCut::exited);
     }
 
     private void rememberPublished(Flight flight, TargetCheckpointCandidateWorkClassExecutor.Outcome outcome) {
         if (outcome.failure() == null && flight.candidate().published().getAsBoolean()) {
             final long sequence = flight.candidate().publicationStoreSequence().getAsLong();
             synchronized (this) {
-                publishedCuts.put(flight.shard().shardId(), new PublishedCut(flight.shard(), sequence,
-                        flight.candidate().requirePublicationCurrent()));
+                final var previous = publishedCuts.put(flight.shard().shardId(),
+                        new PublishedCut(flight.shard(), sequence, flight.candidate()));
+                if (previous != null) { retire(previous); }
             }
         }
     }
