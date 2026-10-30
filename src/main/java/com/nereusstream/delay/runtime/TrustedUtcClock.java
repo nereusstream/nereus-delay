@@ -21,6 +21,7 @@ public final class TrustedUtcClock {
     private boolean hasHealthySince;
     private long healthySinceMonotonicNs;
     private boolean qualified;
+    private long sampleRevision;
 
     public TrustedUtcClock(final Config config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -34,6 +35,7 @@ public final class TrustedUtcClock {
      */
     public synchronized TrustedUtcInterval observe(final TrustedUtcIntervalEvidence evidence) {
         Objects.requireNonNull(evidence, "evidence");
+        sampleRevision = Math.incrementExact(sampleRevision);
         boolean healthy = intervalWithinBound(evidence);
         if (healthy && sample != null && sampleHealthy) {
             healthy = sampleIsFreshAt(evidence.monotonicAnchorNs())
@@ -78,6 +80,49 @@ public final class TrustedUtcClock {
 
     public synchronized boolean isQualified(final long monotonicNowNs) {
         return current(monotonicNowNs).qualified();
+    }
+
+    /**
+     * Captures the original clock's qualified projection for a native custody boundary. The process
+     * must already hold the independent authority which approved this clock's samples. This token
+     * proves continuity of this clock instance, not authenticity of a caller-provided time source.
+     */
+    public synchronized CustodyTime captureCustodyTime(final long monotonicNowNs) {
+        final var interval = current(monotonicNowNs);
+        if (!interval.qualified() || interval.latestEpochMs() == Long.MAX_VALUE) {
+            throw new IllegalStateException("native custody requires the original qualified finite UTC clock");
+        }
+        return new CustodyTime(this, sampleRevision, monotonicNowNs, interval);
+    }
+
+    public static final class CustodyTime {
+        private final TrustedUtcClock clock;
+        private final long sampleRevision;
+        private final long monotonicNs;
+        private final TrustedUtcInterval interval;
+
+        private CustodyTime(TrustedUtcClock clock, long sampleRevision, long monotonicNs,
+                TrustedUtcInterval interval) {
+            this.clock = clock; this.sampleRevision = sampleRevision;
+            this.monotonicNs = monotonicNs; this.interval = interval;
+        }
+
+        public TrustedUtcInterval interval() { return interval; }
+
+        /** A changed sample, qualification loss/recovery or monotonic regression cannot bridge custody. */
+        public void requireContinuousTo(CustodyTime after) {
+            Objects.requireNonNull(after);
+            if (clock != after.clock || sampleRevision != after.sampleRevision
+                    || elapsedNanoseconds(after.monotonicNs, monotonicNs) < 0
+                    || !interval.qualified() || !after.interval.qualified()) {
+                throw new IllegalStateException("native custody changed its original qualified UTC authority or sample");
+            }
+            synchronized (clock) {
+                if (clock.sampleRevision != sampleRevision) {
+                    throw new IllegalStateException("native custody clock sample changed before admission completed");
+                }
+            }
+        }
     }
 
     public Config config() {

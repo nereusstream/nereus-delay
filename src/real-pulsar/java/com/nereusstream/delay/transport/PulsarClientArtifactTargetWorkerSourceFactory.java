@@ -287,7 +287,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                 systemWriter = PulsarClientArtifactOwnedSystemWriter.open(configuration.allocationId(), group, consumer,
                         graph.config(), worker, startup.acceptedAssignment(), actualOwner, writerReceipt,
                         configuration.timeout(), time, clock, sdkBudget, configuration.cost(), startup.systemWriterBudget(),
-                        graph.classes(), graph.resources(), graph.io());
+                        graph.classes(), graph.resources(), graph.io(), startup.scopeExposureIssuer(worker));
                 construction.requireCurrent();
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }

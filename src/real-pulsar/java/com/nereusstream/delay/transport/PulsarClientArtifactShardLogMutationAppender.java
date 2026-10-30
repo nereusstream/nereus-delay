@@ -21,12 +21,14 @@ import java.util.concurrent.TimeoutException;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.GuardedMessageId;
 import org.apache.pulsar.client.api.GuardedSendSuccessEvidence;
+import org.apache.pulsar.client.api.GuardedSourceCustody;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 import org.apache.pulsar.client.api.TopicResourceGuardException;
+import org.apache.pulsar.client.api.GuardedSourceCustodyException;
 
 /**
  * Guarded P1 append authority for signed System Mutations on one Shard Log
@@ -184,17 +186,25 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
                     catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 }
                 final java.util.function.Supplier<CompletableFuture<MessageId>> nativeSend = () -> {
+                    try {
+                        if (nativeAppend.exposure != null) {
+                            nativeAppend.exposure.claim(frame, copyContract);
+                        }
+                    } catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                     synchronized (this) {
                         if (nativeTerminated) throw new SourceWriteNotStarted(new IllegalStateException("original Pulsar producer is closed"));
                         nativeAppend.started = true;
                     }
-                    try {
-                        if (nativeAppend.exposure != null) {
-                            nativeAppend.exposure.claim(frame, copyContract);
-                            nativeAppend.claimed = true;
-                        }
-                    } catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
-                    return producer.newMessage().value(frame).sendAsync();
+                    return nativeAppend.exposure == null
+                            ? producer.newMessage().value(frame).sendAsync()
+                            : producer.sendGuardedSource(frame, new GuardedSourceCustody() {
+                                @Override public void beforeCustody(byte[] exactSerializedFrame) {
+                                    nativeAppend.exposure.beforeSdkCustody(exactSerializedFrame);
+                                }
+                                @Override public void afterCustody() {
+                                    nativeAppend.exposure.afterSdkCustody();
+                                }
+                            });
                 };
                 return recoveryWriter == null
                         ? PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, nativeSend)
@@ -264,16 +274,82 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
     }
 
     private void notInvoked(NativeAppend append) {
-        if (append.exposure != null) {
-            if (append.claimed) append.exposure.sdkCompleted();
-            else append.exposure.notInvoked();
+        synchronized (append) {
+            synchronized (this) {
+                if (append.exited) return;
+                append.exited = true;
+            }
+            exposureExited(append, false);
         }
-        synchronized (this) { retainedAppends.remove(append); }
     }
 
     private void nativeExited(NativeAppend append) {
-        if (append.exposure != null) append.exposure.sdkCompleted();
-        synchronized (this) { retainedAppends.remove(append); }
+        synchronized (append) {
+            synchronized (this) {
+                if (append.exited) return;
+                append.exited = true;
+            }
+            exposureExited(append, true);
+        }
+    }
+
+    private void exposureExited(NativeAppend append, boolean invoked) {
+        if (append.exposure == null) {
+            synchronized (this) { retainedAppends.remove(append); }
+            return;
+        }
+        synchronized (append) {
+            try {
+                if (invoked) append.exposure.sdkCompleted(); else append.exposure.notInvoked();
+            } catch (RuntimeException | Error failed) {
+                append.cleanupFailure = failed;
+                if (failed instanceof CheckpointInputFuture.Cleanup cleanup) append.cleanup = cleanup;
+            }
+        }
+        advanceExposureCleanup(append, false);
+    }
+
+    private CompletableFuture<Void> advanceExposureCleanup(NativeAppend append, boolean retryFailed) {
+        synchronized (append) {
+            if (append.cleanupRetry == null && append.exposure.cleanupComplete()) {
+                synchronized (this) { retainedAppends.remove(append); }
+                return CompletableFuture.completedFuture(null);
+            }
+            if (append.cleanupRetry != null && (!append.cleanupRetry.isDone() || !retryFailed)) {
+                return append.cleanupRetry;
+            }
+            final CompletableFuture<Void> attempt;
+            try { attempt = Objects.requireNonNull(append.cleanup.retryCleanup(), "original exposure cleanup future"); }
+            catch (RuntimeException | Error failed) {
+                if (append.cleanupFailure == null) append.cleanupFailure = failed;
+                return append.cleanupRetry = CompletableFuture.failedFuture(failed);
+            }
+            append.cleanupRetry = attempt.whenComplete((ignored, failed) -> {
+                synchronized (append) {
+                    if (failed != null && append.cleanupFailure == null) append.cleanupFailure = failed;
+                }
+                if (failed == null) {
+                    if (!append.exposure.cleanupComplete()) throw new IllegalStateException("original exposure cleanup has not exited");
+                    synchronized (this) { retainedAppends.remove(append); }
+                }
+            });
+            return append.cleanupRetry;
+        }
+    }
+
+    /** Requests only the original read-loan cleanup; SDK callbacks never wait for its I/O. */
+    CompletableFuture<Void> retryExposureCleanup() {
+        final Set<NativeAppend> pending;
+        synchronized (this) { pending = Set.copyOf(retainedAppends); }
+        final var attempts = new java.util.ArrayList<CompletableFuture<Void>>();
+        for (NativeAppend append : pending) {
+            if (append.exposure != null && append.exited) attempts.add(advanceExposureCleanup(append, true));
+        }
+        return CompletableFuture.allOf(attempts.toArray(CompletableFuture<?>[]::new));
+    }
+
+    synchronized boolean exposureLoansExited() {
+        return retainedAppends.stream().noneMatch(append -> append.exposure != null);
     }
 
     /** Called only after this producer's original native close or its original client backend actually exits. */
@@ -285,8 +361,14 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     private static final class NativeAppend {
         private final TargetSloControlScopeAuthority.ExposurePermit exposure;
-        private boolean started, claimed;
-        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) { this.exposure = exposure; }
+        private boolean started;
+        private volatile boolean exited;
+        private CheckpointInputFuture.Cleanup cleanup;
+        private CompletableFuture<Void> cleanupRetry;
+        private Throwable cleanupFailure;
+        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) {
+            this.exposure = exposure; this.cleanup = exposure;
+        }
     }
 
     @Override
@@ -295,7 +377,9 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         try {
             producer.close();
             producerNativeClosed();
-            if (writer != null) { writer.producerClosed(); }
+            retryExposureCleanup().thenRun(() -> {
+                if (writer != null && exposureLoansExited()) writer.producerClosed();
+            });
         } catch (org.apache.pulsar.client.api.PulsarClientException failure) {
             throw new IllegalStateException("Pulsar guarded mutation producer close failed", failure);
         }
@@ -352,7 +436,8 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         return guardFailure != null
                         && expectedGuard.equals(guardFailure.expectedGuard())
                         && guardFailure.definitelyNotPersisted()
-                        && guardFailure.responseEvidence().isPresent()
+                        && (guardFailure.responseEvidence().isPresent()
+                                || guardFailure instanceof GuardedSourceCustodyException)
                 ? AppendOutcome.definitelyNotPersisted()
                 : AppendOutcome.unknown();
     }

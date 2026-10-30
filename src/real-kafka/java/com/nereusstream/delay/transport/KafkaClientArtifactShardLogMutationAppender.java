@@ -18,9 +18,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.producer.GuardedCallback;
 import org.apache.kafka.clients.producer.GuardedProducer;
 import org.apache.kafka.clients.producer.GuardedRecordMetadata;
 import org.apache.kafka.clients.producer.GuardedResponseEvidence;
+import org.apache.kafka.clients.producer.GuardedSourceCustody;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.ProducerResourceGuard;
 import org.apache.kafka.clients.producer.ResourceGuardException;
@@ -156,24 +158,33 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
                     try { sourceGate.run(); }
                     catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
                 }
-                nativeStarted(nativeAppend);
                 try {
                     if (nativeAppend.exposure != null) {
                         nativeAppend.exposure.claim(frame, copyContract);
-                        nativeAppend.claimed = true;
                     }
                 } catch (RuntimeException failed) { throw new SourceWriteNotStarted(failed); }
-                return producer.sendGuarded(new ProducerRecord<>(physicalTopic, partition, null, frame), guard,
-                            (metadata, failure) -> {
-                                try {
-                                    if (reservation != null) reservation.sdkCompleted();
-                                    nativeExited(nativeAppend);
-                                    completion.complete(new Observation(metadata, failure));
-                                } catch (RuntimeException | Error cleanup) {
-                                    completion.completeExceptionally(cleanup);
-                                    throw cleanup;
-                                }
-                            });
+                nativeStarted(nativeAppend);
+                final var record = new ProducerRecord<byte[], byte[]>(physicalTopic, partition, null, frame);
+                final GuardedCallback callback = (metadata, failure) -> {
+                    try {
+                        if (reservation != null) reservation.sdkCompleted();
+                        nativeExited(nativeAppend);
+                        completion.complete(new Observation(metadata, failure));
+                    } catch (RuntimeException | Error cleanup) {
+                        completion.completeExceptionally(cleanup);
+                        throw cleanup;
+                    }
+                };
+                return nativeAppend.exposure == null
+                        ? producer.sendGuarded(record, guard, callback)
+                        : producer.sendGuarded(record, guard, new GuardedSourceCustody() {
+                            @Override public void beforeCustody(byte[] exactSerializedFrame) {
+                                nativeAppend.exposure.beforeSdkCustody(exactSerializedFrame);
+                            }
+                            @Override public void afterCustody() {
+                                nativeAppend.exposure.afterSdkCustody();
+                            }
+                        }, callback);
             };
             if (writer == null) {
                 send.get();
@@ -226,28 +237,84 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     }
 
     private void nativeExited(NativeAppend append) {
-        synchronized (this) {
-            if (!append.exited) {
+        synchronized (append) {
+            synchronized (this) {
+                if (append.exited) return;
                 append.exited = true;
                 if (append.started && !nativeTerminated) nativeAppends--;
             }
+            exposureExited(append, true);
         }
-        if (append.exposure != null) append.exposure.sdkCompleted();
-        synchronized (this) { retainedAppends.remove(append); }
     }
 
     private void notInvoked(NativeAppend append) {
-        synchronized (this) {
-            if (!append.exited) {
+        synchronized (append) {
+            synchronized (this) {
+                if (append.exited) return;
                 append.exited = true;
                 if (append.started && !nativeTerminated) nativeAppends--;
             }
+            exposureExited(append, false);
         }
-        if (append.exposure != null) {
-            if (append.claimed) append.exposure.sdkCompleted();
-            else append.exposure.notInvoked();
+    }
+
+    private void exposureExited(NativeAppend append, boolean invoked) {
+        if (append.exposure == null) {
+            synchronized (this) { retainedAppends.remove(append); }
+            return;
         }
-        synchronized (this) { retainedAppends.remove(append); }
+        synchronized (append) {
+            try {
+                if (invoked) append.exposure.sdkCompleted(); else append.exposure.notInvoked();
+            } catch (RuntimeException | Error failed) {
+                append.cleanupFailure = failed;
+                if (failed instanceof CheckpointInputFuture.Cleanup cleanup) append.cleanup = cleanup;
+            }
+        }
+        advanceExposureCleanup(append, false);
+    }
+
+    private CompletableFuture<Void> advanceExposureCleanup(NativeAppend append, boolean retryFailed) {
+        synchronized (append) {
+            if (append.cleanupRetry == null && append.exposure.cleanupComplete()) {
+                synchronized (this) { retainedAppends.remove(append); }
+                return CompletableFuture.completedFuture(null);
+            }
+            if (append.cleanupRetry != null && (!append.cleanupRetry.isDone() || !retryFailed)) {
+                return append.cleanupRetry;
+            }
+            final CompletableFuture<Void> attempt;
+            try { attempt = Objects.requireNonNull(append.cleanup.retryCleanup(), "original exposure cleanup future"); }
+            catch (RuntimeException | Error failed) {
+                if (append.cleanupFailure == null) append.cleanupFailure = failed;
+                return append.cleanupRetry = CompletableFuture.failedFuture(failed);
+            }
+            append.cleanupRetry = attempt.whenComplete((ignored, failed) -> {
+                synchronized (append) {
+                    if (failed != null && append.cleanupFailure == null) append.cleanupFailure = failed;
+                }
+                if (failed == null) {
+                    if (!append.exposure.cleanupComplete()) throw new IllegalStateException("original exposure cleanup has not exited");
+                    synchronized (this) { retainedAppends.remove(append); }
+                }
+            });
+            return append.cleanupRetry;
+        }
+    }
+
+    /** Requests only the original read-loan cleanup; SDK callbacks never wait for its I/O. */
+    CompletableFuture<Void> retryExposureCleanup() {
+        final Set<NativeAppend> pending;
+        synchronized (this) { pending = Set.copyOf(retainedAppends); }
+        final var attempts = new java.util.ArrayList<CompletableFuture<Void>>();
+        for (NativeAppend append : pending) {
+            if (append.exposure != null && append.exited) attempts.add(advanceExposureCleanup(append, true));
+        }
+        return CompletableFuture.allOf(attempts.toArray(CompletableFuture<?>[]::new));
+    }
+
+    synchronized boolean exposureLoansExited() {
+        return retainedAppends.stream().noneMatch(append -> append.exposure != null);
     }
 
     /** An UNKNOWN result keeps its original native callback obligation until completion or actual producer exit. */
@@ -268,7 +335,10 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     public void close() {
         if (writer != null) { writer.beginClose(); }
         producer.close();
-        if (writer != null) { writer.producerClosed(); }
+        if (producer.guardedResourcesTerminated()) producerNativeClosed();
+        retryExposureCleanup().thenRun(() -> {
+            if (writer != null && exposureLoansExited()) writer.producerClosed();
+        });
     }
 
     private AppendOutcome persisted(final GuardedRecordMetadata metadata) {
@@ -327,8 +397,14 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private record Observation(GuardedRecordMetadata metadata, Throwable failure) {}
     private static final class NativeAppend {
         private final TargetSloControlScopeAuthority.ExposurePermit exposure;
-        private boolean started, exited, claimed;
-        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) { this.exposure = exposure; }
+        private boolean started;
+        private volatile boolean exited;
+        private CheckpointInputFuture.Cleanup cleanup;
+        private CompletableFuture<Void> cleanupRetry;
+        private Throwable cleanupFailure;
+        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) {
+            this.exposure = exposure; this.cleanup = exposure;
+        }
     }
     private static final class SourceWriteNotStarted extends RuntimeException {
         private static final long serialVersionUID = 1L;

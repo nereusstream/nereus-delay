@@ -52,6 +52,12 @@ public final class TargetWorkerSourceStartup {
     private final Initial initial;
     private final TargetQuotaScope scope;
     private final TargetWorkerSourceRuntimeFactory.Content content;
+    private TargetWorkerSourceRuntimeFactory.Content scopedContent;
+    private TargetScopeResourceManager scopeResources;
+    private OwnedCheckpointIo<TargetScopeResourceManager> scopeResourceOpening;
+    private OwnedCheckpointIo<Boolean> scopeResourceClosing;
+    private TargetWorkerProcessRuntime.ScopeInputs scopeInputReservation;
+    private volatile boolean scopeResourcesClosing;
     private final SourceReplaySuccessor successor;
     private final LongSupplier nanos;
     private SourceAssignment assignment;
@@ -75,7 +81,7 @@ public final class TargetWorkerSourceStartup {
     private TargetOwnedBackendGroup backend;
     private TargetWorkerShardRuntime worker;
     private TargetOwnerDrainCoordinator.ReplayExit failedWorkerExit;
-    private boolean stopping;
+    private volatile boolean stopping;
     private boolean storeClosed;
     private boolean leaseReleased;
     private boolean ownerLost;
@@ -83,7 +89,7 @@ public final class TargetWorkerSourceStartup {
     private boolean failedCleanupComplete;
     private Thread constructionThread;
     private long lastNow = -1;
-    private Throwable firstFailure;
+    private volatile Throwable firstFailure;
     private PulsarPreparation pulsarPreparation;
     private boolean initialCommitted;
     private com.nereusstream.delay.protocol.OwnerIdentity registryIdentity;
@@ -1177,6 +1183,168 @@ public final class TargetWorkerSourceStartup {
         if (scope.target() != null) throw new IllegalArgumentException("Source reopen requires its original Shard scope");
     }
 
+    /** Optional deployment owners are acquired on the original bounded I/O graph, never converted from configuration. */
+    private TargetWorkerSourceRuntimeFactory.Content scopeContent() {
+        if (content.scopeResources() == null) return content;
+        final OwnedCheckpointIo<TargetScopeResourceManager> opening;
+        synchronized (this) {
+            if (scopedContent != null) return scopedContent;
+            if (scopeResourcesClosing) throw new TargetSourceAuthorityPreparation.InputUnavailable("original Scope owner is closing");
+            if (scopeResourceOpening == null) {
+                final var inputs = content.scopeResources();
+                final long reservedBytes = TargetScopeResourceManager.maximumResidentBytes(inputs, content.maximumBytes(), content.maximumBytes());
+                scopeInputReservation = process.reserveScopeInputs(this, reservedBytes);
+                final var reservation = scopeInputReservation;
+                final var actualSource = Objects.requireNonNull(store.appliedShardLogPosition(), "actual Source-paid Store frontier");
+                final Runnable local = () -> {
+                    if (stopping || scopeResourcesClosing || firstFailure != null)
+                        throw new IllegalStateException("original Scope process allocation is no longer admitted");
+                    reservation.requireCurrent();
+                    graph.resources().requireRuntimeBusinessAdmission();
+                };
+                scopeResourceOpening = OwnedCheckpointIo.submitResource(guard -> {
+                    guard.run();
+                    final var registrations = graph.oxia().providers().registrations();
+                    final var storage = registrations.scopeResourceStorage(inputs.configuration().policy());
+                    final var actual = new TargetScopeDeploymentAllocation.ActualBinding(process, actualSource,
+                            storage.namespaceBinding(), storage.keyPrefix());
+                    final var manager = TargetScopeResourceManager.attach(registrations, actual, inputs, local);
+                    guard.run(); return manager;
+                }, this::requireCurrent, TargetScopeResourceManager::close, graph.io());
+            }
+            opening = scopeResourceOpening;
+        }
+        // Source construction is outside Worker/Store monitors; the original handle retains late/failed acquisition.
+        final TargetScopeResourceManager manager;
+        try {
+            manager = opening.receipt().get(content.scopeResources().configuration().limits().requestTimeoutNanos(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new StartupFailure(interrupted, this);
+        } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException failure) {
+            throw new StartupFailure(failure, this);
+        }
+        if (!opening.operationExited() || !opening.ioExited())
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Scope allocation acquisition has not exited");
+        final var registrations = graph.oxia().providers().registrations().withSloScopes(manager.protections(), content.maximumBytes());
+        final var provider = new TargetScopeSourceAuthorityProvider(content.provider(), registrations, manager,
+                content.maximumBytes(), content.maximumBytes(), owner.clock());
+        final var resolved = new TargetWorkerSourceRuntimeFactory.Content(provider, content.physical(), content.reads(),
+                content.lookupTimeout(), content.maximumBytes(), content.evidencePublication());
+        synchronized (this) {
+            if (scopeResources != null && scopeResources != manager) throw new IllegalStateException("original Scope allocation changed");
+            scopeResources = manager;
+            if (scopedContent == null) scopedContent = resolved;
+            return scopedContent;
+        }
+    }
+
+    /** The configured Source producer uses the same managed registry and original allocation as Source replay. */
+    public TargetScopeExposureSource.Issuer scopeExposureIssuer(TargetWorkerShardRuntime actualWorker) {
+        final TargetScopeResourceManager manager;
+        synchronized (this) {
+            if (content.scopeResources() == null) return null;
+            if (worker != actualWorker || scopeResources == null || scopeResourcesClosing || stopping)
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("configured Source exposure lacks its actual owned Scope manager/Worker");
+            manager = scopeResources;
+        }
+        final var issuer = graph.oxia().providers().registrations().withSloScopes(manager.protections(), content.maximumBytes())
+                .sourceExposureIssuer(actualWorker, content.maximumBytes(), content.maximumBytes(), owner.clock());
+        return (mutation, sdk) -> {
+            // Bound Native capture before it allocates facts. The successful permit then owns its resource-protection slot.
+            final var captureSlot = manager.borrowOriginalOwner();
+            try {
+                final var permit = issuer.acquire(mutation, sdk);
+                captureSlot.close();
+                return permit;
+            } catch (RuntimeException | Error failure) {
+                if (failure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete())
+                    throw new ScopeIssuerCleanup(captureSlot, cleanup, failure);
+                captureSlot.close();
+                throw failure;
+            }
+        };
+    }
+
+    private static final class ScopeIssuerCleanup extends IllegalStateException implements CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient TargetScopeDeploymentAllocation.Loan captureSlot;
+        private final transient CheckpointInputFuture.Cleanup original;
+        private transient java.util.concurrent.CompletableFuture<Void> retry;
+        private boolean complete;
+        private ScopeIssuerCleanup(TargetScopeDeploymentAllocation.Loan captureSlot,
+                CheckpointInputFuture.Cleanup original, Throwable failure) {
+            super("original bounded Scope capture slot remains retained", failure);
+            this.captureSlot = captureSlot; this.original = original;
+        }
+        @Override public synchronized boolean cleanupComplete() {
+            if (!complete && original.cleanupComplete() && (retry == null || CheckpointInputFuture.ioExited(retry))) {
+                captureSlot.close(); complete = true;
+            }
+            return complete;
+        }
+        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            if (cleanupComplete()) return java.util.concurrent.CompletableFuture.completedFuture(null);
+            try {
+                if (retry == null || retry.isDone() && CheckpointInputFuture.ioExited(retry))
+                    retry = Objects.requireNonNull(original.retryCleanup(), "original Scope capture cleanup future");
+                return retry.thenRun(() -> {
+                    if (!cleanupComplete()) throw new IllegalStateException("original Scope capture cleanup remains pending");
+                });
+            } catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+        }
+    }
+
+    /** Called only after the original producers/SDK consumers have actually exited. */
+    boolean closeScopeResourcesAfterDependencies() {
+        scopeResourcesClosing = true;
+        try {
+            final var active = activation;
+            if (active != null) {
+                active.runtime().retryAuthorityCleanup();
+                if (!active.runtime().nativeReadLoansExited()) return false;
+            }
+            final var replay = recovery;
+            if (replay != null) {
+                replay.coordinator().retryAuthorityCleanup();
+                if (!replay.coordinator().nativeReadLoansExited()) return false;
+            }
+            final var previous = pulsarPreparation == null ? null : pulsarPreparation.previousRecovery;
+            if (previous != null && previous != replay) {
+                previous.coordinator().retryAuthorityCleanup();
+                if (!previous.coordinator().nativeReadLoansExited()) return false;
+            }
+            final OwnedCheckpointIo<TargetScopeResourceManager> opening;
+            synchronized (this) { opening = scopeResourceOpening; }
+            if (opening != null) {
+                opening.requestStop(); opening.retryCleanup();
+                if (!opening.operationExited() || !opening.ioExited()) return false;
+            }
+            final TargetScopeResourceManager manager;
+            synchronized (this) {
+                if (scopeResources == null && opening != null) scopeResources = opening.completedValue().orElse(null);
+                manager = scopeResources;
+                if (manager != null && scopeResourceClosing == null)
+                    scopeResourceClosing = OwnedCheckpointIo.submit(ignored -> { manager.close(); return true; }, () -> {}, graph.io());
+            }
+            final OwnedCheckpointIo<Boolean> closing;
+            synchronized (this) { closing = scopeResourceClosing; }
+            if (closing != null) {
+                closing.retryCleanup();
+                if (!closing.operationExited() || !closing.ioExited()) return false;
+                if (!manager.cleanupComplete()) {
+                    synchronized (this) { if (scopeResourceClosing == closing) scopeResourceClosing = null; }
+                    return false;
+                }
+            }
+            synchronized (this) {
+                if (scopeInputReservation != null) { scopeInputReservation.release(); scopeInputReservation = null; }
+            }
+            return true;
+        } catch (RuntimeException | Error failure) { retain(failure); return false; }
+    }
+
     /** Opens the actual same-DB Target Store under the newly acquired original assignment/session lease. */
     void openReopened() {
         acquireExisting(true);
@@ -1437,14 +1605,16 @@ public final class TargetWorkerSourceStartup {
                     graph.classes(), graph.resources());
             synchronized (this) { recoverySource = source; }
             source.replayCursor().requireGuarded();
+            final var sourceContent = scopeContent();
             recovery = checkpointCatalog == null ? TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
                     graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
-                    source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
+                    source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), sourceContent, identity, journal,
                     sourceProtection, journalProtection, owner.clock(), nanos)
                     : TargetWorkerSourceRuntimeFactory.recoverInstalled(graph.oxia(), graph.config(), graph.classes(),
                             graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
-                            source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), content, identity, journal,
+                            source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), sourceContent, identity, journal,
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
+            if (scopeResources != null) recovery.coordinator().configureScopeResources(scopeResources);
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) {
                 recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
                 if (pulsarPreparation == null) recovery.coordinator().deferForSourceReactivation();
@@ -1565,9 +1735,11 @@ public final class TargetWorkerSourceStartup {
             synchronized(this){sourceExitLineage=committed.root().recoveryLineage();}
             initialCommitted = true;
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) return;
+            final var sourceContent = scopeContent();
             activation = TargetWorkerSourceRuntimeFactory.initialize(graph.oxia(), graph.config(), graph.classes(),
                     graph.resources(), committed, store, owner.tenant(), publication, owner.workerId(), lease,
-                    successor, content, owner.clock(), nanos);
+                    successor, sourceContent, owner.clock(), nanos);
+            if (scopeResources != null) scopeResources.bindSource(activation.runtime(), owner.clock());
             lease = activation.runtime().snapshotDrainLease();
         } catch (RuntimeException | Error failure) {
             if (failure instanceof TargetWorkerSourceRuntimeFactory.AssemblyFailure partial) {
@@ -2022,6 +2194,8 @@ public final class TargetWorkerSourceStartup {
             }
             worker = actual;
         }
+        final var manager = scopeResources;
+        if (manager != null) manager.bindWorker(actual, owner.clock());
     }
 
     synchronized TargetWorkerShardRuntime workerForHost(TargetWorkerProcessRuntime expected) {
@@ -2124,6 +2298,7 @@ public final class TargetWorkerSourceStartup {
                 for (var publication : worker.publicationBackendGroups()) {
                     publication.closeBeforeHostBinding(); if (!publication.resourcesTerminated()) return false;
                 }
+                if (!closeScopeResourcesAfterDependencies()) return false;
                 if (failedWorkerExit == null) {
                     var exited = worker.exitQuarantinedForReplay(request, owner.clock());
                     if (exited.isEmpty()) return false;
@@ -2134,6 +2309,7 @@ public final class TargetWorkerSourceStartup {
                 failedCleanupComplete = true;
                 return true;
             }
+            if (!closeScopeResourcesAfterDependencies()) return false;
             if (!storeClosed && store != null) {
                 if (!store.isWriteOutcomeUncertain()) store.flushForUncleanClose();
                 store.close(); storeClosed = true;

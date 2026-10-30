@@ -141,6 +141,8 @@ public final class TargetWorkerProcessRuntime {
     private long channelInputBytes;
     private final java.util.Map<TargetWorkerSourceStartup, ReclaimInputs> reclaimInputs = new java.util.IdentityHashMap<>();
     private long reclaimInputBytes;
+    private final java.util.Map<TargetWorkerSourceStartup, ScopeInputs> scopeInputs = new java.util.IdentityHashMap<>();
+    private long scopeInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private boolean assemblyBorrowed;
@@ -478,7 +480,8 @@ public final class TargetWorkerProcessRuntime {
         requireSourceAssemblyAdmission(source);
         final long bytes = Math.addExact(original.limits().maximumRetainedBytes(), original.limits().readBytes());
         final long next = Math.addExact(channelInputBytes, bytes);
-        if (channelInputs.containsKey(source) || Math.addExact(next, reclaimInputBytes) > configuration.worker().resources().certifiedJvmHeapBytes()) {
+        if (channelInputs.containsKey(source) || Math.addExact(Math.addExact(next, reclaimInputBytes), scopeInputBytes)
+                > configuration.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalStateException("original channel input reservations exceed the process heap envelope");
         }
         channelInputs.put(source, new ChannelInputs(original, bytes)); channelInputBytes = next;
@@ -494,7 +497,7 @@ public final class TargetWorkerProcessRuntime {
     synchronized ReclaimInputs reserveReclaimInputs(TargetWorkerSourceStartup source, long bytes) {
         requireSourceAssemblyAdmission(source);
         if (bytes <= 0 || bytes == Long.MAX_VALUE || reclaimInputs.containsKey(source)
-                || Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), bytes)
+                || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), bytes)
                         > configuration.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalStateException("original Native GC input reservation exceeds process envelope or is already owned");
         }
@@ -521,6 +524,38 @@ public final class TargetWorkerProcessRuntime {
             synchronized (process) {
                 if (!process.reclaimInputs.remove(source, this)) throw new IllegalStateException("Native GC input release changed original owner");
                 process.reclaimInputBytes = Math.subtractExact(process.reclaimInputBytes, bytes);
+            }
+        }
+    }
+
+    /** Scope owner, Root and every permitted local proof share the existing process input heap envelope. */
+    synchronized ScopeInputs reserveScopeInputs(TargetWorkerSourceStartup source, long bytes) {
+        requireSourceAssemblyAdmission(source);
+        if (bytes <= 0 || bytes == Long.MAX_VALUE || scopeInputs.containsKey(source)
+                || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), bytes)
+                        > configuration.worker().resources().certifiedJvmHeapBytes())
+            throw new IllegalStateException("original Scope inputs exceed the process heap envelope or are already retained");
+        final var retained = new ScopeInputs(this, source, bytes);
+        scopeInputs.put(source, retained); scopeInputBytes = Math.addExact(scopeInputBytes, bytes);
+        return retained;
+    }
+
+    static final class ScopeInputs {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private final long bytes;
+        private volatile boolean active = true;
+        private ScopeInputs(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source, long bytes) {
+            this.process = process; this.source = source; this.bytes = bytes;
+        }
+        void requireCurrent() {
+            if (!active) throw new IllegalStateException("original Scope input reservation was released");
+        }
+        void release() {
+            synchronized (process) {
+                if (!process.scopeInputs.remove(source, this)) throw new IllegalStateException("Scope input release changed its original owner");
+                process.scopeInputBytes = Math.subtractExact(process.scopeInputBytes, bytes);
+                active = false;
             }
         }
     }
@@ -680,6 +715,16 @@ public final class TargetWorkerProcessRuntime {
         return released;
     }
 
+    /** Host has already observed actual Source/producer/SDK exit; keep I/O and Oxia alive for their final loans. */
+    boolean closeScopeResourcesForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(oxia);
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) { original = List.copyOf(sources.values()); }
+        boolean exited = true;
+        for (var source : original) exited &= source.closeScopeResourcesAfterDependencies();
+        return exited;
+    }
+
     /** Before the graph escapes, only SDK startup IO exists. Borrowed assembly must retire through its actual Host. */
     public void stopBeforeAssembly() {
         synchronized (this) {
@@ -695,6 +740,9 @@ public final class TargetWorkerProcessRuntime {
     public void retryCleanup() {
         synchronized (this) { if (!stopping || !dependenciesExited || resourcesClosed) return; }
         if (!closeReceiptManagementAfterDependencies()) return;
+        final List<TargetWorkerSourceStartup> originalSources;
+        synchronized (this) { originalSources = List.copyOf(sources.values()); }
+        for (var source : originalSources) if (!source.closeScopeResourcesAfterDependencies()) return;
         synchronized (this) { retryProcessCleanup(); }
     }
 
@@ -705,7 +753,8 @@ public final class TargetWorkerProcessRuntime {
                 final var usage = systemWriters.usage();
                 if (usage.writers() != 0 || usage.outstandingRecords() != 0 || usage.outstandingBytes() != 0) return;
             }
-            if (!channelInputs.isEmpty() || channelInputBytes != 0 || !reclaimInputs.isEmpty() || reclaimInputBytes != 0) return;
+            if (!channelInputs.isEmpty() || channelInputBytes != 0 || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
+                    || !scopeInputs.isEmpty() || scopeInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

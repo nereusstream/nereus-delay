@@ -1115,7 +1115,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 return loadRetirementSourceInputs(mutation,scope,catalogReads,original.maximumBytes(),current);
             }};
             return new com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content(provider,original.physical(),original.reads(),
-                    original.lookupTimeout(),original.maximumBytes(),original.evidencePublication());
+                    original.lookupTimeout(),original.maximumBytes(),original.evidencePublication(),original.scopeResources());
         }
 
         /** Uses the original Source preparation task; it never queues a nested Root task or requires Worker admission. */

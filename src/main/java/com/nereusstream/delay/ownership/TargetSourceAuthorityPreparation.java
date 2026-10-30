@@ -61,6 +61,8 @@ public final class TargetSourceAuthorityPreparation {
     private long started;
     private boolean stopping;
     private TargetSourceApplyRuntime.Authorities authorities;
+    private final Set<TargetSourceApplyRuntime.NativeExposureHold> nativeReadLoans =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     public TargetSourceAuthorityPreparation(Loader loader, ThreadPoolExecutor executor, LongSupplier nanos,
             Duration timeout, long maximumBytes) {
@@ -121,6 +123,29 @@ public final class TargetSourceAuthorityPreparation {
     }
     synchronized void requireOriginalEntry(SourceReplayEntry expected){
         if(stopping||entry==null||!SourceApplyCoordinator.sameEntry(entry,expected))throw new IllegalStateException("original Source input is no longer selected");
+    }
+
+    /** External consumers own these loans; registering one neither changes their lifetime nor grants Source authority. */
+    synchronized void retainNativeReadLoan(TargetSourceApplyRuntime source, TargetSourceApplyRuntime.NativeExposureHold loan) {
+        if (stopping || originalSource != source) throw new InputUnavailable("Native read loan lacks its original active Source I/O owner");
+        nativeReadLoans.removeIf(TargetSourceApplyRuntime.NativeExposureHold::cleanupComplete);
+        nativeReadLoans.add(Objects.requireNonNull(loan));
+    }
+
+    /** Cleanup remains admissible after business/Owner admission stops, on the original bounded executor. */
+    OwnedCheckpointIo<Boolean> submitNativeReadCleanup(Runnable release) {
+        return OwnedCheckpointIo.submit(ignored -> { release.run(); return true; }, () -> {}, executor);
+    }
+
+    /** Final executor-release debt, separate from Source content I/O and its producer-close ordering. */
+    synchronized boolean nativeReadLoansExited() {
+        nativeReadLoans.removeIf(TargetSourceApplyRuntime.NativeExposureHold::cleanupComplete);
+        return nativeReadLoans.isEmpty();
+    }
+
+    private void retryRequestedNativeReadCleanup() {
+        for (var loan : nativeReadLoans) loan.retryRequestedNativeReadCleanup();
+        nativeReadLoans.removeIf(TargetSourceApplyRuntime.NativeExposureHold::cleanupComplete);
     }
 
     synchronized boolean prepare(SourceReplayEntry expected, Family expectedFamily) {
@@ -215,22 +240,32 @@ public final class TargetSourceAuthorityPreparation {
         stopping = true;
         if (opening != null) opening.requestStop();
         closeHeld();
+        retryRequestedNativeReadCleanup();
     }
 
     public synchronized void retryCleanup() {
         if (opening != null) opening.retryCleanup();
         if (closing != null) closing.retryCleanup();
         if (stopping) closeHeld();
+        retryRequestedNativeReadCleanup();
     }
 
     public synchronized boolean ioExited() {
+        for (var loan : nativeReadLoans) if (!loan.nativeReadIoExited()) return false;
         if (opening != null && !opening.ioExited()) return false;
         return opening == null || opening.completedValue().isEmpty() || closeConfirmed();
     }
 
     public synchronized Throwable pendingIoFailure() {
         final var failure = closing == null ? null : CheckpointInputFuture.ownedFailure(closing.receipt());
-        return failure != null ? failure : opening == null ? null : CheckpointInputFuture.ownedFailure(opening.receipt());
+        if (failure != null) return failure;
+        final var openingFailure = opening == null ? null : CheckpointInputFuture.ownedFailure(opening.receipt());
+        if (openingFailure != null) return openingFailure;
+        for (var loan : nativeReadLoans) {
+            final var nativeFailure = loan.nativeReadCleanupFailure();
+            if (nativeFailure != null) return nativeFailure;
+        }
+        return null;
     }
 
     synchronized TargetSourceAuthorityPreparation fork() {

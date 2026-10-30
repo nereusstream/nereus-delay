@@ -47,6 +47,7 @@ public final class TargetOwnerRecoveryCoordinator {
     private final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits;
     private OwnerLease lease;
     private TargetSourceApplyRuntime replay;
+    private TargetScopeResourceManager scopeResources;
     private SourceApplyWorkClassExecutor sourceApply;
     private SourceReplayEntry pendingEntry;
     private SourceApplyWorkClassExecutor.Submission pending;
@@ -427,6 +428,12 @@ public final class TargetOwnerRecoveryCoordinator {
         evidenceCatalog=originalEvidenceCatalog;
     }
 
+    synchronized void configureScopeResources(TargetScopeResourceManager original) {
+        if (turnNumber != 0 || replay != null || scopeResources != null)
+            throw new IllegalStateException("Scope manager must bind before original Source recovery starts");
+        scopeResources = Objects.requireNonNull(original);
+    }
+
     public synchronized void stopAuthorityPreparation() {
         if (authorityPreparation != null) authorityPreparation.requestStop();
     }
@@ -434,6 +441,7 @@ public final class TargetOwnerRecoveryCoordinator {
         if (authorityPreparation != null) authorityPreparation.retryCleanup();
     }
     public synchronized boolean authorityIoExited() { return authorityPreparation == null || authorityPreparation.ioExited(); }
+    synchronized boolean nativeReadLoansExited() { return authorityPreparation == null || authorityPreparation.nativeReadLoansExited(); }
 
     /** Protection rechecks held snapshots at native guards; provider acquisition/full reads remain outside monitors. */
     public TargetOwnerRecoveryCoordinator(ShardStore store, TargetStoreBootstrap.Reopened reopened,
@@ -673,6 +681,7 @@ public final class TargetOwnerRecoveryCoordinator {
                 monotonic, protection);
         if (boundReader != null) replay.bindRecoveryReader(boundReader, boundReaderCut);
         if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock,evidenceCatalog);
+        if (scopeResources != null) scopeResources.bindSource(replay, clock);
         sourceApply = new SourceApplyWorkClassExecutor(workClasses, replay);
     }
 
@@ -827,6 +836,7 @@ public final class TargetOwnerRecoveryCoordinator {
             sloRecoveryQualification.bindRuntimeRoot(root);
         }
         runtime.bindRecoveredSloQualification(sloRecoveryQualification);
+        if (scopeResources != null) scopeResources.bindSource(runtime, clock);
         return runtime;
     }
 

@@ -5,8 +5,10 @@ import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
 import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetScopeResourcePolicy;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 
 /**
  * Validation adapter for the Oxia-backed immutable Control target registry.
@@ -36,6 +38,23 @@ public final class OxiaControlTargetRegistrationAuthority implements ControlTarg
     public TargetSloControlScopeAuthority sloScopes(){
         if(scoped==null)throw new IllegalStateException("original managed Scope authority is not configured");
         return scoped;
+    }
+    TargetScopeResourceManager.Storage scopeResourceStorage(TargetScopeResourcePolicy policy){
+        return backend.scopeResourceStorage(Objects.requireNonNull(policy));
+    }
+    /** The original worker captures Native facts before the registry CAS and before any SDK locks. */
+    public TargetScopeExposureSource.Issuer sourceExposureIssuer(TargetWorkerShardRuntime worker,
+            long maximumNativeBytes,long maximumRetainedBytes,LongSupplier clock){
+        final var original=sloScopes();Objects.requireNonNull(worker);Objects.requireNonNull(clock);
+        if(maximumNativeBytes<1||maximumNativeBytes==Long.MAX_VALUE
+                ||maximumRetainedBytes<1||maximumRetainedBytes==Long.MAX_VALUE)
+            throw new IllegalArgumentException("finite original Native/Scope exposure acquisition bounds required");
+        final long bounded=Math.min(maximumRetainedBytes,scopedBytes);
+        return (mutation,sdk)->{
+            final var nativeInputs=worker.captureNativeExposure(mutation,maximumNativeBytes,clock);
+            // The typed acquisition owns this exact native handle on success and on failure.
+            return original.acquireExposure(nativeInputs,sdk,bounded,nativeInputs::requireLocalCurrent);
+        };
     }
     @Override public long scopedMutationReservationBytes(){return scopedBytes;}
     @Override public TargetSloControlScopeAuthority.MemberHold admitScopedMutation(PreparedControlOperation prepared,
@@ -109,6 +128,9 @@ public final class OxiaControlTargetRegistrationAuthority implements ControlTarg
 
     /** Minimal immutable-registration/CAS surface implemented by the Oxia client. */
     public interface CasBackend {
+        default TargetScopeResourceManager.Storage scopeResourceStorage(TargetScopeResourcePolicy policy){
+            throw new IllegalStateException("original managed Scope resource storage is unavailable");
+        }
         default TargetSloControlScopeAuthority scopeAuthority(TargetSloControlScopeAuthority.Protections protections){
             throw new IllegalStateException("original managed registry Scope storage is unavailable");
         }

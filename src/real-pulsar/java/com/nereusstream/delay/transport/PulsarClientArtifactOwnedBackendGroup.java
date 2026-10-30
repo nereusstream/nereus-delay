@@ -781,6 +781,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
                     for (var participant : finishing) {
                         if (!participant.idle().getAsBoolean()) { return false; }
                         participant.finish().accept(proof);
+                        if (!participant.released().getAsBoolean()) { return false; }
                     }
                     synchronized (gate) {
                         for (var use : users.values()) {

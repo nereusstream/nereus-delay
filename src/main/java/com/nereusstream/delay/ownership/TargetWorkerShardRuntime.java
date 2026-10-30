@@ -92,6 +92,7 @@ public final class TargetWorkerShardRuntime
     private final LongSupplier ownerClock;
     private volatile boolean sourceAndMaintenancePaused;
     private volatile boolean backendQuarantined;
+    private final java.util.concurrent.atomic.AtomicLong nativeExposureAdmissionEpoch = new java.util.concurrent.atomic.AtomicLong();
     private volatile TargetWorkerHostRuntime publicationHost;
     private final TargetOwnedBackendGroup sourceBackendGroup;
     private final SourceRecordConsumer actualSourceConsumer;
@@ -1567,6 +1568,54 @@ public final class TargetWorkerShardRuntime
             com.nereusstream.delay.protocol.TargetSloWriterContract.Reference reference,LongSupplier clock){
         requireRuntimeAdmitted();resources.requireRuntimeBusinessAdmission();return target.observeSloWriterEpoch(reference,clock);
     }
+    /** Captures actual Native payment/writer facts before the original Source SDK handoff. */
+    public TargetSourceApplyRuntime.NativeExposureHold captureNativeExposure(
+            SystemMutation exact, long maximumRetainedBytes, LongSupplier clock) {
+        final var selected = nativeCaptureContext();
+        return selected.runtime().captureNativeExposure(exact, maximumRetainedBytes, clock, selected.admission());
+    }
+    /** Resolves full Native64 payment on the original Source without granting an SDK frame. */
+    public TargetSourceApplyRuntime.NativeExposureHold capturePaidScope(
+            com.nereusstream.delay.protocol.TargetSloControlScopeHeader.Reference reference,
+            long maximumRetainedBytes, LongSupplier clock) {
+        final var selected = nativeCaptureContext();
+        return selected.runtime().capturePaidScope(reference, maximumRetainedBytes, clock, selected.admission());
+    }
+    /** Reads the exact original Source fee payer without repricing legacy payment as SDK exposure capacity. */
+    public TargetSourceApplyRuntime.NativeExposureHold captureScopeFeeOrigin(
+            SystemMutation exact, long maximumRetainedBytes, LongSupplier clock) {
+        final var selected = nativeCaptureContext();
+        return selected.runtime().captureScopeFeeOrigin(exact, maximumRetainedBytes, clock, selected.admission());
+    }
+    private record NativeCaptureContext(TargetSourceApplyRuntime runtime, Runnable admission) {}
+
+    private NativeCaptureContext nativeCaptureContext() {
+        final NativeCaptureContext selected;
+        synchronized (this) {
+            requireRuntimeAdmitted();
+            resources.requireRuntimeBusinessAdmission();
+            selected = new NativeCaptureContext(target, nativeExposureLocalAdmission());
+        }
+        // Runtime/Store validation and all subsequent authority acquisition run without the Worker monitor.
+        selected.runtime().requireWorkerStore(store, resources);
+        selected.admission().run();
+        return selected;
+    }
+    private Runnable nativeExposureLocalAdmission() {
+        final long epoch = nativeExposureAdmissionEpoch.get();
+        final var originalTarget = target;
+        final var originalStore = store;
+        final var originalResources = resources;
+        return () -> {
+            if (target != originalTarget || store != originalStore || resources != originalResources
+                    || store.sharedResources() != originalResources || backendQuarantined || sourceAndMaintenancePaused
+                    || nativeExposureAdmissionEpoch.get() != epoch)
+                throw new IllegalStateException("Native exposure lost its original Worker admission");
+            resources.requireRuntimeBusinessAdmission();
+            if (backendQuarantined || sourceAndMaintenancePaused || nativeExposureAdmissionEpoch.get() != epoch)
+                throw new IllegalStateException("Native exposure lost its original Worker admission");
+        };
+    }
     synchronized void requireSloCustodyAppend(SystemMutation image,ShardLogMutationAppender.AppendOutcome appended,
             com.nereusstream.delay.protocol.TargetQuotaMutation cut,LongSupplier clock){requireSloFinalAppend(image,appended,cut,clock);}
     @Override public Optional<WorkClassTask> settlePendingSloCustodyForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){
@@ -2060,6 +2109,8 @@ public final class TargetWorkerShardRuntime
 
     public Throwable pendingSourceAuthorityFailure() { return target.authorityIoFailure(); }
     public void retryPendingSourceAuthorityCleanup() { target.retryAuthorityCleanup(); }
+    /** Final shared-I/O release gate; live SDK/manager loans do not change Source producer-close ordering. */
+    public boolean nativeReadLoansExited() { return target.nativeReadLoansExited(); }
 
     /** Stops new source polls and maintenance submissions after retained maintenance work settles. */
     public synchronized void pauseNewTurns() {
@@ -2092,6 +2143,7 @@ public final class TargetWorkerShardRuntime
             throw new IllegalStateException("Target Worker cannot pause a live managed Journal");
         }
         sourceAndMaintenancePaused = true;
+        nativeExposureAdmissionEpoch.incrementAndGet();
         preparedCheckpointCut = null;
     }
 
@@ -2349,6 +2401,7 @@ public final class TargetWorkerShardRuntime
         requestResourceReclaimStop();
         backendQuarantined = true;
         sourceAndMaintenancePaused = true;
+        nativeExposureAdmissionEpoch.incrementAndGet();
         drainCoordinator.fenceNormalDrain();
         target.fence();
         store.fenceForUncleanClose();

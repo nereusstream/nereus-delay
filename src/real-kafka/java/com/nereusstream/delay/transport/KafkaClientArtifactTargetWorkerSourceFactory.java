@@ -635,7 +635,8 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                 final Map<String,Object> operational = new java.util.HashMap<>(configuration.operational());
                 systemWriter = KafkaClientArtifactOwnedSystemWriter.open(configuration.settings(), operational, sdkJar,
                         graph.config(), worker, startup.acceptedAssignment(), actualOwner, receipt, time, clock,
-                        sdkBudget, configuration.cost(), startup.systemWriterBudget(), graph.classes(), graph.resources(), graph.io());
+                        sdkBudget, configuration.cost(), startup.systemWriterBudget(), graph.classes(), graph.resources(), graph.io(),
+                        startup.scopeExposureIssuer(worker));
                 construction.requireCurrent();
             } catch (RuntimeException | Error failure) { failed = true; startup.failResourceStartup(failure); throw failure; }
         }

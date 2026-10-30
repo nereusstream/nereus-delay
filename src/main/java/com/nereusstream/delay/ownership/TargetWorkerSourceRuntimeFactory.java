@@ -19,9 +19,15 @@ public final class TargetWorkerSourceRuntimeFactory {
 
     public record Content(TargetSourceAuthorityLoader.Provider provider, TargetStoreBackend.CommitAuthority physical,
             TargetStoreBackend.ReadAuthority reads, Duration lookupTimeout, long maximumBytes,
-            com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication) {
+            com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication,
+            TargetScopeResourceManager.Inputs scopeResources) {
         public Content(TargetSourceAuthorityLoader.Provider provider,TargetStoreBackend.CommitAuthority physical,
                 TargetStoreBackend.ReadAuthority reads,Duration lookupTimeout,long maximumBytes){this(provider,physical,reads,lookupTimeout,maximumBytes,null);}
+        public Content(TargetSourceAuthorityLoader.Provider provider,TargetStoreBackend.CommitAuthority physical,
+                TargetStoreBackend.ReadAuthority reads,Duration lookupTimeout,long maximumBytes,
+                com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication){
+            this(provider,physical,reads,lookupTimeout,maximumBytes,evidencePublication,null);
+        }
         public Content {
             Objects.requireNonNull(provider); Objects.requireNonNull(physical); Objects.requireNonNull(reads);
             if (lookupTimeout == null || lookupTimeout.isZero() || lookupTimeout.isNegative()
@@ -130,6 +136,7 @@ public final class TargetWorkerSourceRuntimeFactory {
             ShardStore store, AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication,
             String workerId, OwnerLease expectedLease, SourceReplaySuccessor actualSourceSuccessor, Content content,
             LongSupplier ownerClock, LongSupplier nanos) {
+        requireResolvedScopeResources(content);
         Objects.requireNonNull(config).requireRuntime(classes, resources);
         var assignment = accept(oxia, tenant, publication, workerId);
         requireLeaseContext(oxia, assignment, expectedLease);
@@ -184,6 +191,7 @@ public final class TargetWorkerSourceRuntimeFactory {
             Content content, OwnerIdentity identity, com.nereusstream.delay.adapter.PulsarAttemptJournal journal,
             Runnable recoveryProtection, Runnable journalProtection, LongSupplier ownerClock, LongSupplier nanos,
             com.nereusstream.delay.store.RecoveryCatalogAuthority catalog, com.nereusstream.delay.protocol.RecoveryPin pin) {
+        requireResolvedScopeResources(content);
         config.requireRuntime(classes, resources);
         var assignment = accept(oxia, tenant, publication, workerId);
         requireLeaseContext(oxia, assignment, lease);
@@ -212,6 +220,11 @@ public final class TargetWorkerSourceRuntimeFactory {
             if (recovery != null) recovery.stopAuthorityPreparation();
             throw new AssemblyFailure(failure, store, lease, preparation, recovery);
         }
+    }
+
+    private static void requireResolvedScopeResources(Content content) {
+        if (Objects.requireNonNull(content).scopeResources() != null)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("configured Scope resources require their actual owned Source startup");
     }
 
     public static final class Recovery {

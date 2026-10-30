@@ -23,7 +23,7 @@ import org.apache.kafka.common.record.TimestampType;
 /** Bounded resumable read_committed lookup from the original protected range, independent of old producer callbacks. */
 public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseable {
     // New observations identify this exact guarded SDK revision; retained images keep their original bytes.
-    public static final String REQUIRED_K1_SOURCE_COMMIT = "02c9f768d6f77cb4860bada42cb22917914d2981";
+    public static final String REQUIRED_K1_SOURCE_COMMIT = "20b6810994057a8afaf173fc300c65ca514b3479";
     public enum Status { WAITING, ADVANCED, PUBLISHED }
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
@@ -274,7 +274,7 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
                 if (bytes.length > 1024) { throw new IllegalStateException("K1 version identity exceeds bound"); }
                 final var properties = new java.util.Properties();
                 properties.load(new java.io.ByteArrayInputStream(bytes));
-                if (!REQUIRED_K1_SOURCE_COMMIT.substring(0, 16).equals(properties.getProperty("commitId"))) {
+                if (!REQUIRED_K1_SOURCE_COMMIT.equals(properties.getProperty("commitId"))) {
                     throw new IllegalStateException("Target K2 requires K1 source lock " + REQUIRED_K1_SOURCE_COMMIT);
                 }
             }

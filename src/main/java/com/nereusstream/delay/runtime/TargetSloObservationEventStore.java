@@ -285,7 +285,7 @@ public final class TargetSloObservationEventStore {
         return epoch;
     }
 
-    private static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+    public static void requireEvidenceOrigin(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetSloObservationSample sample,TargetSloObservationEventBody body,
             SloSampleFinal incoming,TargetQuotaMutation frontier){
         final var evidence=body.evidence();if(evidence==null)return;

@@ -1100,7 +1100,439 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return epochs.applied(()->new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reads,reference);
     }
 
+    /**
+     * Actual Native facts and the original read-authority handle, acquired before their consumer runs.
+     * The handle does not establish history retention, registry authority or physical Source protection.
+     */
+    public static final class NativeExposureHold implements AutoCloseable, CheckpointInputFuture.Cleanup {
+        private final TargetSourceApplyRuntime runtime;
+        private final ShardStore originalStore;
+        private final OwnerLease originalOwner;
+        private final TargetOwnerRecoveryCoordinator.SloRecoveryQualification originalSloQualification;
+        private final LongSupplier clock;
+        private final Runnable localAdmission;
+        private final TargetSourceAuthorityPreparation originalIoOwner;
+        private final boolean sdkExposure;
+        private final java.util.concurrent.CompletableFuture<Void> captureExit = new java.util.concurrent.CompletableFuture<>();
+        private TargetStoreBackend.CommitGuard originalGuard;
+        private NativeExposureSnapshot snapshot;
+        private OwnedCheckpointIo<Boolean> closing;
+        private java.util.concurrent.CompletableFuture<Void> closeObservation;
+        private Throwable submissionFailure;
+        private Throwable captureCleanupFailure;
+        private boolean captureExited, closeRequested, closeSubmissionAttempted;
+        private boolean closed;
+
+        private NativeExposureHold(TargetSourceApplyRuntime runtime, OwnerLease originalOwner,
+                TargetOwnerRecoveryCoordinator.SloRecoveryQualification originalSloQualification,
+                LongSupplier clock, Runnable localAdmission, TargetSourceAuthorityPreparation originalIoOwner,
+                boolean sdkExposure) {
+            this.runtime = runtime;
+            originalStore = runtime.store;
+            this.originalOwner = originalOwner;
+            this.originalSloQualification = originalSloQualification;
+            this.clock = clock;
+            this.localAdmission = localAdmission;
+            this.originalIoOwner = originalIoOwner;
+            this.sdkExposure = sdkExposure;
+        }
+
+        public synchronized com.nereusstream.delay.protocol.TargetSloControlScopeHeader.Reference reference() {
+            final var paid = value().paidScope();
+            return paid == null ? null : paid.reference();
+        }
+        public synchronized com.nereusstream.delay.protocol.TargetSloWriterEpoch writerEpoch() { return value().writerEpoch(); }
+        public synchronized com.nereusstream.delay.protocol.TargetScopeControlObligation paidScope() { return value().paidScope(); }
+        public synchronized com.nereusstream.delay.protocol.TargetQuotaMutation cut() { return value().cut(); }
+        public synchronized SystemMutation exactInput() { return SystemMutation.decodeFrame(value().exactFrame()); }
+        public synchronized byte[] exactFrame() { return value().exactFrame().clone(); }
+        public TargetQuotaScope scope() { return runtime.scope; }
+        public byte[] lineage() { return runtime.lineage.clone(); }
+        public synchronized long retainedBytes() { return value().retainedBytes(); }
+        public synchronized long closedIngressDeadlineThrough() { return value().closedIngressDeadlineThrough(); }
+        /** Payment lookups carry the actual funding input as evidence, never as an SDK submission. */
+        public synchronized boolean exposureFrame() { return value().exposureFrame(); }
+        public synchronized void requireExposureFrame() {
+            if (!value().exposureFrame()) throw new IllegalArgumentException("Native payment lookup is not an SDK exposure frame");
+        }
+        /** Actual remaining Native duties only; qualified time, signatures and physical closure coverage stay independent. */
+        public synchronized boolean closureDischarge() { return value().closure() != NativeClosureDischarge.NONE; }
+        public synchronized boolean requiredFinalDischarge() { return value().closure() == NativeClosureDischarge.REQUIRED_FINAL; }
+        public synchronized boolean currentRevisionCustodyDischarge() { return value().closure() == NativeClosureDischarge.CURRENT_REVISION_CUSTODY; }
+        /** True only after observing a real original REGISTER with no admission Scope. */
+        public synchronized boolean legacyUnscoped() { return value().writerEpoch() != null && value().paidScope() == null; }
+
+        /** Local identity, admission and lease validity only; never re-enters the original read guard. */
+        public synchronized void requireLocalCurrent() {
+            value();
+            runtime.requireNativeExposureLocal(this);
+        }
+
+        private NativeExposureSnapshot value() {
+            if (closeRequested || closed || snapshot == null) throw new IllegalStateException("Native exposure capture is incomplete or released");
+            return snapshot;
+        }
+
+        @Override public synchronized void close() {
+            closeRequested = true;
+            observeClose();
+            if (!closed && captureExited && !closeSubmissionAttempted) {
+                try { submitClose(); }
+                catch (RuntimeException | Error failure) { submissionFailure = failure; }
+            }
+            observeClose();
+            if (!closed) throw new NativeExposureCleanup(this, nativeReadCleanupFailure());
+        }
+        @Override public synchronized boolean cleanupComplete() { observeClose(); return closed; }
+        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            if (!closeRequested) return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalStateException("original Native read consumer has not requested release"));
+            observeClose();
+            if (closed) return java.util.concurrent.CompletableFuture.completedFuture(null);
+            if (!captureExited) return captureExit;
+            try {
+                if (closing == null) submitClose();
+                else if (closing.operationExited()) {
+                    if (!closing.ioExited()) {
+                        // OwnedCheckpointIo retains the exact failure Cleanup, retry I/O and returned future.
+                        closing.retryCleanup();
+                    } else {
+                        // The previous method and every child cleanup have exited before retrying this same guard.
+                        submitClose();
+                    }
+                }
+                observeClose();
+                return closed ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                        : Objects.requireNonNull(closeObservation, "original Native cleanup observation");
+            } catch (RuntimeException | Error failure) {
+                submissionFailure = failure;
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
+        }
+
+        private void submitClose() {
+            closeSubmissionAttempted = true;
+            if (originalGuard == null && captureCleanupFailure == null) { closed = true; return; }
+            final var sameGuard = originalGuard;
+            final var originalFailure = captureCleanupFailure;
+            final var actual = originalIoOwner.submitNativeReadCleanup(() -> {
+                if (originalFailure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) {
+                    if (originalFailure instanceof Error fatal) throw fatal;
+                    throw (RuntimeException) originalFailure;
+                }
+                if (sameGuard != null) sameGuard.close();
+            });
+            closing = actual;
+            closeObservation = actual.receipt().thenApply(ignored -> null);
+            submissionFailure = null;
+        }
+
+        private void observeClose() {
+            if (!closed && closeRequested && captureExited) {
+                if (originalGuard == null && captureCleanupFailure == null) closed = true;
+                else if (closing != null && closing.operationExited() && closing.ioExited()
+                        && closing.completedValue().orElse(false)) closed = true;
+            }
+        }
+
+        private synchronized void captureFinished() {
+            captureExited = true;
+            captureExit.complete(null);
+            if (closeRequested && !closeSubmissionAttempted) {
+                try { submitClose(); }
+                catch (RuntimeException | Error failure) { submissionFailure = failure; }
+            }
+        }
+
+        private synchronized void retainCaptureCleanup(Throwable failure) {
+            if (failure instanceof CheckpointInputFuture.Cleanup) captureCleanupFailure = failure;
+        }
+
+        /** Preparation may drive already requested release, never close a consumer's live SDK loan. */
+        synchronized void retryRequestedNativeReadCleanup() {
+            if (closeRequested && !cleanupComplete()) retryCleanup();
+        }
+
+        synchronized boolean nativeReadIoExited() {
+            return captureExited && (!closeRequested || cleanupComplete());
+        }
+
+        synchronized Throwable nativeReadCleanupFailure() {
+            if (submissionFailure != null) return submissionFailure;
+            return closing == null ? null : CheckpointInputFuture.ownedFailure(closeObservation);
+        }
+    }
+
+    private record NativeExposureSnapshot(byte[] exactFrame,
+            com.nereusstream.delay.protocol.TargetSloWriterEpoch writerEpoch,
+            com.nereusstream.delay.protocol.TargetScopeControlObligation paidScope,
+            com.nereusstream.delay.protocol.TargetQuotaMutation cut,
+            long closedIngressDeadlineThrough, long retainedBytes, boolean exposureFrame,
+            NativeClosureDischarge closure) {}
+
+    private enum NativeClosureDischarge { NONE, REQUIRED_FINAL, CURRENT_REVISION_CUSTODY }
+
+    private static final class NativeExposureCleanup extends RuntimeException implements CheckpointInputFuture.Cleanup {
+        private static final long serialVersionUID = 1L;
+        private final transient NativeExposureHold original;
+        private NativeExposureCleanup(NativeExposureHold original, Throwable failure) {
+            super("original Native exposure read guard still requires cleanup", failure);
+            this.original = original;
+        }
+        @Override public boolean cleanupComplete() { return original.cleanupComplete(); }
+        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() { return original.retryCleanup(); }
+    }
+
+    /** Reader lifetime ends here; only bounded immutable facts and the same original authority handle escape. */
+    NativeExposureHold captureNativeExposure(SystemMutation exact, long maximumRetainedBytes,
+            LongSupplier clock, Runnable localAdmission) {
+        return captureNativeFacts(Objects.requireNonNull(exact, "exact input"), null, NativeFactPurpose.SDK_EXPOSURE,
+                maximumRetainedBytes, clock, localAdmission);
+    }
+
+    /** Actual Source payment for manager use; its original funding input cannot authorize an SDK frame. */
+    NativeExposureHold capturePaidScope(
+            com.nereusstream.delay.protocol.TargetSloControlScopeHeader.Reference reference,
+            long maximumRetainedBytes, LongSupplier clock, Runnable localAdmission) {
+        return captureNativeFacts(null, Objects.requireNonNull(reference, "actual paid Scope reference"),
+                NativeFactPurpose.PAID_SCOPE, maximumRetainedBytes, clock, localAdmission);
+    }
+
+    /** The exact Source frame selects historical fee origin; this does not authorize another SDK append. */
+    NativeExposureHold captureScopeFeeOrigin(SystemMutation exact, long maximumRetainedBytes,
+            LongSupplier clock, Runnable localAdmission) {
+        return captureNativeFacts(Objects.requireNonNull(exact, "exact fee input"), null, NativeFactPurpose.SCOPE_FEE,
+                maximumRetainedBytes, clock, localAdmission);
+    }
+
+    private enum NativeFactPurpose { SDK_EXPOSURE, SCOPE_FEE, PAID_SCOPE }
+
+    private NativeExposureHold captureNativeFacts(SystemMutation exact,
+            com.nereusstream.delay.protocol.TargetSloControlScopeHeader.Reference paidReference,
+            NativeFactPurpose purpose, long maximumRetainedBytes, LongSupplier clock, Runnable localAdmission) {
+        final boolean inputFromFrame = purpose != NativeFactPurpose.PAID_SCOPE;
+        final boolean exposureFrame = purpose == NativeFactPurpose.SDK_EXPOSURE;
+        Objects.requireNonNull(clock, "owner clock");
+        Objects.requireNonNull(localAdmission, "local Worker admission");
+        if (maximumRetainedBytes < 1 || maximumRetainedBytes == Long.MAX_VALUE
+                || inputFromFrame && (exact.canonicalBodyLength() > maximumRetainedBytes || exact.canonicalBodyLength() > limits.bytes()))
+            throw new IllegalArgumentException("Native exposure requires a finite complete input envelope");
+        final var originalIoOwner = authorityPreparation;
+        if (originalIoOwner == null) throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                "Native read capture requires its original bounded Source I/O owner");
+        localAdmission.run();
+        if (exposureFrame) requireGcOwner(clock); else requireOwner(clock);
+        requireSloScopeQualified();
+        if (inputFromFrame && !scope.shard().equals(exact.shardId())) throw new IllegalArgumentException("Native exposure changed its actual Shard");
+        final NativeExposureHold held;
+        synchronized (ownerStateLock) {
+            held = new NativeExposureHold(this, lease, recoveredSloQualification, clock, localAdmission, originalIoOwner, exposureFrame);
+        }
+        originalIoOwner.retainNativeReadLoan(this, held);
+        try {
+            requireNativeExposureLocal(held);
+            final var actualMetadata = store.metadata();
+            if (!Arrays.equals(metadata.encode(), actualMetadata.encode()))
+                throw new IllegalStateException("Native exposure changed its original Store identity");
+            held.originalGuard = Objects.requireNonNull(authorities.reads().acquire(actualMetadata, scope), "actual Native read guard");
+            final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+            final byte[] submittedFrame = inputFromFrame ? exact.encodeFrame() : null;
+            if (inputFromFrame) chargeNativeExposureFrame(budget, submittedFrame, maximumRetainedBytes);
+            held.snapshot = backend.guardedRead(budget, reader -> {
+                final var aggregate = reader.aggregate();
+                final var cut = aggregate.mutation();
+                if (cut == null || reader.source() == null)
+                    throw new TargetSourceAuthorityPreparation.InputUnavailable("Native exposure lacks its actual Source cut");
+                cut.requireSourceApplied();
+                if (cut.sequence() != reader.sourceSequence()
+                        || !Arrays.equals(cut.source().canonicalBytes(), reader.source().canonicalBytes()))
+                    throw new IllegalStateException("Native exposure cut differs from its actual Source frontier");
+                final var root = new com.nereusstream.delay.protocol.TargetQuotaIdentity(
+                        com.nereusstream.delay.protocol.TargetQuotaIdentity.Kind.SHARD, scope.shard(), aggregate.accountingIncarnation(), null, null);
+                com.nereusstream.delay.protocol.TargetSloWriterEpoch epoch = null;
+                final com.nereusstream.delay.protocol.TargetSloControlScopeHeader.Reference payer;
+                if (!inputFromFrame) {
+                    payer = paidReference;
+                } else if (exact.type() == SystemMutationType.TARGET_SLO_OBSERVATION) {
+                    final var body = com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(exact.canonicalBody());
+                    if (!scope.equals(body.scope()) || !Arrays.equals(lineage, body.lineage()) || body.writerEpoch() == null
+                            || AuthorIdentity.decode(exact.authorIdentity()).kind() != AuthorIdentity.Kind.SERVICE)
+                        throw new IllegalArgumentException("Native exposure changed its exact SERVICE writer/scope/lineage");
+                    epoch = com.nereusstream.delay.runtime.TargetSloWriterEpochStore.readEpoch(reader, scope, lineage, body.writerEpoch());
+                    if (epoch == null) throw new TargetSourceAuthorityPreparation.InputUnavailable("Native exposure lacks its actual original writer epoch");
+                    com.nereusstream.delay.runtime.TargetSloWriterEpochStore.requireOrigin(
+                            nativeExposureEvidence(reader), java.util.List.of(), scope, lineage, root, epoch, cut);
+                    if (!Arrays.equals(epoch.contract().service().canonicalBytes(), exact.authorIdentity())
+                            || epoch.contract().keyVersion() != exact.signingKeyVersion())
+                        throw new IllegalArgumentException("Native exposure changed its original registered SERVICE/key");
+                    payer = epoch.register().body().admissionScope();
+                } else {
+                    payer = TargetSloControlScopeAuthority.reference(exact).orElseThrow(
+                            () -> new IllegalArgumentException("Native exposure requires the exact Control admission Scope"));
+                    final TargetQuotaScope inputScope;
+                    final byte[] inputLineage;
+                    if (com.nereusstream.delay.protocol.TargetSloWriterControlBody.isControl(exact)) {
+                        final var request = com.nereusstream.delay.protocol.TargetSloWriterControlBody.decode(exact.canonicalBody()).request();
+                        inputScope = request.scope(); inputLineage = request.lineage();
+                    } else {
+                        final var request = com.nereusstream.delay.protocol.TargetSloObservationControlBody.decode(exact.canonicalBody()).request();
+                        inputScope = request.scope(); inputLineage = request.lineage();
+                    }
+                    if (!scope.equals(inputScope) || !Arrays.equals(lineage, inputLineage)
+                            || AuthorIdentity.decode(exact.authorIdentity()).kind() != AuthorIdentity.Kind.CONTROL)
+                        throw new IllegalArgumentException("Native exposure changed its original Control scope/lineage/author");
+                }
+                final var paid = payer == null ? null : com.nereusstream.delay.runtime.TargetScopeControlObligationStore.requirePaidScope(reader, scope, lineage, payer);
+                if (exposureFrame && paid != null && (paid.definition().header().schemaVersion() != 2
+                        || paid.definition().plan().schemaVersion() != com.nereusstream.delay.protocol.TargetSloScopeNativePlan.EXPOSURE_VERSION))
+                    throw new IllegalStateException("Native exposure requires its actual Header2/Plan3 payment");
+                final var closure = exposureFrame && epoch != null
+                        ? nativeClosureDischarge(reader, exact, root, cut) : NativeClosureDischarge.NONE;
+                final byte[] frame;
+                if (inputFromFrame) frame = submittedFrame;
+                else {
+                    frame = Objects.requireNonNull(paid, "actual Source-paid Scope").funding().input().encodeFrame();
+                    chargeNativeExposureFrame(budget, frame, maximumRetainedBytes);
+                }
+                long retained = Math.addExact(frame.length, metadata.encode().length);
+                retained = Math.addExact(retained, Math.addExact(scope.canonicalBytes().length, lineage.length));
+                retained = Math.addExact(retained, Math.addExact(cut.canonicalBytes().length, Long.BYTES + 2L));
+                if (epoch != null) retained = Math.addExact(retained, epoch.canonicalBytes().length);
+                if (paid != null) retained = Math.addExact(retained, paid.canonicalBytes().length);
+                if (retained > maximumRetainedBytes) throw new IllegalArgumentException("Native exposure facts exceed their original retained envelope");
+                reader.requireWithinElapsedBudget();
+                return new NativeExposureSnapshot(frame, epoch, paid, cut, reader.closedIngressDeadlineThrough(), retained, exposureFrame, closure);
+            }, (actual, actualScope) -> {
+                if (!scope.equals(actualScope) || !Arrays.equals(actualMetadata.encode(), actual.encode()))
+                    throw new IllegalStateException("Native exposure guard changed its original Store/scope");
+                return new TargetStoreBackend.CommitGuard() {
+                    @Override public void requireCurrent() {
+                        requireNativeExposureLocal(held);
+                        held.originalGuard.requireCurrent();
+                        requireSloScopeQualified();
+                        requireNativeExposureLocal(held);
+                    }
+                    // Ownership remains with held even after guardedRead returns exceptionally.
+                    @Override public void close() {}
+                };
+            });
+            held.requireLocalCurrent();
+            return held;
+        } catch (RuntimeException | Error failure) {
+            held.retainCaptureCleanup(failure);
+            try { held.close(); }
+            catch (RuntimeException | Error cleanup) {
+                final var retained = new NativeExposureCleanup(held, failure);
+                retained.addSuppressed(cleanup);
+                throw retained;
+            }
+            throw failure;
+        } finally {
+            held.captureFinished();
+        }
+    }
+
+    private static void chargeNativeExposureFrame(BoundedReadBudget budget, byte[] frame, long maximumRetainedBytes) {
+        if (frame.length > maximumRetainedBytes) throw new IllegalArgumentException("Native fact input frame exceeds its retained envelope");
+        if (!budget.beforeRead() || !budget.tryCharge(0, frame.length)) throw budget.incomplete();
+    }
+
+    private NativeClosureDischarge nativeClosureDischarge(TargetStoreBackend.Reader reader, SystemMutation exact,
+            com.nereusstream.delay.protocol.TargetQuotaIdentity root,
+            com.nereusstream.delay.protocol.TargetQuotaMutation cut) {
+        reader.requireWithinElapsedBudget();
+        // An already settled exact input is an extra append attempt, even if its old result was a rejection.
+        final var firstKey = Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, exact.systemMutationId());
+        if (reader.get(ColumnFamily.DEDUPE, firstKey) != null) return NativeClosureDischarge.NONE;
+        final var body = com.nereusstream.delay.protocol.TargetSloObservationEventBody.decode(exact.canonicalBody());
+        final var generation = com.nereusstream.delay.runtime.TargetSloObservationVerifier.readGeneration(reader, scope, lineage, body.generation());
+        final var sampleKey = com.nereusstream.delay.protocol.TargetSloObservationSample.key(body.sampleId());
+        final var sampleRaw = reader.get(ColumnFamily.META, sampleKey);
+        if (generation == null || sampleRaw == null)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("Native closure lacks its actual original sample/generation");
+        final var sample = com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(sampleKey,
+                TargetValueEnvelope.decode(sampleRaw, com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE).payload(), scope, lineage);
+        if (sample.generation() != body.generation() || !Arrays.equals(sample.bindingDigest(), body.bindingDigest())
+                || generation.counts().reservation() == null) return NativeClosureDischarge.NONE;
+        final var evidence = nativeExposureEvidence(reader);
+        com.nereusstream.delay.runtime.TargetSloObservationSamples.requireOrigin(evidence, java.util.List.of(), scope, lineage, root, sample, cut);
+        final boolean custodied = com.nereusstream.delay.runtime.TargetSloObservationReservations.currentCustodied(
+                reader, java.util.List.of(), scope, lineage, sample);
+        final var outstanding = com.nereusstream.delay.runtime.TargetSloObservationReservations.forSample(generation, sample, custodied);
+        // The actual persisted reservation must still cover this exact sample's remaining duties.
+        generation.counts().reservation().minus(outstanding);
+        if (body.isCustody()) {
+            if (custodied || !Arrays.equals(body.exportedSample().canonicalBytes(), sample.canonicalBytes()))
+                return NativeClosureDischarge.NONE;
+            body.custody().requireSample(generation, sample);
+            final var after = com.nereusstream.delay.runtime.TargetSloObservationReservations.forSample(generation, sample, true);
+            final var discharged = outstanding.minus(after);
+            return discharged.records() == 1 && discharged.bytes() > 0
+                    ? NativeClosureDischarge.CURRENT_REVISION_CUSTODY : NativeClosureDischarge.NONE;
+        }
+        if (sample.observation().finalObservation() != null || !body.isSourceAssigned() || body.evidence() == null)
+            return NativeClosureDischarge.NONE;
+        final var incoming = body.incomingFor(sample);
+        incoming.validateAgainst(sample.observation().start());
+        sample.observation().mergeFinal(incoming, sample.declaration().objective().direction());
+        com.nereusstream.delay.runtime.TargetSloObservationEventStore.requireEvidenceOrigin(evidence, java.util.List.of(),
+                scope, lineage, sample, body, incoming, cut);
+        if (body.evidence().kind() == com.nereusstream.delay.protocol.TargetSloFinalEvidence.Kind.TIMEOUT
+                && com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.inspect(reader, scope, lineage, cut, sample)
+                    != com.nereusstream.delay.runtime.TargetSloTimeoutCandidates.Result.NO_KNOWN_ADMISSION_AT_CUT)
+            return NativeClosureDischarge.NONE;
+        reader.requireWithinElapsedBudget();
+        // forSample reserves this first Final and its ensuing current-revision custody together.
+        return outstanding.records() >= 2 && outstanding.bytes() > 0
+                ? NativeClosureDischarge.REQUIRED_FINAL : NativeClosureDischarge.NONE;
+    }
+
+    private static com.nereusstream.delay.runtime.TargetRecordAccounting.View nativeExposureEvidence(TargetStoreBackend.Reader reader) {
+        return new com.nereusstream.delay.runtime.TargetRecordAccounting.View() {
+            public com.nereusstream.delay.protocol.ShardId shardId() { return reader.shardId(); }
+            public byte[] projected(ColumnFamily family, byte[] key, java.util.List<TargetStoreBackend.Edit> overlay) {
+                final var raw = reader.projected(family, key, overlay);
+                if (raw == null) throw new TargetSourceAuthorityPreparation.InputUnavailable("Native exposure lacks an actual original Source dependency");
+                return raw;
+            }
+            public ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper, java.util.List<TargetStoreBackend.Edit> overlay) {
+                return reader.first(family, lower, upper, overlay);
+            }
+        };
+    }
+
+    private void requireNativeExposureLocal(NativeExposureHold held) {
+        held.localAdmission.run();
+        if (recoveryOnly && !held.sdkExposure) recoveryProtection.run();
+        backend.requireStore(held.originalStore);
+        final boolean storeClosed = store.isCloseStarted();
+        final long storeOwner = store.runtimeMetadata().lastOpenedOwnerEpoch();
+        synchronized (ownerStateLock) {
+            final var current = lease;
+            final long now = held.clock.getAsLong();
+            final boolean wrongState = recoveryOnly ? current.state() != ShardLifecycleState.CATCHING_UP
+                    : current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS;
+            if (fenced || held.sdkExposure && recoveryOnly || storeClosed || storeOwner != held.originalOwner.ownerEpoch()
+                    || !current.sameIdentity(held.originalOwner) || wrongState
+                    || now < lastOwnerTime || !current.validAt(now)
+                    || recoveredSloQualification != held.originalSloQualification)
+                throw new IllegalStateException("Native exposure lost its original local Owner/Store/SLO admission");
+            if (!recoveryOnly && sloInitialization == null) {
+                if (held.originalSloQualification == null)
+                    throw new IllegalStateException("Native exposure lost its original local SLO qualification");
+                held.originalSloQualification.requireScope(store, scope, lineage, assignment, current);
+            }
+            lastOwnerTime = now;
+        }
+        held.localAdmission.run();
+    }
+
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }
+
+    boolean nativeReadLoansExited() {
+        final var selected = authorityPreparation;
+        return selected == null || selected.nativeReadLoansExited();
+    }
 
     void stopAuthorityPreparation() { final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.requestStop();final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
     void retryAuthorityCleanup() { final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.retryCleanup();final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }

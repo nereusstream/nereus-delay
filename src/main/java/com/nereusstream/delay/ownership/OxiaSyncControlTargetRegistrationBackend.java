@@ -9,6 +9,8 @@ import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetSloControlRegisteredInput;
 import com.nereusstream.delay.protocol.TargetSloControlScopeHeader;
 import com.nereusstream.delay.protocol.TargetSloControlScopeRoot;
+import com.nereusstream.delay.protocol.TargetScopeResourcePolicy;
+import com.nereusstream.delay.protocol.TargetScopeResourceRoot;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -49,6 +51,7 @@ public final class OxiaSyncControlTargetRegistrationBackend
     private final String keyPrefix;
     private final Runnable sessionCheck;
     private final Supplier<byte[]> namespaceBinding;
+    private final Runnable scopeResourceRequestTimeoutCheck;
 
     /** Creates a backend over an already configured Oxia client. */
     public OxiaSyncControlTargetRegistrationBackend(final SyncOxiaClient client, final String keyPrefix) {
@@ -62,7 +65,8 @@ public final class OxiaSyncControlTargetRegistrationBackend
                 new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()),
                 keyPrefix,
                 handle.backend()::assertConnectedSession,
-                () -> handle.backend().requireOriginalStorageNamespaceBinding(handle.client()));
+                () -> handle.backend().requireOriginalStorageNamespaceBinding(handle.client()),
+                handle.backend()::requireConfiguredRequestTimeout);
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
@@ -75,13 +79,18 @@ public final class OxiaSyncControlTargetRegistrationBackend
             final RecordClient client, final String keyPrefix, final Runnable sessionCheck) {
         this(client, keyPrefix, sessionCheck, () -> {
             throw new IllegalStateException("SLO Scope requires its actual managed SDK storage namespace binding");
+        }, () -> {
+            throw new IllegalStateException("Scope resources require the actual managed SDK request timeout");
         });
     }
 
     private OxiaSyncControlTargetRegistrationBackend(final RecordClient client, final String keyPrefix,
-            final Runnable sessionCheck, final Supplier<byte[]> namespaceBinding) {
+            final Runnable sessionCheck, final Supplier<byte[]> namespaceBinding,
+            final Runnable scopeResourceRequestTimeoutCheck) {
         this.sessionCheck = Objects.requireNonNull(sessionCheck, "sessionCheck");
         this.namespaceBinding = Objects.requireNonNull(namespaceBinding, "namespaceBinding");
+        this.scopeResourceRequestTimeoutCheck = Objects.requireNonNull(
+                scopeResourceRequestTimeoutCheck, "scopeResourceRequestTimeoutCheck");
         this.client = new SessionBoundRecordClient(
                 Objects.requireNonNull(client, "client"), this.sessionCheck);
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
@@ -95,6 +104,20 @@ public final class OxiaSyncControlTargetRegistrationBackend
         if (Arrays.equals(binding, new byte[32])) throw new IllegalStateException("actual registry namespace binding is unassigned");
         sessionCheck.run();
         return new TargetSloControlScopeAuthority(new ScopeStorage(binding), Objects.requireNonNull(protections));
+    }
+
+    /** Uses only the original managed Registry client and its configured finite request timeout. */
+    @Override
+    public TargetScopeResourceManager.Storage scopeResourceStorage(TargetScopeResourcePolicy policy) {
+        sessionCheck.run();
+        scopeResourceRequestTimeoutCheck.run();
+        final var binding = Objects.requireNonNull(namespaceBinding.get(), "actual managed registry namespace binding");
+        Bytes.requireLength(binding, 32, "actual managed registry namespace binding");
+        if (Arrays.equals(binding, new byte[32]))
+            throw new IllegalStateException("actual registry namespace binding is unassigned");
+        final var storage = new ScopeResourceStorage(binding, Objects.requireNonNull(policy));
+        storage.requireCurrent();
+        return storage;
     }
 
     @Override
@@ -467,6 +490,222 @@ public final class OxiaSyncControlTargetRegistrationBackend
         private void requireExactInput(TargetSloControlScopeAuthority.InputRecord observed, TargetSloControlRegisteredInput exact) {
             if (!observed.value().equals(exact))
                 throw new IllegalArgumentException("operation ID already holds different immutable full Scope input bytes");
+        }
+    }
+
+    /** Two bounded records in the original Registry; creation is deliberately not a two-key transaction. */
+    private final class ScopeResourceStorage implements TargetScopeResourceManager.Storage {
+        private final byte[] actualNamespace;
+        private final TargetScopeResourcePolicy policy;
+        private final byte[] policyBytes;
+        private final TargetScopeResourceRoot initialRoot;
+        private final byte[] firstBirthMarker;
+        private final int maximumRootBytes;
+        private Long originalBirthVersionId;
+
+        private ScopeResourceStorage(byte[] actualNamespace, TargetScopeResourcePolicy requested) {
+            this.actualNamespace = Bytes.copy(actualNamespace);
+            policyBytes = requested.canonicalBytes();
+            policy = TargetScopeResourcePolicy.decode(policyBytes);
+            final var binding = policy.binding();
+            if (!Bytes.constantTimeEquals(actualNamespace, binding.registryNamespaceBinding())
+                    || !keyPrefix.equals(binding.registryKeyPrefix()))
+                throw new IllegalArgumentException("resource policy differs from its actual original registry namespace/key prefix");
+            maximumRootBytes = Math.min(policy.management().maximumRootBytes(), TargetScopeResourceRoot.MAX_CANONICAL_BYTES);
+            initialRoot = TargetScopeResourceRoot.open(policy);
+            boundedRootBytes(initialRoot);
+            firstBirthMarker = initialRoot.firstBirthMarker();
+            if (firstBirthMarker.length == 0
+                    || firstBirthMarker.length > TargetScopeResourceRoot.FIRST_BIRTH_MARKER_MAX_CANONICAL_BYTES)
+                throw new IllegalArgumentException("resource first-birth marker exceeds its immutable bound");
+        }
+
+        @Override public byte[] namespaceBinding() { return Bytes.copy(actualNamespace); }
+        @Override public String keyPrefix() { return keyPrefix; }
+        @Override public void requireCurrent() {
+            sessionCheck.run();
+            scopeResourceRequestTimeoutCheck.run();
+            if (!Bytes.constantTimeEquals(actualNamespace, namespaceBinding.get()))
+                throw new IllegalStateException("resource storage lost its actual original SDK namespace binding");
+            sessionCheck.run();
+        }
+
+        private void requirePolicy(TargetScopeResourcePolicy candidate) {
+            if (!policy.reference().equals(Objects.requireNonNull(candidate).reference())
+                    || !Bytes.constantTimeEquals(policyBytes, candidate.canonicalBytes()))
+                throw new IllegalArgumentException("resource storage cannot replace its full immutable allocation policy");
+        }
+
+        private byte[] boundedRootBytes(TargetScopeResourceRoot root) {
+            requirePolicy(root.policy());
+            if (!policy.reference().equals(root.reference()))
+                throw new IllegalArgumentException("resource Root has another immutable allocation reference");
+            final var encoded = root.canonicalBytes();
+            if (encoded.length == 0 || encoded.length > maximumRootBytes)
+                throw new IllegalArgumentException("resource Root exceeds its prepaid canonical byte bound");
+            return encoded;
+        }
+
+        private GetResult getBounded(String key, int maximumBytes) {
+            requireCurrent();
+            final var observed = client.get(key);
+            requireCurrent();
+            if (observed == null) return null;
+            if (!key.equals(observed.key()) || observed.version() == null || observed.value() == null
+                    || observed.value().length == 0 || observed.value().length > maximumBytes)
+                throw new IllegalStateException("resource registry read returned an invalid key/version/bounded value");
+            requireVersion(observed.version().versionId());
+            return observed;
+        }
+
+        private void requireVersion(long versionId) {
+            if (versionId < 0 || versionId == Long.MAX_VALUE)
+                throw new IllegalStateException("resource registry requires an exact actual SDK version");
+        }
+
+        private long putResourceExact(String key, byte[] value, Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            requireCurrent();
+            final long versionId = putExact(key, value, options);
+            requireVersion(versionId);
+            requireCurrent();
+            return versionId;
+        }
+
+        private synchronized void observeBirth(long versionId) {
+            if (originalBirthVersionId != null && originalBirthVersionId.longValue() != versionId)
+                throw new IllegalStateException("resource storage changed its actual original first-birth version; retain UNKNOWN");
+            originalBirthVersionId = versionId;
+        }
+
+        private synchronized void requireNeverBorn() {
+            if (originalBirthVersionId != null)
+                throw new IllegalStateException("resource storage lost its original first-birth marker; retain UNKNOWN");
+        }
+
+        private Long readBirthVersion() {
+            final var observed = getBounded(policy.binding().firstBirthMarkerKey(),
+                    TargetScopeResourceRoot.FIRST_BIRTH_MARKER_MAX_CANONICAL_BYTES);
+            if (observed == null) return null;
+            // Exact canonical expected bytes also reject unknown schemas, fields, digests and allocation identities.
+            if (!Bytes.constantTimeEquals(firstBirthMarker, observed.value()))
+                throw new IllegalStateException("resource first-birth marker differs from its full original policy reference");
+            final long versionId = observed.version().versionId();
+            observeBirth(versionId);
+            return versionId;
+        }
+
+        @Override public TargetScopeResourceManager.RootRecord readRoot() {
+            requireCurrent();
+            final Long beforeBirth = readBirthVersion();
+            final var observed = getBounded(policy.binding().rootKey(), maximumRootBytes);
+            final Long afterBirth = readBirthVersion();
+            if (!Objects.equals(beforeBirth, afterBirth))
+                throw new IllegalStateException("resource first-birth marker changed while reading its Root; retain UNKNOWN");
+            if (observed == null) {
+                if (beforeBirth != null)
+                    throw new IllegalStateException("resource first-birth marker exists without its Root; retain UNKNOWN and do not reconstruct");
+                requireNeverBorn();
+                requireCurrent();
+                return null;
+            }
+            if (beforeBirth == null)
+                throw new IllegalStateException("resource Root lost its original immutable first-birth marker; retain UNKNOWN");
+            final var root = TargetScopeResourceRoot.decode(observed.value());
+            if (!Bytes.constantTimeEquals(observed.value(), boundedRootBytes(root)))
+                throw new IllegalStateException("resource Root is not its exact canonical value");
+            requireCurrent();
+            return new TargetScopeResourceManager.RootRecord(root, observed.version().versionId(), beforeBirth);
+        }
+
+        @Override public TargetScopeResourceManager.RootRecord initialize(TargetScopeResourcePolicy requested) {
+            requirePolicy(requested);
+            final var current = readRoot();
+            if (current != null) return current;
+            final long markerVersion;
+            try {
+                markerVersion = putResourceExact(policy.binding().firstBirthMarkerKey(), firstBirthMarker,
+                        Set.of(PutOption.IfRecordDoesNotExist));
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException | RuntimeException originalFailure) {
+                // An exact marker reread cannot prove this call owns an unstarted Root creation.
+                return reconcileInitialization(originalFailure);
+            }
+            final var confirmedMarker = readBirthVersion();
+            if (confirmedMarker == null || confirmedMarker.longValue() != markerVersion)
+                throw new IllegalStateException("resource first-birth creation has no exact actual marker confirmation; retain UNKNOWN");
+            try {
+                putResourceExact(policy.binding().rootKey(), boundedRootBytes(initialRoot),
+                        Set.of(PutOption.IfRecordDoesNotExist));
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException | RuntimeException originalFailure) {
+                return sameBirth(markerVersion, reconcileInitialization(originalFailure));
+            }
+            final var created = sameBirth(markerVersion, readRoot());
+            if (created == null)
+                throw new IllegalStateException("resource Root initialization has no actual reread; retain UNKNOWN");
+            return created;
+        }
+
+        private TargetScopeResourceManager.RootRecord reconcileInitialization(Throwable originalFailure) {
+            try {
+                final var observed = readRoot();
+                if (observed != null) return observed;
+            } catch (RuntimeException observationFailure) {
+                if (observationFailure != originalFailure) originalFailure.addSuppressed(observationFailure);
+            }
+            if (originalFailure instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("resource initialization is unknown after conditional creation", originalFailure);
+        }
+
+        @Override public TargetScopeResourceManager.RootRecord compareRoot(
+                TargetScopeResourceManager.RootRecord expected, TargetScopeResourceRoot next) {
+            Objects.requireNonNull(expected);
+            Objects.requireNonNull(next);
+            requireVersion(expected.versionId());
+            requireVersion(expected.birthVersionId());
+            final var expectedBytes = boundedRootBytes(expected.value());
+            final var nextBytes = boundedRootBytes(next);
+            final boolean unchanged = Bytes.constantTimeEquals(expectedBytes, nextBytes);
+            if (!unchanged) next.requireTransitionFrom(expected.value());
+            final var current = sameBirth(expected.birthVersionId(), readRoot());
+            if (current == null)
+                throw new IllegalStateException("original resource Root disappeared before CAS; retain UNKNOWN");
+            if (current.versionId() != expected.versionId()) return current;
+            if (!Bytes.constantTimeEquals(expectedBytes, current.value().canonicalBytes()))
+                throw new IllegalStateException("resource expected bytes differ at the same actual SDK version");
+            if (unchanged) return current;
+            try {
+                putResourceExact(policy.binding().rootKey(), nextBytes,
+                        Set.of(PutOption.IfVersionIdEquals(expected.versionId())));
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException race) {
+                final var observed = sameBirth(expected.birthVersionId(), rootAfterFailure(race));
+                if (observed == null)
+                    throw new IllegalStateException("original resource Root disappeared after CAS; retain UNKNOWN", race);
+                return observed;
+            } catch (RuntimeException originalFailure) {
+                final var observed = sameBirth(expected.birthVersionId(), rootAfterFailure(originalFailure));
+                if (observed != null && Bytes.constantTimeEquals(nextBytes, observed.value().canonicalBytes())) return observed;
+                throw originalFailure;
+            }
+            final var observed = sameBirth(expected.birthVersionId(), readRoot());
+            if (observed == null)
+                throw new IllegalStateException("resource Root CAS has no actual reread; retain UNKNOWN");
+            return observed;
+        }
+
+        private TargetScopeResourceManager.RootRecord sameBirth(
+                long expectedBirthVersion, TargetScopeResourceManager.RootRecord observed) {
+            if (observed != null && observed.birthVersionId() != expectedBirthVersion)
+                throw new IllegalStateException("resource Root observation changed its actual original birth; retain UNKNOWN");
+            return observed;
+        }
+
+        private TargetScopeResourceManager.RootRecord rootAfterFailure(Throwable originalFailure) {
+            try { return readRoot(); }
+            catch (RuntimeException observationFailure) {
+                if (observationFailure != originalFailure) originalFailure.addSuppressed(observationFailure);
+                if (originalFailure instanceof RuntimeException runtime) throw runtime;
+                throw new IllegalStateException("resource Root CAS is unknown after failed observation", originalFailure);
+            }
         }
     }
 

@@ -49,7 +49,8 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
     private TargetWorkerHostRuntime host;
     private TargetWorkerHostRuntime.BackendClosePermit permit;
     private List<Object> frozenRegistrations;
-    private boolean ready, frozen, sdkTerminated, cleanupStarting;
+    private CompletableFuture<Void> exposureCleanup;
+    private boolean ready, frozen, sdkTerminated, cleanupStarting, exposureCleanupStarting;
     private int activeAppends;
     private Throwable failure;
 
@@ -108,7 +109,7 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         final byte[] activatedJar = Bytes.copy(sdkJar);
         TargetSdkArtifactIdentity.requireExact(KafkaProducer.class, activatedJar);
         final var copyContract = new TargetScopeExposureSource.CopyContract(2, Bytes.sha256(
-                Bytes.utf8("nereus-k1-guarded-send-retries-v1\n"), activatedJar,
+                Bytes.utf8("nereus-k1-guarded-send-custody-v1\n"), activatedJar,
                 Bytes.utf8("retries=" + frozen.getInt(ProducerConfig.RETRIES_CONFIG)
                         + "\nacks=" + frozen.getString(ProducerConfig.ACKS_CONFIG)
                         + "\nenable.idempotence=" + frozen.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)
@@ -233,6 +234,9 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
     public CompletableFuture<Void> firstCloseResult() { return firstClose.copy(); }
     public void retryCleanup() { synchronized (gate) { if (cleanup != null && !cleanup.ioExited()) return; } advanceCleanup(); }
     private void advanceCleanup() {
+        final boolean nativeExited;
+        synchronized (gate) { nativeExited = sdkTerminated; }
+        if (nativeExited) { advanceExposureCleanup(true); finishCleanup(); return; }
         synchronized (gate) {
             if (!frozen || sdkTerminated || cleanupStarting || activeAppends != 0 || opening == null || !opening.ioExited()
                     || cleanup != null && !cleanup.ioExited() || host != null && permit == null) return;
@@ -251,7 +255,6 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
                             if (!partial.resourcesTerminated()) throw new IllegalStateException("Source producer partial construction remains live");
                             if (partial.firstCleanupFailure() != null) firstClose.completeExceptionally(partial.firstCleanupFailure());
                         } else allocation.releaseUnstarted();
-                        writer.producerClosed(); allocation.closed();
                         synchronized (gate) { sdkTerminated = true; }
                         firstClose.complete(null); return true;
                     } catch (RuntimeException | Error failed) { firstClose.completeExceptionally(failed); remember(failed); throw failed; }
@@ -262,12 +265,49 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         }
     }
     private void cleanupProgress() {
+        final boolean nativeExited;
         synchronized (gate) {
-            if (sdkTerminated && activeAppends == 0 && cleanup != null && cleanup.ioExited()) { terminated.complete(null); return; }
+            nativeExited = sdkTerminated;
             if (!frozen || cleanupStarting || cleanup != null && !cleanup.ioExited()) return;
         }
+        if (nativeExited) { advanceExposureCleanup(false); finishCleanup(); return; }
         // Retry remains explicit after a terminal cleanup failure; this only advances a late opening/appender exit.
         if (cleanup == null) { try { io.execute(this::advanceCleanup); } catch (RuntimeException failed) { remember(failed); } }
+    }
+    private void advanceExposureCleanup(boolean retryFailed) {
+        final KafkaClientArtifactShardLogMutationAppender current;
+        synchronized (gate) {
+            if (!sdkTerminated || activeAppends != 0 || cleanup != null && !cleanup.ioExited()
+                    || terminated.isDone() || exposureCleanupStarting
+                    || exposureCleanup != null && (!exposureCleanup.isDone() || !retryFailed)) return;
+            exposureCleanupStarting = true;
+            current = appender == null ? opening.completedValue().orElse(null) : appender;
+        }
+        final CompletableFuture<Void> attempt;
+        try { attempt = current == null ? CompletableFuture.completedFuture(null) : current.retryExposureCleanup(); }
+        catch (RuntimeException | Error failed) {
+            synchronized (gate) { exposureCleanupStarting = false; exposureCleanup = CompletableFuture.failedFuture(failed); }
+            remember(failed); return;
+        }
+        synchronized (gate) { exposureCleanup = attempt; exposureCleanupStarting = false; }
+        attempt.whenComplete((ignored, failed) -> {
+            if (failed != null) remember(failed);
+            finishCleanup();
+        });
+    }
+    private void finishCleanup() {
+        final KafkaClientArtifactShardLogMutationAppender current;
+        synchronized (gate) {
+            if (!sdkTerminated || activeAppends != 0 || cleanup == null || !cleanup.ioExited()
+                    || exposureCleanupStarting || exposureCleanup == null || !exposureCleanup.isDone()
+                    || exposureCleanup.isCompletedExceptionally() || terminated.isDone()) return;
+            current = appender == null ? opening.completedValue().orElse(null) : appender;
+        }
+        if (current != null && !current.exposureLoansExited()) return;
+        synchronized (gate) {
+            if (terminated.isDone()) return;
+            writer.producerClosed(); allocation.closed(); terminated.complete(null);
+        }
     }
     private void remember(Throwable failed) { synchronized (gate) { if (failure == null) failure = failed; else if (failed != failure) failure.addSuppressed(failed); } }
     @Override public boolean resourcesTerminated() { return terminated.isDone() && !terminated.isCompletedExceptionally(); }
