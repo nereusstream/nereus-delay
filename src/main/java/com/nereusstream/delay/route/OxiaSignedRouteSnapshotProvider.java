@@ -73,16 +73,18 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
         private void use(java.time.Duration timeout) {
             final long nanos = Objects.requireNonNull(timeout).toNanos();
-            if (nanos <= 0)
+            if (nanos <= 0) {
                 throw new IllegalArgumentException("Route watch requires its original finite request timeout");
+            }
             budget = budget == 0 ? nanos : Math.min(budget, nanos);
             remaining();
         }
 
         private long remaining() {
             final long elapsed = System.nanoTime() - started;
-            if (budget == 0 || elapsed < 0 || elapsed >= budget)
+            if (budget == 0 || elapsed < 0 || elapsed >= budget) {
                 throw new RouteWatchUnavailable("Route watch refresh exceeded its original request deadline", null);
+            }
             return budget - elapsed;
         }
 
@@ -228,8 +230,12 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     public CompletionStage<Void> start() {
         synchronized (this) {
             requireOpen();
-            if (watch != null && watch.initializing) return watch.completion.copy();
-            if (started && currentWatchHealthy()) return CompletableFuture.completedFuture(null);
+            if (watch != null && watch.initializing) {
+                return watch.completion.copy();
+            }
+            if (started && currentWatchHealthy()) {
+                return CompletableFuture.completedFuture(null);
+            }
         }
         return openWatch(false);
     }
@@ -254,8 +260,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             requireOpen();
             previous = watch;
             if (previous != null && previous.subscription != null) {
-                if (retiringWatch != null && retiringWatch != previous.subscription)
+                if (retiringWatch != null && retiringWatch != previous.subscription) {
                     throw new IllegalStateException("original Route watch cleanup remains pending");
+                }
                 retiringWatch = previous.subscription;
             }
             selected = new WatchGeneration(++watchGeneration);
@@ -275,11 +282,16 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
                 // Observation is bounded by the original SDK request timeout; its native fact stays owned on timeout.
                 deadline.await(retiring.termination());
                 synchronized (this) {
-                    if (retiringWatch == retiring) retiringWatch = null;
+                    if (retiringWatch == retiring) {
+                        retiringWatch = null;
+                    }
                 }
             }
-            if (reopen) client.reconnectSession();
-            else client.startSession();
+            if (reopen) {
+                client.reconnectSession();
+            } else {
+                client.startSession();
+            }
             final NotificationSubscription opened =
                     client.notificationsReady(notification -> onNotification(selected, notification));
             synchronized (this) {
@@ -288,7 +300,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             deadline.use(opened.requestTimeout());
             opened.invalidated().whenComplete((ignored, failure) -> {
                 synchronized (this) {
-                    if (watch == selected && health != RouteCacheHealth.CLOSED) health = RouteCacheHealth.WATCH_GAP;
+                    if (watch == selected && health != RouteCacheHealth.CLOSED) {
+                        health = RouteCacheHealth.WATCH_GAP;
+                    }
                 }
             });
             deadline.await(opened.ready());
@@ -296,7 +310,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             selected.completion.complete(null);
         } catch (RuntimeException failure) {
             synchronized (this) {
-                if (watch == selected && health != RouteCacheHealth.CLOSED) health = classify(failure);
+                if (watch == selected && health != RouteCacheHealth.CLOSED) {
+                    health = classify(failure);
+                }
             }
             selected.completion.completeExceptionally(failure);
         } finally {
@@ -645,7 +661,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
                     || !selected.admitted
                     || selected.refreshing
                     || notificationScheduling
-                    || sharedNotifications != null && notificationIo != null && !notificationIo.ioExited()) return;
+                    || sharedNotifications != null && notificationIo != null && !notificationIo.ioExited()) {
+                return;
+            }
             selected.refreshing = true;
             notificationScheduling = true;
         }
@@ -665,7 +683,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
                 synchronized (this) {
                     notificationIo = original;
                     notificationScheduling = false;
-                    if (refreshStopping) original.requestStop();
+                    if (refreshStopping) {
+                        original.requestStop();
+                    }
                 }
                 original.receipt().whenComplete((value, error) -> notificationRefreshExited(selected, error));
             } else {
@@ -689,7 +709,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             synchronized (this) {
                 selected.refreshing = false;
                 notificationScheduling = false;
-                if (watch == selected && health != RouteCacheHealth.CLOSED) health = RouteCacheHealth.UNAVAILABLE;
+                if (watch == selected && health != RouteCacheHealth.CLOSED) {
+                    health = RouteCacheHealth.UNAVAILABLE;
+                }
             }
         }
     }
@@ -707,7 +729,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             }
             current = watch;
         }
-        if (current != null) submitNotificationIo(current);
+        if (current != null) {
+            submitNotificationIo(current);
+        }
     }
 
     private RefreshDeadline notificationDeadline(WatchGeneration selected) {
@@ -718,15 +742,19 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     private void requireSelected(WatchGeneration selected) {
         requireOpen();
-        if (watch != selected)
+        if (watch != selected) {
             throw new IllegalStateException("Route refresh belongs to old watch generation " + selected.generation);
+        }
     }
 
     private boolean currentWatchHealthy() {
-        if (health != RouteCacheHealth.HEALTHY) return false;
+        if (health != RouteCacheHealth.HEALTHY) {
+            return false;
+        }
         try {
-            if (watch == null || watch.subscription == null)
+            if (watch == null || watch.subscription == null) {
                 throw new IllegalStateException("Route watch is not ready");
+            }
             watch.subscription.requireCurrent();
             return true;
         } catch (RuntimeException unavailable) {
@@ -761,8 +789,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     private static RouteCacheHealth classify(final RuntimeException failure) {
         if (failure instanceof RouteWatchUnavailable
-                || failure.getCause() instanceof java.util.concurrent.TimeoutException)
+                || failure.getCause() instanceof java.util.concurrent.TimeoutException) {
             return RouteCacheHealth.UNAVAILABLE;
+        }
         if (failure instanceof RouteQuarantineException) {
             return RouteCacheHealth.QUARANTINED;
         }

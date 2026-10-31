@@ -766,15 +766,18 @@ class OxiaSignedRouteSnapshotProviderTest {
 
         @Override
         public NotificationSubscription notificationsReady(final Consumer<Notification> consumer) {
-            if (subscription != null && !subscription.terminated.isDone())
+            if (subscription != null && !subscription.terminated.isDone()) {
                 throw new IllegalStateException("original fake watch stream has not exited");
+            }
             final var opened = new FakeSubscription(consumer, holdNextTermination);
             subscription = opened;
             final boolean hold = holdNextReadiness;
             holdNextReadiness = false;
             holdNextTermination = false;
             notifications(consumer);
-            if (!hold) opened.ready.complete(null);
+            if (!hold) {
+                opened.ready.complete(null);
+            }
             if (afterNextReadiness != null) {
                 final Runnable callback = afterNextReadiness;
                 afterNextReadiness = null;
@@ -817,8 +820,9 @@ class OxiaSignedRouteSnapshotProviderTest {
 
             @Override
             public void requireCurrent() {
-                if (!ready.isDone() || ready.isCompletedExceptionally() || invalidated.isDone())
+                if (!ready.isDone() || ready.isCompletedExceptionally() || invalidated.isDone()) {
                     throw new IllegalStateException("fake notification stream is not current");
+                }
             }
 
             @Override
@@ -826,7 +830,9 @@ class OxiaSignedRouteSnapshotProviderTest {
                 invalidated.complete(null);
                 ready.completeExceptionally(new IllegalStateException("fake watch closed before readiness"));
                 watchers.remove(consumer);
-                if (!holdTermination) terminated.complete(null);
+                if (!holdTermination) {
+                    terminated.complete(null);
+                }
             }
         }
 
@@ -927,8 +933,9 @@ class OxiaSignedRouteSnapshotProviderTest {
             }
             if (subscription != null) {
                 subscription.close();
-                if (!subscription.terminated.isDone())
+                if (!subscription.terminated.isDone()) {
                     throw new IllegalStateException("original fake watch stream cleanup remains pending");
+                }
             }
             records.clear();
             ephemeralKeys.clear();
