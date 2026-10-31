@@ -123,9 +123,9 @@ public final class TargetProtocolActivationStore {
             final var outcome=SystemMutationResult.from(marker,rejection==null?ApplyStatus.APPLIED:ApplyStatus.REJECTED,rejection==null?StableCode.OK:rejection,source.canonicalBytes());
             final TargetResultRecord.CreationAuthority results=(record,first)->{
                 record.requireOwner(root);absent(reader,ColumnFamily.DEDUPE,record.key());
-                if(!record.mutation().equals(stamp)||record.allocation()!=null||!Arrays.equals(record.typedPayload(),outcome.encode()))throw new IllegalStateException("activation result changed actual Source decision");
-                if(record.kind()==TargetResultRecord.Kind.SYSTEM){if(first!=null||!Arrays.equals(record.key(),firstKey))throw new IllegalStateException("activation first changed key");}
-                else if(record.kind()==TargetResultRecord.Kind.POSITION_SYSTEM){if(first==null||!Arrays.equals(first.key(),firstKey)||!Arrays.equals(record.key(),positionKey))throw new IllegalStateException("activation POSITION changed first");record.requireFirst(first);}
+                if(!record.mutation().equals(stamp)||record.allocation()!=null)throw new IllegalStateException("activation result changed actual Source decision");
+                if(record.kind()==TargetResultRecord.Kind.SYSTEM){if(first!=null||!Arrays.equals(record.key(),firstKey)||!Arrays.equals(record.typedPayload(),outcome.encode()))throw new IllegalStateException("activation first changed key/outcome");}
+                else if(record.kind()==TargetResultRecord.Kind.POSITION_SYSTEM){if(first==null||!Arrays.equals(first.key(),firstKey)||!Arrays.equals(record.key(),positionKey)||!Arrays.equals(record.typedPayload(),first.logicalId()))throw new IllegalStateException("activation POSITION changed first");record.requireFirst(first);}
                 else throw new IllegalStateException("invalid activation result kind");
             };
             final var first=TargetResultRecord.system(root,outcome,stamp,null,results);final var position=TargetResultRecord.position(root,first,stamp,results);

@@ -781,10 +781,9 @@ class TargetQuotaGrantStoreTest {
             };
             final var sourceClasses = workClasses();
             final var loop = new WorkerSourceApplyLoop(consumer, sourceClasses, runtime);
-            assertEquals(
-                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100)
-                            .status());
+            final var firstTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, firstTurn.status(),
+                    () -> String.valueOf(firstTurn.failure()));
             final long writtenBeforeAckRetry = store.latestSequenceNumber();
             final var completed = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
             assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED, completed.status());
