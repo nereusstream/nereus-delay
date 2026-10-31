@@ -40,7 +40,7 @@ class TargetParentControlCreditStoreTest {
         final TargetParentControlCreditMutationFactory.Prepared input;
         final TargetQuotaIncarnation owner;
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, fixture.scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, fixture.scope.shard(), resources)) {
             final var initialized = fixture.bootstrap(store, limits);
             owner = initialized.root();
             final var activation = activation(fixture, store, 22);
@@ -121,7 +121,7 @@ class TargetParentControlCreditStoreTest {
             final var fixture = new TargetProtocolStoreTestFixture();
             final var config = ShardStoreConfig.defaults(directory.resolve(mode));
             try (var resources = new SharedRocksDbResources(config);
-                    var store = ShardStore.openTarget(config, fixture.scope.shard(), resources)) {
+                    var store = ShardStore.createTarget(config, fixture.scope.shard(), resources)) {
                 final var initialized = fixture.bootstrap(store, limits);
                 final var at = source(fixture.earlier, fixture.earlier.offset() + 1, 100);
                 final var activations = new TargetProtocolActivationStore(initialized.backend(), fixture.scope,
@@ -188,7 +188,7 @@ class TargetParentControlCreditStoreTest {
         final var fixture = new TargetProtocolStoreTestFixture();
         final var config = ShardStoreConfig.defaults(directory);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, fixture.scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, fixture.scope.shard(), resources)) {
             final var initialized = fixture.bootstrap(store, limits);
             final var at = source(fixture.earlier, fixture.earlier.offset() + 1, 100);
             final var activation = activation(fixture, store, 22);

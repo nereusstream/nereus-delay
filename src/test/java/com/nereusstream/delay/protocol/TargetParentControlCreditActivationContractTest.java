@@ -268,7 +268,7 @@ class TargetParentControlCreditActivationContractTest {
     }
 
     private static TargetMigrationPlan plan(TargetInitialControlSnapshot initial) {
-        final var object = new TargetMigrationObjectReference(new CheckpointResource(bytes(16, 1), bytes(16, 4),
+        final var object = new TargetMigrationObjectReference(new CheckpointResource(bytes(16, 4), bytes(16, 1),
                 new ProfileRef(Bytes.utf8("migration"), 1, bytes(32, 3), ProfileKind.OBJECT_STORE),
                 Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("version"), 2, bytes(32, 4)));
         return new TargetMigrationPlan(initial.input().scope(), bytes(32, 8), 1, null,

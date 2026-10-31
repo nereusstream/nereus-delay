@@ -523,7 +523,7 @@ class TargetQuotaGrantStoreTest {
         controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
                 origin, operation.mutation()));
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
             final long emptySequence = store.latestSequenceNumber();
             final var startFailure = new IllegalStateException("source start proof unavailable");
