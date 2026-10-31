@@ -12,6 +12,8 @@ import com.nereusstream.delay.protocol.SourceActivationBarrier;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter;
+import com.nereusstream.delay.scheduler.OrdinaryObservationConfiguration;
+import com.nereusstream.delay.scheduler.OrdinaryObservationContext;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.store.NativeResourceUsage;
@@ -82,7 +84,14 @@ public final class TargetWorkerProcessRuntime {
     }
 
     public record Configuration(TargetWorkerRuntimeConfig worker, Limits process,
-            TargetWorkerOxiaRuntime.Connection oxia, ResourceMonitoring monitoring) {
+            TargetWorkerOxiaRuntime.Connection oxia, ResourceMonitoring monitoring,
+            OrdinaryObservationConfiguration observation) {
+        /** Component compatibility; the configured service requires the explicit typed observation configuration. */
+        public Configuration(TargetWorkerRuntimeConfig worker, Limits process,
+                TargetWorkerOxiaRuntime.Connection oxia, ResourceMonitoring monitoring) {
+            this(worker, process, oxia, monitoring, null);
+        }
+
         public Configuration {
             Objects.requireNonNull(worker); Objects.requireNonNull(process); Objects.requireNonNull(oxia);
             Objects.requireNonNull(monitoring);
@@ -91,6 +100,20 @@ public final class TargetWorkerProcessRuntime {
                     Math.addExact(Math.addExact(process.ioNativeBytes(), process.metricNativeBytes()), monitoring.nativeBytes()),
                     Math.multiplyExact(3L, oxia.nativeBytesPerClient()));
             worker.requireCapacity(List.of(), new CapacityVector(fixed), CapacityVector.empty());
+            final long metricHeap = metricRetainedHeapBytes(process, observation);
+            if (metricHeap > worker.resources().certifiedJvmHeapBytes()
+                    || observation != null && (observation.maximumSources() > worker.store().maxOwnedShards()
+                        || process.metrics().maximumPendingBytes() < BoundedAsyncMetricExporter.OBSERVED_EVENT_PAYLOAD_BYTES)) {
+                throw new IllegalArgumentException("ordinary telemetry exceeds its original process heap/Source/queue envelope");
+            }
+        }
+
+        public long maximumMetricRetainedHeapBytes() { return metricRetainedHeapBytes(process, observation); }
+
+        private static long metricRetainedHeapBytes(Limits process, OrdinaryObservationConfiguration observation) {
+            return observation == null ? Math.addExact(4096L, Math.addExact(process.metrics().maximumPendingBytes(),
+                    Math.multiplyExact(256L, process.metrics().maximumPendingRecords())))
+                    : observation.maximumRetainedHeapBytes(process.metrics());
         }
     }
 
@@ -136,6 +159,9 @@ public final class TargetWorkerProcessRuntime {
     private WorkerNativeResourceLedger.Reservation monitorCost;
     private ThreadPoolExecutor io;
     private BoundedAsyncMetricExporter metrics;
+    private final java.util.UUID observationProcessInstance = java.util.UUID.randomUUID();
+    private boolean ordinaryObservationContextInstalled;
+    private int ordinaryObservationSourceCount;
     private SystemWriterAppendBudget systemWriters;
     private TargetDestinationSdkBudget destinationSdkBudget;
     private TargetWorkerPublicationDispatch publicationDispatch;
@@ -191,6 +217,7 @@ public final class TargetWorkerProcessRuntime {
             LongSupplier nanos, BoundedAsyncMetricExporter.Exporter exporter, Runnable originalStartupGuard) {
         Objects.requireNonNull(registries); Objects.requireNonNull(clock); Objects.requireNonNull(exporter);
         Objects.requireNonNull(originalStartupGuard);
+        if (configuration.observation() != null) BoundedAsyncMetricExporter.requireObservationExporter(exporter);
         var root = new TargetWorkerProcessRuntime(configuration, nanos);
         try {
             originalStartupGuard.run();
@@ -208,7 +235,7 @@ public final class TargetWorkerProcessRuntime {
             root.io = new ThreadPoolExecutor(configuration.process().ioThreads(), configuration.process().ioThreads(),
                     0L, TimeUnit.NANOSECONDS, new ArrayBlockingQueue<>(configuration.process().ioPendingTasks()),
                     root::newIoThread, new ThreadPoolExecutor.AbortPolicy());
-            root.metrics = new BoundedAsyncMetricExporter(configuration.process().metrics(), exporter);
+            root.metrics = new BoundedAsyncMetricExporter(configuration.process().metrics(), exporter, configuration.observation());
             root.oxia = TargetWorkerOxiaRuntime.open(configuration.oxia(), registries, authentication,
                     configuration.worker(), root.classes, root.resources, root.io, clock, nanos, originalStartupGuard);
             return root;
@@ -275,7 +302,7 @@ public final class TargetWorkerProcessRuntime {
             if (assemblyBorrowed || checkpointCompositions.containsKey(requested.scope().shard())
                     || checkpointCompositions.size() >= configuration.worker().store().maxOwnedShards()
                     || Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes), next)
-                            > configuration.worker().resources().certifiedJvmHeapBytes())
+                            > maximumInputHeapBytes())
                 throw new IllegalStateException("checkpoint composition exceeds its original Process Shard/heap envelope");
             original = TargetWorkerCheckpointComposition.create(
                     new Assembly(configuration.worker(), classes, resources, io, oxia),
@@ -367,6 +394,65 @@ public final class TargetWorkerProcessRuntime {
         }
         try { return classes.runTurn(configuration.worker().checkpoint().settlementTurn()); }
         finally { synchronized (this) { startupTurnActive = false; } }
+    }
+
+    /**
+     * Freezes this original Process's actual ready Source frontiers before Host activation. The captured
+     * Store cuts/assignment versions describe the boundary; they do not grant population or signed SLO coverage.
+     */
+    public void installOrdinaryObservationContext(LongSupplier ownerClock) {
+        Objects.requireNonNull(ownerClock, "actual Owner clock");
+        final List<TargetWorkerSourceStartup> original;
+        synchronized (this) {
+            requireAssemblyAdmission();
+            if (configuration.observation() == null || ordinaryObservationContextInstalled || !sourceConstructions.isEmpty()) {
+                throw new IllegalStateException("configured ordinary observation needs its original ready pre-Host Sources");
+            }
+            original = List.copyOf(sources.values());
+            configuration.observation().requireSourceCount(original.size());
+        }
+        final var cuts = new ArrayList<TargetSourceBacklog.Cut>(original.size());
+        final var boundaries = new ArrayList<OrdinaryObservationContext.SourceBoundary>(original.size());
+        long contextBytes = OrdinaryObservationContext.CANONICAL_HEADER_BYTES;
+        for (var source : original) {
+            source.requireCurrent();
+            final var worker = source.workerForHost(this);
+            final var activation = source.activation();
+            activation.requireGraph(classes, resources, source.store());
+            final var cut = worker.captureSourceBacklogCut(ownerClock);
+            contextBytes = Math.addExact(contextBytes,
+                    OrdinaryObservationContext.SourceBoundary.maximumCanonicalPayloadBytes(cut.applied()));
+            if (contextBytes > configuration.observation().maximumContextBytes()) {
+                throw new IllegalStateException("actual Source boundary exceeds its ordinary context byte reservation");
+            }
+            final var assignment = activation.assignment();
+            final Long connectionGeneration = assignment.activationBarrier() instanceof PulsarActivationBarrier pulsar
+                    ? pulsar.guardedSourceConnectionGeneration() : null;
+            boundaries.add(new OrdinaryObservationContext.SourceBoundary(cut.applied(), assignment.assignmentEpoch(),
+                    source.ownerLease().ownerEpoch(), connectionGeneration));
+            cut.requireCurrent();
+            cuts.add(cut);
+        }
+        for (var cut : cuts) cut.requireCurrent();
+        final var context = new OrdinaryObservationContext(configuration.observation(), observationProcessInstance,
+                configuration.process().metrics(), configuration.maximumMetricRetainedHeapBytes(),
+                configuration.process().metricNativeBytes(), boundaries);
+        synchronized (this) {
+            requireAssemblyAdmission();
+            if (ordinaryObservationContextInstalled || !original.equals(List.copyOf(sources.values()))
+                    || !sourceConstructions.isEmpty()) {
+                throw new IllegalStateException("original Source assembly changed during ordinary context capture");
+            }
+            metrics.installObservationContext(context);
+            ordinaryObservationContextInstalled = true;
+            ordinaryObservationSourceCount = original.size();
+        }
+    }
+
+    /** The original metric queue/context charge shares the existing process input heap envelope. */
+    private long maximumInputHeapBytes() {
+        return Math.subtractExact(configuration.worker().resources().certifiedJvmHeapBytes(),
+                configuration.maximumMetricRetainedHeapBytes());
     }
 
     /** Builds the original Host from this root's privately retained Source startups, not caller-built Workers. */
@@ -565,7 +651,7 @@ public final class TargetWorkerProcessRuntime {
         final long next = Math.addExact(channelInputBytes, bytes);
         if (channelInputs.containsKey(source)
                 || Math.addExact(Math.addExact(Math.addExact(next, reclaimInputBytes), scopeInputBytes), checkpointInputBytes)
-                > configuration.worker().resources().certifiedJvmHeapBytes()) {
+                > maximumInputHeapBytes()) {
             throw new IllegalStateException("original channel input reservations exceed the process heap envelope");
         }
         channelInputs.put(source, new ChannelInputs(original, bytes)); channelInputBytes = next;
@@ -583,7 +669,7 @@ public final class TargetWorkerProcessRuntime {
         if (bytes <= 0 || bytes == Long.MAX_VALUE || reclaimInputs.containsKey(source)
                 || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
                         scopeInputBytes), checkpointInputBytes), bytes)
-                        > configuration.worker().resources().certifiedJvmHeapBytes()) {
+                        > maximumInputHeapBytes()) {
             throw new IllegalStateException("original Native GC input reservation exceeds process envelope or is already owned");
         }
         final var retained = new ReclaimInputs(this, source, bytes);
@@ -619,7 +705,7 @@ public final class TargetWorkerProcessRuntime {
         if (bytes <= 0 || bytes == Long.MAX_VALUE || scopeInputs.containsKey(source)
                 || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
                         scopeInputBytes), checkpointInputBytes), bytes)
-                        > configuration.worker().resources().certifiedJvmHeapBytes())
+                        > maximumInputHeapBytes())
             throw new IllegalStateException("original Scope inputs exceed the process heap envelope or are already retained");
         final var retained = new ScopeInputs(this, source, bytes);
         scopeInputs.put(source, retained); scopeInputBytes = Math.addExact(scopeInputBytes, bytes);
@@ -870,6 +956,10 @@ public final class TargetWorkerProcessRuntime {
         synchronized (this) {
             if (host == null || preparingHost || stopping || controlledStartupFailure != null)
                 throw new IllegalStateException("process Host is not prepared");
+            metrics.requireObservationContext();
+            if (configuration.observation() != null && ordinaryObservationSourceCount != sources.size()) {
+                throw new IllegalStateException("configured Source set changed after its ordinary observation boundary");
+            }
             actual = host;
         }
         return actual.activateConfiguredService(configuration.worker().newSourceBacklogCache(io, nanos),

@@ -637,6 +637,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final Authorities authorities;
     private final Limits limits;
     private final LongSupplier monotonicClock;
+    /** Only the executing Source action shares this window; unrelated I/O threads keep their own checks. */
+    private final ThreadLocal<BoundedReadBudget> sourceActionBudget = new ThreadLocal<>();
     private final boolean recoveryOnly;
     private final Runnable recoveryProtection;
     private final TargetStoreBootstrap.Initialized sloInitialization;
@@ -3385,15 +3387,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     @Override
     synchronized SourceReplayOutcome apply(
             final SourceReplayEntry entry, final LongSupplier clock, final boolean recovery) {
+        final var budget = beginSourceAction();
         try {
             requireSubmission(entry, recovery);
             requireOwner(clock);
             if (entry instanceof SourceReplayRecord command) {
-                return applyCommand(command, clock);
+                return completeSourceAction(applyCommand(command, clock, budget));
             }
             final var mutation = (SourceReplayMutation) entry;
-            final var budget =
-                    new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
             final TargetSystemReplayStore.Prepared duplicate;
             final var replayFees=scopeFees(mutation);
             // Only backend preparation yields are retryable. External resolution and commit failures must fence.
@@ -3615,7 +3616,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 result = grants.commit(first, writes(control.commit(), entry, clock));
             }
             // Broker ACK carries this physical record's anchor, while the Store retains the first logical result.
-            return SourceReplayOutcome.systemMutation(
+            return completeSourceAction(SourceReplayOutcome.systemMutation(
                     entry.position(),
                     new SystemMutationResult(
                             result.mutationId(),
@@ -3625,7 +3626,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                             result.authorIdentity(),
                             result.applyStatus(),
                             result.stableCode(),
-                            entry.position().canonicalBytes()));
+                            entry.position().canonicalBytes())));
         } catch (ReadYield incomplete) {
             throw incomplete;
         } catch (TargetSourceAuthorityPreparation.Required | com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot.ViewChanged refresh) {
@@ -3644,12 +3645,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         } catch (RuntimeException | Error failure) {
             fence();
             throw failure;
+        } finally {
+            sourceActionBudget.remove();
         }
     }
 
-    private SourceReplayOutcome applyCommand(final SourceReplayRecord entry, final LongSupplier clock) {
-        final var budget =
-                new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+    private SourceReplayOutcome applyCommand(
+            final SourceReplayRecord entry, final LongSupplier clock, final BoundedReadBudget budget) {
         final TargetCommandReplayStore.Prepared prepared;
         try {
             prepared = commandReplay
@@ -3790,17 +3792,51 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     @Override
     synchronized void beforeAcknowledgement(
             final SourceReplayEntry entry, final SourceReplayOutcome outcome, final LongSupplier clock) {
-        try (var guard = reads(entry, clock).acquire(store.metadata(), scope)) {
-            guard.requireCurrent();
-            if (!Arrays.equals(
-                    store.appliedShardLogPosition().canonicalBytes(),
-                    entry.position().canonicalBytes())) {
-                throw new IllegalStateException("Target ACK no longer names the current durable source");
+        beginSourceAction();
+        try {
+            try (var guard = reads(entry, clock).acquire(store.metadata(), scope)) {
+                guard.requireCurrent();
+                if (!Arrays.equals(
+                        store.appliedShardLogPosition().canonicalBytes(),
+                        entry.position().canonicalBytes())) {
+                    throw new IllegalStateException("Target ACK no longer names the current durable source");
+                }
             }
+            requireSourceActionCurrent();
+        } catch (RuntimeException | Error failure) {
+            fence();
+            throw failure;
+        } finally {
+            sourceActionBudget.remove();
+        }
+    }
+
+    private BoundedReadBudget beginSourceAction() {
+        if (sourceActionBudget.get() != null) {
+            fence();
+            throw new IllegalStateException("Target Source action cannot recursively replace its original deadline");
+        }
+        try {
+            final var budget = new BoundedReadBudget(
+                    limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+            sourceActionBudget.set(budget);
+            return budget;
         } catch (RuntimeException | Error failure) {
             fence();
             throw failure;
         }
+    }
+
+    private void requireSourceActionCurrent() {
+        final var budget = sourceActionBudget.get();
+        if (budget != null && !budget.beforeTimedWork()) {
+            throw new IllegalStateException("Target Source action exceeded its cumulative operation deadline");
+        }
+    }
+
+    private SourceReplayOutcome completeSourceAction(final SourceReplayOutcome outcome) {
+        requireSourceActionCurrent();
+        return outcome;
     }
 
     private void requireOwner(final LongSupplier clock) {
@@ -3848,6 +3884,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
 
     private void requireOwnerReadDeadline(long started) {
+        if (sourceActionBudget.get() != null) {
+            requireSourceActionCurrent();
+            return;
+        }
         final long elapsed = monotonicClock.getAsLong() - started;
         if (elapsed < 0 || elapsed >= limits.elapsedNanos()) {
             throw new IllegalStateException("Target Source authoritative Owner check exceeded its finite operation deadline");

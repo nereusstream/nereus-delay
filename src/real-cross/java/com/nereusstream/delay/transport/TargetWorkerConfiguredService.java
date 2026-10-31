@@ -26,6 +26,7 @@ import com.nereusstream.delay.ownership.TargetWorkerPublishingConfiguration;
 import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory;
 import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
+import com.nereusstream.delay.ownership.TargetWorkerSloServiceConfiguration;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CredentialBinding;
@@ -109,11 +110,12 @@ public final class TargetWorkerConfiguredService {
             ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
             TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
             Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
-            Map<String, ReceiptInputs> receipts, JournalInputs journal) {
+            Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders) {
         public SourceInputs {
             Objects.requireNonNull(owner); Objects.requireNonNull(content); Objects.requireNonNull(successor);
             Objects.requireNonNull(capacity); Objects.requireNonNull(recovery); Objects.requireNonNull(maintenance);
             Objects.requireNonNull(publishing); Objects.requireNonNull(expiry); Objects.requireNonNull(checkpoint);
+            Objects.requireNonNull(sloProviders);
             receipts = Map.copyOf(receipts);
         }
     }
@@ -137,7 +139,8 @@ public final class TargetWorkerConfiguredService {
     }
 
     private enum Stage { CHECKPOINT, SOURCE, RESTORE_PREPARATION, RESTORE, OPEN_SOURCE, SOURCE_READY,
-        WRITER, WRITER_READY, INVENTORY, MANAGEMENT, CHANNELS, JOURNAL, PUBLISHING, READY }
+        WRITER, WRITER_READY, INVENTORY, MANAGEMENT, CHANNELS, JOURNAL, PUBLISHING,
+        SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, READY }
 
     private static final class Source {
         final TargetWorkerServiceConfiguration.Source configuration;
@@ -178,6 +181,7 @@ public final class TargetWorkerConfiguredService {
     private volatile Throwable firstFailure;
     private int sourceIndex;
     private boolean processReady;
+    private boolean ordinaryContextInstalled;
     private TargetOwnerDrainCoordinator.Request stopRequest;
 
     private TargetWorkerConfiguredService(TargetWorkerServiceConfiguration configuration, Dependencies dependencies) {
@@ -209,6 +213,10 @@ public final class TargetWorkerConfiguredService {
     }
 
     private static void preflight(TargetWorkerServiceConfiguration configuration, Dependencies dependencies) {
+        final var processConfig = configuration.processConfiguration();
+        if (processConfig.observation() == null) throw new IllegalArgumentException("configured service requires an explicit ordinary observation boundary");
+        processConfig.observation().requireSourceCount(configuration.sources().size());
+        BoundedAsyncMetricExporter.requireObservationExporter(dependencies.exporter());
         if (configuration.sources().size() != dependencies.sources().size()) {
             throw new IllegalArgumentException("service requires exact genuine input inventory for every configured Source");
         }
@@ -218,9 +226,10 @@ public final class TargetWorkerConfiguredService {
         final var journalNamespaces = new java.util.HashSet<String>();
         CapacityVector sdkDemand = configuration.configuredSdkDemand();
         int sdkClients = configuration.configuredSdkClients();
-        long retainedHeap = configuration.configurationHeapBytes();
+        long retainedHeap = Math.addExact(configuration.configurationHeapBytes(), processConfig.maximumMetricRetainedHeapBytes());
         for (var source : configuration.sources()) {
             final var input = Objects.requireNonNull(dependencies.sources().get(source.scope().shard()), "Source authority inputs");
+            source.typedSloService().requireProviders(input.sloProviders());
             final var assignment = input.owner().publication().assignment();
             if (!assignment.sourceAssignment().shardId().equals(source.scope().shard())
                     || !Arrays.equals(source.scope().tenantScope(), input.owner().tenant().tenantRoutingScope())
@@ -266,6 +275,7 @@ public final class TargetWorkerConfiguredService {
             retainedHeap = Math.addExact(retainedHeap, Math.addExact(input.content().maximumBytes(),
                     Math.addExact(source.typedSource().maximumRecoveryInputBytes(),
                             Math.addExact(source.typedCheckpoint().retainedHeapBytes(), source.inventoryLimits().maximumRetainedBytes()))));
+            retainedHeap = Math.addExact(retainedHeap, source.typedSloService().retainedHeapBytes());
             if (input.content().scopeResources() != null) retainedHeap = Math.addExact(retainedHeap,
                     TargetScopeResourceManager.maximumResidentBytes(input.content().scopeResources(),
                             input.content().maximumBytes(), input.content().maximumBytes()));
@@ -351,6 +361,11 @@ public final class TargetWorkerConfiguredService {
                 final var source = sources.get(sourceIndex);
                 advanceSource(source);
                 if (source.stage == Stage.READY) { workers.put(source.worker, source); sourceIndex++; }
+                return state;
+            }
+            if (!ordinaryContextInstalled) {
+                process.installOrdinaryObservationContext(dependencies.ownerClock());
+                ordinaryContextInstalled = true;
                 return state;
             }
             process.prepareHostWithDeferredCheckpoints((worker, claim, cut) -> original(worker).checkpoint.deferredRequestFactory().create(worker, claim, cut),
@@ -481,6 +496,23 @@ public final class TargetWorkerConfiguredService {
             case PUBLISHING -> {
                 source.startup.configurePublishing(source.writer, input.publishing());
                 source.worker.configureMessageExpiryMaintenance(source.writer, input.expiry());
+                source.stage = Stage.SLO_CONTINUATIONS;
+            }
+            case SLO_CONTINUATIONS -> {
+                source.startup.configureSloFinalContinuations(source.writer, input.sloProviders().continuation(),
+                        config.typedSloService().continuationTaskBytes());
+                source.stage = Stage.SLO_FINAL;
+            }
+            case SLO_FINAL -> {
+                final var slo = config.typedSloService();
+                source.startup.configureSloFinalMaintenance(source.writer, () -> slo.finalReads().newBudget(dependencies.nanos()),
+                        slo.finalPages(), input.sloProviders().finalMaintenance(), slo.finalTaskBytes());
+                source.stage = Stage.SLO_CUSTODY;
+            }
+            case SLO_CUSTODY -> {
+                final var slo = config.typedSloService();
+                source.startup.configureSloCustodyExport(source.writer, () -> slo.custodyReads().newBudget(dependencies.nanos()),
+                        slo.custodyPages(), input.sloProviders().custody(), slo.custodyTaskBytes());
                 source.stage = Stage.READY;
             }
             case READY -> { }

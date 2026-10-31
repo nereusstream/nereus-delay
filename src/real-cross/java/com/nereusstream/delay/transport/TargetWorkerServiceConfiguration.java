@@ -5,6 +5,7 @@ import com.nereusstream.delay.ownership.TargetWorkerCheckpointConfiguration;
 import com.nereusstream.delay.ownership.TargetWorkerProcessRuntime;
 import com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch;
 import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfigLoader;
+import com.nereusstream.delay.ownership.TargetWorkerSloServiceConfiguration;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -13,6 +14,7 @@ import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TargetChannelControlRequest;
 import com.nereusstream.delay.protocol.TargetKafkaReceiptManagementImage;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.scheduler.WorkClass;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -133,13 +135,15 @@ public final class TargetWorkerServiceConfiguration {
             Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
             SourceConfiguration typedSource, WriterConfiguration typedWriter,
             TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
-            List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources) {
+            List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+            Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService) {
         public Source {
             Objects.requireNonNull(name); Objects.requireNonNull(scope); Objects.requireNonNull(mode); Objects.requireNonNull(transport);
             Objects.requireNonNull(sourceFile); Objects.requireNonNull(writerFile); Objects.requireNonNull(checkpointFile);
             Objects.requireNonNull(inventoryFile); Objects.requireNonNull(storePath); Objects.requireNonNull(typedSource);
             Objects.requireNonNull(typedWriter); Objects.requireNonNull(typedCheckpoint); Objects.requireNonNull(inventoryLimits);
             Objects.requireNonNull(readResourcesFile); Objects.requireNonNull(typedReadResources);
+            Objects.requireNonNull(sloServiceFile); Objects.requireNonNull(typedSloService);
             Bytes.requireLength(lineage, 16, "service Native lineage"); lineage = Bytes.copy(lineage);
             channels = List.copyOf(channels);
         }
@@ -230,6 +234,8 @@ public final class TargetWorkerServiceConfiguration {
             throw new IllegalArgumentException("service SDK pool omits connections, threads or independent writer generations");
         }
         final int count = boundedCount(f.integer("sources.count"), maximumSources, "Sources");
+        if (process.observation() == null) throw new IllegalArgumentException("configured service requires explicit ordinary observation limits");
+        process.observation().requireSourceCount(count);
         if (count > process.worker().store().maxOwnedShards() || count > process.worker().store().maxOpenShardDbs()
                 || count > process.worker().systemWriter().writers()) {
             throw new IllegalArgumentException("service Sources exceed original Store or system-writer limits");
@@ -242,7 +248,9 @@ public final class TargetWorkerServiceConfiguration {
         final var management = new HashMap<Path, KafkaClientArtifactTargetReceiptManagementFactory.Configuration>();
         final var managementIds = new HashSet<String>();
         CapacityVector actualSdk = CapacityVector.empty();
-        long retainedHeap = heap, checkpointNative = 0;
+        long retainedHeap = Math.addExact(heap, process.maximumMetricRetainedHeapBytes()), checkpointNative = 0;
+        long sloQueuedBytes = 0;
+        int sloTasks = 0;
         int actualClients = 0, channelCount = 0;
         for (int index = 0; index < count; index++) {
             final String key = "source." + index + '.';
@@ -331,6 +339,12 @@ public final class TargetWorkerServiceConfiguration {
             final Path inventoryFile = files.add(resolve(base, f.text(key + "inventoryFile")), MAXIMUM_FILE_BYTES);
             final var inventory = TargetWorkerRuntimeConfigLoader.loadChannelInventory(inventoryFile);
             retainedHeap = Math.addExact(retainedHeap, inventory.maximumRetainedBytes());
+            final Path sloServiceFile = files.add(resolve(base, f.text(key + "sloServiceFile")), MAXIMUM_FILE_BYTES);
+            final var sloService = TargetWorkerSloServiceConfiguration.load(sloServiceFile);
+            sloService.requireWorker(process.worker());
+            retainedHeap = Math.addExact(retainedHeap, sloService.retainedHeapBytes());
+            sloQueuedBytes = Math.addExact(sloQueuedBytes, sloService.maximumQueuedBytes());
+            sloTasks = Math.addExact(sloTasks, TargetWorkerSloServiceConfiguration.MAXIMUM_TASKS);
             final Path storePath = storeRoot.toAbsolutePath().normalize().resolve("shards").resolve(route)
                     .resolve(Integer.toUnsignedString(scope.shard().partition()));
             requireDirectoryPath(storePath);
@@ -407,7 +421,8 @@ public final class TargetWorkerServiceConfiguration {
                         pulsarClientFile, pulsarClient));
             }
             sources.add(new Source(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile,
-                    inventoryFile, storePath, source, writer, checkpoint, inventory, channelList, readResourcesFile, readResources));
+                    inventoryFile, storePath, source, writer, checkpoint, inventory, channelList, readResourcesFile, readResources,
+                    sloServiceFile, sloService));
         }
         f.requireComplete();
         files.requireUnchanged();
@@ -420,6 +435,10 @@ public final class TargetWorkerServiceConfiguration {
         }
         if (channelCount > dispatch.maximumChannels() || actualClients > clients || !sdkLimit.covers(actualSdk)) {
             throw new IllegalArgumentException("actual service channels or SDK generations exceed the declared shared pool");
+        }
+        final var outcomeQueue = process.worker().workClasses().policies().get(WorkClass.OUTCOME_AND_CONTROL);
+        if (sloTasks > outcomeQueue.maxQueueRecords() || sloQueuedBytes > outcomeQueue.maxQueueBytes()) {
+            throw new IllegalArgumentException("SLO maintenance tasks exceed the configured shared Outcome/Control queue");
         }
         if (files.bytes > heap || retainedHeap > process.worker().resources().certifiedJvmHeapBytes()) {
             throw new IllegalArgumentException("service input, recovery, inventory and checkpoint heap exceed their declared envelope");

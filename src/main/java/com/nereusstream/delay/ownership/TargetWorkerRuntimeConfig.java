@@ -122,7 +122,8 @@ public record TargetWorkerRuntimeConfig(
         final var sourcePolicy = workClasses.policies().get(WorkClass.SOURCE_APPLY);
         if (maximumSourceFrameBytes <= 0 || maximumSourceFrameBytes >= Integer.MAX_VALUE
                 || sourcePolicy.maxBytesPerTurn() < maximumSourceApplyTaskBytes(maximumSourceFrameBytes)
-                || sourcePolicy.maxTimePerTurnNanos() < source.elapsedNanos()) {
+                || sourcePolicy.maxTimePerTurnNanos() < source.elapsedNanos()
+                || workClasses.maxBorrowedResourceHoldNanos() < source.elapsedNanos()) {
             throw new IllegalArgumentException("SOURCE_APPLY policy is below the source action envelope");
         }
         workClasses.requireTaskServiceable(new WorkClassTask(WorkClass.SOURCE_APPLY,

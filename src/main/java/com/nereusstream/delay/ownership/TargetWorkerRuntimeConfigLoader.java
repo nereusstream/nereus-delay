@@ -93,6 +93,12 @@ public final class TargetWorkerRuntimeConfigLoader {
                 f.number("process.metricNativeBytes"),
                 new com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Limits(
                         f.integer("process.metricPendingRecords"), f.number("process.metricPendingBytes")));
+        final String observationPrefix = "process.observation.";
+        final var observation = new com.nereusstream.delay.scheduler.OrdinaryObservationConfiguration(
+                com.nereusstream.delay.scheduler.OrdinaryObservationConfiguration.Mode.valueOf(f.text(observationPrefix + "mode")),
+                f.number(observationPrefix + "generation"), f.integer(observationPrefix + "maximumSources"),
+                f.number(observationPrefix + "maximumContextBytes"), f.integer(observationPrefix + "maximumStatusAttempts"),
+                f.number(observationPrefix + "statusRetryNanos"));
         final var oxia = new TargetWorkerOxiaRuntime.Connection(f.text("oxia.serviceAddress"),
                 f.text("oxia.namespace"), f.text("oxia.clientIdentifier"), f.text("oxia.ownerPrefix"),
                 f.text("oxia.routeSessionPrefix"), Duration.ofMillis(f.number("oxia.sessionTimeoutMs")),
@@ -113,7 +119,7 @@ public final class TargetWorkerRuntimeConfigLoader {
                         f.number(prefix + "maxCompactionPendingBytesPerDb"), f.number(prefix + "maxTotalCompactionPendingBytes"),
                         f.integer(prefix + "maxL0FilesPerDb")),
                 f.number(prefix + "nativeBytes"));
-        return new TargetWorkerProcessRuntime.Configuration(load(f.remaining), process, oxia, monitoring);
+        return new TargetWorkerProcessRuntime.Configuration(load(f.remaining), process, oxia, monitoring, observation);
     }
 
     /** Properties normally discards duplicate keys; deployment settings must have one unambiguous value. */

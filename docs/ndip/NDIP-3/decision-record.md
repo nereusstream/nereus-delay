@@ -1819,3 +1819,60 @@ recovery Source writer/provider、old-process custody/full old REGISTER与legacy
 完整Scope资源/retention、timeout/gap producer、独立全人口coverage与真实恢复验证仍
 OPEN。逻辑屏障不证明远端从未落盘、不释放physical UNKNOWN/attempt/Journal或退款；
 不改Source exhausted/cursor、Route/schema/descriptor，不提升任何完成/生产flags。
+
+## 2026-10-31：包4以原 Source 迁移激活作为唯一切换事实
+
+主会话裁定维护窗 fenced 单写者迁移。同 Shard 原 Source 的精确迁移 ACTIVATE 是唯一
+切换事实；Catalog/assignment 只采用该结果。既有 TargetProtocolActivation 依赖已建立
+的 Target Root，只负责 tuple/reader 能力，不能原样用来 bootstrap legacy→Target。
+迁移操作须独立 purpose、明确版本及 Registry 号位，复用原 CONTROL 签名、Prepared
+注册、实际 first/POS、重放、原子计费和独立 eligible reader 资格，保留旧协议 bytes。
+普通 Worker/SERVICE 权限不能签发迁移或自证读者全集。
+
+ACTIVATE 绑定唯一 migrationId/期望前驱、物理 Source、旧 Store/format/lineage/Manifest
+及精确基线 cut C、新 Store/format、已封存候选 image，以及 mapping、legacy custody、
+conservation 对象的 exact 版本/hash/length 和原关闭 writer 域/管理权限。候选处于
+MIGRATION_PREPARED，不能作为 normal active/READY restore candidate。实际 Source
+激活 A 被迁移 bootstrap 验证并落地后新 Root 才可服务；post-A 正式 checkpoint 包含
+原 A/first/POS、migration root/custody 投影后再由 Catalog 采用，避免自引用哈希循环。
+
+离线转换按有界批建独立新 Store；导入事实必须有明确 migration-origin/baseline 和
+完整旧来源，不能伪造普通 Target grant/Command first、SourceReplayEntry 或未知 A
+位置。A 仅在原有界 Native 批内建立/核验 import-root、首结果/POS、实际费用/frontier，
+不在一次 Source apply 内转换全库。既有校验不接受导入 origin 时显式扩迁移分支。
+
+先完成真实旧 writer/admission 冻结和保护再采 C。安全判定覆盖原进程/外部注册、已发
+未落 Source 的 Admission、UNKNOWN、Journal/producer 晚到责任；缺少 noFuture 证明的
+实体留 legacy custody，并在 Target 以逐 ID 耐久 guard 禁发。SDK 终止、lease 或单个
+TIME_FENCE 不合成未发布事实。C 与 A 不必相邻，开放新服务前必须按固定兼容解释完整
+处理 C 后至 A 及后续 prefix，保原 successor；新旧 Store 不被声称跨库原子提交。
+晚到旧 Admission、未知格式、未覆盖 mapping 或权限/strict 冲突使准入停止，保留原义务。
+
+载体复用原 checkpoint/object 机制：有限不可变 companion/bundle 和固定 chunk 清单保存
+完整 mapping、逐实体 disposition、原 command/hash/dedupe/terminal guard、legacy 义务、
+原费用/保护及独立守恒材料。Source 帧仅绑定 exact 对象和边界，不内嵌无限库存或现场
+list 猜全集。新 Store migration root 保存实际 A/旧来源关联及逐 ID 禁发/归属索引，进入
+正式 checkpoint、restore 和完整审计；材料或保护不可得时拒绝，hash/count 不替代原内容。
+旧 incarnation/checkpoint、Source/evidence/Journal/sequence 仍由原 custody owner 保管，
+只完成既有义务，不新 Claim/Admission 或换 producer/sequence 重发。guard 的解除须原
+确证终结及明确版本 Source 结算/释放，在 Target 原 Native 批一次兑现；普通 GC、ACK、
+启动或读完 tail 不清 guard、不退款。F2 旧根退役另需完整 noFuture/Pin/reader/retention。
+
+mapping 冻结允许旧 writer 域的完整 Lane、ProfileRef/版本/执行域、tenant、credential/
+control scope、physical Target 和有限 domain slot，不能只列 C 时可见对象。post-C 旧
+命令保持 raw bytes/commandId/hash/Source 身份和原域幂等，按冻结 mapping/原历史解释，
+不重签 Admission 或用今日 Profile 推导。每条记录明确 Target/legacy 处理归属；跨域
+有序幂等步骤不闭合时留 legacy 并阻断，不能双写者竞争或把两库各自成功当原子事务。
+
+仅实际有效 A 及应用结果授予新域，SDK ACK/Catalog ready/assignment 更新不替代。
+metadata CAS 绑定同 migrationId/A/old→new identity；崩溃重读原 Source/first 和原候选，
+幂等补 materialization/adoption。ACTIVATE 尚未进入 SDK 且确证无新域可见工作时才可
+按原授权退回；append 已暴露或 UNKNOWN 时不得凭查不到 A 恢复旧 writer。A 生效后一律
+roll-forward，adoption 失败只补采用，不撤销 Source 事实，即使尚无新业务也不自动回退。
+
+守恒覆盖互不重叠的 converted+legacy 全集：消息/字节、原结果/去重、payload/费用
+owner、quota totals、head/strict/control/授权范围。新增索引/复制期物理资源单独付款，
+不要求 raw KV 数相等，不删 UNKNOWN 或漏旧费用。dry-run 固定 blocker 仅凭实际对应
+证据及独立 audit 关闭；READY 仅可申请迁移，不是 activation 或 reader 退休资格。
+这是后续代码的持久语义裁定，尚未实现新 migration wire/转换/激活，不授任何环境迁移、
+删除、保护解除或验收/生产权限；四包及全部29切片义务保持。
