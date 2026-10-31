@@ -2,8 +2,12 @@ package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.CapacityDimension;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.TargetQueueState;
+import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.runtime.TargetSourceOperationEnvelope;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import com.nereusstream.delay.store.WorkerRuntimeResourceObservation;
@@ -15,21 +19,31 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class TargetWorkerRuntimeConfigTest {
+    private static final TargetSourceOperationEnvelope.Bounds FIXED_SOURCE = TargetSourceOperationEnvelope.basic();
+
     @TempDir
     Path root;
 
     @Test
     void explicitSchemaDerivesOneOwnershipBoundaryAndSeparatesReadAndActionCosts() {
-        final var loaded = TargetWorkerRuntimeConfigLoader.load(values());
+        final var settings = values();
+        final var loaded = TargetWorkerRuntimeConfigLoader.load(settings);
         assertEquals(loaded.store().maxOwnedShards(), loaded.inventory().maximumShards());
-        assertEquals(64, loaded.source().records());
+        assertEquals(Integer.parseInt(settings.get("target.sourceReadRecords")), loaded.source().records());
+        assertEquals(Long.parseLong(settings.get("target.sourceReadBytes")), loaded.source().bytes());
         assertEquals(1, loaded.workClasses().policies().get(WorkClass.SOURCE_APPLY).maxRecordsPerTurn());
         assertEquals(1, loaded.sourceTurn().maxMessages());
-        assertEquals(1024, loaded.sourceTurn().maxBytes());
+        assertEquals(loaded.maximumSourceFrameBytes() + TargetSourcePosition.MAX_CANONICAL_BYTES,
+                loaded.sourceTurn().maxBytes());
+        assertTrue(loaded.source().records() > loaded.sourceTurn().maxMessages());
+        assertTrue(loaded.source().bytes() > loaded.sourceTurn().maxBytes());
         assertEquals(8, loaded.maximumTargetSummaries());
-        assertEquals(32, loaded.maximumDomainHeads());
+        // Two Shards, four Targets each, and two physical heads for every one of the 64 domain slots.
+        assertEquals(1024, loaded.maximumDomainHeads());
         loaded.newWorkClasses(() -> 0);
         loaded.requireCapacity(java.util.List.of(), CapacityVector.empty(), CapacityVector.empty());
+        assertThrows(TargetSourceAuthorityPreparation.InputUnavailable.class,
+                () -> loaded.requireSourceOperationEnvelope(FIXED_SOURCE));
         assertEquals(false, Files.exists(root.resolve("db")));
     }
 
@@ -63,6 +77,14 @@ class TargetWorkerRuntimeConfigTest {
 
     @Test
     void schedulerCannotAdmitAnEnvelopeItCanNeverServe() {
+        for (String key : java.util.List.of("target.sourceReadRecords", "target.sourceReadBytes",
+                "target.maximumAffectedCounters", "target.maximumDomains", "target.maximumSourceFrameBytes")) {
+            final var map = values();
+            map.put(key, key.equals("target.maximumAffectedCounters") ? "2" : "1");
+            assertEquals("Source limits cannot serve the complete legal Native operation family",
+                    assertThrows(IllegalArgumentException.class,
+                            () -> TargetWorkerRuntimeConfigLoader.load(map)).getMessage());
+        }
         for (String key : java.util.List.of("scheduling.class.SOURCE_APPLY.turnBytes",
                 "scheduling.class.DUE_SCHEDULER.turnBytes", "scheduling.turnBytes")) {
             final var map = values();
@@ -90,7 +112,9 @@ class TargetWorkerRuntimeConfigTest {
         final var loaded = TargetWorkerRuntimeConfigLoader.load(values());
         final var classes = loaded.newWorkClasses(() -> 0);
         // The injected observation is synthetic; this test makes no current-host probe claim.
-        final var observation = new WorkerRuntimeResourceObservation(128, 128, 128, 640, 32, 1, 4096, 4096);
+        final var observation = new WorkerRuntimeResourceObservation(
+                loaded.resources().certifiedJvmHeapBytes(), 128, 128,
+                loaded.resources().effectiveCgroupMemoryLimitBytes(), 32, 1, 4096, 4096);
         try (var resources = new SharedRocksDbResources(loaded.store(), loaded.resources(), observation)) {
             loaded.requireRuntime(classes, resources);
             final var differentPolicies = values();
@@ -149,6 +173,19 @@ class TargetWorkerRuntimeConfigTest {
 
     /** Synthetic numeric fixture, not a release capacity declaration or runtime observation. */
     private Map<String, String> values() {
+        // Satisfy the current fixed Native calculation only; the original Source frame hold is still absent.
+        final long frameBytes = FIXED_SOURCE.fixedMaximumFrameBytes();
+        final long sourceTaskBytes = Math.addExact(frameBytes, TargetSourcePosition.MAX_CANONICAL_BYTES);
+        final long sourceReadRecords = Math.addExact(64, Math.max(
+                FIXED_SOURCE.readRecords(), FIXED_SOURCE.writeRecords()));
+        final long sourceReadBytes = Math.max(Math.multiplyExact(2, sourceTaskBytes),
+                Math.max(FIXED_SOURCE.fixedReadBytes(), FIXED_SOURCE.fixedWriteBytes()));
+        // One Source action remains serviceable while the other seven classes retain their 128-byte minima.
+        final long poolBytes = Math.addExact(sourceTaskBytes, 7 * 128);
+        final long writerBytes = Math.multiplyExact(2, frameBytes);
+        final long perShardInputBytes = Math.addExact(FIXED_SOURCE.fixedRetainedBytes(), sourceReadBytes);
+        final long heapBytes = Math.addExact(65536, Math.addExact(poolBytes, Math.multiplyExact(2, perShardInputBytes)));
+        final long rssBytes = Math.addExact(heapBytes, 3 * 128 + 64);
         final var v = new HashMap<String, String>();
         v.put("worker.rootPath", root.resolve("db").toString());
         v.put("worker.maxOwnedShards", "2");
@@ -163,14 +200,14 @@ class TargetWorkerRuntimeConfigTest {
         v.put("worker.maxCompactionJobs", "1");
         v.put("worker.maxBackgroundJobsPerDb", "2");
         v.put("worker.maxConcurrentAcquires", "1");
-        v.put("worker.heapBytes", "128");
+        v.put("worker.heapBytes", Long.toString(heapBytes));
         v.put("worker.directBytes", "128");
         v.put("worker.rocksDbNativeBytes", "128");
         v.put("worker.otherNativeBytes", "128");
         v.put("worker.controlMemoryHeadroomBytes", "64");
-        v.put("worker.processRssBytes", "576");
+        v.put("worker.processRssBytes", Long.toString(rssBytes));
         v.put("worker.containerHeadroomBytes", "64");
-        v.put("worker.cgroupBytes", "640");
+        v.put("worker.cgroupBytes", Long.toString(Math.addExact(rssBytes, 64)));
         v.put("worker.processOpenFiles", "32");
         v.put("worker.fdHeadroom", "8");
         v.put("worker.filesystemBytes", "4096");
@@ -178,7 +215,7 @@ class TargetWorkerRuntimeConfigTest {
         v.put("worker.controlReserveBytes", "64");
         v.put("worker.controlReserveRecords", "8");
         v.put("worker.systemWriterRecords", "2");
-        v.put("worker.systemWriterBytes", "1024");
+        v.put("worker.systemWriterBytes", Long.toString(writerBytes));
         v.put("worker.systemWriterGenerations", "2");
         for (final var dimension : CapacityDimension.values()) {
             long value = 1024;
@@ -186,6 +223,8 @@ class TargetWorkerRuntimeConfigTest {
             if (dimension == CapacityDimension.CONTROL_RESERVE_RECORDS) { value = 8; }
             if (java.util.List.of(CapacityDimension.ROCKSDB_NATIVE_BYTES, CapacityDimension.DIRECT_BUFFER_BYTES,
                     CapacityDimension.OTHER_NATIVE_BYTES).contains(dimension)) { value = 128; }
+            if (java.util.List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES, CapacityDimension.PHYSICAL_BYTES,
+                    CapacityDimension.ZOMBIE_BYTES).contains(dimension)) { value = writerBytes; }
             v.put("worker.hardCap." + dimension.name(), Long.toString(value));
         }
         for (String key : java.util.List.of("checkpointCreates", "checkpointUploads", "checkpointDownloads",
@@ -242,27 +281,31 @@ class TargetWorkerRuntimeConfigTest {
         }
         v.put("scheduling.class.CHECKPOINT.queueBytes", "8192");
         v.put("scheduling.class.CHECKPOINT.turnBytes", "8192");
+        v.put("scheduling.class.SOURCE_APPLY.queueBytes", Long.toString(Math.multiplyExact(2, sourceTaskBytes)));
+        v.put("scheduling.class.SOURCE_APPLY.turnBytes", Long.toString(sourceTaskBytes));
+        v.put("scheduling.class.OUTCOME_AND_CONTROL.queueBytes", Long.toString(writerBytes));
+        v.put("scheduling.class.OUTCOME_AND_CONTROL.turnBytes", Long.toString(frameBytes));
         v.put("scheduling.maxClassDelayNanos", "1000");
         v.put("scheduling.maxResourceHoldNanos", "1000");
         v.put("scheduling.poolRecords", "8");
-        v.put("scheduling.poolBytes", "16384");
-        v.put("target.sourceReadRecords", "64");
-        v.put("target.sourceReadBytes", "4096");
+        v.put("scheduling.poolBytes", Long.toString(poolBytes));
+        v.put("target.sourceReadRecords", Long.toString(sourceReadRecords));
+        v.put("target.sourceReadBytes", Long.toString(sourceReadBytes));
         v.put("target.sourceReadNanos", "1000");
-        v.put("target.maximumAffectedCounters", "4");
-        v.put("target.maximumDomains", "2");
+        v.put("target.maximumAffectedCounters", Integer.toString(FIXED_SOURCE.maximumCounters()));
+        v.put("target.maximumDomains", Integer.toString(TargetQueueState.MAX_DOMAIN_SLOTS));
         v.put("target.maximumWorkerTargets", "4");
         v.put("target.inventoryPageTargets", "2");
         v.put("target.inventoryPagesPerShard", "2");
         v.put("target.inventoryReadRecords", "16");
         v.put("target.inventoryReadBytes", "4096");
         v.put("target.inventoryReadNanos", "1000");
-        v.put("target.maximumSourceFrameBytes", "1024");
+        v.put("target.maximumSourceFrameBytes", Long.toString(frameBytes));
         v.put("target.backlogReadRecords", "8");
-        v.put("target.backlogReadBytes", "8192");
+        v.put("target.backlogReadBytes", Long.toString(writerBytes));
         v.put("target.backlogReadNanos", "1000");
         v.put("target.maximumUnappliedRecords", "4");
-        v.put("target.maximumUnappliedBytes", "4096");
+        v.put("target.maximumUnappliedBytes", Long.toString(writerBytes));
         v.put("target.maximumUnappliedAgeMillis", "1000");
         v.put("target.maximumBacklogObservationAgeNanos", "1000");
         v.put("scheduling.quantumBytes", "256");

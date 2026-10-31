@@ -6,13 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.store.TargetValueEnvelope;
+import java.io.File;
+import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class TargetMigrationArchiveContractTest {
     private final TargetQuotaIncarnation payer = TargetQuotaIncarnation.decode(vector("target.open"));
@@ -101,23 +109,74 @@ class TargetMigrationArchiveContractTest {
         assertTrue(decoded.supports(oldReader));
         assertTrue(decoded.supports(fullReader));
         final byte[] unknownDeclaration = declaration.canonicalBytes();
-        unknownDeclaration[1] = 6;
+        unknownDeclaration[1] = 127;
         assertThrows(IllegalArgumentException.class, () -> ProtocolCapabilityDeclaration.decode(unknownDeclaration));
         final byte[] unknownDescriptor = fullReader.canonicalBytes();
-        unknownDescriptor[1] = 22;
+        unknownDescriptor[1] = 127;
         assertThrows(IllegalArgumentException.class, () -> TargetProtocolActivationDescriptor.decode(unknownDescriptor));
     }
 
     @Test
-    void completeSignedUnknownFrameBeyondOldLimitRoundTripsInBothNewFormats() throws Exception {
+    void completeSignedUnknownFrameBeyondOldLimitRoundTripsInBothNewFormats(@TempDir Path directory) throws Exception {
+        // Full inline codec replay needs several simultaneous frame-sized copies; keep its heap local to this case.
+        final Path output = directory.resolve("full-source-archive-frame.log");
+        final var process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Xmx2g",
+                "-cp", largeFrameClasspath(), TargetMigrationArchiveContractTest.class.getName(), "large-frame")
+                .redirectErrorStream(true)
+                .redirectOutput(output.toFile())
+                .start();
+        final boolean completed;
+        try {
+            completed = process.waitFor(120, TimeUnit.SECONDS);
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor(10, TimeUnit.SECONDS);
+            }
+        }
+        final String result = Files.readString(output);
+        assertTrue(completed, "full Source archive frame subprocess timed out: " + result);
+        assertEquals(0, process.exitValue(), result);
+        assertTrue(result.contains("Full Source archive frame contract passed"), result);
+    }
+
+    public static void main(String[] arguments) throws Exception {
+        if (arguments.length != 1 || !arguments[0].equals("large-frame")) {
+            throw new IllegalArgumentException("expected the dedicated large-frame contract entrypoint");
+        }
+        new TargetMigrationArchiveContractTest().requireCompleteSignedUnknownFrameRoundTrips();
+        System.out.println("Full Source archive frame contract passed");
+    }
+
+    private static String largeFrameClasspath() throws Exception {
+        final var entries = new LinkedHashSet<String>();
+        for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
+            if (!entry.isBlank()) entries.add(Path.of(entry).toAbsolutePath().toString());
+        }
+        // Gradle isolates the test runtime in a URLClassLoader; java.class.path can contain only its worker JAR.
+        for (ClassLoader loader = TargetMigrationArchiveContractTest.class.getClassLoader();
+                loader != null; loader = loader.getParent()) {
+            if (loader instanceof URLClassLoader urls) {
+                for (var url : urls.getURLs()) entries.add(Path.of(url.toURI()).toAbsolutePath().toString());
+            }
+        }
+        return String.join(File.pathSeparator, entries);
+    }
+
+    private void requireCompleteSignedUnknownFrameRoundTrips() throws Exception {
         final byte[] frame = largeUnknownFrame();
         assertTrue(frame.length > (32 << 20));
-        final var input = SystemMutation.decodeTargetFrame(frame);
-        final var at = new TargetQuotaMutation(3, source(3), Bytes.sha256(input.canonicalEnvelope()));
+        final var at = largeFrameMutation(frame);
         assertThrows(IllegalArgumentException.class, () -> sourceRow(1, at, frame));
         assertThrows(IllegalArgumentException.class, () -> head(2, at, frame));
         requireFullRowRoundTrip(frame, at);
         requireFullHeadRoundTrip(frame, at);
+    }
+
+    private TargetQuotaMutation largeFrameMutation(byte[] frame) {
+        return new TargetQuotaMutation(3, source(3),
+                Bytes.sha256(SystemMutation.decodeTargetFrame(frame).canonicalEnvelope()));
     }
 
     @Test
@@ -164,17 +223,8 @@ class TargetMigrationArchiveContractTest {
         final byte[] transfer = CanonicalProtobuf.message(out ->
                 CanonicalProtobuf.bytes(out, 1, new byte[(32 << 20) + 1]));
         final byte[] retry = CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 1, Bytes.utf8("unknown")));
-        final byte[] attempt = repeat(32, 0xa1);
-        final byte[] body = PublishOutcomeBody.encodeInitial(payer.scope().shard(), 9_000, attempt,
-                3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null, transfer,
-                new TrustedUtcIntervalEvidence(2_000, 2_000,
-                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"),
-                        1, 1, 1, repeat(32, 0xa2), 0, null), retry);
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final var input = SystemMutation.signed(payer.scope().shard(), SystemMutationType.PUBLISH_OUTCOME,
-                9_000, attempt, body, AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"),
-                        7, repeat(32, 0xa3)).canonicalBytes(), 1, keys.getPrivate());
-        final byte[] frame = input.encodeFrame();
+        final byte[] frame = encodeUnknownFrame(transfer, retry, keys);
         final var decoded = SystemMutation.decodeTargetFrame(frame);
         assertTrue(decoded.verifySignature(keys.getPublic()));
         final var outcome = PublishOutcomeBody.decode(decoded.canonicalBody());
@@ -182,6 +232,19 @@ class TargetMigrationArchiveContractTest {
         assertArrayEquals(retry, outcome.retryDecision().canonicalBytes());
         assertArrayEquals(frame, decoded.encodeFrame());
         return frame;
+    }
+
+    private byte[] encodeUnknownFrame(byte[] transfer, byte[] retry, KeyPair keys) {
+        final byte[] attempt = repeat(32, 0xa1);
+        final byte[] body = PublishOutcomeBody.encodeInitial(payer.scope().shard(), 9_000, attempt,
+                3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null, transfer,
+                new TrustedUtcIntervalEvidence(2_000, 2_000,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"),
+                        1, 1, 1, repeat(32, 0xa2), 0, null), retry);
+        final var input = SystemMutation.signed(payer.scope().shard(), SystemMutationType.PUBLISH_OUTCOME,
+                9_000, attempt, body, AuthorIdentity.owner(Bytes.utf8("deployment"), Bytes.utf8("worker"),
+                        7, repeat(32, 0xa3)).canonicalBytes(), 1, keys.getPrivate());
+        return input.encodeFrame();
     }
 
     private TargetMigrationArchiveRow copyRow(int version) {
@@ -227,7 +290,7 @@ class TargetMigrationArchiveContractTest {
 
     private static TargetProtocolActivationDescriptor descriptor(int version) {
         return new TargetProtocolActivationDescriptor(
-                ArtifactGenerationSet.current(1, repeat(32, 3), repeat(32, 4)),
+                ArtifactGenerationSet.current(1, PulsarSourceLock.digest(), repeat(32, 4)),
                 repeat(32, 5), repeat(32, 6), "1".repeat(40), "2".repeat(40),
                 repeat(32, 7), repeat(32, 8), version);
     }
