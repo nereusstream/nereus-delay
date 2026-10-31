@@ -132,8 +132,12 @@ public final class ControlOperationRequest {
 
     private static ControlOperationRequestBranch decodeBranch(final ControlOperationKind kind, final byte[] encoded) {
         return switch (kind) {
+            case MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE -> TargetMigrationArchiveRequest.decode(encoded);
+            case INITIALIZE_TARGET_PAYLOAD_SUMMARY -> TargetPayloadSummaryInitializationRequest.decode(encoded);
             case ACTIVATE_TARGET_MIGRATION -> TargetMigrationActivateRequest.decode(encoded);
             case SETTLE_TARGET_MIGRATION_CUSTODY -> TargetMigrationSettlementRequest.decode(encoded);
+            case RETIRE_TARGET_MIGRATION -> TargetMigrationRetirementIntentRequest.decode(encoded);
+            case CONFIRM_TARGET_MIGRATION_RETIRED -> TargetMigrationRetirementConfirmRequest.decode(encoded);
             case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> TargetScopeControlObligationRequest.decode(encoded);
             case ALLOCATE_PARENT_CONTROL_CREDIT -> TargetParentControlCreditRequest.decode(encoded);
             case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
@@ -172,8 +176,12 @@ public final class ControlOperationRequest {
     private static void validateBranch(final ControlOperationKind kind, final ControlOperationRequestBranch branch) {
         final boolean valid =
                 switch (kind) {
+                    case MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE -> branch instanceof TargetMigrationArchiveRequest;
+                    case INITIALIZE_TARGET_PAYLOAD_SUMMARY -> branch instanceof TargetPayloadSummaryInitializationRequest;
                     case ACTIVATE_TARGET_MIGRATION -> branch instanceof TargetMigrationActivateRequest;
                     case SETTLE_TARGET_MIGRATION_CUSTODY -> branch instanceof TargetMigrationSettlementRequest;
+                    case RETIRE_TARGET_MIGRATION -> branch instanceof TargetMigrationRetirementIntentRequest;
+                    case CONFIRM_TARGET_MIGRATION_RETIRED -> branch instanceof TargetMigrationRetirementConfirmRequest;
                     case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> branch instanceof TargetScopeControlObligationRequest;
                     case ALLOCATE_PARENT_CONTROL_CREDIT -> branch instanceof TargetParentControlCreditRequest;
                     case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->

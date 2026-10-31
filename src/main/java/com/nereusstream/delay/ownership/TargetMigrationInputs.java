@@ -14,7 +14,11 @@ public interface TargetMigrationInputs extends LegacyMigrationBundle.Held, Targe
     enum SourceDomain { TARGET, LEGACY, UNKNOWN }
     @FunctionalInterface
     interface Provider {
-        /** Register the hold and every native owner on opening before allocating; partial failures retain Cleanup. */
+        /**
+         * Register the hold and every native owner on opening before allocating; partial failures retain Cleanup.
+         * A compatibilityRecovery opening reacquires the exact original C materials/frozen contracts and durable
+         * Source/Journal/Pin/retention responsibility named by recoveredRoot; it grants no new ACTIVATE permission.
+         */
         TargetMigrationInputs open(TargetMigrationProcessDriver.Opening opening);
     }
 
@@ -67,7 +71,64 @@ public interface TargetMigrationInputs extends LegacyMigrationBundle.Held, Targe
     TargetScopeDeploymentAllocation.SourceHandle originalManagementSource();
     TargetScopeDeploymentAllocation.RegistryHandle originalManagementRegistry();
     TargetStoreBackend.CommitAuthority commits();
+    /** Original actual Native read authority, retained by this same Process acquisition. */
+    default TargetStoreBackend.ReadAuthority reads() {
+        throw new IllegalStateException("migration custody lacks its original Native read authority");
+    }
+    /** Reacquires the actual already-paid receiver; the private cursor performs exact GET/full receipt audit. */
+    default TargetMigrationArchiveHeld.Cursor archiveRecovery(TargetMigrationProcessDriver.Opening original,
+            com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover) {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("actual archive receiver/retention acquisition is unavailable");
+    }
+    /** Same actual paid cumulative reopen/read window, not a fresh per-page allowance. */
+    default BoundedReadBudget archiveReads() {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("archive receiver lacks its original cumulative read allocation");
+    }
+    /** Shared Source/credential/control/mapping protection after T, independent of the exited legacy DB sub-loan. */
+    default void requireArchiveCurrent(TargetMigrationPlan plan, StoreMetadata actual,
+            com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover) {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("new archive interpretation lacks its actual persistent owner protection");
+    }
+    /** Local revocation/expiry facts of that same acquired protection; no Store/Registry/SDK I/O or locks. */
+    default void requireArchiveLocalCurrent(TargetMigrationPlan plan, StoreMetadata actual,
+            com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover) {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("new archive interpretation lacks its original local protection token");
+    }
+    interface LegacyRuntimeLoan extends CheckpointInputFuture.Cleanup, AutoCloseable {
+        void requireTransfer(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover,
+                TargetMigrationArchiveHeld.RuntimeHold actualNewOwner);
+        void requestStop();
+        boolean ioExited();
+        @Override void close();
+    }
+    /** Actual legacy-only registration/reader/Journal/DB custody, separate from the shared Inputs acquisition. */
+    default LegacyRuntimeLoan legacyRuntimeLoan() {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("original owner cannot independently exit its legacy-only runtime sub-loan");
+    }
+    /** Complete original frozen writer/control domain and durable anti-reopening material, retained by the actual new owner. */
+    default com.nereusstream.delay.runtime.TargetMigrationArchiveClosedContract.Materials archiveClosedMaterials(
+            com.nereusstream.delay.runtime.TargetMigrationRetirementStore.AppliedIntent intention) {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("archive lacks its actual complete closed-contract materials");
+    }
+    /** Optional exact protected Source content. Archive baseline bytes never require a fabricated pre-C frame. */
+    default SourceReplayEntry archiveSource(SourcePosition at, BoundedReadBudget cumulative) {
+        for (var record : externalRecords()) if (record.kind().equals("SOURCE")
+                && java.util.Arrays.equals(record.source().canonicalBytes(), at.canonicalBytes())) {
+            final byte[] raw = record.originalBytes();
+            if (!cumulative.tryCharge(at.canonicalBytes().length, raw.length))
+                throw new IllegalStateException("original archive Source evidence exhausted its shared cumulative read budget");
+            final var frame = ShardLogFrame.decode(raw);
+            return frame.recordKind() == ProtocolTuple.CLIENT_COMMAND
+                    ? new SourceReplayRecord(CommandCodec.decodeFrame(raw), at, null, null)
+                    : new SourceReplayMutation(SystemMutation.decodeTargetFrame(raw), at, null, null);
+        }
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("exact protected Source content is unavailable; retain original custody");
+    }
     TargetMigrationStore.Authority activationAuthority();
+    /** Complete original independent management-issuer statement for a newly prepared A2, never the Source/A signer. */
+    default TargetMigrationRootIssuerAuthorization rootIssuerAuthorization(TargetMigrationPlan plan) {
+        throw new IllegalStateException("new migration activation lacks the actual independent original Root issuer authorization");
+    }
     TargetMigrationImporter.CandidateSealer candidateSealer();
 
     /** Original reserved encoded-origin construction window; this is within retainedBytes, not an extra pool. */

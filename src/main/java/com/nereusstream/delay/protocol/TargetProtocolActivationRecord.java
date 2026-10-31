@@ -11,12 +11,16 @@ import java.util.Objects;
 
 /** Source-applied Target activation with complete public marker/base/reader inputs; data does not self-authorize. */
 public record TargetProtocolActivationRecord(SystemMutation marker,PreparedControlOperation prepared,
-        TargetQuotaMutation appliedAt,TargetProtocolReaderSet readers,PublicEvidence evidence) {
+        TargetQuotaMutation appliedAt,TargetProtocolReaderSet readers,PublicEvidence evidence,TargetProtocolRootIssuerEvidence rootEvidence) {
+    public TargetProtocolActivationRecord(SystemMutation marker,PreparedControlOperation prepared,TargetQuotaMutation at,TargetProtocolReaderSet readers,PublicEvidence evidence){this(marker,prepared,at,readers,evidence,null);}
     public static final int VALUE_TYPE=53;
+    public static final int V1_MAX_PREPARED_BYTES=TargetProtocolActivatePayload.V1_MAX_BYTES+4096;
+    public static final int V1_MAX_MARKER_BYTES=TargetProtocolActivationBody.V1_MAX_BYTES+1024;
+    public static final int V1_MAX_BYTES=V1_MAX_MARKER_BYTES+V1_MAX_PREPARED_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES+TargetProtocolReaderSet.MAX_BYTES+PublicEvidence.MAX_BYTES+256;
     public static final int MAX_PREPARED_BYTES=TargetProtocolActivatePayload.MAX_BYTES+4096;
     public static final int MAX_MARKER_BYTES=TargetProtocolActivationBody.MAX_BYTES+1024;
     public static final int MAX_BYTES=MAX_MARKER_BYTES+MAX_PREPARED_BYTES+TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
-            +TargetProtocolReaderSet.MAX_BYTES+PublicEvidence.MAX_BYTES+256;
+            +TargetProtocolReaderSet.MAX_BYTES+PublicEvidence.MAX_BYTES+TargetProtocolRootIssuerEvidence.MAX_BYTES+272;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-protocol-activation-record\0");
     public record PublicEvidence(ControlAuthorizationContext actor,byte[] preparedKey,byte[] markerKey,byte[] resetIssuer,DataResetManifest reset) {
         public static final int MAX_BYTES=(1<<20)+1024;
@@ -75,6 +79,9 @@ public record TargetProtocolActivationRecord(SystemMutation marker,PreparedContr
                 ||!evidence.reset.scope().shard().shardId().equals(payload.scope().shard())
                 ||!Arrays.equals(evidence.reset.scope().tenantScopeDigest(),payload.scope().tenantScope()))
             throw new IllegalArgumentException("Target activation lost original signed Control/Source/base/reader binding");
+        if((payload.rootAuthorization()!=null)!=(rootEvidence!=null))throw new IllegalArgumentException("activation record lost original Root issuer evidence");
+        if(rootEvidence!=null){rootEvidence.require(payload);if(rootEvidence.migrated())readers.requireMigrationRootDataReaders(rootEvidence.migration());}
+        else if(marker.canonicalEnvelope().length>V1_MAX_MARKER_BYTES||prepared.canonicalBytes().length>V1_MAX_PREPARED_BYTES)throw new IllegalArgumentException("legacy activation changed its original frame/prepared bound");
         ControlTargetMutationBinding.validate(prepared,prepared.targets().getFirst(),marker);
     }
     public TargetProtocolActivationBody body(){return TargetProtocolActivationBody.decode(marker.canonicalBody());}
@@ -82,25 +89,26 @@ public record TargetProtocolActivationRecord(SystemMutation marker,PreparedContr
     public static byte[] key(ProtocolTuple tuple){return Bytes.concat(new byte[]{TargetKeyCodec.PROTOCOL_ACTIVATION_TAG,TargetKeyCodec.KEY_FORMAT},
             Bytes.sha256(Bytes.utf8("nereus-delay-target-protocol-activation-key\0"),tuple.canonicalBytes()));}
     private byte[] fields(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,marker.canonicalEnvelope());CanonicalProtobuf.bytes(out,3,prepared.canonicalBytes());
-        CanonicalProtobuf.bytes(out,4,appliedAt.canonicalBytes());CanonicalProtobuf.bytes(out,5,readers.canonicalBytes());CanonicalProtobuf.bytes(out,6,evidence.canonicalBytes());
+        CanonicalProtobuf.uint32(out,1,rootEvidence==null?1:2);CanonicalProtobuf.bytes(out,2,marker.canonicalEnvelope());CanonicalProtobuf.bytes(out,3,prepared.canonicalBytes());
+        CanonicalProtobuf.bytes(out,4,appliedAt.canonicalBytes());CanonicalProtobuf.bytes(out,5,readers.canonicalBytes());CanonicalProtobuf.bytes(out,6,evidence.canonicalBytes());if(rootEvidence!=null)CanonicalProtobuf.bytes(out,8,rootEvidence.canonicalBytes());
     });}
     public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
     public byte[] canonicalBytes(){
-        final byte[] encoded=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,7,digest())));
+        final byte[] encoded=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,rootEvidence==null?7:9,digest())));
         if(encoded.length>MAX_BYTES)throw new IllegalArgumentException("Target activation row exceeds finite bound");return encoded;
     }
     public static TargetProtocolActivationRecord decode(byte[] encoded){
-        final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,7,false,"Target activation record");
-        QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7},"Target activation record");
-        if(QueryCodecSupport.uint(f.get(0),1)!=1)throw new IllegalArgumentException("unknown Target activation record schema");
+        final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,8,false,"Target activation record");
+        QueryCodecSupport.requireNumbers(f,f.size()==7?new int[]{1,2,3,4,5,6,7}:new int[]{1,2,3,4,5,6,8,9},"Target activation record");
+        if(QueryCodecSupport.uint(f.get(0),1)!=(f.size()==7?1:2))throw new IllegalArgumentException("unknown Target activation record schema");
+        if(f.size()==7&&encoded.length>V1_MAX_BYTES)throw new IllegalArgumentException("legacy activation record exceeds original bound");
         final byte[] markerBytes=QueryCodecSupport.bytes(f.get(1),2),preparedBytes=QueryCodecSupport.bytes(f.get(2),3);
         if(markerBytes.length>MAX_MARKER_BYTES||preparedBytes.length>MAX_PREPARED_BYTES)throw new IllegalArgumentException("activation marker/prepared input exceeds bound");
         final var marker=SystemMutation.decodeTargetEnvelope(markerBytes);final var body=TargetProtocolActivationBody.decode(marker.canonicalBody());
         final var value=new TargetProtocolActivationRecord(marker,PreparedControlOperation.decode(preparedBytes),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(3),4)),TargetProtocolReaderSet.decode(QueryCodecSupport.bytes(f.get(4),5),body.payload().descriptor()),
-                PublicEvidence.decode(QueryCodecSupport.bytes(f.get(5),6)));
-        if(!Arrays.equals(value.digest(),QueryCodecSupport.fixed(f.get(6),7,32)))throw new IllegalArgumentException("Target activation record digest mismatch");
+                PublicEvidence.decode(QueryCodecSupport.bytes(f.get(5),6)),f.size()==8?TargetProtocolRootIssuerEvidence.decode(QueryCodecSupport.bytes(f.get(6),8)):null);
+        if(!Arrays.equals(value.digest(),QueryCodecSupport.fixed(f.getLast(),f.size()==7?7:9,32)))throw new IllegalArgumentException("Target activation record digest mismatch");
         QueryCodecSupport.requireCanonical(encoded,value.canonicalBytes(),"Target activation record");return value;
     }
     public static TargetProtocolActivationRecord decodeForStore(byte[] key,byte[] encoded,TargetQuotaScope scope,byte[] lineage){

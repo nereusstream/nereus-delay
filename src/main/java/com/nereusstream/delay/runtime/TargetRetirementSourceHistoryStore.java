@@ -24,7 +24,7 @@ public final class TargetRetirementSourceHistoryStore {
         final byte[] decisionKey=TargetRetirementSourceHistoryRecord.key(tip.mutationId());
         final var decision=TargetRetirementSourceHistoryRecord.decodeForStore(decisionKey,payload(view,overlay,ColumnFamily.META,decisionKey,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
         tip.requireDecision(decision);requireFirst(view,overlay,scope,lineage,owner,decision,frontier);
-        final var activated=activation(view,overlay,scope,lineage,owner,frontier,decision.requiredTuple());
+        final var activated=activation(view,overlay,scope,lineage,owner,frontier,decision.authorizationTuple());
         if(!activated.body().payload().descriptor().supportsAcceptedHistoryTip())throw new IllegalStateException("Native55 lacks actual descriptor3 activation");
         tip.decidedAt().requireAfter(activated.appliedAt());
         final byte[] original=view.projected(ColumnFamily.META,tip.key(),List.of());
@@ -47,7 +47,7 @@ public final class TargetRetirementSourceHistoryStore {
         if(result.applyStatus()!=ApplyStatus.APPLIED&&result.stableCode()!=StableCode.UNAUTHORIZED_SYSTEM_MUTATION)return;
         final var tuple=reclaim?TargetRetirementSourceHistoryRecord.decodeForStore(
                 TargetRetirementSourceHistoryRecord.key(result.mutationId()),payload(view,overlay,ColumnFamily.META,
-                TargetRetirementSourceHistoryRecord.key(result.mutationId()),TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage).requiredTuple()
+                TargetRetirementSourceHistoryRecord.key(result.mutationId()),TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage).authorizationTuple()
                 :ProtocolTuple.targetEvidenceRetirement();
         final byte[] key=TargetProtocolActivationRecord.key(tuple),raw=view.projected(ColumnFamily.META,key,overlay);
         if(raw==null){if(reclaim)throw new IllegalStateException("reclaim first lacks independent activation");return;}
@@ -93,7 +93,7 @@ public final class TargetRetirementSourceHistoryStore {
         final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
         position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(root);
         if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(record.decidedAt()))throw new IllegalStateException("Source history lost original POSITION");
-        final byte[] activationKey=TargetProtocolActivationRecord.key(record.requiredTuple());
+        final byte[] activationKey=TargetProtocolActivationRecord.key(record.authorizationTuple());
         final byte[] activationRaw=view.projected(ColumnFamily.META,activationKey,overlay);
         if(activationRaw!=null){
             final var activated=TargetProtocolActivationRecord.decodeForStore(activationKey,TargetValueEnvelope.decode(activationRaw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
@@ -105,7 +105,7 @@ public final class TargetRetirementSourceHistoryStore {
         }
         if(result.applyStatus()==ApplyStatus.APPLIED){
             if(result.stableCode()!=StableCode.OK||record.decidedAt().source().brokerPersistenceTimeEpochMs()>input.retryUntilEpochMs())throw new IllegalStateException("APPLIED Source history changed window/code");
-            final var activation=activation(view,overlay,scope,lineage,owner,frontier,record.requiredTuple());
+            final var activation=activation(view,overlay,scope,lineage,owner,frontier,record.authorizationTuple());
             if(!activation.body().payload().descriptor().supportsSourceHistoryRecords())throw new IllegalStateException("Native54 lacks explicitly activated descriptor2");
             if(input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM&&!activation.body().payload().descriptor().supportsResourceReclaim())
                 throw new IllegalStateException("reclaim history lacks actual descriptor6");
@@ -116,11 +116,11 @@ public final class TargetRetirementSourceHistoryStore {
                     throw new IllegalStateException("self-contained inline reclaim history lacks actual descriptor8");
                 TargetInlinePayloadReclaim.requireRecordedSourceFacts(view,overlay,TargetResourceReclaimBody.decode(input.canonicalBody()),frontier);
             }
-            if(record.requiredTuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())){
+            if(record.authorizationTuple().equals(ProtocolTuple.targetUncommittedObjectReclaim())){
                 if(!activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim())throw new IllegalStateException("uncommitted history lacks descriptor11 activation");
                 TargetUncommittedPayloadReclaim.requireAppliedDecision(view,overlay,input,record.decidedAt(),frontier);
             }
-            if(record.requiredTuple().equals(ProtocolTuple.targetObjectPayloadReclaim())){
+            if(record.authorizationTuple().equals(ProtocolTuple.targetObjectPayloadReclaim())){
                 if(!activation.body().payload().descriptor().supportsObjectPayloadReclaim())throw new IllegalStateException("OBJECT history lacks its exact activation");
                 TargetObjectPayloadReclaim.requireAppliedDecision(view,overlay,input,record.decidedAt(),frontier);
             }
@@ -148,7 +148,7 @@ public final class TargetRetirementSourceHistoryStore {
         if(!activation.body().payload().descriptor().supportsSourceHistoryRecords())return;
         final byte[] key=TargetRetirementSourceHistoryRecord.key(id);
         final var record=TargetRetirementSourceHistoryRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
-        if(!record.decidedAt().equals(decided)||!record.requiredTuple().equals(tuple))throw new IllegalStateException("retirement lost exact Source history stamp/tuple");
+        if(!record.decidedAt().equals(decided)||!record.authorizationTuple().equals(tuple))throw new IllegalStateException("retirement lost exact Source history stamp/tuple");
         requireFirst(view,overlay,scope,lineage,owner,record,frontier);
     }
     private static TargetProtocolActivationRecord activation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,

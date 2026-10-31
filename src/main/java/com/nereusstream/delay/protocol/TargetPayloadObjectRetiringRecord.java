@@ -27,7 +27,7 @@ public record TargetPayloadObjectRetiringRecord(SystemMutation intent,TargetQuot
     public TargetResourceReclaimBody.ObjectPayloadRetire operation(){return (TargetResourceReclaimBody.ObjectPayloadRetire)body().operations().getFirst();}
     public TargetResourceReclaimBody.UncommittedObjectRetire uncommittedOperation(){return (TargetResourceReclaimBody.UncommittedObjectRetire)body().operations().getFirst();}
     public TargetQuotaPayloadOwner expectedOwner(){return body().objectOwner();}
-    private int schemaVersion(){return body().uncommittedObjectReclaim()?2:1;}
+    private int schemaVersion(){return body().migrationPayloadReclaim()?body().uncommittedObjectReclaim()?4:3:body().uncommittedObjectReclaim()?2:1;}
     public byte[] key(){return key(expectedOwner().messageId());}
     public static byte[] key(DelayMessageId message){return Bytes.concat(new byte[]{TargetKeyCodec.PAYLOAD_OBJECT_RETIRING_TAG,TargetKeyCodec.KEY_FORMAT},message.bytes());}
     public CapacityVector recordCharge(){return expectedOwner().accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,key().length,canonicalBytes().length);}
@@ -40,7 +40,7 @@ public record TargetPayloadObjectRetiringRecord(SystemMutation intent,TargetQuot
         final var fields=TargetCompatibilityCodec.read(encoded,MAX_CANONICAL_BYTES,4,false,"Native OBJECT retiring record");
         QueryCodecSupport.requireNumbers(fields,new int[]{1,2,3,4},"Native OBJECT retiring record");
         final int schema=QueryCodecSupport.uint32(fields.get(0),1);
-        if(schema<1||schema>2)throw new IllegalArgumentException("unknown Native OBJECT intent schema");
+        if(schema<1||schema>4)throw new IllegalArgumentException("unknown Native OBJECT intent schema");
         final byte[] frame=QueryCodecSupport.bytes(fields.get(1),2);requireIntentOnlyFrame(frame);
         final var value=new TargetPayloadObjectRetiringRecord(SystemMutation.decodeEnvelope(frame),TargetQuotaMutation.decode(QueryCodecSupport.bytes(fields.get(2),3)));
         if(schema!=value.schemaVersion())throw new IllegalArgumentException("Native intent schema/body mismatch");
@@ -61,19 +61,19 @@ public record TargetPayloadObjectRetiringRecord(SystemMutation intent,TargetQuot
         final var body=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(system.get(5),6),TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES,11,false,"OBJECT original intent");
         QueryCodecSupport.requireNumbers(body,body.size()==10?new int[]{1,2,3,9,10,11,12,13,14,15}:new int[]{1,2,3,9,10,11,12,13,14,15,16},"OBJECT original intent");
         final int bodyVersion=QueryCodecSupport.uint32(body.get(3),9);
-        if(bodyVersion!=TargetResourceReclaimBody.OBJECT_PAYLOAD_BODY_VERSION&&bodyVersion!=TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION)
+        if(bodyVersion!=TargetResourceReclaimBody.OBJECT_PAYLOAD_BODY_VERSION&&bodyVersion!=TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION&&bodyVersion!=TargetResourceReclaimBody.MIGRATION_OBJECT_BODY_VERSION&&bodyVersion!=TargetResourceReclaimBody.MIGRATION_UNCOMMITTED_OBJECT_BODY_VERSION)
             throw new IllegalArgumentException("OBJECT intent requires an explicit supported body");
-        if((bodyVersion==TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION)!=(body.size()==10))throw new IllegalArgumentException("intent facts layout/body mismatch");
+        if((bodyVersion==TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION||bodyVersion==TargetResourceReclaimBody.MIGRATION_UNCOMMITTED_OBJECT_BODY_VERSION)!=(body.size()==10))throw new IllegalArgumentException("intent facts layout/body mismatch");
         final var group=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(body.get(9),15),TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES,1,false,"one OBJECT intent");
         QueryCodecSupport.requireNumbers(group,new int[]{1},"one OBJECT intent");
         final var operation=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(group.getFirst(),1),TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES,9,false,"OBJECT intent operation");
-        if(bodyVersion==TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION){
+        if(bodyVersion==TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION||bodyVersion==TargetResourceReclaimBody.MIGRATION_UNCOMMITTED_OBJECT_BODY_VERSION){
             QueryCodecSupport.requireNumbers(operation,new int[]{1,2,3,4,11},"uncommitted original intent");
-            if(QueryCodecSupport.uint32(operation.get(0),1)!=1||QueryCodecSupport.uint32(operation.get(1),2)!=4||QueryCodecSupport.uint32(operation.get(2),3)!=3)
+            if(QueryCodecSupport.uint32(operation.get(0),1)!=(bodyVersion==TargetResourceReclaimBody.MIGRATION_UNCOMMITTED_OBJECT_BODY_VERSION?2:1)||QueryCodecSupport.uint32(operation.get(1),2)!=4||QueryCodecSupport.uint32(operation.get(2),3)!=3)
                 throw new IllegalArgumentException("only an original uncommitted intent may be nested");return;
         }
         final int schema=QueryCodecSupport.uint32(operation.get(0),1);
-        if(schema!=1&&schema!=2)throw new IllegalArgumentException("unknown OBJECT intent operation schema");
+        if(schema!=1&&schema!=2&&schema!=3)throw new IllegalArgumentException("unknown OBJECT intent operation schema");
         QueryCodecSupport.requireNumbers(operation,schema==1?new int[]{1,2,3,4,5,6,7,8,9}:new int[]{1,2,3,4,5,6,7,8,10},"OBJECT intent operation");
         if(QueryCodecSupport.uint32(operation.get(1),2)!=4||QueryCodecSupport.uint32(operation.get(2),3)!=1)
             throw new IllegalArgumentException("only a nonrecursive original OBJECT intent can be retained");

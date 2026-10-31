@@ -50,11 +50,18 @@ public final class TargetScopeSourceAuthorityProvider implements TargetSourceAut
             TargetSourceApplyRuntime.ConfirmationRead source, TargetSourceApplyRuntime.ReclaimRead reclaim) {
         return acquire(entry, family, guard, () -> original.load(entry, family, guard, source, reclaim));
     }
+    @Override public TargetSourceAuthorityLoader.HeldInputs loadWriterPrelude(SourceReplayEntry entry,
+            TargetSloWriterOrigin.PreparationRequired request,Runnable guard,
+            TargetSourceApplyRuntime.ConfirmationRead source,TargetSourceApplyRuntime.ReclaimRead reclaim){
+        // Native fee-origin capture is the consumer of the prefix being prepared, not its funding authority.
+        guard.run();return original.loadWriterPrelude(entry,request,guard,source,reclaim);
+    }
 
     private TargetSourceAuthorityLoader.HeldInputs acquire(SourceReplayEntry entry,
             TargetSourceAuthorityPreparation.Family family, Runnable guard, OriginalLoad load) {
         Objects.requireNonNull(guard);
         final var held = new Held(Objects.requireNonNull(entry));
+        held.originalLoad=load;held.originalGuard=guard;
         try {
             guard.run();
             // Fee-only replay must not acquire a business role which the rejected input never had.
@@ -240,6 +247,8 @@ public final class TargetScopeSourceAuthorityProvider implements TargetSourceAut
         private final List<Release> releases = new ArrayList<>();
         private final Map<String, ScopeCapture> scopes = new LinkedHashMap<>();
         private TargetSourceAuthorityLoader.HeldInputs original;
+        private OriginalLoad originalLoad;
+        private Runnable originalGuard;
         private TargetSourceAuthorityLoader.Inputs inputs;
         private TargetScopeFeeAuthority legacyFees = TargetScopeFeeAuthority.UNAVAILABLE;
         private TargetScopeDeploymentAllocation.Loan owner;
@@ -340,6 +349,69 @@ public final class TargetScopeSourceAuthorityProvider implements TargetSourceAut
         @Override public TargetSourceAuthorityLoader.Inputs inputs() { requireCurrent(); return inputs; }
         @Override public long retainedBytes() { return bytes; }
         @Override public TargetScopeFeeAuthority scopeFees() { requireCurrent(); return this; }
+        private TargetSourceAuthorityLoader.HeldInputs originalInputs(){
+            requireCurrent();return Objects.requireNonNull(original,"original protected Source content capability");
+        }
+        @Override public TargetRetirementPreparation.Protection retirementPreparationProtection(TargetSourceApplyRuntime.ReclaimRead source){
+            final var protectedInput=Objects.requireNonNull(originalInputs().retirementPreparationProtection(source));
+            requireCurrent();protectedInput.requireCurrent();
+            return new TargetRetirementPreparation.Protection(){
+                public TargetRetirementPreparation.Capacity capacity(){return protectedInput.capacity();}
+                public void requireCurrent(){Held.this.requireCurrent();protectedInput.requireCurrent();Held.this.requireCurrent();}
+                public void requireBinding(com.nereusstream.delay.store.StoreMetadata metadata,TargetQuotaIncarnation root,
+                        TargetQuotaMutation cut,SystemMutation input,SourcePosition at){
+                    Held.this.requireCurrent();protectedInput.requireBinding(metadata,root,cut,input,at);Held.this.requireCurrent();
+                }
+            };
+        }
+        private void requireFeeOnlyOriginal(){
+            if(original==null){
+                if(!(inputs instanceof TargetSourceAuthorityLoader.ScopeFees))
+                    throw unavailable("writer history acquisition requires its exact fee-only Source family");
+                requireCurrent();originalGuard.run();
+                final TargetSourceAuthorityLoader.HeldInputs feeOnly;
+                try { feeOnly=Objects.requireNonNull(originalLoad.load(),"original fee-only writer history/payment hold"); }
+                catch(RuntimeException|Error failure){
+                    if(failure instanceof CheckpointInputFuture.Cleanup cleanup)retainFailure(cleanup);
+                    throw failure;
+                }
+                original=feeOnly;releases.add(0,new Release(feeOnly));charge(feeOnly.retainedBytes());
+                feeOnly.requireCurrent();originalGuard.run();
+                if(!SourceApplyCoordinator.sameEntry(entry,feeOnly.entry())
+                        ||!(feeOnly.inputs() instanceof TargetSourceAuthorityLoader.ScopeFees fees))
+                    throw unavailable("original writer history provider changed its exact fee-only Source input");
+                legacyFees=fees.fees();requireCurrent();
+            }
+        }
+        @Override public synchronized TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request){
+            requireFeeOnlyOriginal();
+            final var independent=Objects.requireNonNull(originalInputs().detachWriterOrigin(request));
+            final var rollback=new Release((AutoCloseable)()->{
+                independent.requestRelease();
+                if(!independent.released())throw unavailable("original detached writer cleanup has not exited");
+            });
+            releases.add(rollback);
+            requireCurrent();independent.requireCurrent();
+            if(!releases.remove(rollback))throw new IllegalStateException("writer subloan lost its original transfer duty");
+            return independent;
+        }
+        @Override public TargetEvidenceRetirementStore.ConfirmationApproval confirmationAfterPreparation(
+                TargetSourceAuthorityLoader.PendingConfirmation input,TargetSourceApplyRuntime.ConfirmationRead source,
+                TargetRetirementPreparation.Proof prepared){
+            final var approved=originalInputs().confirmationAfterPreparation(input,source,prepared);
+            requireCurrent();prepared.requireCurrent();return approved;
+        }
+        @Override public TargetSourceAuthorityLoader.ArchiveTailInputs archiveTailInputs(TargetMigrationArchivePreparation.TailPreparationRequired request){
+            requireFeeOnlyOriginal();
+            final var actual=originalInputs().archiveTailInputs(request);requireCurrent();return Objects.requireNonNull(actual);
+        }
+        @Override public void requireInlinePayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireInlinePayloadIndependent(source);requireCurrent();}
+        @Override public void requireIncarnationIndependent(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireIncarnationIndependent(source);requireCurrent();}
+        @Override public void requireNativeRetainedIndependent(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireNativeRetainedIndependent(source);requireCurrent();}
+        @Override public void requireUncommittedObjectIndependent(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireUncommittedObjectIndependent(source);requireCurrent();}
+        @Override public void requireUncommittedObjectHistoricalConfirmation(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireUncommittedObjectHistoricalConfirmation(source);requireCurrent();}
+        @Override public void requireObjectPayloadIndependent(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireObjectPayloadIndependent(source);requireCurrent();}
+        @Override public void requireObjectPayloadHistoricalConfirmation(TargetSourceApplyRuntime.ReclaimRead source){originalInputs().requireObjectPayloadHistoricalConfirmation(source);requireCurrent();}
         @Override public synchronized void requireCurrent() {
             if (closing || closed) throw unavailable("original Source Scope fee protection is closing");
             try {

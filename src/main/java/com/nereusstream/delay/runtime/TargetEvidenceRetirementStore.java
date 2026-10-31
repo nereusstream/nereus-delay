@@ -22,6 +22,7 @@ public final class TargetEvidenceRetirementStore {
      */
     @FunctionalInterface
     public interface Authority {
+        default TargetRetirementPreparation.Proof preparation(){return null;}
         Approval resolve(TargetQuotaScope scope, AuthorIdentity actor, SystemMutation intent, SourcePosition source);
         /** Null is a proved Source-purpose denial; missing actual observation/protection must throw, never masquerade as denial. */
         default ConfirmationApproval resolveConfirmation(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation confirmation,SourcePosition source){
@@ -74,9 +75,10 @@ public final class TargetEvidenceRetirementStore {
         private final SystemMutationResult result;
         private final Runnable approvalCurrent;
         private final SourceHistory history;
+        private final TargetRetirementPreparation.Proof preparation;
         private Prepared(TargetEvidenceRetirementStore owner, TargetStoreBackend.Prepared batch,
-                SystemMutationResult result, Runnable approvalCurrent,SourceHistory history) {
-            this.owner = owner; this.batch = batch; this.result = result; this.approvalCurrent = approvalCurrent;this.history=history;
+                SystemMutationResult result, Runnable approvalCurrent,SourceHistory history,TargetRetirementPreparation.Proof preparation) {
+            this.owner = owner; this.batch = batch; this.result = result; this.approvalCurrent = approvalCurrent;this.history=history;this.preparation=preparation;
         }
     }
 
@@ -136,109 +138,120 @@ public final class TargetEvidenceRetirementStore {
         final boolean marker=confirming&&confirmation.markerRetained();
         requireSource(intent,source,resource,confirming?confirmation.retryUntil():body.retryUntil(),
                 confirming?confirmation.logicalOperationIdentity():body.logicalOperationIdentity());
-        final boolean expired = retryExpired(budget,intent,source,confirmation);
-        final boolean protocolReady=expired?false:backend.prepareRead(budget,
-                reader->retirementProtocolReady(reader,tuple,source,resource,marker)).value();
-        Approval approval = null;ConfirmationApproval confirmed=null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
-        if (!expired && protocolReady && intent.authorIdentity().length <= (1 << 20)) {
-            AuthorIdentity actor;
-            try { actor = AuthorIdentity.decode(intent.authorIdentity()); }
-            catch (IllegalArgumentException malformed) { actor = null; }
-            if(actor!=null){
-                history=Objects.requireNonNull(authority.history(scope,actor,intent,source),"complete original Source history");
-                selectedGrant=history.select(resource,intent,source).orElse(null);
-                final var candidate=history.proof();
-                backend.prepareRead(budget,reader->{TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,candidate);return Boolean.TRUE;});
-                if(selectedGrant!=null&&intent.verifySignature(selectedGrant.writerKey())){
-                    if(confirming){confirmed=authority.resolveConfirmation(scope,actor,intent,source);if(confirmed!=null)confirmed.current().run();}
-                    else {approval = authority.resolve(scope, actor, intent, source);if (approval != null) approval.current().run();}
+        final var inventory=authority.preparation();
+        if(inventory!=null)inventory.requireInput(intent,source);
+        final long beforeRows=budget.actualRecords(),beforeBytes=budget.actualBytes();
+        boolean preflightDebited=false;
+        try{
+            final boolean expired = retryExpired(budget,intent,source,confirmation);
+            final boolean protocolReady=expired?false:backend.prepareRead(budget,
+                    reader->retirementProtocolReady(reader,tuple,source,resource,marker)).value();
+            Approval approval = null;ConfirmationApproval confirmed=null;SourceHistory history=null;TargetRetirementAuthorizationHistory.Grant selectedGrant=null;
+            if (!expired && protocolReady && intent.authorIdentity().length <= (1 << 20)) {
+                AuthorIdentity actor;
+                try { actor = AuthorIdentity.decode(intent.authorIdentity()); }
+                catch (IllegalArgumentException malformed) { actor = null; }
+                if(actor!=null){
+                    history=Objects.requireNonNull(authority.history(scope,actor,intent,source),"complete original Source history");
+                    selectedGrant=history.select(resource,intent,source).orElse(null);
+                    final var candidate=history.proof();
+                    backend.prepareRead(budget,reader->{TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,candidate);return Boolean.TRUE;});
+                    if(selectedGrant!=null&&intent.verifySignature(selectedGrant.writerKey())){
+                        if(confirming){confirmed=authority.resolveConfirmation(scope,actor,intent,source);if(confirmed!=null)confirmed.current().run();}
+                        else {approval = authority.resolve(scope, actor, intent, source);if (approval != null) approval.current().run();}
+                    }
                 }
             }
-        }
-        final var selected = approval;
-        final var selectedConfirmation=confirmed;
-        final PublicKey selectedKey=selected!=null?selected.writerKey():selectedConfirmation==null?null:selectedConfirmation.writerKey();
-        final Runnable approvedCurrent=selected!=null?selected.current():selectedConfirmation==null?null:selectedConfirmation.current();
-        final var approvalGrant=selected!=null?selected.historyGrant():selectedConfirmation==null?null:selectedConfirmation.historyGrant();
-        final var approvalTuple=selected!=null?selected.activatedTuple():selectedConfirmation==null?null:selectedConfirmation.activatedTuple();
-        final var retainedHistory=history;final var grant=selectedGrant;
-        if(selectedKey!=null&&(approvalGrant==null||grant==null
-                ||!Arrays.equals(approvalGrant.canonicalBytes(),grant.canonicalBytes())))
-            throw new IllegalStateException("retirement approval changed authenticated original history grant");
-        final boolean authorized = selectedKey != null && grant!=null&&intent.verifySignature(selectedKey)
-                &&grant.action()==TargetRetirementAuthorizationHistory.Action.of(intent.type())
-                &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
-                &&Arrays.equals(grant.publicKey(),selectedKey.getEncoded());
-        final boolean activated=authorized&&tuple.equals(approvalTuple);
-        if (activated) {
-            if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);}
-            else {requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());selected.copy().image().requireContext(body.context());}
-            approvedCurrent.run();
-        }
-        final var result = new SystemMutationResult[1];
-        final var batch = backend.prepare(budget, reader -> {
-            if (reader.source() == null || source.compareTo(reader.source()) <= 0)
-                throw new IllegalStateException("first retirement needs an established strictly earlier Source");
-            requireAbsent(reader, ColumnFamily.DEDUPE, resultKey(intent.systemMutationId()));
-            requireAbsent(reader, ColumnFamily.DEDUPE, positionKey(source));
-            final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
-                    Bytes.sha256(intent.canonicalEnvelope()));
-            final var root = sourceRoot(reader, stamp);
-            final boolean nativeReady=retirementProtocolReady(reader,tuple,source,resource,marker);
-            if(nativeReady&&!expired&&retainedHistory==null)throw new IllegalStateException("original Source protocol/input changed; retain and retry");
-            boolean sourceActivated=activated&&nativeReady;
-            if(sourceActivated){
-                if(grant==null)throw new IllegalStateException("retirement Source history omitted its exact Target activation binding");
-                try{TargetProtocolActivationStore.requireHistoryBinding(reader,scope,lineage,grant,source);}
-                catch(CommandResolutionException denied){if(denied.stableCode()!=StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION)throw denied;sourceActivated=false;}
-            }
-            final StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()
-                    ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
-                    : !nativeReady ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION
-                    : !authorized ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION
-                    : !sourceActivated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
-            final var edits = new ArrayList<TargetStoreBackend.Edit>();
-            if(retainedHistory!=null&&nativeReady){
-                retainedHistory.current().run();final var retained=new TargetRetirementSourceHistoryRecord(intent,stamp,retainedHistory.proof());
-                final var previous=TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,retainedHistory.proof());
-                final var accepted=new TargetRetirementHistoryTipRecord(retained);
-                if(previous!=null)accepted.requireAfter(previous);
-                requireAbsent(reader,ColumnFamily.META,retained.key());
-                edits.add(reader.replace(ColumnFamily.META,retained.key(),TargetRetirementSourceHistoryRecord.VALUE_TYPE,retained.canonicalBytes()));
-                edits.add(reader.replace(ColumnFamily.META,accepted.key(),TargetRetirementHistoryTipRecord.VALUE_TYPE,accepted.canonicalBytes()));
-            }
-            if (rejection == null) {
+            final var selected = approval;
+            final var selectedConfirmation=confirmed;
+            final PublicKey selectedKey=selected!=null?selected.writerKey():selectedConfirmation==null?null:selectedConfirmation.writerKey();
+            final Runnable approvedCurrent=selected!=null?selected.current():selectedConfirmation==null?null:selectedConfirmation.current();
+            final var approvalGrant=selected!=null?selected.historyGrant():selectedConfirmation==null?null:selectedConfirmation.historyGrant();
+            final var approvalTuple=selected!=null?selected.activatedTuple():selectedConfirmation==null?null:selectedConfirmation.activatedTuple();
+            final var retainedHistory=history;final var grant=selectedGrant;
+            if(selectedKey!=null&&(approvalGrant==null||grant==null
+                    ||!Arrays.equals(approvalGrant.canonicalBytes(),grant.canonicalBytes())))
+                throw new IllegalStateException("retirement approval changed authenticated original history grant");
+            final boolean authorized = selectedKey != null && grant!=null&&intent.verifySignature(selectedKey)
+                    &&grant.action()==TargetRetirementAuthorizationHistory.Action.of(intent.type())
+                    &&grant.keyVersion()==intent.signingKeyVersion()&&Arrays.equals(grant.service().canonicalBytes(),intent.authorIdentity())
+                    &&Arrays.equals(grant.publicKey(),selectedKey.getEncoded());
+            final boolean activated=authorized&&tuple.equals(approvalTuple);
+            if (activated) {
+                if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);}
+                else {requireSame(body.resource().canonicalBytes(), selected.copy().image().resource().canonicalBytes());selected.copy().image().requireContext(body.context());}
                 approvedCurrent.run();
-                if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);edits.addAll(confirmationEdits(reader,scope,lineage,intent,stamp));}
-                else edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
             }
-            final var outcome = SystemMutationResult.from(intent, rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
-                    rejection == null ? StableCode.OK : rejection, source.canonicalBytes());
-            final TargetResultRecord.CreationAuthority results = (record, first) -> {
-                record.requireOwner(root);
-                if (!record.mutation().equals(stamp) || record.allocation() != null)
-                    throw new IllegalStateException("retirement result changed its Source/root");
-                requireAbsent(reader, ColumnFamily.DEDUPE, record.key());
-                if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
-                    if (first != null || !Arrays.equals(record.key(), resultKey(intent.systemMutationId()))
-                            || !Arrays.equals(record.typedPayload(), outcome.encode()))
-                        throw new IllegalStateException("retirement first differs from approved decision");
-                } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
-                    if (first == null || !Arrays.equals(first.key(), resultKey(intent.systemMutationId()))
-                            || !Arrays.equals(first.typedPayload(), outcome.encode()) || !Arrays.equals(record.key(), positionKey(source)))
-                        throw new IllegalStateException("retirement POSITION lost its exact first");
-                    record.requireFirst(first);
-                } else throw new IllegalStateException("unexpected retirement result kind");
+            final var result = new SystemMutationResult[1];
+            preflightDebited=true;
+            if(inventory!=null)inventory.debitReads(budget.actualRecords()-beforeRows,budget.actualBytes()-beforeBytes);
+            final java.util.function.Function<TargetStoreBackend.Reader,TargetStoreBackend.Mutation> planner=reader -> {
+                if (reader.source() == null || source.compareTo(reader.source()) <= 0)
+                    throw new IllegalStateException("first retirement needs an established strictly earlier Source");
+                requireAbsent(reader, ColumnFamily.DEDUPE, resultKey(intent.systemMutationId()));
+                requireAbsent(reader, ColumnFamily.DEDUPE, positionKey(source));
+                final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source,
+                        Bytes.sha256(intent.canonicalEnvelope()));
+                final var root = sourceRoot(reader, stamp);
+                final boolean nativeReady=retirementProtocolReady(reader,tuple,source,resource,marker);
+                if(nativeReady&&!expired&&retainedHistory==null)throw new IllegalStateException("original Source protocol/input changed; retain and retry");
+                boolean sourceActivated=activated&&nativeReady;
+                if(sourceActivated){
+                    if(grant==null)throw new IllegalStateException("retirement Source history omitted its exact Target activation binding");
+                    try{TargetProtocolActivationStore.requireHistoryBinding(reader,scope,lineage,grant,source);}
+                    catch(CommandResolutionException denied){if(denied.stableCode()!=StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION)throw denied;sourceActivated=false;}
+                }
+                final StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= intent.retryUntilEpochMs()
+                        ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                        : !nativeReady ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION
+                        : !authorized ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION
+                        : !sourceActivated ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION : null;
+                final var edits = new ArrayList<TargetStoreBackend.Edit>();
+                if(retainedHistory!=null&&nativeReady){
+                    retainedHistory.current().run();final var retained=new TargetRetirementSourceHistoryRecord(intent,stamp,retainedHistory.proof());
+                    final var previous=TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,retainedHistory.proof());
+                    final var accepted=new TargetRetirementHistoryTipRecord(retained);
+                    if(previous!=null)accepted.requireAfter(previous);
+                    requireAbsent(reader,ColumnFamily.META,retained.key());
+                    edits.add(reader.replace(ColumnFamily.META,retained.key(),TargetRetirementSourceHistoryRecord.VALUE_TYPE,retained.canonicalBytes()));
+                    edits.add(reader.replace(ColumnFamily.META,accepted.key(),TargetRetirementHistoryTipRecord.VALUE_TYPE,accepted.canonicalBytes()));
+                }
+                if (rejection == null) {
+                    approvedCurrent.run();
+                    if(confirming){selectedConfirmation.requireSource(intent,source);selectedConfirmation.requireConfirmation(confirmation);edits.addAll(confirmationEdits(reader,scope,lineage,intent,stamp));}
+                    else edits.addAll(intentEdits(reader, scope, lineage, intent, stamp, selected.copy()));
+                }
+                final var outcome = SystemMutationResult.from(intent, rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
+                        rejection == null ? StableCode.OK : rejection, source.canonicalBytes());
+                final TargetResultRecord.CreationAuthority results = (record, first) -> {
+                    record.requireOwner(root);
+                    if (!record.mutation().equals(stamp) || record.allocation() != null)
+                        throw new IllegalStateException("retirement result changed its Source/root");
+                    requireAbsent(reader, ColumnFamily.DEDUPE, record.key());
+                    if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
+                        if (first != null || !Arrays.equals(record.key(), resultKey(intent.systemMutationId()))
+                                || !Arrays.equals(record.typedPayload(), outcome.encode()))
+                            throw new IllegalStateException("retirement first differs from approved decision");
+                    } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
+                        if (first == null || !Arrays.equals(first.key(), resultKey(intent.systemMutationId()))
+                                || !Arrays.equals(first.typedPayload(), outcome.encode()) || !Arrays.equals(record.key(), positionKey(source)))
+                            throw new IllegalStateException("retirement POSITION lost its exact first");
+                        record.requireFirst(first);
+                    } else throw new IllegalStateException("unexpected retirement result kind");
+                };
+                final var first = TargetResultRecord.system(root, outcome, stamp, null, results);
+                final var position = TargetResultRecord.position(root, first, stamp, results);
+                edits.add(reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()));
+                edits.add(reader.replace(ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
+                result[0] = outcome;
+                return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
+                        .assemble(reader, edits);
             };
-            final var first = TargetResultRecord.system(root, outcome, stamp, null, results);
-            final var position = TargetResultRecord.position(root, first, stamp, results);
-            edits.add(reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()));
-            edits.add(reader.replace(ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
-            result[0] = outcome;
-            return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
-                    .assemble(reader, edits);
-        });
-        return new Prepared(this, batch, result[0], approvedCurrent,retainedHistory);
+            final var batch=inventory==null?backend.prepare(budget,planner):backend.prepareRetirement(budget,inventory,planner);
+            return new Prepared(this, batch, result[0], approvedCurrent,retainedHistory,inventory);
+        }finally{
+            if(inventory!=null&&!preflightDebited)inventory.debitReads(budget.actualRecords()-beforeRows,budget.actualBytes()-beforeBytes);
+        }
     }
 
     private boolean retirementProtocolReady(TargetStoreBackend.Reader reader,ProtocolTuple tuple,SourcePosition source,
@@ -257,6 +270,7 @@ public final class TargetEvidenceRetirementStore {
             return new TargetStoreBackend.CommitGuard() {
                 @Override public void requireCurrent() {
                     guard.requireCurrent();
+                    if(prepared.preparation!=null)prepared.preparation.requireCurrent();
                     if (prepared.approvalCurrent != null) prepared.approvalCurrent.run();
                     if(prepared.history!=null)prepared.history.current().run();
                     guard.requireCurrent();
@@ -313,11 +327,18 @@ public final class TargetEvidenceRetirementStore {
     public static AppliedIntent readHistoricalConfirmationIntent(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
             TargetQuotaScope scope,byte[] lineage,SystemMutation selected,SourcePosition source,SourceHistory history,
             TargetRetirementAuthorizationHistory.Grant grant,TargetStoreBackend.ReadAuthority authority){
+        return readHistoricalConfirmationIntent(backend,budget,scope,lineage,selected,source,history,grant,authority,null);
+    }
+    public static AppliedIntent readHistoricalConfirmationIntent(TargetStoreBackend backend,com.nereusstream.delay.store.BoundedReadBudget budget,
+            TargetQuotaScope scope,byte[] lineage,SystemMutation selected,SourcePosition source,SourceHistory history,
+            TargetRetirementAuthorizationHistory.Grant grant,TargetStoreBackend.ReadAuthority authority,TargetRetirementPreparation.Proof prepared){
         if(scope.target()!=null||budget.maxBytes()==Long.MAX_VALUE||selected.type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
             throw new IllegalArgumentException("bounded actual Source confirmation read required");
         final var body=TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody());
         if(!body.markerRetained())throw new IllegalArgumentException("historical marker confirmation required");
         return backend.guardedRead(budget,reader->{
+            if(prepared!=null){prepared.requireInput(selected,source);prepared.requireReader(reader,backend);}
+            final TargetRecordAccounting.View inventory=prepared==null?reader:prepared.evidenceView(reader,List.of(),body.resource());
             final var cut=reader.aggregate().mutation();cut.requireAtOrBefore(reader.sourceSequence(),reader.source());
             if(reader.source()==null||source.compareTo(reader.source())<=0)throw new IllegalStateException("historical confirmation is not the selected next Source first");
             final var root=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
@@ -327,7 +348,7 @@ public final class TargetEvidenceRetirementStore {
             requireSame(retained.copy().resource().canonicalBytes(),body.resource().canonicalBytes());requireSame(retained.body().context().canonicalBytes(),body.context().canonicalBytes());
             if(!source.sameSourceIdentity(retained.appliedAt().source())||source.compareTo(retained.appliedAt().source())<=0)
                 throw new IllegalStateException("historical confirmation changed original physical Source/intent ordering");
-            requireRetiringState(reader,List.of(),scope,lineage,root,retained,cut);
+            requireRetiringState(inventory,List.of(),scope,lineage,root,retained,cut);
             if(!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,body.requiredTuple(),source,body.resource()))
                 throw new IllegalStateException("historical confirmation has no actual prior Target activation");
             final var activation=TargetProtocolActivationStore.applied(reader,scope,lineage,body.requiredTuple());
@@ -339,9 +360,9 @@ public final class TargetEvidenceRetirementStore {
             final var previous=TargetRetirementSourceHistoryStore.currentTip(reader,scope,lineage,history.proof());
             if(previous!=null)new TargetRetirementHistoryTipRecord(incoming).requireAfter(previous);
             final var resource=body.resource();
-            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery)requireRecoveryReferences(reader,List.of(),scope,lineage,recovery.owner());
+            if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Recovery recovery)requireRecoveryReferences(inventory,List.of(),scope,lineage,recovery.owner());
             else if(resource.provenance() instanceof TargetExternalEvidenceObjectResource.Protection||resource.provenance() instanceof TargetExternalEvidenceObjectResource.Anchor)
-                requireNoRecoveryDependents(reader,List.of(),scope,lineage,controlOwner(resource),cut);
+                requireNoRecoveryDependents(inventory,List.of(),scope,lineage,controlOwner(resource),cut);
             reader.requireWithinElapsedBudget();return new AppliedIntent(retained,cut);
         },authority);
     }
@@ -632,9 +653,10 @@ public final class TargetEvidenceRetirementStore {
             ownedElsewhere=true;
         }
         final byte tag=(byte)(recovery?TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG:TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG);
+        final var inventory=preparedInventory(view,overlay,subtype,objectDigest,exactKey);
         byte[] lower={tag,TargetKeyCodec.KEY_FORMAT};final byte[] upper={tag,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
-            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            final var row=inventory.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             if(Arrays.compareUnsigned(row.key(),lower)<0||Arrays.compareUnsigned(row.key(),upper)>=0)
                 throw new IllegalStateException("staging reference read escaped its finite range");
             lower=Bytes.concat(row.key(),new byte[]{0});
@@ -691,10 +713,11 @@ public final class TargetEvidenceRetirementStore {
         for(var use:uses)if(use.conclusion()==TargetEvidenceRetirementContext.Conclusion.RETAINED_APPLIED)
             applied.put(Bytes.hex(use.id()),use);
         final var joined=new java.util.LinkedHashMap<String,TargetExternalEvidenceReference>();boolean creator=false;
+        final var inventory=preparedInventory(view,overlay,owner.kind(),owner.artifactDigest(),owner.exactKey());
         byte[] lower={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT};
         final byte[] upper={TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
-            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            final var row=inventory.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             if(Arrays.compareUnsigned(row.key(),lower)<0||Arrays.compareUnsigned(row.key(),upper)>=0)
                 throw new IllegalStateException("CONTROL reference read escaped its finite range");
             lower=Bytes.concat(row.key(),new byte[]{0});
@@ -755,10 +778,11 @@ public final class TargetEvidenceRetirementStore {
     private static void requireRecoveryReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetRecoveryEvidenceOwner owner){
         final var expected=owner.referenceRecord();final var found=new java.util.HashSet<String>();
+        final var inventory=preparedInventory(view,overlay,TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF.wireValue(),owner.reference().proofDigest(),owner.reference().exactKey());
         byte[] lower={TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG,TargetKeyCodec.KEY_FORMAT};
         final byte[] upper={TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
-            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            final var row=inventory.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
             final var ref=TargetRecoveryEvidenceReference.decodeForStore(row.key(),
                     TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceReference.VALUE_TYPE).payload(),scope.shard(),lineage);
@@ -773,10 +797,11 @@ public final class TargetEvidenceRetirementStore {
     /** A live adopted proof still needs its original CONTROL dependencies, even if its Attempt has settled. */
     private static void requireNoRecoveryDependents(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetExternalEvidenceOwner owner,TargetQuotaMutation frontier){
+        final var inventory=preparedInventory(view,overlay,owner.kind(),owner.artifactDigest(),owner.exactKey());
         byte[] lower={TargetKeyCodec.RECOVERY_EVIDENCE_OWNER_TAG,TargetKeyCodec.KEY_FORMAT};
         final byte[] upper={TargetKeyCodec.RECOVERY_EVIDENCE_OWNER_TAG,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
-            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            final var row=inventory.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
             final var proof=TargetRecoveryEvidenceOwner.decodeForStore(row.key(),
                     TargetValueEnvelope.decode(row.value(),TargetRecoveryEvidenceOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope(),lineage);
@@ -794,10 +819,11 @@ public final class TargetEvidenceRetirementStore {
     private static void requireNoReferences(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope,byte[] lineage,TargetExternalEvidenceObjectResource resource){
         final boolean recovery=resource.subtype()==TargetExternalEvidenceObjectResource.Subtype.RECOVERY_PROOF;
+        final var inventory=preparedInventory(view,overlay,resource.subtype().wireValue(),resource.objectDigest(),resource.exactKey());
         final byte tag=(byte)(recovery?TargetKeyCodec.RECOVERY_EVIDENCE_REFERENCE_TAG:TargetKeyCodec.EXTERNAL_EVIDENCE_REFERENCE_TAG);
         byte[] lower={tag,TargetKeyCodec.KEY_FORMAT};final byte[] upper={tag,(byte)(TargetKeyCodec.KEY_FORMAT+1)};
         while(true){
-            final var row=view.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
+            final var row=inventory.first(ColumnFamily.META,lower,upper,overlay);if(row==null)break;
             requireRange(row.key(),lower,upper);lower=Bytes.concat(row.key(),new byte[]{0});
             final boolean matches;
             if(recovery){
@@ -815,6 +841,14 @@ public final class TargetEvidenceRetirementStore {
     private static void requireRange(byte[] key,byte[] lower,byte[] upper){
         if(Arrays.compareUnsigned(key,lower)<0||Arrays.compareUnsigned(key,upper)>=0)
             throw new IllegalStateException("retirement dependency read escaped its finite range");
+    }
+    private static TargetRecordAccounting.View preparedInventory(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
+            int subtype,byte[] digest,String exactKey){
+        if(view instanceof com.nereusstream.delay.store.TargetRetirementLedgerCursor.InventoryView inventory){
+            if(!overlay.isEmpty())throw new IllegalArgumentException("complete retirement ledger inventory cannot use a Source overlay");
+            return inventory.evidence(subtype,digest);
+        }
+        final var proof=view.retirementProof();return proof==null?view:proof.evidenceView(view,overlay,subtype,digest,exactKey);
     }
 
     /** Exact state2 invariant over actual bytes; neither a tombstone codec nor absence alone grants delete authority. */

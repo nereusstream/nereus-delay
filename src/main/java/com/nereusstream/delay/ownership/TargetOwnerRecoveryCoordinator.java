@@ -49,6 +49,10 @@ public final class TargetOwnerRecoveryCoordinator {
     private TargetSourceApplyRuntime replay;
     private TargetScopeResourceManager scopeResources;
     private TargetMigrationCompatibilityRuntime migrationCompatibility;
+    private TargetPayloadSummaryLegacyPrefix payloadSummaryLegacyPrefix;
+    private com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits writerOriginLimits;
+    private com.nereusstream.delay.protocol.OwnerIdentity writerOriginOwner;
+    private LongSupplier writerOriginClock;
     private com.nereusstream.delay.protocol.SourcePosition requiredReplayCut;
     private SourceApplyWorkClassExecutor sourceApply;
     private SourceReplayEntry pendingEntry;
@@ -436,6 +440,22 @@ public final class TargetOwnerRecoveryCoordinator {
         scopeResources = Objects.requireNonNull(original);
     }
 
+    synchronized void configurePayloadSummaryLegacyPrefix(TargetPayloadSummaryLegacyPrefix original) {
+        if (turnNumber != 0 || replay != null || payloadSummaryLegacyPrefix != null)
+            throw new IllegalStateException("old payload prefix must bind before the actual recovery Source action");
+        payloadSummaryLegacyPrefix = Objects.requireNonNull(original);
+    }
+    /** Only the actual startup binds limits/physical Owner; each prepared prefix still needs its independent paid loan. */
+    synchronized void configureWriterOrigin(com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits originalLimits,
+            com.nereusstream.delay.protocol.OwnerIdentity actualOwner, LongSupplier originalClock) {
+        if (turnNumber != 0 || replay != null || writerOriginLimits != null)
+            throw new IllegalStateException("writer history preparation must bind before original Source recovery starts");
+        Objects.requireNonNull(actualOwner); Objects.requireNonNull(originalLimits); Objects.requireNonNull(originalClock);
+        if (actualOwner.ownerEpoch() != lease.ownerEpoch() || !Arrays.equals(actualOwner.leaseFencingDigest(), lease.leaseToken()))
+            throw new IllegalArgumentException("writer origin changed its actual recovery Source Owner");
+        writerOriginLimits = originalLimits; writerOriginOwner = actualOwner; writerOriginClock = originalClock;
+    }
+
     synchronized void configureMigration(TargetMigrationCompatibilityRuntime original,
             com.nereusstream.delay.protocol.SourcePosition minimum) {
         if (turnNumber != 0 || replay != null || migrationCompatibility != null)
@@ -695,7 +715,9 @@ public final class TargetOwnerRecoveryCoordinator {
         requireLease(false);
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
+        if (writerOriginLimits != null) replay.configureWriterOrigin(writerOriginLimits, writerOriginOwner, writerOriginClock);
         if (migrationCompatibility != null) replay.configureMigration(migrationCompatibility);
+        if (payloadSummaryLegacyPrefix != null) replay.configurePayloadSummaryLegacyPrefix(payloadSummaryLegacyPrefix);
         if (boundReader != null) replay.bindRecoveryReader(boundReader, boundReaderCut);
         if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock,evidenceCatalog);
         if (scopeResources != null) scopeResources.bindSource(replay, clock);
@@ -842,6 +864,8 @@ public final class TargetOwnerRecoveryCoordinator {
         final var root = completedRoot();
         requireCatalog();
         final var active = activeLease();
+        if (replay != null && !replay.authorityIoExited())
+            throw new IllegalStateException("original recovery writer/history/Source loans remain owned before active handoff");
         final TargetSourceApplyRuntime runtime;
         if (authorityPreparation == null) {
             runtime = new TargetSourceApplyRuntime(root, store, assignment, active,
@@ -859,6 +883,9 @@ public final class TargetOwnerRecoveryCoordinator {
             sloRecoveryQualification.bindRuntimeRoot(root);
         }
         runtime.bindRecoveredSloQualification(sloRecoveryQualification);
+        if (writerOriginLimits != null) runtime.configureWriterOrigin(writerOriginLimits,
+                new com.nereusstream.delay.protocol.OwnerIdentity(writerOriginOwner.deploymentId(), writerOriginOwner.workerRunId(),
+                        active.ownerEpoch(), active.leaseToken()), writerOriginClock);
         if (migrationCompatibility != null) runtime.configureMigration(migrationCompatibility);
         if (scopeResources != null) scopeResources.bindSource(runtime, clock);
         return runtime;

@@ -4,7 +4,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 
 /** Implemented by the actual configured K1/P1 migration factory, using the original Process graph. */
 public interface TargetMigrationTransport {
-    void requireBinding(TargetMigrationProcessDriver.Opening original);
+    void requireBinding(TargetMigrationSourceOpening original);
     boolean advance();
     TargetWorkerRecoverySource reader();
     TargetMigrationControlWriter writer();

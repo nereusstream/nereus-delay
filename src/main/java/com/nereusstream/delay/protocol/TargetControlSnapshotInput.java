@@ -57,6 +57,12 @@ public final class TargetControlSnapshotInput {
         this.signature = signature == null ? null : Bytes.copy(signature);
     }
 
+    /** Issues one bounded authorization while retaining this exact immutable original META10 input. */
+    public TargetProtocolTupleAuthorization authorizeTuple(TargetInitialControlSnapshot initial,TargetProtocolActivationDescriptor descriptor,PrivateKey originalIssuer){
+        if(!Arrays.equals(canonicalBytes(),initial.input().canonicalBytes()))throw new IllegalArgumentException("tuple authorization changed original signed Root input");
+        return TargetProtocolTupleAuthorization.signed(initial,descriptor,originalIssuer);
+    }
+
     public static TargetControlSnapshotInput signed(TargetQuotaScope scope, byte[] lineage, byte[] initialGrantDigest,
             SourcePosition initialSource, byte[] initialEnvelopeDigest, List<ProtocolTuple> tuples,
             List<ProfileRef> profiles, int issuerKeyVersion, PrivateKey key) {

@@ -100,7 +100,7 @@ public final class ShardStore implements AutoCloseable {
     private final Supplier<RocksDbUsageSnapshot> physicalUsageSource;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** First close fences all Store operations; native teardown may be retried. */
-    private boolean closeStarted;
+    private volatile boolean closeStarted;
     private TargetShardInstall targetInstall;
     private boolean inspectionOnly;
 
@@ -2887,6 +2887,11 @@ public final class ShardStore implements AutoCloseable {
         return closeStarted;
     }
 
+    /** Pure local close fence for SDK guards; observing it never acquires the Store monitor. */
+    public boolean closeFenceRaised() {
+        return closeStarted;
+    }
+
     /** Returns whether every native handle and Worker slot has been released. */
     public synchronized boolean isClosed() {
         return closed.get();
@@ -3182,6 +3187,15 @@ public final class ShardStore implements AutoCloseable {
     public synchronized ReadView captureReadView() {
         ensureOpen();
         return new ReadView(this, successfulWriteCalls, db.getLatestSequenceNumber(), runtimeMetadata);
+    }
+
+    /** Local comparison for an already protected payload-summary fold, including local Native writes. */
+    public synchronized void requirePayloadSummaryReadView(final ReadView view) {
+        ensureOpen(); Objects.requireNonNull(view, "view");
+        if (view.store != this) throw new IllegalArgumentException("payload summary view belongs to another Store");
+        if (view.successfulWrites != successfulWriteCalls || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata)
+            throw new com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap.ViewChanged();
     }
 
     /** Local comparison for the original opaque maintenance flight, also valid inside its bounded read plan. */

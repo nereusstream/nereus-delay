@@ -146,7 +146,7 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
         final CompletableFuture<Observation> completion = new CompletableFuture<>();
         final NativeAppend nativeAppend;
         try {
-            nativeAppend = new NativeAppend(TargetScopeExposureSource.acquire(exact, copyContract, exposureIssuer));
+            nativeAppend = new NativeAppend(TargetScopeExposureSource.acquire(exact, copyContract, exposureIssuer), exact);
             synchronized (this) { retainedAppends.add(nativeAppend); }
         } catch (RuntimeException | Error failed) {
             if (reservation != null) reservation.sdkCompleted();
@@ -319,6 +319,9 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
 
     /** An UNKNOWN result keeps its original native callback obligation until completion or actual producer exit. */
     synchronized boolean nativeOperationsExited() { return nativeAppends == 0; }
+    synchronized boolean nativeOperationsExited(SystemMutation exact) {
+        return retainedAppends.stream().noneMatch(append -> !append.exited && java.util.Arrays.equals(append.mutationId, exact.systemMutationId()));
+    }
 
     /** Only the same producer's actual guarded native termination settles callbacks with no observed response. */
     void producerNativeClosed() {
@@ -397,13 +400,14 @@ public final class KafkaClientArtifactShardLogMutationAppender implements ShardL
     private record Observation(GuardedRecordMetadata metadata, Throwable failure) {}
     private static final class NativeAppend {
         private final TargetSloControlScopeAuthority.ExposurePermit exposure;
+        private final byte[] mutationId;
         private boolean started;
         private volatile boolean exited;
         private CheckpointInputFuture.Cleanup cleanup;
         private CompletableFuture<Void> cleanupRetry;
         private Throwable cleanupFailure;
-        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) {
-            this.exposure = exposure; this.cleanup = exposure;
+        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure, SystemMutation exact) {
+            this.exposure = exposure; this.cleanup = exposure; mutationId = exact.systemMutationId();
         }
     }
     private static final class SourceWriteNotStarted extends RuntimeException {

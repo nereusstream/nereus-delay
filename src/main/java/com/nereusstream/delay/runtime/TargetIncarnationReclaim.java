@@ -88,6 +88,70 @@ public final class TargetIncarnationReclaim {
         }
         current.run();return at;
     }
+    public static TargetQuotaMutation requirePreparedClosed(TargetRetirementLedgerCursor ledger,TargetResourceReclaimBody body,SystemMutation input,boolean allowApplied,Runnable current){
+        final var d=ledger.dependenciesForClosure();
+        final var facts=Objects.requireNonNull(body.nativeFacts());facts.requireFor(body);current.run();
+        final var fence=TargetNativeRetainedReclaim.fence(facts);final var fenceFirst=d.requireTimeFence(fence);
+        if(!fenceFirst.mutation().equals(facts.fence().appliedAt())
+                ||d.ingressFence().closedThroughEpochMs()<TargetTimeFenceBody.decode(fence.mutation().canonicalBody()).closeThrough())throw new IllegalStateException("incarnation lifecycle lost its original closure fence");
+        final TargetQuotaMutation at=input==null?null:preparedApplied(d,input);
+        if(at!=null&&!allowApplied)throw new IllegalStateException("incarnation lifecycle was already applied");
+        final var owner=expected(body);final var actual=d.incarnation(owner.key());
+        if(at==null){
+            if(actual==null||!same(owner.canonicalBytes(),actual.canonicalBytes()))throw new IllegalStateException("incarnation changed after selection");
+        }
+        if(body.operations().getFirst() instanceof TargetResourceReclaimBody.IncarnationDrain drain){
+            final var first=Objects.requireNonNull(d.resultRecord(firstKey(closeId(drain.close()))),"original Target Close first");
+            closeFirst(drain,first);d.requireSystemPosition(first);
+            if(at==null){
+                final var stored=Objects.requireNonNull(d.control(drain.close().key()),"original Target Close marker");
+                if(stored.valueType()!=TargetCloseRecord.VALUE_TYPE)throw new IllegalStateException("drain Close marker changed type");
+                if(!same(stored.payload(),drain.close().canonicalBytes()))throw new IllegalStateException("drain replaced original Close marker");
+            }else{
+                final var successor=owner.drainingProjection(at);
+                if(actual!=null&&!same(actual.canonicalBytes(),successor.canonicalBytes()))throw new IllegalStateException("drain lost exact irreversible successor");
+                if(actual==null)requirePreparedRetiredSuccessor(d,successor);
+            }
+        }else{
+            final var retire=(TargetResourceReclaimBody.IncarnationRetire)body.operations().getFirst();
+            requirePreparedDrain(d,retire.expected());
+            if(at==null){
+                if(d.ownerRecordCount(owner.identity())!=1)throw new IllegalStateException("actual independent ledger still has incarnation-owned records");
+                final var primary=Objects.requireNonNull(d.quotaCounter(owner.identity()));final var mirror=Objects.requireNonNull(d.quotaCounter(owner.tenantIdentity()));
+                if(!primary.usage().equals(owner.ownContribution())||!mirror.usage().equals(owner.tenantContribution()))throw new IllegalStateException("incarnation still has allocated or retained resources");
+                primary.mutation().requireCoveredByFloor(body.floor());mirror.mutation().requireCoveredByFloor(body.floor());
+                final var grant=d.control(retire.zeroGrant().key());
+                if(ledger.grantCount(owner.identity())!=1||grant==null||grant.valueType()!=TargetQuotaGrantActivation.VALUE_TYPE
+                        ||!same(grant.payload(),retire.zeroGrant().canonicalBytes()))throw new IllegalStateException("retirement changed its live zero-fee grant reference");
+            }else{
+                if(actual!=null)throw new IllegalStateException("retired incarnation descriptor survives");
+                requireZero(d.quotaCounter(owner.identity()),at);requireZero(d.quotaCounter(owner.tenantIdentity()),at);
+                if(d.ownerRecordCount(owner.identity())!=0||d.control(retire.zeroGrant().key())!=null)throw new IllegalStateException("retired incarnation retains Native references");
+            }
+        }
+        current.run();return at;
+    }
+
+    private static TargetQuotaMutation preparedApplied(TargetCheckpointDependencies d,SystemMutation input){
+        final var first=d.resultRecord(firstKey(input.systemMutationId()));if(first==null||!first.appliedFirst())return null;
+        final var history=Objects.requireNonNull(d.sourceHistory(input.systemMutationId()),"actual incarnation lifecycle history");
+        if(!same(history.input().canonicalEnvelope(),input.canonicalEnvelope()))throw new IllegalStateException("incarnation lifecycle changed exact original input");
+        requireHistoryFirst(history,first);
+        if(!first.mutation().equals(history.decidedAt())||!same(first.mutation().mutationDigest(),Bytes.sha256(input.canonicalEnvelope())))throw new IllegalStateException("incarnation lifecycle changed the original accepted Source frame");
+        d.requireSystemPosition(first);return first.mutation();
+    }
+    private static void requirePreparedDrain(TargetCheckpointDependencies d,TargetQuotaIncarnation owner){
+        final var position=Objects.requireNonNull(d.resultRecord(positionKey(owner.latestMutation())),"original Source drain POSITION");
+        final var history=Objects.requireNonNull(d.sourceHistory(position.logicalId()),"original Source drain history");requireDrainHistory(history,owner);
+        final var first=Objects.requireNonNull(d.resultRecord(firstKey(history.input().systemMutationId())));requireHistoryFirst(history,first);position.requireFirst(first);
+    }
+    private static void requirePreparedRetiredSuccessor(TargetCheckpointDependencies d,TargetQuotaIncarnation drained){
+        final var counter=Objects.requireNonNull(d.quotaCounter(drained.identity()));
+        final var position=Objects.requireNonNull(d.resultRecord(positionKey(counter.mutation())));
+        final var history=Objects.requireNonNull(d.sourceHistory(position.logicalId()),"retired incarnation actual Source history");
+        requireRetireHistory(history,drained);requireZero(counter,history.decidedAt());requireZero(d.quotaCounter(drained.tenantIdentity()),history.decidedAt());
+        if(preparedApplied(d,history.input())==null)throw new IllegalStateException("missing actual APPLIED incarnation retirement");
+    }
     private static void requireZero(TargetQuotaCounter counter,TargetQuotaMutation at){
         if(counter==null||!counter.usage().equals(TargetQuotaUsage.empty())||!counter.mutation().equals(at))throw new IllegalStateException("retirement lost its exact retained zero counter");
     }

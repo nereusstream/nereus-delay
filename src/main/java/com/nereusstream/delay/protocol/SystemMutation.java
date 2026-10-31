@@ -204,7 +204,10 @@ public final class SystemMutation {
         final var kindField = fields.stream().filter(field -> field.number() == 11).findFirst().orElseThrow();
         final int kind = QueryCodecSupport.uint32(kindField, 11);
         final byte[] logicalIdentity;
-        if (kind == TargetMigrationActivateRequest.CONTROL_KIND || kind == TargetMigrationSettlementRequest.CONTROL_KIND) {
+        if (kind == TargetPayloadSummaryInitializationRequest.CONTROL_KIND) {
+            logicalIdentity = TargetPayloadSummaryInitializationBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetMigrationActivateRequest.CONTROL_KIND || kind == TargetMigrationSettlementRequest.CONTROL_KIND
+                || kind == TargetMigrationRetirementIntentRequest.CONTROL_KIND || kind == TargetMigrationRetirementConfirmRequest.CONTROL_KIND || kind == TargetMigrationArchiveRequest.CONTROL_KIND) {
             logicalIdentity = TargetMigrationControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == TargetProtocolActivatePayload.CONTROL_KIND && TargetProtocolActivationBody.hasTargetPayload(envelope.body())) {
             logicalIdentity = TargetProtocolActivationBody.decode(envelope.body()).logicalIdentity();

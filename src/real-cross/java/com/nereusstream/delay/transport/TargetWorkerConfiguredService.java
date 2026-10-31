@@ -113,7 +113,31 @@ public final class TargetWorkerConfiguredService {
             TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
             Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
             Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders,
-            TargetMigrationInputs.Provider migration) {
+            TargetMigrationInputs.Provider migration,
+            com.nereusstream.delay.ownership.TargetMigrationMaintenanceInputs.Provider migrationMaintenance,
+            com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance.Inputs.Provider payloadSummaryInitialization,
+            com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Provider payloadSummaryPrefix) {
+        public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
+                TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
+                ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
+                TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
+                Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
+                Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders,
+                TargetMigrationInputs.Provider migration,
+                com.nereusstream.delay.ownership.TargetMigrationMaintenanceInputs.Provider migrationMaintenance) {
+            this(owner, initial, content, successor, capacity, recovery, maintenance, publishing, expiry, checkpoint,
+                    receipts, journal, sloProviders, migration, migrationMaintenance, null, null);
+        }
+        public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
+                TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
+                ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
+                TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
+                Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
+                Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders,
+                TargetMigrationInputs.Provider migration) {
+            this(owner, initial, content, successor, capacity, recovery, maintenance, publishing, expiry, checkpoint,
+                    receipts, journal, sloProviders, migration, null);
+        }
         public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
                 TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
                 ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
@@ -152,13 +176,17 @@ public final class TargetWorkerConfiguredService {
 
     private enum Stage { MIGRATION, CHECKPOINT, SOURCE, RESTORE_PREPARATION, RESTORE, OPEN_SOURCE, SOURCE_READY,
         WRITER, WRITER_READY, INVENTORY, MANAGEMENT, CHANNELS, JOURNAL, PUBLISHING,
-        SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, READY }
+        SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, MIGRATION_MAINTENANCE, PAYLOAD_SUMMARY_MAINTENANCE, READY }
 
     private static final class Source {
         final TargetWorkerServiceConfiguration.Source configuration;
         final SourceInputs inputs;
         Stage stage = Stage.CHECKPOINT;
         TargetMigrationProcessDriver migration;
+        TargetMigrationProcessDriver compatibility;
+        com.nereusstream.delay.ownership.TargetMigrationMaintenance migrationMaintenance;
+        com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance payloadSummaryInitialization;
+        boolean payloadSummaryPrefixConfigured;
         boolean migrationTransportRequested;
         TargetWorkerCheckpointComposition checkpoint;
         TargetWorkerSourceReadResources reads;
@@ -282,10 +310,25 @@ public final class TargetWorkerConfiguredService {
                         != (input.checkpoint().recovery() != null)) {
                 throw new IllegalArgumentException("Source mode lacks its exact Initial or published recovery selection");
             }
-            if ((source.mode() == TargetWorkerServiceConfiguration.Mode.MIGRATION) != (input.migration() != null))
+            if ((source.mode() == TargetWorkerServiceConfiguration.Mode.MIGRATION || source.typedMigrationCompatibility() != null)
+                    != (input.migration() != null))
                 throw new IllegalArgumentException("migration mode requires its genuine original maintenance input provider");
+            if ((source.migrationMaintenance() != null) != (input.migrationMaintenance() != null))
+                throw new IllegalArgumentException("daily migration maintenance requires its actual protected Source/legacy sub-loan provider");
+            if (source.migrationMaintenance() != null) retainedHeap = Math.addExact(retainedHeap,
+                    source.migrationMaintenance().configuration().maximumRetainedBytes());
+            if ((source.payloadSummaryInitialization() != null) != (input.payloadSummaryInitialization() != null)
+                    || (source.payloadSummaryPrefix() != null) != (input.payloadSummaryPrefix() != null))
+                throw new IllegalArgumentException("summary initialization/prefix needs its separate actual platform/freeze input provider");
+            if (source.payloadSummaryInitialization() != null) retainedHeap = Math.addExact(retainedHeap,
+                    source.payloadSummaryInitialization().configuration().maximumRetainedBytes());
+            if (source.payloadSummaryPrefix() != null) retainedHeap = Math.addExact(retainedHeap,
+                    source.payloadSummaryPrefix().limits().maximumRetainedBytes());
+            if (source.writerOrigin() != null) retainedHeap = Math.addExact(retainedHeap, source.writerOrigin().limits().maximumRetainedBytes());
             if (source.typedMigration() != null) retainedHeap = Math.addExact(retainedHeap,
                     source.typedMigration().maximumRetainedBytes());
+            if (source.typedMigrationCompatibility() != null) retainedHeap = Math.addExact(retainedHeap,
+                    source.typedMigrationCompatibility().maximumRetainedBytes());
             if (input.initial() != null && (!source.scope().equals(input.initial().scope())
                     || !Arrays.equals(source.lineage(), input.initial().lineage()))) {
                 throw new IllegalArgumentException("fresh Source authority changes its configured root");
@@ -445,8 +488,11 @@ public final class TargetWorkerConfiguredService {
                 if (source.checkpoint.advancePreparation()) source.stage = Stage.SOURCE;
             }
             case SOURCE -> {
+                if (config.typedMigrationCompatibility() != null && source.compatibility == null)
+                    source.compatibility = process.recoverMigrationCompatibility(config.typedMigrationCompatibility(),
+                            input.owner(), input.migration(), sdk);
                 final var original = input.content();
-                final var content = new TargetWorkerSourceRuntimeFactory.Content(original.provider(), original.physical(),
+                final var content = new TargetWorkerSourceRuntimeFactory.Content(migrationSourceProvider(source, original.provider()), original.physical(),
                         original.reads(), original.lookupTimeout(), original.maximumBytes(), source.checkpoint.evidencePublication(),
                         original.scopeResources());
                 final var actualOwner = source.migration == null ? input.owner() : new TargetWorkerSourceStartup.Owner(
@@ -457,6 +503,7 @@ public final class TargetWorkerConfiguredService {
                     case REOPEN, MIGRATION -> process.reopenSource(actualOwner, config.scope(), content, input.successor());
                     case PUBLISHED_RECOVERY -> process.checkpointSource(actualOwner, config.scope(), content, input.successor());
                 };
+                if (config.writerOrigin() != null) source.startup.configureWriterOrigin(config.writerOrigin().limits());
                 source.checkpoint.bindStartup(source.startup, dependencies.ownerClock());
                 if (config.mode() == TargetWorkerServiceConfiguration.Mode.PUBLISHED_RECOVERY) {
                     final var recovery = input.checkpoint().recovery();
@@ -482,6 +529,14 @@ public final class TargetWorkerConfiguredService {
             }
             case RESTORE -> { if (source.startup.finishCheckpointRestore()) source.stage = Stage.OPEN_SOURCE; }
             case OPEN_SOURCE -> {
+                if (config.payloadSummaryPrefix() != null && !source.payloadSummaryPrefixConfigured) {
+                    source.startup.configurePayloadSummaryLegacyPrefix(input.payloadSummaryPrefix(), config.payloadSummaryPrefix().limits());
+                    source.payloadSummaryPrefixConfigured = true;
+                }
+                if (!source.startup.prepareMigrationCompatibility()) return;
+                if (source.compatibility != null && !Arrays.equals(config.lineage(),
+                        source.compatibility.opening().recoveredRoot().plan().newLineage()))
+                    throw new IllegalStateException("normal compatibility configuration changed the durable migrated Native lineage");
                 if (config.typedSource() instanceof TargetWorkerServiceConfiguration.KafkaSource kafka) {
                     source.kafka = KafkaClientArtifactTargetWorkerSourceFactory.openConfiguredSource(source.startup,
                             kafka.deployment().source(), dependencies.mtls(), dependencies.sourceTrust(), input.recovery(),
@@ -568,10 +623,67 @@ public final class TargetWorkerConfiguredService {
                 final var slo = config.typedSloService();
                 source.startup.configureSloCustodyExport(source.writer, () -> slo.custodyReads().newBudget(dependencies.nanos()),
                         slo.custodyPages(), input.sloProviders().custody(), slo.custodyTaskBytes());
+                source.stage = Stage.MIGRATION_MAINTENANCE;
+            }
+            case MIGRATION_MAINTENANCE -> {
+                final var live = config.migrationMaintenance();
+                if (live != null) source.migrationMaintenance = source.startup.configureMigrationMaintenance(source.worker,
+                        live.configuration(), input.migrationMaintenance(), sdk, original -> {
+                            if (live.source() instanceof TargetWorkerServiceConfiguration.KafkaSource kafka)
+                                return KafkaClientArtifactTargetMigrationFactory.openConfigured(original, kafka.deployment().source(),
+                                        ((TargetWorkerServiceConfiguration.KafkaWriter) live.writer()).configuration(),
+                                        dependencies.mtls(), dependencies.sourceTrust(), dependencies.time());
+                            return PulsarClientArtifactTargetMigrationFactory.openConfigured(original,
+                                    ((TargetWorkerServiceConfiguration.PulsarSource) live.source()).deployment(),
+                                    ((TargetWorkerServiceConfiguration.PulsarWriter) live.writer()).configuration(),
+                                    dependencies.mtls(), dependencies.sourceTrust(), dependencies.time());
+                        });
+                source.stage = Stage.PAYLOAD_SUMMARY_MAINTENANCE;
+            }
+            case PAYLOAD_SUMMARY_MAINTENANCE -> {
+                if (config.payloadSummaryInitialization() != null)
+                    source.payloadSummaryInitialization = source.startup.configurePayloadSummaryInitialization(source.worker,
+                            source.writer, config.payloadSummaryInitialization().configuration(), input.payloadSummaryInitialization());
                 source.stage = Stage.READY;
             }
             case READY -> { }
         }
+    }
+
+    private static com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Provider migrationSourceProvider(Source source,
+            com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Provider original) {
+        if (source.inputs.migrationMaintenance() == null && source.inputs.payloadSummaryInitialization() == null) return original;
+        return new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Provider() {
+            @Override public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadWriterPrelude(
+                    com.nereusstream.delay.ownership.SourceReplayEntry entry,
+                    com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired request, Runnable current,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead confirmation,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead reclaim) {
+                return original.loadWriterPrelude(entry, request, current, confirmation, reclaim);
+            }
+            @Override public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs load(
+                    com.nereusstream.delay.ownership.SourceReplayEntry entry,
+                    com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family family, Runnable current) {
+                return load(entry, family, current, null, null);
+            }
+            @Override public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs load(
+                    com.nereusstream.delay.ownership.SourceReplayEntry entry,
+                    com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family family, Runnable current,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead confirmation,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ReclaimRead reclaim) {
+                if (source.inputs.payloadSummaryInitialization() != null
+                        && family == com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family.PAYLOAD_SUMMARY
+                        && entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation)
+                    return source.inputs.payloadSummaryInitialization().loadSource(mutation, current);
+                if (source.inputs.migrationMaintenance() != null
+                        && family == com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.Family.MIGRATION
+                        && entry instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation
+                        && !(com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(mutation.mutation().canonicalBody()).request()
+                            instanceof com.nereusstream.delay.protocol.TargetMigrationActivateRequest))
+                    return source.startup.loadMigrationMaintenanceSource(source.inputs.migrationMaintenance(), mutation, current);
+                return original.load(entry, family, current, confirmation, reclaim);
+            }
+        };
     }
 
     private static OwnerIdentity ownerIdentity(TargetWorkerServiceConfiguration.Source config, OwnerLease lease) {

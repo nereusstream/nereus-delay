@@ -109,6 +109,20 @@ public final class TargetWorkerSourceStartup {
     private TargetWorkerPublicationDispatch publicationDispatch;
     private TargetWorkerChannelInventory channelInventory;
     private boolean channelInputsReleased;
+    private TargetPayloadSummaryLegacyPrefix.Provider payloadSummaryPrefixProvider;
+    private TargetPayloadSummaryLegacyPrefix.Limits payloadSummaryPrefixLimits;
+    private TargetWorkerProcessRuntime.PayloadSummaryPrefixInputs payloadSummaryPrefixReservation;
+    private com.nereusstream.delay.protocol.TargetQuotaIncarnation payloadSummaryPrefixRoot;
+    private com.nereusstream.delay.runtime.TargetStoreBootstrap.Reopened archiveRecoveryAudit;
+    private com.nereusstream.delay.store.ShardStore archiveRecoveryAuditStore;
+    private volatile TargetPayloadSummaryLegacyPrefix payloadSummaryPrefix;
+    private TargetPayloadSummaryLegacyPrefix previousPayloadSummaryPrefix;
+    private OwnedCheckpointIo<TargetPayloadSummaryLegacyPrefix> payloadSummaryPrefixOpening;
+    private TargetWorkerRecoverySource payloadSummaryCapturedReader;
+    private final java.util.List<CheckpointInputFuture.Cleanup> payloadSummaryPrefixPartial = new java.util.ArrayList<>();
+    private com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits writerOriginLimits;
+    private TargetWorkerProcessRuntime.WriterOriginInputs writerOriginReservation;
+    private boolean activeWriterOriginConfigured;
 
     /** A provider registers actual Journal/Fence SDK owners before allocating native resources. */
     public synchronized void retainRecoveryInputBackend(TargetOwnedBackendGroup actual) {
@@ -873,6 +887,7 @@ public final class TargetWorkerSourceStartup {
                     || recoverySource == null || !recoverySource.cleanupComplete()) return Optional.empty();
             recovery.coordinator().stopAuthorityPreparation(); recovery.coordinator().retryAuthorityCleanup();
             if (!recovery.coordinator().authorityIoExited()) return Optional.empty();
+            if (!retirePayloadSummaryRange()) return Optional.empty();
         } else {
             return Optional.empty();
         }
@@ -1305,21 +1320,26 @@ public final class TargetWorkerSourceStartup {
     boolean closeScopeResourcesAfterDependencies() {
         scopeResourcesClosing = true;
         try {
+            if (!closePayloadSummaryPrefixAfterReader()) return false;
             final var active = activation;
             if (active != null) {
                 active.runtime().retryAuthorityCleanup();
                 if (!active.runtime().nativeReadLoansExited()) return false;
+                if (writerOriginReservation != null && !active.runtime().authorityIoExited()) return false;
             }
             final var replay = recovery;
             if (replay != null) {
                 replay.coordinator().retryAuthorityCleanup();
                 if (!replay.coordinator().nativeReadLoansExited()) return false;
+                if (writerOriginReservation != null && !replay.coordinator().authorityIoExited()) return false;
             }
             final var previous = pulsarPreparation == null ? null : pulsarPreparation.previousRecovery;
             if (previous != null && previous != replay) {
                 previous.coordinator().retryAuthorityCleanup();
                 if (!previous.coordinator().nativeReadLoansExited()) return false;
+                if (writerOriginReservation != null && !previous.coordinator().authorityIoExited()) return false;
             }
+            if (writerOriginReservation != null) { writerOriginReservation.release(); writerOriginReservation = null; }
             final OwnedCheckpointIo<TargetScopeResourceManager> opening;
             synchronized (this) { opening = scopeResourceOpening; }
             if (opening != null) {
@@ -1557,14 +1577,188 @@ public final class TargetWorkerSourceStartup {
                 || constructionThread != Thread.currentThread()) {
             throw new IllegalStateException("recovery cut requires its original startup construction and acquired Store");
         }
+        final var audited = archiveRecoveryAuditStore == store && archiveRecoveryAudit != null
+                ? store.withReadView(archiveRecoveryAudit.view(), () -> archiveRecoveryAudit) : auditRecoveryStore(false);
+        archiveRecoveryAudit = null; archiveRecoveryAuditStore = null;
+        payloadSummaryPrefixRoot = audited.root();
+        requireRecoveryReaderCurrent();
+        return Objects.requireNonNull(store.appliedShardLogPosition(), "audited recovery Source cut");
+    }
+
+    private com.nereusstream.delay.runtime.TargetStoreBootstrap.Reopened auditRecoveryStore(boolean retainArchiveDependencies) {
         final var reads = TargetWorkerSourceRuntimeFactory.startupReads(graph.oxia(), owner.tenant(),
                 publication, owner.workerId(), store, assignment, lease, content.reads(), owner.clock());
         final var config = graph.config();
-        com.nereusstream.delay.runtime.TargetStoreBootstrap.reopen(store, scope,
-                new com.nereusstream.delay.store.TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes()),
-                config.checkpoint().newReadBudget(nanos), reads, config.checkpoint().ledger());
+        final var writes = new com.nereusstream.delay.store.TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes());
+        final var audited = retainArchiveDependencies
+                ? com.nereusstream.delay.runtime.TargetStoreBootstrap.reopenForArchiveRecovery(store, scope, writes,
+                        config.checkpoint().newReadBudget(nanos), reads, config.checkpoint().ledger())
+                : com.nereusstream.delay.runtime.TargetStoreBootstrap.reopen(store, scope, writes,
+                        config.checkpoint().newReadBudget(nanos), reads, config.checkpoint().ledger());
         requireRecoveryReaderCurrent();
-        return Objects.requireNonNull(store.appliedShardLogPosition(), "audited recovery Source cut");
+        return audited;
+    }
+
+    /** The registered post-T Driver executes the existing complete audit before its receiver's multi-turn audit. */
+    synchronized com.nereusstream.delay.runtime.TargetStoreBootstrap.Reopened archiveRecoveryAudit(TargetMigrationProcessDriver original) {
+        process.requireMigrationRecoveryAdmission(original, this, store); requireRecoveryReaderCurrent();
+        if (original.opening().archivePreview() == null || constructionThread != null || activation != null
+                || recovery != null || worker != null || store == null)
+            throw new IllegalStateException("archive Native dependency audit is not this original pre-reader recovery");
+        if (archiveRecoveryAuditStore != store || archiveRecoveryAudit == null) {
+            archiveRecoveryAudit = auditRecoveryStore(true); archiveRecoveryAuditStore = store;
+        }
+        return store.withReadView(archiveRecoveryAudit.view(), () -> archiveRecoveryAudit);
+    }
+
+    /** Material acquisition is an original CHECKPOINT/OwnedIO flight, before opening the first actual Source reader. */
+    public boolean prepareMigrationCompatibility() { return process.prepareMigrationRecovery(this); }
+
+    public boolean migrationHistoryRequired() { return process.migrationHistoryRequired(this); }
+
+    /** Literal limits and genuine old-writer freeze provider are retained before the actual C reader opens. */
+    public synchronized void configurePayloadSummaryLegacyPrefix(TargetPayloadSummaryLegacyPrefix.Provider provider,
+            TargetPayloadSummaryLegacyPrefix.Limits limits) {
+        requireCurrent(); Objects.requireNonNull(provider); Objects.requireNonNull(limits);
+        if (activation != null || recovery != null || worker != null || payloadSummaryPrefixProvider != null)
+            throw new IllegalStateException("legacy summary prefix requires its original controlled startup, before replay");
+        payloadSummaryPrefixReservation = process.reservePayloadSummaryPrefix(this, limits.maximumRetainedBytes());
+        payloadSummaryPrefixProvider = provider; payloadSummaryPrefixLimits = limits;
+    }
+    public synchronized void configureWriterOrigin(com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits limits) {
+        requireCurrent(); Objects.requireNonNull(limits);
+        if (worker != null || recovery != null || writerOriginLimits != null)
+            throw new IllegalStateException("writer origin preparation limits bind once on original controlled Source startup");
+        writerOriginReservation = process.reserveWriterOrigin(this, limits.maximumRetainedBytes()); writerOriginLimits = limits;
+        if (activation != null && registryIdentity != null) {
+            activation.runtime().configureWriterOrigin(limits, registryIdentity, owner.clock()); activeWriterOriginConfigured = true;
+        }
+    }
+
+    /** Two real C-reader passes: the first captures/closes R, the second independently replays only that protected prefix. */
+    public Optional<TargetWorkerRecoverySource> payloadSummaryRecoverySource(TargetWorkerRecoverySource original) {
+        final OwnedCheckpointIo<TargetPayloadSummaryLegacyPrefix> acquired;
+        synchronized (this) {
+            requireRecoveryReaderCurrent();
+            if (payloadSummaryPrefixProvider == null) return Optional.of(original);
+            if (payloadSummaryPrefixOpening == null) {
+                if (payloadSummaryPrefixRoot == null) throw new IllegalStateException("controlled prefix lacks its actual bounded Native root audit");
+                final var opening = new PayloadSummaryPrefixOpening(this);
+                payloadSummaryPrefixOpening = OwnedCheckpointIo.submitResource(guard -> {
+                    guard.run(); final var previous = previousPayloadSummaryPrefix;
+                    final var actual = previous == null
+                            ? TargetPayloadSummaryLegacyPrefix.open(opening, payloadSummaryPrefixProvider, payloadSummaryPrefixLimits)
+                            : TargetPayloadSummaryLegacyPrefix.openNext(opening, payloadSummaryPrefixProvider, payloadSummaryPrefixLimits, previous);
+                    payloadSummaryPrefix = actual; guard.run(); return actual;
+                }, this::requireRecoveryReaderCurrent, TargetPayloadSummaryLegacyPrefix::close, graph.io());
+            }
+            acquired = payloadSummaryPrefixOpening;
+        }
+        acquired.retryCleanup();
+        if (!acquired.operationExited() || !acquired.ioExited()) return Optional.empty();
+        final var prefix = acquired.receipt().join();
+        if (payloadSummaryCapturedReader != null && payloadSummaryCapturedReader != original)
+            return Optional.of(prefix.source(original));
+        if (prefix.captureReaderClosed(original)) { payloadSummaryCapturedReader = original; return Optional.empty(); }
+        // A new actual second C reader is identified by the private prefix after the first native reader really exits.
+        if (prefix.capture(original)) {
+            synchronized (this) { payloadSummaryCapturedReader = original; if (recoverySource == original) recoverySource = null; }
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+    public synchronized boolean payloadSummaryCaptureReaderClosed(TargetWorkerRecoverySource original) {
+        final var prefix = payloadSummaryPrefix;
+        if (prefix == null || !prefix.captureReaderClosed(original)) return false;
+        payloadSummaryCapturedReader = original;
+        if (recoverySource == original) recoverySource = null;
+        return true;
+    }
+
+    public static final class PayloadSummaryPrefixOpening implements TargetPayloadSummaryLegacyPrefix.Opening {
+        private final TargetWorkerSourceStartup startup;
+        private PayloadSummaryPrefixOpening(TargetWorkerSourceStartup startup) { this.startup = startup; }
+        @Override public TargetWorkerProcessRuntime.Assembly graph() { return startup.graph; }
+        @Override public ShardStore store() { return startup.store(); }
+        @Override public TargetQuotaScope scope() { return startup.scope; }
+        @Override public byte[] lineage() { return root().recoveryLineage(); }
+        @Override public SourceAssignment assignment() { return startup.acceptedAssignment(); }
+        @Override public OwnerLease ownerLease() { return startup.ownerLease(); }
+        @Override public com.nereusstream.delay.protocol.TargetQuotaIncarnation root() { return Objects.requireNonNull(startup.payloadSummaryPrefixRoot, "actual audited Native root"); }
+        @Override public LongSupplier nanos() { return startup.nanos; }
+        @Override public LongSupplier clock() { return startup.owner.clock(); }
+        @Override public TargetPayloadSummaryLegacyPrefix.Limits limits() { return startup.payloadSummaryPrefixLimits; }
+        @Override public void requireCurrent() { startup.requireRecoveryReaderCurrent(); startup.payloadSummaryPrefixReservation.requireCurrent(); }
+        @Override public void requireLocalCurrent() { startup.requireMigrationLocalCurrent(); startup.payloadSummaryPrefixReservation.requireCurrent(); }
+        @Override public void retainCleanup(CheckpointInputFuture.Cleanup original) {
+            synchronized (startup) {
+                if (!startup.payloadSummaryPrefixPartial.contains(original)) {
+                    if (startup.payloadSummaryPrefixPartial.size() >= 4) throw new IllegalStateException("controlled prefix partial acquisition bound exhausted");
+                    startup.payloadSummaryPrefixPartial.add(Objects.requireNonNull(original));
+                }
+            }
+        }
+    }
+
+    private boolean closePayloadSummaryPrefixAfterReader() {
+        final var opening = payloadSummaryPrefixOpening;
+        if (opening != null) {
+            opening.requestStop(); opening.retryCleanup();
+            if (!opening.operationExited() || !opening.ioExited()) return false;
+        }
+        final var prefix = payloadSummaryPrefix;
+        if (prefix != null) { prefix.requestStop(); prefix.retryCleanup(); if (!prefix.cleanupComplete()) return false; }
+        for (var partial : payloadSummaryPrefixPartial) { partial.retryCleanup(); if (!partial.cleanupComplete()) return false; }
+        if (payloadSummaryPrefixReservation != null) {
+            payloadSummaryPrefixReservation.release(); payloadSummaryPrefixReservation = null;
+            payloadSummaryPrefixPartial.clear(); payloadSummaryPrefix = null; payloadSummaryPrefixOpening = null;
+            payloadSummaryPrefixRoot = null; payloadSummaryCapturedReader = null; previousPayloadSummaryPrefix = null;
+        }
+        return true;
+    }
+    /** Returns only the local finite-range child loan; its durable old-writer freeze/retention remains owned. */
+    private boolean retirePayloadSummaryRange() {
+        final var prefix = payloadSummaryPrefix;
+        if (prefix == null) return true;
+        prefix.requestStop(); prefix.retryCleanup();
+        if (!prefix.ioExited() || !prefix.cleanupComplete()) return false;
+        final var acquired = payloadSummaryPrefixOpening;
+        if (acquired != null) {
+            acquired.retryCleanup(); if (!acquired.operationExited() || !acquired.ioExited()) return false;
+        }
+        previousPayloadSummaryPrefix = prefix;
+        payloadSummaryPrefix = null; payloadSummaryPrefixOpening = null; payloadSummaryCapturedReader = null;
+        payloadSummaryPrefixPartial.removeIf(CheckpointInputFuture.Cleanup::cleanupComplete);
+        return true;
+    }
+
+    /** The SDK positions at C only for the privately registered historical shadow reconstruction. */
+    public synchronized com.nereusstream.delay.protocol.SourcePosition recoveryReaderCut() {
+        final var actual = auditedRecoveryCut();
+        final var history = process.migrationReaderCut(this);
+        return history == null ? actual : history;
+    }
+
+    /** Retains the C reader until its real native close; the next factory turn must open a fresh reader at Native's cut. */
+    public boolean advanceMigrationHistory(TargetWorkerRecoverySource original) {
+        synchronized (this) {
+            if (recoverySource != original || recovery != null || activation != null)
+                throw new IllegalStateException("migration history is not this startup's original pre-recovery reader");
+        }
+        if (!process.advanceMigrationHistory(this, original)) return false;
+        synchronized (this) {
+            if (!original.cleanupComplete()) return false;
+            if (recoverySource != original) throw new IllegalStateException("migration history reader changed during actual close");
+            recoverySource = null;
+        }
+        return true;
+    }
+
+    /** Pure local ownership/expiry check for the retained input hold, never a lease RPC under a native lock. */
+    synchronized void requireMigrationLocalCurrent() {
+        process.requireSourceAssemblyAdmission(this);
+        if (stopping || firstFailure != null || lease == null || !lease.validAt(owner.clock().getAsLong()))
+            throw new IllegalStateException("original migration recovery Owner is stopped or expired");
     }
 
     public synchronized void requireRecoveryReaderCurrent() {
@@ -1581,11 +1775,15 @@ public final class TargetWorkerSourceStartup {
     public void startRecovery(TargetWorkerRecoverySource source, com.nereusstream.delay.protocol.OwnerIdentity identity,
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
         final Construction original;
+        final TargetWorkerRecoverySource rawPayloadSummaryReader;
         synchronized (this) {
             if (initial != null && !initialCommitted || initializationRunning || store == null
-                    || recoverySource != null && recoverySource != source || recovery != null || activation != null) {
+                    || recoverySource != null && recoverySource != source
+                        && (payloadSummaryPrefix == null || !payloadSummaryPrefix.isSource(recoverySource, source))
+                    || recovery != null || activation != null) {
                 throw new IllegalStateException("original same-DB recovery is unavailable or already started");
             }
+            rawPayloadSummaryReader = recoverySource;
             original = beginConstruction(false);
         }
         try (original) {
@@ -1626,6 +1824,9 @@ public final class TargetWorkerSourceStartup {
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
             if (scopeResources != null) recovery.coordinator().configureScopeResources(scopeResources);
             process.bindMigration(this, recovery.coordinator());
+            if (writerOriginLimits != null) recovery.coordinator().configureWriterOrigin(writerOriginLimits, identity, owner.clock());
+            if (payloadSummaryPrefix != null && payloadSummaryPrefix.isSource(rawPayloadSummaryReader, source))
+                recovery.coordinator().configurePayloadSummaryLegacyPrefix(payloadSummaryPrefix);
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) {
                 recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
                 if (pulsarPreparation == null) recovery.coordinator().deferForSourceReactivation();
@@ -1703,7 +1904,10 @@ public final class TargetWorkerSourceStartup {
                     return turn;
                 }
                 if (recoverySource.cleanupComplete()) {
-                    synchronized (this) { activation = recovery.activateCompleted(successor); }
+                    if (!retirePayloadSummaryRange()) return turn;
+                    coordinator.retryAuthorityCleanup();
+                    if (!coordinator.authorityIoExited()) return turn;
+                    synchronized (this) { activation = recovery.activateCompleted(successor); activeWriterOriginConfigured = writerOriginLimits != null; }
                 }
             }
             return turn;
@@ -1764,6 +1968,11 @@ public final class TargetWorkerSourceStartup {
     /** Actual Route/assignment/session/Owner reads are bounded by the original configured SDK timeout. */
     public synchronized void requireCurrent() {
         process.requireSourceAssemblyAdmission(this);
+        requireCurrentFacts();
+    }
+
+    /** Same original assignment/session/lease facts; only the privately registered live caller may borrow them. */
+    private OwnerLease requireCurrentFacts() {
         if (stopping || firstFailure != null) throw new IllegalStateException("Source startup is stopped or failed");
         var accepted = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), publication, owner.workerId());
         var current = graph.oxia().providers().leases().current(accepted.shardId()).orElseThrow();
@@ -1781,6 +1990,79 @@ public final class TargetWorkerSourceStartup {
         }
         lastNow = now;
         if (checkpointCatalog != null && checkpointPinConfirmed) requireCheckpointPin();
+        return current;
+    }
+
+    public TargetMigrationMaintenance configureMigrationMaintenance(TargetWorkerShardRuntime actual,
+            TargetMigrationMaintenanceConfiguration configuration, TargetMigrationMaintenanceInputs.Provider provider,
+            TargetDestinationSdkBudget sdk,
+            java.util.function.Function<TargetMigrationSourceOpening, TargetMigrationTransport> transport) {
+        synchronized (this) { requireCurrent(); requireAdmittedWorker(actual); }
+        return process.configureMigrationMaintenance(this, actual, configuration, provider, sdk, transport);
+    }
+    public TargetSourceAuthorityLoader.HeldInputs loadMigrationMaintenanceSource(
+            TargetMigrationMaintenanceInputs.Provider provider, SourceReplayMutation original, Runnable current) {
+        return process.loadMigrationMaintenanceSource(this, provider, original, current);
+    }
+    public TargetPayloadSummaryInitializationMaintenance configurePayloadSummaryInitialization(TargetWorkerShardRuntime actual,
+            OwnedSourceSystemWriter writer, TargetPayloadSummaryInitializationMaintenance.Configuration configuration,
+            TargetPayloadSummaryInitializationMaintenance.Inputs.Provider provider) {
+        synchronized (this) { requireCurrent(); requireAdmittedWorker(actual); }
+        return process.configurePayloadSummaryInitialization(this, actual, writer, configuration, provider);
+    }
+    synchronized com.nereusstream.delay.store.TargetStoreBackend.ReadAuthority payloadSummaryMaintenanceReads(
+            TargetPayloadSummaryInitializationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requirePayloadSummaryMaintenance(this, actualWorker, actual);
+        requirePayloadSummaryMaintenanceLocalCurrent(actual, actualWorker);
+        return activation.runtime().migrationMaintenanceReads(owner.clock());
+    }
+    synchronized void requirePayloadSummaryMaintenanceCurrent(TargetPayloadSummaryInitializationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requirePayloadSummaryMaintenance(this, actualWorker, actual);
+        if (worker != actualWorker) throw new IllegalStateException("summary initialization changed its actual Source Worker");
+        lease = requireCurrentFacts();
+    }
+    synchronized void requirePayloadSummaryMaintenanceLocalCurrent(TargetPayloadSummaryInitializationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requirePayloadSummaryMaintenance(this, actualWorker, actual); requireMaintenanceLocalFacts(actualWorker);
+    }
+    synchronized com.nereusstream.delay.store.TargetStoreBackend migrationMaintenanceBackend(TargetWorkerShardRuntime actual) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        return activation().runtime().migrationMaintenanceBackend(store, graph.resources());
+    }
+    synchronized com.nereusstream.delay.store.TargetStoreBackend.ReadAuthority migrationMaintenanceReads(
+            TargetMigrationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requireMigrationMaintenance(this, actualWorker, actual);
+        requireMigrationMaintenanceLocalCurrent(actual, actualWorker);
+        return activation.runtime().migrationMaintenanceReads(owner.clock());
+    }
+    synchronized com.nereusstream.delay.protocol.OwnerIdentity migrationMaintenanceOwner(TargetWorkerShardRuntime actual) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        final var original = Objects.requireNonNull(registryIdentity, "actual registered Source Owner identity");
+        final var identity = new com.nereusstream.delay.protocol.OwnerIdentity(original.deploymentId(), original.workerRunId(),
+                lease.ownerEpoch(), lease.leaseToken());
+        return actual.requirePublicationOwner(identity, owner.clock());
+    }
+    LongSupplier migrationMaintenanceClock() { return owner.clock(); }
+    synchronized Runnable managementMaintenanceLocalToken(TargetWorkerShardRuntime actual,
+            com.nereusstream.delay.protocol.OwnerIdentity identity) {
+        requireCurrent(); requireAdmittedWorker(actual);
+        return activation.runtime().managementMaintenanceLocalGuard(store, graph.resources(), identity, owner.clock());
+    }
+    synchronized void requireMigrationMaintenanceCurrent(TargetMigrationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requireMigrationMaintenance(this, actualWorker, actual);
+        if (worker != actualWorker) throw new IllegalStateException("live migration changed its actual Source Worker");
+        lease = requireCurrentFacts();
+    }
+    synchronized void requireMigrationMaintenanceLocalCurrent(TargetMigrationMaintenance actual, TargetWorkerShardRuntime actualWorker) {
+        process.requireMigrationMaintenance(this, actualWorker, actual);
+        requireMaintenanceLocalFacts(actualWorker);
+    }
+    private void requireMaintenanceLocalFacts(TargetWorkerShardRuntime actualWorker) {
+        if (worker != actualWorker || stopping || firstFailure != null || storeClosed || store == null || store.isCloseStarted()
+                || lease == null || !lease.validAt(owner.clock().getAsLong())
+                || lease.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                || registryIdentity == null || lease.ownerEpoch() != registryIdentity.ownerEpoch()
+                || !Arrays.equals(lease.leaseToken(), registryIdentity.leaseFencingDigest()))
+            throw new IllegalStateException("live migration lost its actual local Worker/Owner/Store token");
     }
 
     public synchronized TargetWorkerSourceRuntimeFactory.Activated activation() {
@@ -1806,6 +2088,7 @@ public final class TargetWorkerSourceStartup {
                     com.nereusstream.delay.store.TargetValueEnvelope.decode(raw,
                             com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE).payload());
             publication.requireMigration(actual.metadata(), root);
+            process.bindMigrationRoot(this, actual, root);
             return Boolean.TRUE;
         });
     }
@@ -2138,6 +2421,9 @@ public final class TargetWorkerSourceStartup {
             throw new IllegalArgumentException("Source identity changes its signed deployment or original Owner");
         }
         registryIdentity = identity;
+        if (activation != null && writerOriginLimits != null && !activeWriterOriginConfigured) {
+            activation.runtime().configureWriterOrigin(writerOriginLimits, identity, owner.clock()); activeWriterOriginConfigured = true;
+        }
     }
 
     /** Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure. */
@@ -2292,6 +2578,7 @@ public final class TargetWorkerSourceStartup {
         if (initializationRunning || constructionThread != null) return false;
         if (firstFailure == null) throw new IllegalStateException("successful startup is still admitted for assembly");
         stopping = true;
+        archiveRecoveryAudit = null; archiveRecoveryAuditStore = null;
         try {
             if (!recoveryInputOperationsExited(true)) return false;
             if (restoreSubmission == null && !ShardStore.retryTargetOpeningCleanup(firstFailure)) return false;

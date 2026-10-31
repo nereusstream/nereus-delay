@@ -176,6 +176,7 @@ final class OxiaSessionBoundRecoveryPinStore {
         final PinRecord active = readPinRecord();
         return active == null ? Optional.empty() : Optional.of(active.pin());
     }
+    PinRecord currentRecord() { return readPinRecord(); }
 
     /** Exact original record/version under the caller's finite metadata-read budget; not a pin-creation fence. */
     PinRecord readForProtection(BoundedReadBudget budget){

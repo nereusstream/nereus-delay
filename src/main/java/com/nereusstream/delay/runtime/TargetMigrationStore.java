@@ -19,8 +19,24 @@ public final class TargetMigrationStore {
      * Authentication runs outside Native locks. The returned check is the same acquisition's local token;
      * it must not perform RPC or wait for external I/O under a Store monitor. */
     @FunctionalInterface public interface OriginalInputs {
+        /** Actual independent deployment/management policy and complete original issuer/succession history.
+         * Must authenticate statement issuer ID/version/purpose/allowed Root tuples under this held authority;
+         * an A signer, embedded key, or a hash of unavailable policy is not an issuer pin. */
+        default PublicKey originalRootIssuer(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,
+                PreparedControlOperation prepared,SystemMutation exactInput,SourcePosition actualSource){
+            throw new IllegalStateException("A2 lacks its original independent management Root-issuer policy");
+        }
         Runnable authenticate(PreparedControlOperation prepared, SystemMutation input, SourcePosition source,
                 TargetMigrationRequest request);
+    }
+    @FunctionalInterface public interface RootIssuerPolicy {
+        PublicKey authenticate(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,PreparedControlOperation registered,SystemMutation exactInput,SourcePosition actualSource);
+    }
+    /** Adds the genuine original management issuer purpose to the same original migration hold. */
+    public static OriginalInputs withRootIssuerPolicy(OriginalInputs original,RootIssuerPolicy policy){
+        Objects.requireNonNull(original);Objects.requireNonNull(policy);
+        return new OriginalInputs(){public Runnable authenticate(PreparedControlOperation control,SystemMutation input,SourcePosition source,TargetMigrationRequest request){return original.authenticate(control,input,source,request);}
+            public PublicKey originalRootIssuer(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,PreparedControlOperation prepared,SystemMutation input,SourcePosition source){return policy.authenticate(statement,plan,prepared,input,source);}};
     }
     public record Authority(ControlTargetRegistrationAuthority registrations, Keys keys,
             ControlAuthorizationContext actor, ControlOperationAuthorization.TargetScopeProof scopeProof,
@@ -304,12 +320,21 @@ public final class TargetMigrationStore {
             byte[] lineage, TargetMigrationImporter.Limits limits, BoundedReadBudget budget,
             PreparedControlOperation control, SystemMutation input, SourcePosition source, Authority authority,
             TargetMigrationCustodyGuard.SettlementAuthority terminal) {
+        return prepareSettlement(backend, scope, lineage, limits, budget, control, input, source, authority, terminal, null);
+    }
+
+    public static PreparedSettlement prepareSettlement(TargetStoreBackend backend, TargetQuotaScope scope,
+            byte[] lineage, TargetMigrationImporter.Limits limits, BoundedReadBudget budget,
+            PreparedControlOperation control, SystemMutation input, SourcePosition source, Authority authority,
+            TargetMigrationCustodyGuard.SettlementAuthority terminal,
+            com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final var body = TargetMigrationControlBody.decode(input.canonicalBody()); body.requireInput(input);
         if (!(body.request() instanceof TargetMigrationSettlementRequest request) || !request.scope().equals(scope))
             throw new IllegalArgumentException("expected exact migration custody settlement");
         final var current = authenticate(control, input, source, body, authority);
         final var result = SystemMutationResult.from(input, ApplyStatus.APPLIED, StableCode.OK, source.canonicalBytes());
         final var batch = backend.prepare(budget, reader -> {
+            if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, input, source);
             current.run();
             if (reader.source() == null || source.compareTo(reader.source()) <= 0
                     || reader.closedIngressDeadlineThrough() >= input.retryUntilEpochMs())
@@ -324,11 +349,73 @@ public final class TargetMigrationStore {
             final var next = prior.settle(input, stamp, terminal);
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
             edits.add(reader.replace(ColumnFamily.META, next.key(), TargetMigrationCustodyGuard.VALUE_TYPE, next.canonicalBytes()));
+            retainSettledPayload(reader, scope, lineage, next, stamp, edits, legacyPrefix);
             appendResults(reader, edits, migration.owner(), input, result, stamp);
-            return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), limits.maximumCounters(),
-                    limits.maximumTargets(), limits.maximumDomains()).assemble(reader, edits);
+            final var plainAccounting = new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), limits.maximumCounters(),
+                    limits.maximumTargets(), limits.maximumDomains());
+            return (legacyPrefix == null ? plainAccounting : plainAccounting.withLegacyPrefix(legacyPrefix)).assemble(reader, edits);
         });
         return new PreparedSettlement(backend, batch, current, result);
+    }
+
+    /** The last old responsibility may end after the final Native attempt already resolved. */
+    private static void retainSettledPayload(TargetStoreBackend.Reader reader, TargetQuotaScope scope,
+            byte[] lineage, TargetMigrationCustodyGuard settled, TargetQuotaMutation stamp,
+            List<TargetStoreBackend.Edit> edits,
+            com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
+        if (!settled.settled() || !settled.settledAt().equals(stamp))
+            throw new IllegalStateException("payload retention requires this actual legacy settlement Source");
+        final byte[] ownerKey = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
+                settled.messageId().bytes());
+        final byte[] ownerRaw = reader.get(ColumnFamily.META, ownerKey);
+        if (ownerRaw == null) return;
+        final var owner = TargetQuotaPayloadOwner.decodeForStore(ownerKey,
+                TargetValueEnvelope.decode(ownerRaw, TargetQuotaPayloadOwner.VALUE_TYPE).payload(),
+                scope.shard(), scope.tenantScope());
+        if (!Arrays.equals(owner.recoveryLineage(), lineage))
+            throw new IllegalStateException("legacy settlement changed the actual payload lineage");
+        if ((!owner.summaryQualified() && legacyPrefix == null)
+                || owner.summaryQualified() && owner.unresolvedCount() != 0
+                || owner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) return;
+        if (legacyPrefix != null && (!legacyPrefix.noUnresolvedAfter(reader, owner, edits)
+                || !legacyPrefix.noLegacyCustodyAfter(reader, owner, edits))) return;
+        final var frontier = reader.aggregate().mutation();
+        owner.mutation().requireAtOrBefore(frontier);
+        if (owner.summaryQualified()) owner.summaryMutation().requireAtOrBefore(frontier);
+        final byte[] messageKey = TargetKeyCodec.message(owner.messageId());
+        final var current = TargetMessageRecord.decodeForStore(messageKey, TargetValueEnvelope.decode(
+                Objects.requireNonNull(reader.get(ColumnFamily.ID, messageKey), "actual current payload Message"),
+                TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+        owner.requireMessagePayload(current);
+        if (!current.runtime().terminal() || current.runtime().currentWorkKind() != CurrentSendWorkKind.NONE
+                || !current.runtime().attemptObligations().isEmpty()) return;
+        final byte[] terminalKey = TargetTerminalGenerationRecord.key(current.locator());
+        final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                Objects.requireNonNull(reader.get(ColumnFamily.TERMINAL, terminalKey), "actual current terminal generation"),
+                TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        terminal.requireOwner(owner); terminal.mutation().requireAtOrBefore(frontier);
+        if (!terminal.locator().equals(current.locator()) || terminal.stateVersion() != current.stateVersion()
+                || !Arrays.equals(terminal.runtime().canonicalBytes(), current.runtime().canonicalBytes()))
+            throw new IllegalStateException("legacy settlement changed the exact current terminal projection");
+        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(owner.initialBindingDigest());
+        final var binding = TargetScheduleBinding.decodeForStore(bindingKey, TargetValueEnvelope.decode(
+                Objects.requireNonNull(reader.get(ColumnFamily.ID, bindingKey), "actual original payload binding"),
+                TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
+        owner.requireInitialBinding(binding); binding.requireLocator(current.locator());
+        binding.requireMessageSource(current.scheduleSource());
+        final var retained = owner.retain(stamp, (before, after, floor) -> {
+            if (floor != null || before != owner || !after.mutation().equals(stamp)
+                    || after.phase() != TargetQuotaPayloadOwner.Phase.RETAINED)
+                throw new IllegalStateException("legacy settlement changed its exact payload retention");
+            before.requireSameSummaryOrigin(after);
+            if (before.summaryQualified() && (before.unresolvedCount() != after.unresolvedCount()
+                    || before.summaryRevision() != after.summaryRevision()
+                    || !before.summaryMutation().equals(after.summaryMutation())))
+                throw new IllegalStateException("legacy settlement cannot change the Native obligation summary");
+            after.requireMessagePayload(current); terminal.requireOwner(after);
+        });
+        edits.add(reader.replace(ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE,
+                retained.canonicalBytes()));
     }
 
     public static SystemMutationResult commitSettlement(PreparedSettlement prepared,
@@ -538,7 +625,7 @@ public final class TargetMigrationStore {
             throw new IllegalStateException("migration lost actual Source POS");
     }
 
-    private static Runnable authenticate(PreparedControlOperation control, SystemMutation input, SourcePosition source,
+    static Runnable authenticate(PreparedControlOperation control, SystemMutation input, SourcePosition source,
             TargetMigrationControlBody body, Authority authority) {
         TargetSourcePosition.requireBounded(source); Objects.requireNonNull(authority);
         if (!source.shardId().equals(body.shard()) || source.brokerPersistenceTimeEpochMs() > input.retryUntilEpochMs()
@@ -557,9 +644,15 @@ public final class TargetMigrationStore {
         ControlTargetMutationBinding.validate(control, control.targets().getFirst(), input);
         authority.registrations().validateMutation(control, control.targets().getFirst(), input);
         final Runnable current = Objects.requireNonNull(authority.inputs().authenticate(control, input, source, body.request()), "original held migration authority");
-        current.run(); return current;
+        current.run();
+        if(body.request() instanceof TargetMigrationActivateRequest activation&&activation.rootIssuerAuthorization()!=null){
+            final var statement=activation.rootIssuerAuthorization();statement.requirePlan(activation.plan());
+            final var issuer=authority.inputs().originalRootIssuer(statement,activation.plan(),control,input,source);current.run();
+            if(issuer==null||!statement.verifySignature(issuer))throw new IllegalStateException("A2 Root issuer statement lacks original independent policy/signature/pin");
+        }
+        return current;
     }
-    private static void appendResults(TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> edits,
+    static void appendResults(TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> edits,
             TargetQuotaIncarnation owner, SystemMutation input, SystemMutationResult outcome, TargetQuotaMutation stamp) {
         final TargetResultRecord.CreationAuthority results = (record, first) -> {
             record.requireOwner(owner);
@@ -575,7 +668,7 @@ public final class TargetMigrationStore {
         edits.add(reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()));
         edits.add(reader.replace(ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
     }
-    private static TargetStoreBackend.CommitAuthority guarded(TargetStoreBackend.CommitAuthority authority, Runnable current) {
+    static TargetStoreBackend.CommitAuthority guarded(TargetStoreBackend.CommitAuthority authority, Runnable current) {
         return (store, scope, mutation) -> {
             final var guard = Objects.requireNonNull(authority.acquire(store, scope, mutation));
             return new TargetStoreBackend.CommitGuard() {

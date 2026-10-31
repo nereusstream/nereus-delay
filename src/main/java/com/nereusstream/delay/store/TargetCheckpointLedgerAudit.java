@@ -1,5 +1,7 @@
 package com.nereusstream.delay.store;
 
+import com.nereusstream.delay.protocol.*;
+
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
@@ -330,6 +332,11 @@ final class TargetCheckpointLedgerAudit {
                         dependencies.migrationPrefix(com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.decode(payload));
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.VALUE_TYPE) {
                         dependencies.migrationAttempt(com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationRetirementRecord.VALUE_TYPE) {
+                        if(TargetMigrationArchiveState.isKey(key))dependencies.migrationArchiveState(TargetMigrationArchiveState.decode(payload));
+                        else dependencies.migrationRetirement(com.nereusstream.delay.protocol.TargetMigrationRetirementRecord.decode(payload));
+                    } else if (family == ColumnFamily.META && type == TargetMigrationArchiveRow.VALUE_TYPE) {
+                        dependencies.migrationArchive(TargetMigrationArchiveRow.decode(payload));
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
@@ -467,6 +474,8 @@ final class TargetCheckpointLedgerAudit {
         }
         dependencies.captureRetentionDecisions(resultRows);
         final var complete=dependencies.finish(admissions);
+        com.nereusstream.delay.runtime.TargetPayloadObligationSummaryAudit.requireComplete(complete);
+        com.nereusstream.delay.runtime.TargetMigrationArchiveStore.requireCheckpoint(complete);
         for(var history:complete.sourceHistories())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
             final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
             if(body.selfContainedInlinePayloadRelease()){
@@ -1320,6 +1329,826 @@ final class TargetCheckpointLedgerAudit {
             }
             new StoreRecoveryMetadata(lineageBase, floor, catalogGeneration, installState);
         }
+    }
+
+
+    /** One original full Native fold; its progress is owned by TargetRetirementLedgerCursor. */
+    static final class RetirementCursor {
+        private final TargetCheckpointRootVerifier.RootProof proof;
+        private final TargetCheckpointDependencies.Builder dependencies;
+        private final TargetCheckpointRootVerifier.LedgerAuditLimits auditLimits;
+        private final Map<TargetQuotaIdentity, TargetQuotaUsage> rebuilt = new HashMap<>();
+        private final Map<TargetQuotaIdentity, CapacityVector> resultContributions = new HashMap<>();
+        private final List<TargetResultLedgerAudit.Stored> resultRows = new ArrayList<>();
+        private final List<TargetQuotaGrantActivation> grantActivations = new ArrayList<>();
+        private final List<TargetMembershipClosureRecord> membershipClosures = new ArrayList<>();
+        private final List<TargetNativePolicyControlRecord> nativeControls = new ArrayList<>();
+        private final List<TargetChannelControlRecord> channelControls = new ArrayList<>();
+        private final List<TargetChannelIdentity> channelIdentities = new ArrayList<>();
+        private final List<TargetChannelSlot> channelSlots = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloObservationSample> sloSamples = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloObservationEventRecord> sloEvents = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloCustodyRecord> sloCustodies = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetSloWriterEpoch> sloWriterEpochs = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetParentControlCredit> parentCredits = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetScopeControlObligation> scopeObligations = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> kafkaMappings = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetKafkaReceiptSlot> kafkaSlots = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> externalOwners = new ArrayList<>();
+        private final Map<String, com.nereusstream.delay.protocol.TargetExternalEvidenceReference> externalReferences = new HashMap<>();
+        private final List<com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner> recoveryOwners = new ArrayList<>();
+        private final List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements = new ArrayList<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference> recoveryReferences = new HashMap<>();
+        private final List<TargetInitialControlSnapshot> initialControls = new ArrayList<>();
+        private final List<TargetQuotaAttemptBudget> attemptBudgets = new ArrayList<>();
+        private final Map<String,TargetQuotaPayloadOwner> payloadOwners=new HashMap<>();
+        private final java.util.Set<String> primaryMessages=new java.util.HashSet<String>();
+        private final List<TargetMessageRecord> eligibilityMessages=new ArrayList<TargetMessageRecord>();
+        private final List<com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistories=new ArrayList<>();
+        private final List<AttemptProjection> attemptProjections = new ArrayList<>();
+        private final List<TargetQuotaCounter> counters = new ArrayList<>();
+        private final List<TargetQuotaTotal> totals = new ArrayList<>();
+        private final RecoveryMetadata recovery = new RecoveryMetadata();
+        private final List<TargetCheckpointDependencies.Admission> admissions=new ArrayList<>();
+        private final Map<DelayMessageId,List<TargetCheckpointDependencies.Admission>> messageAdmissions=new HashMap<>();
+        private final Map<DelayMessageId,java.util.NavigableMap<String,TargetCheckpointDependencies.RetryUse>> messageRetryUses=new HashMap<>();
+        private final Map<DelayMessageId,List<TargetTerminalGenerationRecord>> messageTerminals=new HashMap<>();
+        private final Map<String,TargetCheckpointDependencies.Admission> admissionIndex=new HashMap<>();
+        private final Map<String,TargetKafkaReceiptMapping> mappingIndex=new HashMap<>(),latestMapping=new HashMap<>();
+        private final Map<String,TargetKafkaReceiptSlot> kafkaSlotIndex=new HashMap<>();
+        private final Map<String,TargetChannelIdentity> channelIndex=new HashMap<>();
+        private final Map<String,TargetExternalEvidenceOwner> externalIndex=new HashMap<>();
+        private final Map<String,TargetResultRecord> resultByStamp=new HashMap<>();
+        private final java.util.Set<String> mappingSequences=new java.util.HashSet<>(),controlDomains=new java.util.HashSet<>();
+        private final java.util.Set<String> expectedExternal=new java.util.HashSet<>(),usedExternal=new java.util.HashSet<>(),createdExternal=new java.util.HashSet<>();
+        private final java.util.Set<String> expectedRecovery=new java.util.HashSet<>(),recoveryObjects=new java.util.HashSet<>(),recoveryAttempts=new java.util.HashSet<>();
+        private final java.util.NavigableMap<Long,TargetRetirementSourceHistoryRecord> orderedHistory=new java.util.TreeMap<>(Long::compareUnsigned);
+        private final Map<String,TargetQuotaAttemptBudget> projectedBudgets=new HashMap<>();
+        private final java.util.Set<String> settledShares=new java.util.HashSet<>();
+        private final Map<String,TargetQuotaMutation> settledAt=new HashMap<>();
+        private final Map<TargetQuotaIdentity,Long> grantsByOwner=new HashMap<>();
+        private final Map<TargetQuotaIdentity,CapacityVector> mirrorSums=new HashMap<>();
+        private java.util.Iterator<TargetRetirementSourceHistoryRecord> projectedHistory;
+        private java.util.Iterator<Map.Entry<String,TargetQuotaAttemptBudget>> projectedRows;
+        private final Map<String,TargetResultRecord> resultIndex=new HashMap<>();
+        private final List<TargetResultRecord> firstRows=new ArrayList<>();
+        private final Map<String,TargetQuotaAttemptBudget> budgetIndex=new HashMap<>();
+        private final Map<TargetQuotaIdentity,TargetQuotaCounter> counterIndex=new HashMap<>();
+        private final Map<com.nereusstream.delay.protocol.TargetPartitionId,TargetQuotaUsage> targetUsage=new HashMap<>();
+        private final Map<com.nereusstream.delay.protocol.TargetPartitionId,TargetQuotaTotal> totalIndex=new HashMap<>();
+        private final java.util.Set<String> inventoryKeys=new java.util.HashSet<>();
+        private final Map<String,AttemptProjectionRef> referenced=new HashMap<>();
+        private final Map<TargetMessageLocator,byte[]> runtimes=new HashMap<>();
+        private TargetQuotaUsage shardUsage=TargetQuotaUsage.empty();
+        private int joinPhase,joinIndex;
+        private java.util.Iterator<Map.Entry<String,AttemptProjectionRef>> referenceRows;
+        private TargetResultLedgerAudit.RetirementCursor results;
+        private TargetChannelHistoryAudit.RetirementCursor channels;
+        private com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.RetirementCursor sloHistory;
+        private TargetCheckpointDependencies.Builder.RetirementFreeze freezing;
+        private com.nereusstream.delay.runtime.TargetPayloadObligationSummaryAudit.RetirementCursor payloadSummary;
+        private com.nereusstream.delay.runtime.TargetMigrationArchiveStore.RetirementCursor archiveHistory;
+
+        private int family;
+        private byte[] lower;
+        private boolean collected;
+        private TargetCheckpointDependencies complete;
+        RetirementCursor(TargetCheckpointRootVerifier.RootProof proof,TargetCheckpointRootVerifier.LedgerAuditLimits limits){
+            this.proof=Objects.requireNonNull(proof);auditLimits=Objects.requireNonNull(limits);dependencies=new TargetCheckpointDependencies.Builder(proof);
+            final var rootCharge=TargetRecordAccounting.resources(proof.bookkeeping().charge());
+            merge(rebuilt,proof.root().identity(),rootCharge);
+            merge(rebuilt,proof.root().tenantIdentity(),TargetRecordAccounting.resources(rootCharge.resources()));
+        }
+        boolean advance(TargetRetirementLedgerCursor.InventoryView view,int maximumRows,
+                java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            int used=0;
+            while(!collected&&used<maximumRows){
+                final var current=ColumnFamily.values()[family];
+                final var row=view.fullNext(current,lower);
+                if(row==null){family++;lower=null;if(family==ColumnFamily.values().length)collected=true;continue;}
+                final byte[] key=row.key(),raw=row.value();copied.accept((long)key.length+raw.length);
+                accept(view,current,key,raw);retained.accept((long)key.length+raw.length);
+                lower=Bytes.concat(key,new byte[]{0});copied.accept(lower.length);used++;
+            }
+            if(!collected)return false;
+            return advanceJoins(view,maximumRows-used,retained,copied);
+        }
+        private void accept(TargetRetirementLedgerCursor.InventoryView view,ColumnFamily family,byte[] key,byte[] raw){
+            if(skipInfrastructure(family,key,raw,proof,counters,totals,rebuilt,recovery))return;
+            final int selectedType=TargetStoreBackend.businessType(family,key);
+            final byte[] selectedPayload=TargetValueEnvelope.decode(raw,selectedType).payload();
+            if(family==ColumnFamily.ID&&selectedType==TargetMessageRecord.VALUE_TYPE)
+                auditMessageDependencies(TargetMessageRecord.decodeForStore(key,selectedPayload,proof.metadata().shardId()),view);
+            else if(family==ColumnFamily.META&&selectedType==TargetOrderState.VALUE_TYPE)
+                auditOrderStateDependencies(TargetOrderState.decode(selectedPayload),view);
+            final var accounting=new TargetRecordAccounting(view,List.of(),proof.root().scope(),proof.root().recoveryLineage(),
+                    proof.aggregate().mutation(),proof.bookkeeping(),TargetQueueState.MAX_DOMAIN_SLOTS);
+            final var selectedCharge=accounting.charge(family,key,raw);
+                    final int type = TargetStoreBackend.businessType(family, key);
+                    final byte[] payload = TargetValueEnvelope.decode(raw, type).payload();
+                    if (family == ColumnFamily.ID && type == TargetScheduleBinding.VALUE_TYPE) {
+                        final var binding = TargetScheduleBinding.decode(payload);
+                        dependencies.binding(binding);
+                        final var use=new TargetCheckpointDependencies.RetryUse(binding.intent().retryPolicy(),binding.bindingSource());
+                        messageRetryUses.computeIfAbsent(binding.messageId(),ignored->new java.util.TreeMap<>()).put(Bytes.hex(use.canonicalBytes()),use);
+                    } else if(family==ColumnFamily.ID&&type==com.nereusstream.delay.runtime.TargetReservationRecord.VALUE_TYPE){
+                        dependencies.reservation(key,com.nereusstream.delay.runtime.TargetReservationRecord.decode(payload));
+                    } else if (family == ColumnFamily.META) {
+                        final int tag = Byte.toUnsignedInt(key[0]);
+                        if (Arrays.equals(key, KeyCodec.metaFixed(10))) {
+                            final var snapshot = TargetInitialControlSnapshot.decode(payload);
+                            initialControls.add(snapshot);
+                            dependencies.control(family, key, type, payload);
+                            snapshot.input().profiles().forEach(ref -> dependencies.profileUse(
+                                    new TargetCheckpointDependencies.ProfileUse(ref, snapshot.input().source())));
+                        }
+                        if (tag >= TargetKeyCodec.STATE_TAG && tag <= TargetKeyCodec.NATIVE_POLICY_SNAPSHOT_TAG
+                                || tag == TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG
+                                || tag == TargetKeyCodec.CLOSE_TAG || tag == TargetKeyCodec.MEMBERSHIP_CLOSURE_TAG
+                                || tag >= TargetKeyCodec.NATIVE_PUBLISHER_TAG) {
+                            dependencies.control(family, key, type, payload);
+                        }
+                        if (type == TargetMembershipGrant.VALUE_TYPE) {
+                            dependencies.membership(TargetMembershipGrant.decode(payload));
+                        } else if (type == TargetChannelIdentity.VALUE_TYPE) {
+                            dependencies.profile(TargetChannelIdentity.decode(payload).credentialLease().profile());
+                        } else if (type == TargetNativePolicyScope.VALUE_TYPE) {
+                            dependencies.nativeScope(TargetNativePolicyScope.decode(payload));
+                        } else if (type == TargetNativePolicyControlRecord.VALUE_TYPE) {
+                            final var control = TargetNativePolicyControlRecord.decode(payload);
+                            dependencies.nativeScope(control.body().request().scope());
+                            if (control.grant() != null) { dependencies.membership(control.grant()); }
+                        } else if (type == TargetChannelControlRecord.VALUE_TYPE) {
+                            final var event = TargetChannelControlRecord.decode(payload);
+                            dependencies.profileUse(new TargetCheckpointDependencies.ProfileUse(
+                                    event.body().request().channel().credentialLease().profile(),
+                                    event.mutation().source()));
+                        } else if (type == TargetQuotaPayloadOwner.VALUE_TYPE) {
+                            final var owner = TargetQuotaPayloadOwner.decode(payload);
+                            if (owner.objectStoreProfileHash() != null) {
+                                dependencies.objectHash(owner.objectStoreProfileHash());
+                            }
+                        }
+                    }
+                    if (family == ColumnFamily.DEDUPE) {
+                        resultRows.add(new TargetResultLedgerAudit.Stored(key, type, payload));
+                        resultIndex.put(Bytes.hex(key),TargetResultRecord.decode(payload));
+                        firstRows.add(resultIndex.get(Bytes.hex(key)));
+                    } else if (family == ColumnFamily.ID && type == TargetMessageRecord.VALUE_TYPE) {
+                        final var message =
+                                TargetMessageRecord.decodeForStore(key, payload, proof.metadata().shardId());
+                        attemptProjections.add(new AttemptProjection(message.locator(), message.runtime()));
+                        dependencies.messageState(message,payload);
+                        primaryMessages.add(Bytes.hex(message.locator().messageId().bytes()));
+                        eligibilityMessages.add(message);
+
+                    } else if (family == ColumnFamily.META && type == TargetOrderState.VALUE_TYPE) {
+
+                    } else if (family == ColumnFamily.META && type == TargetChannelIdentity.VALUE_TYPE) {
+                        channelIdentities.add(TargetChannelIdentity.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == TargetChannelControlRecord.VALUE_TYPE) {
+                        channelControls.add(TargetChannelControlRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationState.VALUE_TYPE) {
+                        final var state = com.nereusstream.delay.protocol.TargetSloObservationState.decodeForStore(key, payload,
+                                new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
+                        sloStates.add(state); dependencies.sloState(state);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.head(key,payload.length,state));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationGeneration.VALUE_TYPE) {
+                        final var generation = com.nereusstream.delay.protocol.TargetSloObservationGeneration.decodeForStore(key, payload,
+                                new TargetQuotaScope(proof.metadata().shardId(), proof.bookkeeping().tenantScope(), null), proof.root().recoveryLineage());
+                        sloGenerations.add(generation); dependencies.sloGeneration(generation);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.generation(key,payload.length,generation));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationSample.VALUE_TYPE) {
+                        final var sample = com.nereusstream.delay.protocol.TargetSloObservationSample.decodeForStore(key,payload,
+                                new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
+                        if(sample.primary(key)){sloSamples.add(sample);dependencies.sloSample(sample);}
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.sample(key,payload.length,sample));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloObservationEventRecord.VALUE_TYPE) {
+                        final var event = com.nereusstream.delay.protocol.TargetSloObservationEventRecord.decodeForStore(key,payload,
+                                new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
+                        sloEvents.add(event); dependencies.sloEvent(event);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.event(key,payload.length,event));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetSloCustodyRecord.VALUE_TYPE) {
+                        final var custody=com.nereusstream.delay.protocol.TargetSloCustodyRecord.decodeForStore(key,payload,
+                                new TargetQuotaScope(proof.metadata().shardId(),proof.bookkeeping().tenantScope(),null),proof.root().recoveryLineage());
+                        sloCustodies.add(custody);dependencies.sloCustody(custody);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.custody(key,payload.length,custody));
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetSloWriterEpoch.VALUE_TYPE){
+                        final var writer=com.nereusstream.delay.protocol.TargetSloWriterEpoch.decodeForStore(key,payload,
+                                proof.root().scope(),proof.root().recoveryLineage());
+                        writer.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        sloWriterEpochs.add(writer);dependencies.sloWriterEpoch(writer);
+                        dependencies.scopeNativeRow(TargetScopeNativeUsageAudit.writer(key,payload.length,writer));
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetParentControlCredit.VALUE_TYPE){
+                        final var credit=com.nereusstream.delay.protocol.TargetParentControlCredit.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        credit.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        parentCredits.add(credit);dependencies.parentCredit(credit);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetScopeControlObligation.VALUE_TYPE){
+                        final var obligation=com.nereusstream.delay.protocol.TargetScopeControlObligation.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        obligation.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        scopeObligations.add(obligation);dependencies.scopeObligation(obligation);
+                    } else if (family == ColumnFamily.META && type == TargetChannelSlot.VALUE_TYPE) {
+                        channelSlots.add(TargetChannelSlot.decodeForStore(key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE) {
+                        final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(key, payload, proof.metadata().shardId());
+                        kafkaMappings.add(mapping);
+                        dependencies.kafkaMapping(mapping);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE) {
+                        kafkaSlots.add(com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(key, payload, proof.metadata().shardId()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.VALUE_TYPE) {
+                        final var owner = com.nereusstream.delay.protocol.TargetExternalEvidenceOwner.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        owner.createdAt().requireAtOrBefore(proof.aggregate().mutation());
+                        externalOwners.add(owner); dependencies.externalEvidence(owner);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetExternalEvidenceReference.VALUE_TYPE) {
+                        final var ref = com.nereusstream.delay.protocol.TargetExternalEvidenceReference.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().recoveryLineage());
+                        ref.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        if(externalReferences.put(Bytes.hex(key),ref)!=null)throw new IllegalStateException("duplicate external reference");
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.VALUE_TYPE) {
+                        final var owner=com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        owner.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());recoveryOwners.add(owner);dependencies.recoveryEvidence(owner);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.VALUE_TYPE) {
+                        final var reference=com.nereusstream.delay.protocol.TargetRecoveryEvidenceReference.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().recoveryLineage());
+                        reference.adoptedAt().requireAtOrBefore(proof.aggregate().mutation());
+                        if(recoveryReferences.put(Bytes.hex(key),reference)!=null)throw new IllegalStateException("duplicate recovery reference");
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.VALUE_TYPE){
+                        final var record=com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.payloadObjectIntent(record);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.bookkeeping().tenantScope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());
+                        retirements.add(record);dependencies.retirement(record);
+                    } else if (family == ColumnFamily.META && type == TargetQuotaGrantActivation.VALUE_TYPE) {
+                        grantActivations.add(TargetQuotaGrantActivation.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.bookkeeping().tenantScope()));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(key,payload,
+                                proof.metadata().shardId(),proof.root().tenantScope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.evidenceConfirmation(record);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.VALUE_TYPE){
+                        final var tip=com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        tip.decidedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.historyTip(tip);
+                    } else if(family==ColumnFamily.META&&type==com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.VALUE_TYPE){
+                        final var record=com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        record.decidedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.sourceHistory(record);sourceHistories.add(record);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE) {
+                        final var record=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
+                        record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.protocolActivation(record);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE) {
+                        dependencies.migrationRoot(com.nereusstream.delay.protocol.TargetMigrationRoot.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationOrigin.VALUE_TYPE) {
+                        dependencies.migrationOrigin(com.nereusstream.delay.protocol.TargetMigrationOrigin.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.VALUE_TYPE) {
+                        dependencies.migrationGuard(com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.VALUE_TYPE) {
+                        dependencies.migrationPrefix(com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.VALUE_TYPE) {
+                        dependencies.migrationAttempt(com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationRetirementRecord.VALUE_TYPE) {
+                        if(TargetMigrationArchiveState.isKey(key))dependencies.migrationArchiveState(TargetMigrationArchiveState.decode(payload));
+                        else dependencies.migrationRetirement(com.nereusstream.delay.protocol.TargetMigrationRetirementRecord.decode(payload));
+                    } else if (family == ColumnFamily.META && type == TargetMigrationArchiveRow.VALUE_TYPE) {
+                        dependencies.migrationArchive(TargetMigrationArchiveRow.decode(payload));
+                    } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
+                        attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
+                                key, payload, proof.metadata().shardId()));
+                    } else if(family==ColumnFamily.META&&type==TargetQuotaPayloadOwner.VALUE_TYPE){
+                        final var owner=TargetQuotaPayloadOwner.decodeForStore(key,payload,proof.metadata().shardId(),proof.root().tenantScope());
+                        payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);
+                        dependencies.payloadOwner(owner);
+                    } else if (family == ColumnFamily.META && type == TargetMembershipClosureRecord.VALUE_TYPE) {
+                        membershipClosures.add(TargetMembershipClosureRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
+                    } else if (family == ColumnFamily.META && type == TargetNativePolicyControlRecord.VALUE_TYPE) {
+                        nativeControls.add(TargetNativePolicyControlRecord.decodeForStore(
+                                key, payload, proof.metadata().shardId(), proof.root().recoveryLineage()));
+                    } else if (family == ColumnFamily.TERMINAL
+                            && type == TargetTerminalGenerationRecord.VALUE_TYPE) {
+                        final var terminal = TargetTerminalGenerationRecord.decode(payload);
+                        if (!Arrays.equals(key, terminal.key())) {
+                            throw new IllegalArgumentException("Target checkpoint terminal key mismatch");
+                        }
+                        attemptProjections.add(new AttemptProjection(terminal.locator(), terminal.runtime()));
+                        dependencies.terminalGeneration(terminal);
+                        messageTerminals.computeIfAbsent(terminal.locator().messageId(),ignored->new ArrayList<>()).add(terminal);
+                    }
+                    if(type==com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE)
+                        dependencies.incarnation(com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(key,payload,proof.metadata().shardId(),proof.bookkeeping().tenantScope()));
+                    final var charge = selectedCharge;
+                    if (charge != null) {
+                        dependencies.ownerRecord(charge.owner().identity());
+                        merge(rebuilt, charge.owner().identity(), charge.primary());
+                        merge(rebuilt, charge.owner().tenantIdentity(), charge.mirror());
+                        if (family == ColumnFamily.DEDUPE) {
+                            resultContributions.merge(
+                                    charge.owner().identity(),
+                                    charge.primary().resources(),
+                                    CapacityVector::add);
+                            resultContributions.merge(
+                                    charge.owner().tenantIdentity(),
+                                    charge.mirror().resources(),
+                                    CapacityVector::add);
+                        }
+                    }
+
+        }
+        private boolean advanceJoins(TargetRetirementLedgerCursor.InventoryView view,int maximumRows,
+                java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            int used=0;
+            while(used<maximumRows){
+                switch(joinPhase){
+                    case 0->{
+                        if(joinIndex==0){proof.bookkeeping().requireRoot(proof.aggregate());recovery.verify(proof);}
+                        if(joinIndex>=counters.size()){joinPhase++;joinIndex=0;continue;}
+                        final var counter=counters.get(joinIndex);
+                        requireInventorySource(counter.mutation());
+                        requireInventoryKey(counter.identity().key());proof.aggregate().requireCounter(counter);
+                        if(counter.identity().kind().isMirror()&&!Arrays.equals(counter.identity().tenantScope(),proof.bookkeeping().tenantScope()))
+                            throw new IllegalStateException("bookkeeping inventory has a foreign tenant mirror");
+                        if(counterIndex.putIfAbsent(counter.identity(),counter)!=null)throw new IllegalStateException("duplicate Target quota counter identity");
+                        if(!counter.identity().kind().isMirror()){
+                            shardUsage=shardUsage.add(counter.usage());
+                            if(counter.identity().kind().hasTarget())targetUsage.merge(counter.identity().target(),counter.usage(),TargetQuotaUsage::add);
+                        }
+                        dependencies.quotaCounter(counter);
+                    }
+                    case 1->{
+                        if(joinIndex>=totals.size()){joinPhase++;joinIndex=0;continue;}
+                        final var total=totals.get(joinIndex);requireInventorySource(total.mutation());requireInventoryKey(total.key());
+                        total.scope().requireRoute(proof.metadata().shardId(),proof.bookkeeping().tenantScope());total.requireAggregate(proof.aggregate());
+                        if(totalIndex.putIfAbsent(total.scope().target(),total)!=null||!total.usage().equals(targetUsage.getOrDefault(total.scope().target(),TargetQuotaUsage.empty())))
+                            throw new IllegalStateException("Target quota total differs from primary counters");
+                    }
+                    case 2->{
+                        if(joinIndex>=grantActivations.size()){
+                            final var book=proof.bookkeeping();final var primary=counterIndex.get(book.owner());final var mirror=counterIndex.get(book.tenantOwner());
+                            if(primary==null||mirror==null||!primary.usage().resources().covers(book.charge())||!mirror.usage().resources().covers(book.charge())
+                                    ||!book.inventory().equals(new com.nereusstream.delay.protocol.TargetQuotaBookkeeping.Inventory(counters.size(),totals.size(),grantActivations.size()))
+                                    ||!shardUsage.equals(proof.aggregate().usage()))throw new IllegalStateException("bookkeeping inventory or root storage commitment mismatch");
+                            joinPhase++;joinIndex=0;continue;
+                        }
+                        final var grant=grantActivations.get(joinIndex);requireInventorySource(grant.mutation());requireInventoryKey(grant.key());
+                        grant.grant().scope().requireRoute(proof.metadata().shardId(),proof.bookkeeping().tenantScope());grant.mutation().requireAtOrBefore(proof.aggregate().mutation());
+                        if(grant.allocation()!=null)grantsByOwner.merge(grant.allocation().identity(),1L,Math::addExact);
+                    }
+                    case 3->{
+                        if(joinIndex>=counters.size()){joinPhase++;joinIndex=0;continue;}
+                        final var counter=counters.get(joinIndex);final var id=counter.identity();
+                        if(id.kind().isMirror()){
+                            if(!counterIndex.containsKey(id.primary()))throw new IllegalStateException("Target quota tenant mirror has no primary counter");
+                        }else{
+                            final var mirrorId=new TargetQuotaIdentity(id.kind().hasTarget()?TargetQuotaIdentity.Kind.TENANT_TARGET:TargetQuotaIdentity.Kind.TENANT_SHARD,
+                                    proof.metadata().shardId(),id.accountingIncarnation(),id.target(),proof.bookkeeping().tenantScope());
+                            final var mirror=counterIndex.get(mirrorId);
+                            if(mirror==null||!counter.usage().resources().equals(mirror.usage().resources()))throw new IllegalStateException("Target quota primary and tenant mirror disagree");
+                            if(id.kind()==TargetQuotaIdentity.Kind.TARGET){final var total=Objects.requireNonNull(totalIndex.get(id.target()),"Target quota primary counter total");total.requireCounter(counter);}
+                        }
+                    }
+                    case 4->{
+                        if(joinIndex>=attemptBudgets.size()){joinPhase++;joinIndex=0;continue;}
+                        final var budget=attemptBudgets.get(joinIndex);if(budgetIndex.putIfAbsent(Bytes.hex(budget.publishAttemptId()),budget)!=null)
+                            throw new IllegalStateException("Target checkpoint repeats an attempt budget identity");
+                    }
+                    case 5->{
+                        if(joinIndex>=attemptProjections.size()){joinPhase++;joinIndex=0;continue;}
+                        final var projection=attemptProjections.get(joinIndex);final byte[] digest=projection.runtime().runtimeDigest();
+                        final byte[] prior=runtimes.putIfAbsent(projection.locator(),digest);
+                        if(prior!=null&&!Arrays.equals(prior,digest))throw new IllegalStateException("Target checkpoint Message and Terminal runtime disagree");
+                        for(var obligation:projection.runtime().attemptObligations()){
+                            final String id=Bytes.hex(obligation.publishAttemptId());final var ref=new AttemptProjectionRef(projection.locator(),obligation);
+                            final var previous=referenced.putIfAbsent(id,ref);
+                            if(previous!=null&&(!previous.locator().equals(ref.locator())||!Arrays.equals(previous.obligation().canonicalBytes(),obligation.canonicalBytes())))
+                                throw new IllegalStateException("Target checkpoint attempt reference identity conflicts");
+                        }
+                    }
+                    default->{return advanceRemainingJoins(view,maximumRows-used,retained,copied);}
+                }
+                joinIndex++;used++;view.requireWithinElapsedBudget();
+            }
+            return false;
+        }
+        private void requireInventorySource(com.nereusstream.delay.protocol.TargetQuotaMutation mutation){
+            if(!mutation.source().sameSourceIdentity(proof.bookkeeping().mutation().source())
+                    ||com.nereusstream.delay.protocol.TargetQuotaBookkeeping.maximumSourceBytes(mutation.source())
+                        !=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.maximumSourceBytes(proof.bookkeeping().mutation().source()))
+                throw new IllegalStateException("bookkeeping inventory changed original Source");
+        }
+        private void requireInventoryKey(byte[] key){if(!inventoryKeys.add(Bytes.hex(key)))throw new IllegalStateException("bookkeeping inventory repeats Native projection key");}
+        private boolean advanceRemainingJoins(TargetRetirementLedgerCursor.InventoryView view,int maximumRows,
+                java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            int used=0;
+            while(used<maximumRows){
+                switch(joinPhase){
+                    case 6->{
+                        if(referenceRows==null)referenceRows=referenced.entrySet().iterator();
+                        if(!referenceRows.hasNext()){joinPhase++;joinIndex=0;continue;}
+                        final var entry=referenceRows.next();final var budget=Objects.requireNonNull(budgetIndex.get(entry.getKey()),"Target checkpoint open attempt quota budget");
+                        final var ref=entry.getValue();
+                        final boolean matches=budget.locator().equals(ref.locator())&&switch(budget.phase()){
+                            case ADMITTED->ref.obligation().ledgerState()==AttemptLedgerState.PUBLISHING;
+                            case UNKNOWN->ref.obligation().ledgerState()==AttemptLedgerState.UNCERTAIN;
+                            case RESOLVED_AWAITING_FLOOR,RETAINED,RELEASED->false;
+                        };
+                        if(!matches)throw new IllegalStateException("Target checkpoint attempt reference contradicts its quota budget");
+                    }
+                    case 7->{
+                        if(joinIndex>=attemptBudgets.size()){joinPhase++;joinIndex=0;continue;}
+                        final var budget=attemptBudgets.get(joinIndex++);final var phase=budget.phase();
+                        if((phase==TargetQuotaAttemptBudget.Phase.ADMITTED||phase==TargetQuotaAttemptBudget.Phase.UNKNOWN)!=referenced.containsKey(Bytes.hex(budget.publishAttemptId())))
+                            throw new IllegalStateException("Target checkpoint open quota budget lacks its attempt reference");
+                    }
+                    case 8->{
+                        if(results==null){
+                            final var migration=com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(view.projected(ColumnFamily.META,
+                                    com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(proof.metadata().shardId()),List.of()));
+                            results=new TargetResultLedgerAudit.RetirementCursor(proof.root().scope(),proof.root().recoveryLineage(),proof.mutationSequence(),proof.source(),
+                                    new TargetResultLedgerAudit.Limits(auditLimits.maxRecords(),auditLimits.maxPointReads(),Math.addExact(auditLimits.maxKeyValueBytes(),auditLimits.maxPointReadBytes())),resultRows,migration);
+                        }
+                        final boolean done=results.advance(key->{
+                            final byte[] raw=view.projected(ColumnFamily.META,key,List.of());if(raw==null)return null;
+                            final var value=TargetValueEnvelope.decodeAny(raw);return new TargetResultLedgerAudit.Stored(key,value.valueType(),value.payload());
+                        },maximumRows-used,view::requireWithinElapsedBudget);
+                        if(!done)return false;
+                        if(results.resultRecords()!=resultRows.size()||results.contributions().size()!=resultContributions.size())
+                            throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");
+                        contributionRows=results.contributions().entrySet().iterator();joinPhase++;joinIndex=0;return false;
+                    }
+                    case 9->{
+                        if(!contributionRows.hasNext()){joinPhase++;joinIndex=0;continue;}
+                        final var entry=contributionRows.next();if(!entry.getValue().equals(resultContributions.get(entry.getKey())))throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");
+                    }
+                    case 10->{
+                        if(joinIndex>=grantActivations.size()){joinPhase++;joinIndex=0;continue;}
+                        requireGrant(grantActivations.get(joinIndex++));
+                    }
+                    case 11->{
+                        if(joinIndex>=initialControls.size()){joinPhase++;joinIndex=0;continue;}
+                        final var snapshot=initialControls.get(joinIndex++);
+                        if(!snapshot.root().equals(proof.root().identity())||!snapshot.input().scope().equals(proof.root().scope())||!Arrays.equals(snapshot.input().lineage(),proof.root().recoveryLineage()))
+                            throw new IllegalStateException("Target initial control snapshot crosses its root/lineage/scope");
+                        snapshot.mutation().requireAtOrBefore(proof.aggregate().mutation());requireGrant(snapshot.initialGrant());
+                        final var first=resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},snapshot.initialGrant().systemMutationId())));
+                        if(!Arrays.equals(snapshot.authorIdentity(),SystemMutationResult.decode(first.typedPayload()).authorIdentity()))throw new IllegalStateException("Target initial control snapshot changes its original Control author");
+                    }
+                    case 12->{
+                        if(joinIndex>=membershipClosures.size()){joinPhase++;joinIndex=0;continue;}
+                        final var control=membershipClosures.get(joinIndex++);final var body=control.body();requireControlResult(resultIndex,proof.root().identity(),control.mutation(),body.retryUntil(),body.logicalIdentity(),body.canonicalBytes(),null);
+                    }
+                    case 13->{
+                        if(joinIndex>=nativeControls.size()){joinPhase++;joinIndex=0;continue;}
+                        final var control=nativeControls.get(joinIndex++);final var body=control.body();final var author=control.author();
+                        requireControlResult(resultIndex,proof.root().identity(),control.mutation(),body.retryUntil(),body.logicalIdentity(),body.canonicalBytes(),
+                                AuthorIdentity.control(author.operationActorIdHash(),author.authenticatedRoleSetHash(),author.tenantResourceScopeHash()).canonicalBytes());
+                    }
+                    case 14->{
+                        if(joinIndex>=channelControls.size()){joinPhase++;joinIndex=0;continue;}
+                        final var control=channelControls.get(joinIndex++);final var body=control.body();final var author=control.author();
+                        requireControlResult(resultIndex,proof.root().identity(),control.mutation(),body.retryUntil(),body.logicalIdentity(),body.canonicalBytes(),
+                                AuthorIdentity.control(author.operationActorIdHash(),author.authenticatedRoleSetHash(),author.tenantResourceScopeHash()).canonicalBytes());
+                    }
+                    case 15->{
+                        if(channels==null)channels=new TargetChannelHistoryAudit.RetirementCursor(channelControls,channelIdentities,channelSlots);
+                        if(!channels.advance(maximumRows-used,view::requireWithinElapsedBudget))return false;
+                        joinPhase++;joinIndex=0;return false;
+                    }
+                    case 16->{
+                        if(joinIndex>=sloWriterEpochs.size()){joinPhase++;joinIndex=0;continue;}
+                        com.nereusstream.delay.runtime.TargetSloWriterEpochStore.requireOrigin(view,List.of(),proof.root().scope(),proof.root().recoveryLineage(),proof.root().identity(),sloWriterEpochs.get(joinIndex),proof.aggregate().mutation());joinIndex++;
+                    }
+                    case 17->{
+                        if(joinIndex>=parentCredits.size()){joinPhase++;joinIndex=0;continue;}
+                        com.nereusstream.delay.runtime.TargetParentControlCreditStore.requireOrigin(view,List.of(),proof.root().scope(),proof.root().recoveryLineage(),proof.root(),parentCredits.get(joinIndex),proof.aggregate().mutation());joinIndex++;
+                    }
+                    case 18->{
+                        if(joinIndex>=scopeObligations.size()){joinPhase++;joinIndex=0;continue;}
+                        com.nereusstream.delay.runtime.TargetScopeControlObligationStore.requireOrigin(view,List.of(),proof.root().scope(),proof.root().recoveryLineage(),proof.root(),scopeObligations.get(joinIndex),proof.aggregate().mutation());joinIndex++;
+                    }
+                    default->{return advanceBusinessJoins(view,maximumRows-used,retained,copied);}
+                }
+                used++;view.requireWithinElapsedBudget();
+            }
+            return false;
+        }
+        private boolean advanceBusinessJoins(TargetRetirementLedgerCursor.InventoryView view,int maximumRows,
+                java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            int used=0;
+            while(used<maximumRows){
+                switch(joinPhase){
+                    case 19->{
+                        if(sloHistory==null)sloHistory=new com.nereusstream.delay.runtime.TargetSloObservationHistoryAudit.RetirementCursor(sloStates,sloGenerations,
+                                proof.root().scope(),proof.root().recoveryLineage(),proof.aggregate().mutation(),sloSamples,firstRows,sloEvents,sloCustodies,sloWriterEpochs,eligibilityMessages);
+                        if(!sloHistory.advance(maximumRows-used,view::requireWithinElapsedBudget,retained,copied))return false;
+                        joinPhase++;joinIndex=0;return false;
+                    }
+                    case 20->{
+                        if(joinIndex>=attemptBudgets.size()){joinPhase++;joinIndex=0;continue;}
+                        final var attempt=attemptBudgets.get(joinIndex);final var first=requireAdmission(attempt);
+                        final var admission=new TargetCheckpointDependencies.Admission(attempt,first);admissions.add(admission);admissionIndex.put(Bytes.hex(attempt.publishAttemptId()),admission);
+                        messageAdmissions.computeIfAbsent(attempt.locator().messageId(),ignored->new ArrayList<>()).add(admission);joinIndex++;
+                    }
+                    case 21->{
+                        if(joinIndex>=channelIdentities.size()){joinPhase++;joinIndex=0;continue;}
+                        final var channel=channelIdentities.get(joinIndex++);channelIndex.put(Bytes.hex(channel.digest()),channel);
+                    }
+                    case 22->{
+                        if(joinIndex>=kafkaSlots.size()){joinPhase++;joinIndex=0;continue;}
+                        final var slot=kafkaSlots.get(joinIndex++);
+                        if(kafkaSlotIndex.putIfAbsent(Bytes.hex(slot.key()),slot)!=null)throw new IllegalStateException("duplicate Target K2 slot");
+                        final var channel=channelIndex.get(Bytes.hex(slot.channel().digest()));
+                        if(channel==null||!Arrays.equals(channel.canonicalBytes(),slot.channel().canonicalBytes()))throw new IllegalStateException("Target K2 slot lacks exact retained channel identity");
+                    }
+                    case 23->{
+                        if(joinIndex>=resultRows.size()){joinPhase++;joinIndex=0;continue;}
+                        final var stored=resultRows.get(joinIndex++);
+                        if(stored.key()[0]==TargetKeyCodec.RESULT_SYSTEM_TAG){
+                            final var first=resultIndex.get(Bytes.hex(stored.key()));
+                            if(resultByStamp.putIfAbsent(Bytes.hex(first.mutation().canonicalBytes()),first)!=null)throw new IllegalStateException("multiple Source first results share a K2 settlement stamp");
+                        }
+                    }
+                    case 24->{
+                        if(joinIndex>=kafkaMappings.size()){joinPhase++;joinIndex=0;continue;}
+                        requireKafkaMapping(kafkaMappings.get(joinIndex++));
+                    }
+                    case 25->{
+                        if(joinIndex>=kafkaSlots.size()){joinPhase++;joinIndex=0;continue;}
+                        final var slot=kafkaSlots.get(joinIndex++);final var mapping=latestMapping.get(Bytes.hex(slot.key()));
+                        if(mapping==null||mapping.logicalSequence()!=slot.lastAllocatedSequence())throw new IllegalStateException("Target K2 slot sequence lacks its immutable latest mapping");
+                        if(slot.pendingMappingId()!=null){slot.requirePending(mapping);if(!slot.mutation().equals(mapping.mutation()))throw new IllegalStateException("pending K2 slot changes its Admission Source stamp");}
+                        else{
+                            slot.mutation().requireAfter(mapping.mutation());final var outcome=Objects.requireNonNull(resultByStamp.get(Bytes.hex(slot.mutation().canonicalBytes())),"free Target K2 slot settling Source result");
+                            final var result=SystemMutationResult.decode(outcome.typedPayload());
+                            if(result.applyStatus()!=ApplyStatus.APPLIED||result.mutationType()!=SystemMutationType.PUBLISH_OUTCOME&&result.mutationType()!=SystemMutationType.EVIDENCE_RESOLUTION
+                                    ||!Arrays.equals(result.mutationId(),SystemMutation.computeSystemMutationId(proof.root().identity().shard(),result.mutationType(),mapping.admission().publishAttemptId(),result.mutationHash())))
+                                throw new IllegalStateException("free Target K2 slot does not settle its exact latest attempt");
+                        }
+                    }
+                    case 26->{
+                        if(joinIndex>=channelControls.size()){joinPhase++;joinIndex=0;continue;}
+                        final var control=channelControls.get(joinIndex++);final var channel=control.body().request().channel();
+                        controlDomains.add(controlDomain(control.mutation().source(),channel.context().target(),channel.context().domain()));
+                    }
+                    case 27->{
+                        if(joinIndex>=externalOwners.size()){joinPhase++;joinIndex=0;continue;}
+                        final var owner=externalOwners.get(joinIndex++);if(externalIndex.putIfAbsent(Bytes.hex(owner.key()),owner)!=null)throw new IllegalStateException("duplicate external primary owner");
+                    }
+                    case 28->{
+                        if(joinIndex>=kafkaMappings.size()){
+                            if(expectedExternal.size()!=externalReferences.size()||usedExternal.size()!=externalIndex.size()||createdExternal.size()!=externalIndex.size())
+                                throw new IllegalStateException("external owner/ref inventory lacks complete original mapping/adoption closure");
+                            joinPhase++;joinIndex=0;continue;
+                        }
+                        requireExternalMapping(kafkaMappings.get(joinIndex++));
+                    }
+                    case 29->{
+                        if(joinIndex>=recoveryOwners.size()){
+                            if(expectedRecovery.size()!=recoveryReferences.size())throw new IllegalStateException("recovery reference inventory has orphan/missing rows");
+                            joinPhase++;joinIndex=0;continue;
+                        }
+                        requireRecoveryOwner(recoveryOwners.get(joinIndex++));
+                    }
+                    case 30->{
+                        if(joinIndex>=retirements.size()){joinPhase++;joinIndex=0;continue;}
+                        final var record=retirements.get(joinIndex++);final var intent=record.intent();
+                        final var first=Objects.requireNonNull(resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},intent.systemMutationId()))),"retiring intent actual first");
+                        final var result=SystemMutationResult.decode(first.typedPayload());
+                        if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(record.appliedAt())||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT
+                                ||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK||!Arrays.equals(result.mutationId(),intent.systemMutationId())
+                                ||!Arrays.equals(result.mutationHash(),intent.mutationHash())||result.retryUntilEpochMs()!=intent.retryUntilEpochMs()||!Arrays.equals(result.authorIdentity(),intent.authorIdentity()))
+                            throw new IllegalStateException("retiring row lacks exact APPLIED intent first");
+                        final var position=requirePosition(record.appliedAt(),first);if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM)throw new IllegalStateException("retiring row changed Source POSITION companion");
+                    }
+                    case 31->{
+                        if(joinIndex>=sourceHistories.size()){projectedHistory=orderedHistory.values().iterator();joinPhase++;joinIndex=0;continue;}
+                        final var history=sourceHistories.get(joinIndex++);if(orderedHistory.putIfAbsent(history.decidedAt().sequence(),history)!=null)throw new IllegalStateException("retirement histories share one actual Source decision");
+                    }
+                    case 32->{
+                        if(!projectedHistory.hasNext()){projectedRows=projectedBudgets.entrySet().iterator();joinPhase++;joinIndex=0;continue;}
+                        projectHistory(projectedHistory.next());
+                    }
+                    case 33->{
+                        if(!projectedRows.hasNext()){joinPhase++;joinIndex=0;continue;}
+                        final var entry=projectedRows.next();if(!Arrays.equals(Objects.requireNonNull(budgetIndex.get(entry.getKey()),"reclaimed retained Budget").canonicalBytes(),entry.getValue().canonicalBytes()))
+                            throw new IllegalStateException("APPLIED reclaim chain lost latest exact retained allocation state");
+                    }
+                    case 34->{
+                        if(joinIndex>=sourceHistories.size()){joinPhase++;joinIndex=0;continue;}
+                        requireReclaimResult(sourceHistories.get(joinIndex++));
+                    }
+                    case 35->{
+                        if(joinIndex>=counters.size()){
+                            if(counterIndex.size()!=rebuilt.size()||!shardUsage.equals(proof.aggregate().usage()))throw new IllegalStateException("quota aggregate/ledger identity set mismatch");
+                            joinPhase++;joinIndex=0;continue;
+                        }
+                        final var counter=counters.get(joinIndex++);proof.aggregate().requireCounter(counter);
+                        if(!counter.usage().equals(rebuilt.get(counter.identity())))throw new IllegalStateException("quota counter differs from independently rebuilt ledger usage");
+                        if(counter.identity().kind().isMirror()){
+                            final var primary=counterIndex.get(counter.identity().primary());final var mirrors=mirrorSums.merge(counter.identity().primary(),counter.usage().resources(),CapacityVector::add);
+                            if(primary==null||!primary.usage().resources().covers(mirrors))throw new IllegalStateException("tenant quota mirror has no covering primary counter");
+                        }
+                    }
+                    case 36->{
+                        if(joinIndex>=resultRows.size()){joinPhase++;joinIndex=0;continue;}
+                        final var stored=resultRows.get(joinIndex++);final var first=resultIndex.get(Bytes.hex(stored.key()));
+                        if(stored.key()[0]==TargetKeyCodec.RESULT_SYSTEM_TAG){
+                            switch(SystemMutationResult.decode(first.typedPayload()).mutationType()){
+                                case APPLY_SHARD_CONTROL,TARGET_SLO_OBSERVATION->dependencies.controlResult(first);
+                                case TIME_FENCE->dependencies.timeFence(first);
+                                case PUBLISH_OUTCOME,EVIDENCE_RESOLUTION->dependencies.outcomeResult(first);
+                                case RESOURCE_RETIRE_INTENT,RESOURCE_DELETE_CONFIRMED,TARGET_RESOURCE_RECLAIM->dependencies.retirementResult(first);
+                                default->{}
+                            }
+                        }else if(stored.key()[0]==TargetKeyCodec.RESULT_POSITION_TAG&&first.kind()==TargetResultRecord.Kind.POSITION_SYSTEM)dependencies.systemPosition(first);
+                    }
+                    default->{return advanceFrozenJoins(view,maximumRows-used,retained,copied);}
+                }
+                used++;view.requireWithinElapsedBudget();
+            }
+            return false;
+        }
+        private boolean advanceFrozenJoins(TargetRetirementLedgerCursor.InventoryView view,int maximumRows,
+                java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            if(maximumRows<1)return false;
+            if(joinPhase==37){
+                if(freezing==null)freezing=dependencies.beginRetirementFreeze(admissions,resultRows);
+                if(!freezing.advance(maximumRows,view::requireWithinElapsedBudget,retained,copied))return false;
+                complete=freezing.result();joinPhase=38;joinIndex=0;return false;
+            }
+            if(joinPhase==38){
+                if(payloadSummary==null)payloadSummary=new com.nereusstream.delay.runtime.TargetPayloadObligationSummaryAudit.RetirementCursor(complete);
+                if(!payloadSummary.advance(maximumRows,view::requireWithinElapsedBudget,retained,copied))return false;
+                joinPhase=39;joinIndex=0;return false;
+            }
+            if(joinPhase==39){
+                if(archiveHistory==null)archiveHistory=new com.nereusstream.delay.runtime.TargetMigrationArchiveStore.RetirementCursor(complete);
+                if(!archiveHistory.advance(maximumRows,view::requireWithinElapsedBudget,retained,copied))return false;
+                joinPhase=40;joinIndex=0;return false;
+            }
+            if(joinPhase==40){
+                int used=0;
+                while(joinIndex<sourceHistories.size()&&used<maximumRows){
+                    final var history=sourceHistories.get(joinIndex);
+                    if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+                        final var body=TargetResourceReclaimBody.decode(history.input().canonicalBody());
+                        final var first=complete.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()));
+                        if(first!=null&&first.appliedFirst()){
+                            if(body.selfContainedInlinePayloadRelease())com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(complete,body);
+                            else if(body.uncommittedObjectReclaim())com.nereusstream.delay.runtime.TargetUncommittedPayloadReclaim.requirePreparedClosed(view.ledger(),history.input(),true,view::requireWithinElapsedBudget);
+                            else if(body.nativeRetainedReclaim())com.nereusstream.delay.runtime.TargetNativeRetainedReclaim.requirePreparedClosed(view.ledger(),body,history.input(),true,view::requireWithinElapsedBudget);
+                        }
+                    }
+                    joinIndex++;used++;view.requireWithinElapsedBudget();
+                }
+                if(joinIndex<sourceHistories.size())return false;
+                joinPhase=41;
+            }
+            return joinPhase==41;
+        }
+        private TargetResultRecord requireAdmission(TargetQuotaAttemptBudget attempt){
+            final byte[] id=SystemMutation.computeSystemMutationId(proof.root().identity().shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,attempt.publishAttemptId(),attempt.admissionDigest());
+            final var first=resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},id)));
+            if(first==null||first.kind()!=TargetResultRecord.Kind.SYSTEM||first.allocation()!=null||!first.primaryIdentity().equals(proof.root().identity()))throw new IllegalStateException("Target retained Budget lacks its exact Admission first result");
+            first.mutation().requireAtOrBefore(attempt.mutation());
+            if(attempt.phase()==TargetQuotaAttemptBudget.Phase.ADMITTED){if(!first.mutation().equals(attempt.mutation()))throw new IllegalStateException("Target ADMITTED Budget changes its Admission source stamp");}
+            else attempt.mutation().requireAfter(first.mutation());
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(result.mutationType()!=SystemMutationType.TARGET_PUBLISH_ADMISSION||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK
+                    ||AuthorIdentity.decode(result.authorIdentity()).kind()!=AuthorIdentity.Kind.OWNER||!Arrays.equals(result.mutationId(),id)
+                    ||!Arrays.equals(result.mutationHash(),attempt.admissionDigest())||!Arrays.equals(result.appliedSourcePosition(),first.mutation().source().canonicalBytes()))
+                throw new IllegalStateException("Target retained Budget contradicts its Admission first result");
+            return first;
+        }
+        private void requireKafkaMapping(TargetKafkaReceiptMapping mapping){
+            final var body=mapping.admission();final var retained=admissionIndex.get(Bytes.hex(body.publishAttemptId()));final var first=retained==null?null:retained.first();
+            final byte[] hash=SystemMutation.computeMutationHash(body.shard(),SystemMutationType.TARGET_PUBLISH_ADMISSION,body.retryUntilEpochMs(),body.canonicalBytes());
+            if(first==null||!first.primaryIdentity().equals(proof.root().identity())||!mapping.mutation().equals(first.mutation())||!Arrays.equals(hash,mapping.mutationHash())
+                    ||!Arrays.equals(retained.attempt().admissionDigest(),hash)||!retained.attempt().locator().equals(body.locator())||retained.attempt().executionBytes()!=body.executionBytes()
+                    ||!retained.attempt().commitment().equals(body.commitment()))throw new IllegalStateException("Target K2 mapping lacks exact retained Admission/budget/first Source");
+            final var original=SystemMutationResult.decode(first.typedPayload());
+            if(!body.owner().equals(AuthorIdentity.decode(original.authorIdentity()).asOwnerIdentity())||original.retryUntilEpochMs()!=body.retryUntilEpochMs())throw new IllegalStateException("Target K2 mapping changes original Owner/deadline");
+            final String slotKey=Bytes.hex(TargetKafkaReceiptSlot.key(body.channel()));final var slot=kafkaSlotIndex.get(slotKey);
+            if(slot==null||Long.compareUnsigned(slot.lastAllocatedSequence(),mapping.logicalSequence())<0||!Arrays.equals(slot.recoveryLineage(),mapping.recoveryLineage())
+                    ||!mappingSequences.add(slotKey+"/"+Long.toUnsignedString(mapping.logicalSequence()))||mappingIndex.putIfAbsent(Bytes.hex(mapping.mappingId()),mapping)!=null)
+                throw new IllegalStateException("Target K2 mapping lacks its stable sequence/slot history");
+            final var channel=channelIndex.get(Bytes.hex(body.channel().digest()));
+            if(channel==null||!Arrays.equals(channel.canonicalBytes(),body.channel().canonicalBytes()))throw new IllegalStateException("Target K2 mapping lacks original retained channel generation");
+            final var previous=latestMapping.get(slotKey);if(previous==null||Long.compareUnsigned(mapping.logicalSequence(),previous.logicalSequence())>0)latestMapping.put(slotKey,mapping);
+            final boolean open=retained.attempt().phase()==TargetQuotaAttemptBudget.Phase.ADMITTED||retained.attempt().phase()==TargetQuotaAttemptBudget.Phase.UNKNOWN;
+            if(open)slot.requirePending(mapping);else if(Arrays.equals(slot.pendingMappingId(),mapping.mappingId()))throw new IllegalStateException("resolved Target K2 budget still occupies its logical slot");
+        }
+        private static String controlDomain(SourcePosition source,TargetPartitionId target,TargetKeyCodec.Domain domain){
+            return Bytes.hex(source.canonicalBytes())+":"+Bytes.hex(target.bytes())+":"+domain.slot()+":"+Long.toUnsignedString(domain.generation());
+        }
+        private void requireExternalMapping(TargetKafkaReceiptMapping mapping){
+            final var attempt=Objects.requireNonNull(budgetIndex.get(Bytes.hex(mapping.admission().publishAttemptId())),"external mapping Attempt budget");
+            for(int kind:List.of(1,2)){
+                final byte[] digest=kind==1?mapping.admission().kafkaReceipt().retentionProtectionDigest():mapping.admission().kafkaReceipt().scanObservationDigest();
+                final String key=Bytes.hex(TargetExternalEvidenceReference.key(kind,mapping.mappingId()));
+                final var ref=Objects.requireNonNull(externalReferences.get(key),"mapping original external reference");expectedExternal.add(key);
+                final String ownerKey=Bytes.hex(TargetExternalEvidenceOwner.key(kind,digest));final var owner=Objects.requireNonNull(externalIndex.get(ownerKey),"external reference unique retained owner");usedExternal.add(ownerKey);
+                if(!Arrays.equals(ref.artifactDigest(),digest)||!Arrays.equals(ref.attemptId(),attempt.publishAttemptId())||!ref.referenceOwner().equals(attempt.primaryIdentity())
+                        ||!ref.accounting().equals(attempt.accounting())||!ref.mutation().equals(mapping.mutation())||!owner.originalDomain().equals(mapping.admission().channel().context().domain())
+                        ||!owner.primaryOwner().identity().target().equals(attempt.primaryIdentity().target()))throw new IllegalStateException("external reference changed mapping/Attempt/frozen domain responsibility");
+                owner.createdAt().requireAtOrBefore(ref.mutation());
+                if(owner.createdAt().equals(mapping.mutation())){if(kind==2&&!Arrays.equals(owner.creatorAttemptId(),attempt.publishAttemptId()))throw new IllegalStateException("anchor creator is not its first Source Attempt");createdExternal.add(ownerKey);}
+                if(kind==2){
+                    final String alias=Bytes.hex(com.nereusstream.delay.runtime.TargetExternalEvidenceStore.referenceByAttemptKey(attempt.publishAttemptId()));expectedExternal.add(alias);
+                    if(!Arrays.equals(Objects.requireNonNull(externalReferences.get(alias),"exact attempt-reference alias").canonicalBytes(),ref.canonicalBytes()))throw new IllegalStateException("anchor alias differs from its original reference");
+                }
+                if(!controlDomains.contains(controlDomain(owner.originalControlSource(),owner.primaryOwner().identity().target(),owner.originalDomain())))throw new IllegalStateException("external evidence lacks its original APPLIED Channel Control domain");
+            }
+        }
+        private void requireRecoveryOwner(TargetRecoveryEvidenceOwner owner){
+            final var ref=owner.reference();if(!recoveryObjects.add(Bytes.hex(owner.key()))||!recoveryAttempts.add(Bytes.hex(ref.attemptId())))throw new IllegalStateException("recovery evidence has duplicate unique object/Attempt adoption");
+            final var mapping=Objects.requireNonNull(mappingIndex.get(Bytes.hex(ref.mappingId())),"recovery original mapping");
+            final var budget=Objects.requireNonNull(budgetIndex.get(Bytes.hex(ref.attemptId())),"recovery original Attempt");
+            final var original=Objects.requireNonNull(externalIndex.get(Bytes.hex(TargetExternalEvidenceOwner.key(2,mapping.admission().kafkaReceipt().scanObservationDigest()))),"recovery original anchor owner");
+            if(!Arrays.equals(owner.primaryOwner().canonicalBytes(),original.primaryOwner().canonicalBytes())||!owner.admissionMutation().equals(mapping.mutation())
+                    ||!Arrays.equals(owner.admissionHash(),mapping.mutationHash())||!Arrays.equals(ref.attemptId(),mapping.admission().publishAttemptId())||!Arrays.equals(budget.admissionDigest(),owner.admissionHash())
+                    ||budget.resolvedAt()==null||!budget.resolvedAt().equals(owner.adoptedAt()))throw new IllegalStateException("recovery owner changed original mapping/Admission/frozen owner/resolved Source");
+            for(byte[] key:List.of(owner.referenceRecord().key(),owner.referenceRecord().attemptKey())){
+                final var actual=Objects.requireNonNull(recoveryReferences.get(Bytes.hex(key)),"recovery exact reference/Attempt alias");actual.requireOwner(owner);actual.requireAttempt(budget);expectedRecovery.add(Bytes.hex(key));
+            }
+            final var first=Objects.requireNonNull(resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},owner.outcomeId()))),"recovery adopting first result");
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.mutation().equals(owner.adoptedAt())||result.applyStatus()!=ApplyStatus.APPLIED||result.mutationType()!=owner.outcomeType()
+                    ||!Arrays.equals(result.mutationId(),owner.outcomeId())||!Arrays.equals(result.mutationHash(),owner.outcomeHash())||!Arrays.equals(result.appliedSourcePosition(),owner.adoptedAt().source().canonicalBytes()))
+                throw new IllegalStateException("recovery evidence lacks actual adopting APPLIED Source first");
+            if(requirePosition(owner.adoptedAt(),first).kind()!=TargetResultRecord.Kind.POSITION_SYSTEM)throw new IllegalStateException("recovery evidence changed actual Source POSITION");
+        }
+        private TargetResultRecord requirePosition(TargetQuotaMutation at,TargetResultRecord first){
+            final var position=Objects.requireNonNull(resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},at.source().canonicalBytes()))),"actual Source POSITION companion");
+            position.requireFirst(first);if(!position.mutation().equals(at))throw new IllegalStateException("actual Source POSITION changed its first stamp");return position;
+        }
+        private void projectHistory(TargetRetirementSourceHistoryRecord history){
+            if(history.input().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)return;
+            final var first=Objects.requireNonNull(resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()))),"actual reclaim first");
+            if(!first.appliedFirst())return;final var body=TargetResourceReclaimBody.decode(history.input().canonicalBody());
+            for(var operation:body.operations()){
+                final TargetQuotaAttemptBudget expected,next;
+                if(operation instanceof TargetResourceReclaimBody.UnusedAttemptReserve unused){expected=unused.expected();next=expected.unusedReserveProjection(body.floor(),history.decidedAt());}
+                else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
+                    expected=allocation.expected();next=expected.retainedReleaseProjection(allocation.remaining(),body.floor(),history.decidedAt());
+                    for(var receipt:allocation.confirmations()){
+                        final String key=Bytes.hex(expected.publishAttemptId())+":"+Bytes.hex(TargetResourceReclaimBody.RetainedAllocationRelease.shareIdentity(receipt));
+                        if(!settledShares.add(key))throw new IllegalStateException("one owned-object share has multiple APPLIED allocation settlements");
+                        settledAt.put(key,history.decidedAt());
+                    }
+                }else continue;
+                final var prior=projectedBudgets.put(Bytes.hex(expected.publishAttemptId()),next);
+                if(prior!=null&&!Arrays.equals(prior.canonicalBytes(),expected.canonicalBytes()))throw new IllegalStateException("retained allocation history changed exact previous Budget");
+            }
+        }
+        private void requireReclaimResult(TargetRetirementSourceHistoryRecord history){
+            if(history.input().type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM)return;
+            final var first=Objects.requireNonNull(resultIndex.get(Bytes.hex(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},history.input().systemMutationId()))),"reclaim actual first");
+            if(!first.appliedFirst())return;final var body=TargetResourceReclaimBody.decode(history.input().canonicalBody());
+            for(var operation:body.operations())switch(operation){
+                case TargetResourceReclaimBody.UnusedAttemptReserve unused->{if(!projectedBudgets.containsKey(Bytes.hex(Objects.requireNonNull(budgetIndex.get(Bytes.hex(unused.expected().publishAttemptId())),"reclaim actual retained budget").publishAttemptId())))throw new IllegalStateException("APPLIED unused-reserve reclaim lost exact actual phase/Source result");}
+                case TargetResourceReclaimBody.InlinePayloadRelease inline->{requireReleasedOwner(inline.expected(),body,history);}
+                case TargetResourceReclaimBody.UncommittedObjectConfirm confirm->{requireReleasedOwner(confirm.intent().expectedOwner(),body,history);}
+                case TargetResourceReclaimBody.ObjectPayloadConfirm confirm->{requireReleasedOwner(confirm.intent().operation().expected(),body,history);}
+                case TargetResourceReclaimBody.RetainedRecordDelete leaf->{if(resultIndex.containsKey(Bytes.hex(leaf.expected().key())))throw new IllegalStateException("APPLIED Native record deletion retains its row");}
+                case TargetResourceReclaimBody.RetainedAllocationRelease allocation->{if(!projectedBudgets.containsKey(Bytes.hex(allocation.expected().publishAttemptId())))throw new IllegalStateException("APPLIED retained settlement lost its Budget");}
+                default->{}
+            }
+        }
+        private void requireReleasedOwner(TargetQuotaPayloadOwner expected,TargetResourceReclaimBody body,TargetRetirementSourceHistoryRecord history){
+            final String id=Bytes.hex(expected.messageId().bytes());final var owner=Objects.requireNonNull(payloadOwners.get(id),"APPLIED payload release permanent owner");
+            if(!owner.mutation().equals(history.decidedAt())||primaryMessages.contains(id))throw new IllegalStateException("APPLIED payload release lost actual Source/absent primary");owner.requireReleasedFrom(expected,body.floor());
+        }
+        private java.util.Iterator<Map.Entry<TargetQuotaIdentity,CapacityVector>> contributionRows;
+        private void requireGrant(TargetQuotaGrantActivation grant){
+            final byte[] key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},grant.systemMutationId());
+            final var first=resultIndex.get(Bytes.hex(key));
+            if(first==null||first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(proof.root().identity())||!first.mutation().equals(grant.mutation()))
+                throw new IllegalStateException("Target grant activation lacks its exact first System result");
+            final var result=SystemMutationResult.decode(first.typedPayload());
+            if(!Arrays.equals(result.mutationId(),grant.systemMutationId())||!Arrays.equals(result.mutationHash(),grant.systemMutationHash())
+                    ||result.mutationType()!=SystemMutationType.APPLY_SHARD_CONTROL||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK
+                    ||!Arrays.equals(result.appliedSourcePosition(),grant.mutation().source().canonicalBytes())
+                    ||(grant.allocation()!=null&&grant.allocation().allocation().equals(grant.mutation()))!=(first.allocation()!=null)
+                    ||first.allocation()!=null&&!Arrays.equals(first.allocation().canonicalBytes(),grant.allocation().canonicalBytes()))
+                throw new IllegalStateException("Target grant activation contradicts its first System result");
+        }
+        TargetCheckpointDependencies result(){if(complete==null||joinPhase!=41)throw new IllegalStateException("retirement ledger joins are incomplete");return complete;}
+        TargetCheckpointDependencies dependenciesForClosure(){if(complete==null)throw new IllegalStateException("retirement ledger has not sealed its actual dependency rows");return complete;}
+        TargetKafkaReceiptMapping mapping(byte[] id){dependenciesForClosure();return Objects.requireNonNull(mappingIndex.get(Bytes.hex(id)),"original actual Kafka mapping");}
+        TargetQuotaAttemptBudget projectedBudget(byte[] id){dependenciesForClosure();return projectedBudgets.get(Bytes.hex(id));}
+        TargetQuotaMutation settlement(byte[] attempt,byte[] share){dependenciesForClosure();return settledAt.get(Bytes.hex(attempt)+":"+Bytes.hex(share));}
+        TargetResultRecord resultAt(TargetQuotaMutation at){dependenciesForClosure();return resultByStamp.get(Bytes.hex(at.canonicalBytes()));}
+        long grantCount(TargetQuotaIdentity owner){dependenciesForClosure();return grantsByOwner.getOrDefault(owner,0L);}
+        java.util.Collection<TargetCheckpointDependencies.RetryUse> retryUses(DelayMessageId id){dependenciesForClosure();final var values=messageRetryUses.get(id);return values==null?List.of():java.util.Collections.unmodifiableCollection(values.values());}
+        List<TargetTerminalGenerationRecord> terminals(DelayMessageId id){dependenciesForClosure();return java.util.Collections.unmodifiableList(messageTerminals.getOrDefault(id,List.of()));}
+        List<TargetCheckpointDependencies.Admission> messageAdmissions(DelayMessageId id){dependenciesForClosure();return java.util.Collections.unmodifiableList(messageAdmissions.getOrDefault(id,List.of()));}
+        void clear(){ }
     }
 
     private static void requireFixedBytes(final byte[] actual, final byte[] expected, final String description) {

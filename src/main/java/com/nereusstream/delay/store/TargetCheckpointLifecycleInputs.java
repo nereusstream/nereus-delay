@@ -48,7 +48,15 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
      * cannot silently authenticate actual deletion, reader/Pin independence or Source retention closure.
      */
     public interface Authority{
+        /** Original held complete migration universe. The core reads and validates all exact fixed chunks. */
+        default TargetMigrationPayloadMaterials migrationPayloadMaterials(HistoryImage input,TargetResultRecord first){
+            throw new IllegalStateException("lifecycle lacks original complete migration payload material");
+        }
         void requireActivation(TargetProtocolActivationRecord record);
+        /** Original Root issuer key/history at the original snapshot Source; a record's embedded key grants no trust. */
+        default void requireRootTupleAuthorization(TargetProtocolActivationRecord record){
+            if(record.rootEvidence()!=null)throw new IllegalStateException("lifecycle lacks original Root issuer history for tuple extension");
+        }
         HistoryImage resolve(TargetResultRecord originalFirst);
         TargetRetirementAuthorizationHistory.Pin requireOriginal(HistoryImage input,TargetResultRecord originalFirst);
         void requireRetiring(TargetEvidenceRetiringRecord record,TargetRetirementAuthorizationHistory.Grant grant);
@@ -202,7 +210,26 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
             TargetCheckpointSemanticSnapshot.Limits limits,Runnable guard){
         validateAgainst(d,limits);if(!d.hasLifecycleInputs()){guard.run();return;}
         Objects.requireNonNull(authority,"independent original lifecycle authority");
-        for(var value:activations){before(budget,guard);charge(budget,value.key().length,value.canonicalBytes().length);authority.requireActivation(value);after(budget,guard);}
+        for(var value:activations){
+            before(budget,guard);charge(budget,value.key().length,value.canonicalBytes().length);
+            if(value.rootEvidence()!=null){
+                if(value.rootEvidence().migrated()){
+                    if(d.migrationRoot()==null||d.migrationAttempt()==null
+                            ||!Arrays.equals(d.migrationRoot().canonicalBytes(),value.rootEvidence().migration().canonicalBytes())
+                            ||!Arrays.equals(d.migrationAttempt().digest(),value.rootEvidence().activationAttemptDigest()))
+                        throw new IllegalStateException("Root tuple authorization lost its actual A/Native65/Native69");
+                }else{
+                    final var initial=d.controls().stream().filter(control->control.family()==ColumnFamily.META
+                            &&Arrays.equals(control.key(),KeyCodec.metaFixed(10))).findFirst().orElseThrow(
+                                ()->new IllegalStateException("Root tuple authorization lost its complete actual META10 input"));
+                    if(!Arrays.equals(initial.payload(),value.rootEvidence().initial().canonicalBytes()))
+                        throw new IllegalStateException("Root tuple authorization changed the actual original snapshot");
+                }
+                value.rootEvidence().require(value.body().payload());
+                authority.requireRootTupleAuthorization(value);
+            }
+            authority.requireActivation(value);after(budget,guard);
+        }
         final var actualFirsts=firsts(d);final var grants=new TreeMap<String,TargetRetirementAuthorizationHistory.Grant>();
         for(var input:histories){
             before(budget,guard);charge(budget,input.source().canonicalBytes().length,input.canonicalBytes().length);
@@ -261,12 +288,15 @@ public record TargetCheckpointLifecycleInputs(List<TargetProtocolActivationRecor
                 final var objectBody=TargetResourceReclaimBody.decode(input.image().canonicalBody());
                 if(objectBody.uncommittedObjectReclaim()){
                     if(!activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim())throw new IllegalStateException("uncommitted decision lacks descriptor11");
-                    com.nereusstream.delay.runtime.TargetUncommittedPayloadReclaim.requireFacts(d,objectBody.objectOwner(),objectBody.uncommittedOperation().facts());
+                    final var facts=objectBody.uncommittedOperation().facts();
+                    if(facts.migrated())authority.migrationPayloadMaterials(input,first).requireActual(d,facts.binding(),facts.reservation(),facts.migrationHistory());
+                    com.nereusstream.delay.runtime.TargetUncommittedPayloadReclaim.requireFacts(d,objectBody.objectOwner(),facts);
                     authority.requireUncommittedObjectDecision(input,first);after(budget,guard);
                 }else{
                 com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,objectBody);
                 final var object=objectBody.objectOperation();
                 if(object.nativeOrigin()!=null){
+                    if(object.nativeOrigin().migrated())authority.migrationPayloadMaterials(input,first).requireActual(d,object.nativeOrigin().binding(),object.nativeOrigin().reservation(),object.nativeOrigin().migrationHistory());
                     com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.requireActual(d,object.expected(),object.nativeOrigin());
                     authority.requireObjectPayloadAcceptance(input,first,object.nativeOrigin());after(budget,guard);
                 }

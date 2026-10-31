@@ -237,6 +237,8 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         private com.nereusstream.delay.ownership.TargetSourceRecoveryInputs.Provider recoveryProvider;
         private long maximumRecoveryInputBytes;
         private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
+        private PulsarClientArtifactRecoverySourceCursor migrationHistoryReader;
+        private com.nereusstream.delay.ownership.TargetWorkerRecoverySource payloadSummaryReader;
         private boolean failed;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 PulsarClientArtifactOwnedBackendGroup group, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
@@ -433,10 +435,25 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
             if (failed || worker != null) throw new IllegalStateException("original P1 opening no longer accepts recovery");
             try {
                 if (!group.finishStartup() || !startup.needsPulsarRecovery()) return false;
-                final var reader = PulsarClientArtifactRecoverySourceCursor.openForStartup(startup, group, guard,
+                if (migrationHistoryReader != null) {
+                    if (startup.advanceMigrationHistory(migrationHistoryReader)) migrationHistoryReader = null;
+                    return false;
+                }
+                if (startup.migrationHistoryRequired()) {
+                    migrationHistoryReader = PulsarClientArtifactRecoverySourceCursor.openForStartup(startup, group, guard,
+                            recoveryCredential, timeout, maximumFrameBytes, time, sourceProtection);
+                    return false;
+                }
+                if (payloadSummaryReader == null) payloadSummaryReader = PulsarClientArtifactRecoverySourceCursor.openForStartup(startup, group, guard,
                         recoveryCredential, timeout, maximumFrameBytes, time, sourceProtection);
+                final var preparedReader = startup.payloadSummaryRecoverySource(payloadSummaryReader);
+                if (preparedReader.isEmpty()) {
+                    if (startup.payloadSummaryCaptureReaderClosed(payloadSummaryReader)) payloadSummaryReader = null;
+                    return false;
+                }
                 final var owner = preparation == null ? identity : startup.currentPulsarOwnerIdentity();
-                startup.startRecovery(reader, owner, journal, sourceProtection, journalProtection);
+                startup.startRecovery(preparedReader.orElseThrow(), owner, journal, sourceProtection, journalProtection);
+                payloadSummaryReader = null;
                 return true;
             } catch (RuntimeException | Error failure) { failed = true; startup.retain(failure); throw failure; }
         }

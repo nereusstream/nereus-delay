@@ -51,6 +51,20 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if (prepared.request().branch() instanceof TargetPayloadSummaryInitializationRequest expected) {
+                    final var body = TargetPayloadSummaryInitializationBody.decode(mutation.canonicalBody());
+                    body.requireInput(mutation);
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    final var actor = AuthorIdentity.decode(mutation.authorIdentity());
+                    final var author = prepared.author();
+                    if (!expected.equals(body.request())
+                            || !Arrays.equals(actor.first(), author.operationActorIdHash())
+                            || !Arrays.equals(actor.second(), author.authenticatedRoleSetHash())
+                            || !Arrays.equals(actor.digest(), author.tenantResourceScopeHash()))
+                        throw new IllegalArgumentException("summary initialization changed exact registered request/actor/roles/scope");
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 if (prepared.request().branch() instanceof TargetMigrationRequest expected) {
                     final var body = TargetMigrationControlBody.decode(mutation.canonicalBody());
                     body.requireInput(mutation);
@@ -173,8 +187,12 @@ public final class ControlTargetMutationBinding {
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
             case GRANT_TARGET_MEMBERSHIP,
+                    MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE,
+                    INITIALIZE_TARGET_PAYLOAD_SUMMARY,
                     ACTIVATE_TARGET_MIGRATION,
                     SETTLE_TARGET_MIGRATION_CUSTODY,
+                    RETIRE_TARGET_MIGRATION,
+                    CONFIRM_TARGET_MIGRATION_RETIRED,
                     ALLOCATE_SCOPE_CONTROL_OBLIGATION,
                     ALLOCATE_PARENT_CONTROL_CREDIT,
                     REGISTER_TARGET_SLO_WRITER_EPOCH,

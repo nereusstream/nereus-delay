@@ -36,6 +36,9 @@ public final class ControlSystemMutationFactory {
         final byte[] logicalIdentity =
                 switch (type) {
                     case APPLY_SHARD_CONTROL -> {
+                        if (prepared.request().branch() instanceof TargetPayloadSummaryInitializationRequest) {
+                            yield TargetPayloadSummaryInitializationBody.decode(canonicalBody).logicalIdentity();
+                        }
                         if (prepared.request().branch() instanceof TargetMigrationRequest) {
                             yield TargetMigrationControlBody.decode(canonicalBody).logicalIdentity();
                         }

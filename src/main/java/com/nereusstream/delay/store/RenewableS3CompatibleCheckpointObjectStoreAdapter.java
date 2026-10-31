@@ -26,7 +26,7 @@ import java.util.function.Supplier;
  * silently changes the provider credentials while an adapter is live.</p>
  */
 public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
-        implements CheckpointUploadAdapter, CheckpointDownloadAdapter {
+        implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter, CheckpointPrefixSweepAdapter {
     private final S3CompatibleCheckpointObjectStoreAdapter delegate;
     private final ObjectStoreCredentialUseLeaseGate gate;
     private final CredentialProfileAuthority authority;
@@ -107,6 +107,20 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     public synchronized byte[] readMigrationObject(com.nereusstream.delay.protocol.CheckpointResource resource,
             int maximumBytes) {
         requireProviderAdmission(); renewIfNeeded(); return delegate.readMigrationObject(resource, maximumBytes);
+    }
+    public synchronized java.util.Optional<S3CompatibleCheckpointObjectStoreAdapter.MigrationObject> lookupMigrationObject(
+            byte[] lineage, byte[] checkpoint, String fixedName, int maximumBytes) {
+        requireProviderAdmission(); renewIfNeeded(); return delegate.lookupMigrationObject(lineage, checkpoint, fixedName, maximumBytes);
+    }
+
+    @Override public synchronized CheckpointDeleteResult delete(CheckpointDeleteRequest request) {
+        requireProviderAdmission(); renewIfNeeded(); return delegate.delete(request);
+    }
+    @Override public synchronized CheckpointPrefixSweepResult sweep(CheckpointPrefixSweepRequest request) {
+        requireProviderAdmission(); renewIfNeeded(); return delegate.sweep(request);
+    }
+    public synchronized CheckpointDeleteResult deleteMigrationObject(com.nereusstream.delay.protocol.CheckpointResource exact) {
+        requireProviderAdmission(); renewIfNeeded(); return delegate.deleteMigrationObject(exact);
     }
 
     /** Returns the current local lease projection without reading the authority. */

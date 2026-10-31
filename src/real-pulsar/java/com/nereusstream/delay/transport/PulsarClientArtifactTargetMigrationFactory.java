@@ -13,7 +13,7 @@ import java.util.function.Supplier;
 public final class PulsarClientArtifactTargetMigrationFactory {
     private PulsarClientArtifactTargetMigrationFactory() {}
 
-    public static Opening openConfigured(TargetMigrationProcessDriver.Opening original, Path sourceConfiguration,
+    public static Opening openConfigured(TargetMigrationSourceOpening original, Path sourceConfiguration,
             Path writerConfiguration, LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
             Supplier<TrustedUtcIntervalEvidence> time) throws IOException {
         return openConfigured(original, PulsarClientArtifactTargetWorkerSourceFactory.loadSourceDeployment(sourceConfiguration),
@@ -50,7 +50,7 @@ public final class PulsarClientArtifactTargetMigrationFactory {
     }
 
     /** File reads and real SDK construction run only in the original root's owned preparation I/O. */
-    public static Opening openConfigured(TargetMigrationProcessDriver.Opening original,
+    public static Opening openConfigured(TargetMigrationSourceOpening original,
             PulsarClientArtifactTargetWorkerSourceFactory.SourceDeployment source,
             PulsarClientArtifactTargetWorkerSourceFactory.SystemWriterConfiguration writer,
             LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
@@ -85,7 +85,7 @@ public final class PulsarClientArtifactTargetMigrationFactory {
     }
 
     public static final class Opening implements TargetMigrationTransport {
-        private final TargetMigrationProcessDriver.Opening original;
+        private final TargetMigrationSourceOpening original;
         private final PulsarClientArtifactTargetWorkerSourceFactory.SourceConfiguration source;
         private final PulsarClientArtifactTargetWorkerSourceFactory.SystemWriterConfiguration writerConfiguration;
         private final PulsarClientArtifactOwnedBackendGroup group;
@@ -97,7 +97,7 @@ public final class PulsarClientArtifactTargetMigrationFactory {
         private SourcePosition pendingCut;
         private boolean stopping, operationActive;
         private Throwable failure;
-        private Opening(TargetMigrationProcessDriver.Opening original,
+        private Opening(TargetMigrationSourceOpening original,
                 PulsarClientArtifactTargetWorkerSourceFactory.SourceConfiguration source,
                 PulsarClientArtifactTargetWorkerSourceFactory.SystemWriterConfiguration writerConfiguration,
                 PulsarClientArtifactOwnedBackendGroup group, LocalBrokerMtlsResolver.SourceReceipt credential,
@@ -105,7 +105,7 @@ public final class PulsarClientArtifactTargetMigrationFactory {
             this.original = original; this.source = source; this.writerConfiguration = writerConfiguration; this.group = group;
             this.credential = credential; this.writerCredential = writerCredential; this.time = time; pendingCut = original.baseline();
         }
-        @Override public void requireBinding(TargetMigrationProcessDriver.Opening expected) {
+        @Override public void requireBinding(TargetMigrationSourceOpening expected) {
             if (original != expected) throw new IllegalArgumentException("migration P1 transport changes its original owner");
         }
         @Override public boolean advance() {

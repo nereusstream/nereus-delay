@@ -9,9 +9,12 @@ public record TargetMigrationActivationAttempt(byte[] planDigest, byte[] migrati
         TargetMigrationObjectReference candidate, PreparedControlOperation control, SystemMutation input,
         TargetQuotaMutation preparedAt) {
     public static final int VALUE_TYPE = 69;
+    public static final int V1_MAX_PREPARED_BYTES = TargetMigrationActivateRequest.V1_MAX_CANONICAL_BYTES+1024;
     public static final int MAX_PREPARED_BYTES = TargetMigrationActivateRequest.MAX_CANONICAL_BYTES + 1024;
-    public static final int MAX_CANONICAL_BYTES = MAX_PREPARED_BYTES + TargetMigrationControlBody.MAX_INPUT_BYTES
+    public static final int V1_MAX_CANONICAL_BYTES = V1_MAX_PREPARED_BYTES + TargetMigrationControlBody.LEGACY_MAX_INPUT_BYTES
             + TargetMigrationObjectReference.MAX_CANONICAL_BYTES + TargetQuotaMutation.MAX_CANONICAL_BYTES + 160;
+    public static final int MAX_CANONICAL_BYTES=V1_MAX_CANONICAL_BYTES+(MAX_PREPARED_BYTES-V1_MAX_PREPARED_BYTES)+(TargetMigrationControlBody.ACTIVATE_V2_MAX_INPUT_BYTES-TargetMigrationControlBody.LEGACY_MAX_INPUT_BYTES)+(TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES-TargetQuotaMutation.MAX_CANONICAL_BYTES);
+    private static final byte[] V2_DOMAIN=Bytes.utf8("nereus-delay-target-migration-activation-attempt-v2\0");
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-migration-activation-attempt-v1\0");
     public enum Phase { APPEND_MAY_BE_EXPOSED }
 
@@ -34,6 +37,7 @@ public record TargetMigrationActivationAttempt(byte[] planDigest, byte[] migrati
     }
     @Override public byte[] planDigest() { return Bytes.copy(planDigest); }
     @Override public byte[] migrationId() { return Bytes.copy(migrationId); }
+    public int schemaVersion(){return ((TargetMigrationActivateRequest)TargetMigrationControlBody.decode(input.canonicalBody()).request()).schemaVersion();}
     public Phase phase() { return Phase.APPEND_MAY_BE_EXPOSED; }
     public void requirePlan(TargetMigrationPlan plan) {
         if (!Arrays.equals(planDigest, plan.digest()) || !Arrays.equals(migrationId, plan.migrationId())) {
@@ -51,18 +55,18 @@ public record TargetMigrationActivationAttempt(byte[] planDigest, byte[] migrati
     public byte[] key() { return keyFor(migrationId); }
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, 1); CanonicalProtobuf.bytes(out, 2, planDigest); CanonicalProtobuf.bytes(out, 3, migrationId);
+            CanonicalProtobuf.uint32(out, 1, schemaVersion()); CanonicalProtobuf.bytes(out, 2, planDigest); CanonicalProtobuf.bytes(out, 3, migrationId);
             CanonicalProtobuf.bytes(out, 4, candidate.canonicalBytes()); CanonicalProtobuf.bytes(out, 5, control.canonicalBytes());
             CanonicalProtobuf.bytes(out, 6, input.canonicalEnvelope()); CanonicalProtobuf.bytes(out, 7, preparedAt.canonicalBytes());
             CanonicalProtobuf.uint32(out, 8, 1);
         });
     }
-    public byte[] digest() { return Bytes.sha256(DOMAIN, fields()); }
+    public byte[] digest() { return Bytes.sha256(schemaVersion()==1?DOMAIN:V2_DOMAIN, fields()); }
     public byte[] canonicalBytes() { return CanonicalProtobuf.message(out -> { out.writeBytes(fields()); CanonicalProtobuf.bytes(out, 9, digest()); }); }
     public static TargetMigrationActivationAttempt decode(byte[] encoded) {
         final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 9, false, "migration activation attempt");
         QueryCodecSupport.requireNumbers(f, new int[] {1,2,3,4,5,6,7,8,9}, "migration activation attempt");
-        if (QueryCodecSupport.uint32(f.getFirst(), 1) != 1 || QueryCodecSupport.uint32(f.get(7), 8) != 1) {
+        if ((QueryCodecSupport.uint32(f.getFirst(), 1)<1||QueryCodecSupport.uint32(f.getFirst(),1)>2) || QueryCodecSupport.uint32(f.get(7), 8) != 1) {
             throw new IllegalArgumentException("unknown migration activation attempt schema/exposure phase");
         }
         final byte[] prepared = QueryCodecSupport.bytes(f.get(4), 5);
@@ -71,6 +75,7 @@ public record TargetMigrationActivationAttempt(byte[] planDigest, byte[] migrati
                 TargetMigrationObjectReference.decode(QueryCodecSupport.bytes(f.get(3), 4)), PreparedControlOperation.decode(prepared),
                 SystemMutation.decodeTargetEnvelope(QueryCodecSupport.bytes(f.get(5), 6), SystemMutationType.APPLY_SHARD_CONTROL),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(6), 7)));
+        if(QueryCodecSupport.uint32(f.getFirst(),1)!=value.schemaVersion()||value.schemaVersion()==1&&(encoded.length>V1_MAX_CANONICAL_BYTES||prepared.length>V1_MAX_PREPARED_BYTES))throw new IllegalArgumentException("migration attempt schema/A1 bound mismatch");
         if (!Arrays.equals(value.digest(), QueryCodecSupport.fixed(f.get(8), 9, 32))) throw new IllegalArgumentException("migration activation attempt digest changed");
         QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "migration activation attempt"); return value;
     }

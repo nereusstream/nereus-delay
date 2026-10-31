@@ -279,15 +279,50 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public ScopeFeeControl { Objects.requireNonNull(fees); }
     }
     @FunctionalInterface public interface ScopeFees { TargetScopeFeeAuthority resolve(SourceReplayMutation entry); }
+    public record PayloadSummaryControl(PreparedControlOperation prepared,
+            com.nereusstream.delay.runtime.TargetPayloadSummaryInitializationStore.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) {
+        public PayloadSummaryControl { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
+
     public record MigrationControl(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
             com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
             com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
-            TargetStoreBackend.CommitAuthority commit) {
+            TargetStoreBackend.CommitAuthority commit,
+            com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs retirement,
+            MigrationArchiveInputs archive) {
         public MigrationControl {
-            Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(settlement);
+            Objects.requireNonNull(prepared); Objects.requireNonNull(authority);
             Objects.requireNonNull(importLimits); Objects.requireNonNull(commit);
+            if (prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest
+                    || prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest)
+                Objects.requireNonNull(retirement, "actual original old-domain retirement authority");
+            else if(prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationArchiveRequest)
+                Objects.requireNonNull(archive,"actual original archive copy/takeover inputs");
+            else Objects.requireNonNull(settlement);
         }
+        public MigrationControl(PreparedControlOperation prepared,
+                com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
+                com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
+                com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
+                TargetStoreBackend.CommitAuthority commit,
+                com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs retirement) {
+            this(prepared,authority,settlement,importLimits,commit,retirement,null);
+        }
+        public MigrationControl(PreparedControlOperation prepared,
+                com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
+                com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
+                com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
+                TargetStoreBackend.CommitAuthority commit) {
+            this(prepared, authority, settlement, importLimits, commit, null, null);
+        }
+    }
+    public record MigrationArchiveInputs(com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedBatch copy,
+            com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTakeover takeover,
+            com.nereusstream.delay.store.TargetMigrationArchiveReceived received,
+            com.nereusstream.delay.runtime.TargetMigrationArchiveStore.OriginalInputs original) {
+        public MigrationArchiveInputs { Objects.requireNonNull(original,"actual original archive management protection/payment"); }
     }
     @FunctionalInterface public interface MigrationControls { MigrationControl resolve(SourceReplayMutation entry); }
 
@@ -688,8 +723,37 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
     private volatile OwnerLease lease;
     private volatile boolean fenced;
-    private long lastOwnerTime = -1;
+    private volatile long lastOwnerTime = -1;
     private volatile TargetSourceAuthorityPreparation authorityPreparation;
+    private volatile com.nereusstream.delay.runtime.TargetSloWriterOrigin writerOrigin;
+    private volatile com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired writerPreparationRequest;
+    private volatile com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.TailPreparationRequired archiveTailRequest;
+    private record ArchiveActivation(SourceReplayEntry entry,
+            com.nereusstream.delay.protocol.TargetMigrationArchiveRequest request,
+            com.nereusstream.delay.store.TargetMigrationArchiveReceived received,LongSupplier clock) {}
+    private volatile ArchiveActivation archiveActivation;
+    private volatile TargetPayloadSummaryLegacyPrefix payloadSummaryLegacyPrefix;
+    synchronized void configurePayloadSummaryLegacyPrefix(TargetPayloadSummaryLegacyPrefix original) {
+        if (!recoveryOnly || sourceSubmissionStarted || payloadSummaryLegacyPrefix != null)
+            throw new IllegalStateException("finite old payload prefix belongs only to original pre-submission controlled recovery");
+        Objects.requireNonNull(original).bind(this, store, scope, lineage, assignment, lease);
+        payloadSummaryLegacyPrefix = original;
+    }
+    private TargetPayloadSummaryLegacyPrefix.EventPermit legacyEvent(SourceReplayEntry entry) {
+        final var original = payloadSummaryLegacyPrefix; return original == null ? null : original.permit(this, entry);
+    }
+    void requirePayloadSummaryPrefixLocal(TargetPayloadSummaryLegacyPrefix original, OwnerLease owner, long now) {
+        final var current = lease;
+        if (payloadSummaryLegacyPrefix != original || !recoveryOnly || fenced || !current.sameIdentity(owner)
+                || current.state() != ShardLifecycleState.CATCHING_UP || store.isCloseStarted()
+                || store.runtimeMetadata().lastOpenedOwnerEpoch() != current.ownerEpoch())
+            throw new IllegalStateException("finite payload prefix lost its actual local recovery Owner/Store");
+        synchronized (ownerStateLock) {
+            if (fenced || now < lastOwnerTime || !lease.sameIdentity(owner) || !lease.validAt(now))
+                throw new IllegalStateException("finite payload prefix local Owner expired or changed");
+            lastOwnerTime = now;
+        }
+    }
     private boolean authorityRefresh;
     private TargetSourceAuthorityPreparation.Family authorityRefreshFamily;
     private SourceReplaySuccessor activeSourceSuccessor;
@@ -793,12 +857,75 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             previous.requireSameOriginalEvidenceAuthority(catalog);
         }else originalEvidenceCatalog=Objects.requireNonNull(catalog);
     }
+    /** Installs only the actual Store's bounded kernel; every prefix still needs its independent original paid loan. */
+    public synchronized com.nereusstream.delay.runtime.TargetSloWriterOrigin configureWriterOrigin(
+            com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits originalLimits,
+            OwnerIdentity actualOwner, LongSupplier clock) {
+        if(writerOrigin!=null)throw new IllegalStateException("Source already owns its actual writer origin");
+        Objects.requireNonNull(clock);Objects.requireNonNull(actualOwner);requireOwner(clock);
+        if(actualOwner.ownerEpoch()!=lease.ownerEpoch()
+                ||!Bytes.constantTimeEquals(actualOwner.leaseFencingDigest(),lease.leaseToken()))
+            throw new IllegalStateException("writer origin changed its actual Source Owner");
+        final var original=lease;
+        final Runnable local=()->{
+            final var current=lease;final long now=clock.getAsLong();
+            if(fenced||store.closeFenceRaised()||current==null||!current.sameIdentity(original)||now<lastOwnerTime||!current.validAt(now)
+                    ||(recoveryOnly?current.state()!=ShardLifecycleState.ACQUIRING&&current.state()!=ShardLifecycleState.CATCHING_UP
+                            :current.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS))
+                throw new IllegalStateException("writer origin lost its actual Source Owner/Store");
+        };
+        final var selected=new com.nereusstream.delay.runtime.TargetSloWriterOrigin(store,backend,scope,lineage,
+                actualOwner,local,Objects.requireNonNull(originalLimits),monotonicClock);
+        backend.installWriterOrigin(selected);writerOrigin=selected;return selected;
+    }
+    com.nereusstream.delay.runtime.TargetSloWriterOrigin.Preparation beginWriterPreparation(SourceReplayEntry original,
+            com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired requested,
+            com.nereusstream.delay.runtime.TargetSloWriterOrigin.Protection protection,LongSupplier clock) {
+        requireWriterPrelude(original,requested,clock);
+        final var kernel=Objects.requireNonNull(writerOrigin,"actual Source writer kernel");
+        return kernel.prepare(requested,protection,reads(original,clock));
+    }
+    void requireWriterPrelude(SourceReplayEntry original,
+            com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired requested,LongSupplier clock){
+        authorityPreparation.requireOriginalEntry(original);requireOwner(clock);
+        if(requested.origin()!=writerOrigin)throw new IllegalStateException("writer request changed its actual Store kernel");
+        requested.origin().requireStore(store);
+    }
+    WorkClassExecutionRegistry preparationClasses(){
+        return Objects.requireNonNull(workClasses,"original Source WorkClass registry");
+    }
+    long preparationTaskBytes(SourceReplayEntry original,long heldBytes){
+        if(heldBytes<0)throw new IllegalArgumentException("original Source held input bytes are negative");
+        final int frame=original instanceof SourceReplayRecord command
+                ?com.nereusstream.delay.protocol.CommandCodec.encodeFrame(command.command()).length
+                :((SourceReplayMutation)original).mutation().encodeFrame().length;
+        return Math.addExact(heldBytes,Math.addExact(frame,original.position().canonicalBytes().length));
+    }
+    com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover readCommittedArchiveTakeover(
+            SourceReplayEntry actual,com.nereusstream.delay.protocol.TargetMigrationArchiveRequest request,LongSupplier clock){
+        final var budget=new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock);
+        final var read=backend.prepareRead(budget,reader->{
+            if(reader.source()==null||!Arrays.equals(reader.source().canonicalBytes(),actual.position().canonicalBytes()))
+                throw new IllegalStateException("archive activation is not the actual committed Source frontier");
+            final var root=com.nereusstream.delay.runtime.TargetMigrationStore.requireActivated(reader,java.util.List.of(),scope,lineage,reader.aggregate().mutation());
+            final var retirement=Objects.requireNonNull(com.nereusstream.delay.runtime.TargetMigrationRetirementStore.selected(reader,java.util.List.of(),root,reader.aggregate().mutation()));
+            request.requireRetirement(root,retirement);return root.plan();
+        });
+        final var plan=backend.completeRead(read,reads(actual,clock));
+        final var takeover=Objects.requireNonNull(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.readAppliedTakeover(
+                backend,scope,lineage,plan,budget,reads(actual,clock)),"actual committed archive takeover");
+        if(!takeover.request().equals(request)||!Arrays.equals(takeover.takeoverAt().source().canonicalBytes(),actual.position().canonicalBytes()))
+            throw new IllegalStateException("archive activation changed its original exact Source takeover");
+        return takeover;
+    }
     ConfirmationRead confirmationRead(SourceReplayEntry entry,LongSupplier clock){
         return entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED
                 ?new ConfirmationRead(this,mutation,Objects.requireNonNull(clock)):null;
     }
     ReclaimRead reclaimRead(SourceReplayEntry entry,LongSupplier clock){
-        return entry instanceof SourceReplayMutation mutation&&mutation.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+        return entry instanceof SourceReplayMutation mutation&&(mutation.mutation().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
+                || mutation.mutation().type()==SystemMutationType.RESOURCE_RETIRE_INTENT
+                || mutation.mutation().type()==SystemMutationType.RESOURCE_DELETE_CONFIRMED)
                 ?new ReclaimRead(this,mutation,Objects.requireNonNull(clock)):null;
     }
     /** Privately minted actual Source/Store/Owner context, including cold replay under a successor Owner. */
@@ -809,6 +936,21 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         private ReclaimRead(TargetSourceApplyRuntime runtime,SourceReplayMutation entry,LongSupplier clock){this.runtime=runtime;this.entry=entry;this.clock=clock;}
         public SourceReplayMutation entry(){requireCurrent();return entry;}
         public void requireBackend(TargetStoreBackend backend){requireCurrent();if(runtime.backend!=backend)throw new IllegalArgumentException("reclaim changed original Source Native Store");}
+        /** Actual selected input and native read authority; the complete-flight capacity comes only from its held admission. */
+        public com.nereusstream.delay.runtime.TargetRetirementPreparation beginPreparation(
+                com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection) {
+            requireCurrent(); runtime.requireOwner(clock);
+            final var result = com.nereusstream.delay.runtime.TargetRetirementPreparation.begin(runtime.backend,
+                    runtime.scope, runtime.lineage, entry.mutation(), entry.position(), runtime.reads(entry, clock),
+                    Objects.requireNonNull(protection), runtime.monotonicClock);
+            requireCurrent(); return result;
+        }
+        public boolean advancePreparation(com.nereusstream.delay.runtime.TargetRetirementPreparation original) {
+            requireCurrent(); runtime.requireOwner(clock);
+            final boolean ready = original.advance(new BoundedReadBudget(runtime.limits.records(), runtime.limits.bytes(),
+                    runtime.limits.elapsedNanos(), runtime.monotonicClock), runtime.limits.records());
+            requireCurrent(); runtime.requireOwner(clock); return ready;
+        }
         public com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog(){
             requireCurrent();
             if(!(runtime.originalEvidenceCatalog instanceof com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend actual))
@@ -923,10 +1065,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
         public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readIntent(BoundedReadBudget reads,
                 com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant){
-            synchronized(runtime){return readOriginalIntent(reads,history,grant);}
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("historical confirmation needs its completed original retirement preparation");
+        }
+        public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readIntent(BoundedReadBudget reads,
+                com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant,
+                com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof prepared){
+            Objects.requireNonNull(prepared);
+            final long rows=reads.actualRecords(),bytes=reads.actualBytes();
+            try{return readOriginalIntent(reads,history,grant,prepared);}
+            finally{prepared.debitReads(reads.actualRecords()-rows,reads.actualBytes()-bytes);}
         }
         private com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.AppliedIntent readOriginalIntent(BoundedReadBudget reads,
-                com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant){
+                com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.SourceHistory history,TargetRetirementAuthorizationHistory.Grant grant,
+                com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof prepared){
             requireCurrent();runtime.requireOwner(clock);
             final TargetStoreBackend.ReadAuthority authority=(actual,scope)->{
                 requireCurrent();final var original=runtime.authorities.reads().acquire(actual,scope);
@@ -936,7 +1087,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 };
             };
             final var result=com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.readHistoricalConfirmationIntent(
-                    runtime.backend,reads,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),history,grant,authority);
+                    runtime.backend,reads,runtime.scope,runtime.lineage,entry.mutation(),entry.position(),history,grant,authority,prepared);
             runtime.requireOwner(clock);requireCurrent();return result;
         }
     }
@@ -1539,6 +1690,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private static com.nereusstream.delay.runtime.TargetRecordAccounting.View nativeExposureEvidence(TargetStoreBackend.Reader reader) {
         return new com.nereusstream.delay.runtime.TargetRecordAccounting.View() {
             public com.nereusstream.delay.protocol.ShardId shardId() { return reader.shardId(); }
+            public com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerOriginContext(){return reader.writerOriginContext();}
             public byte[] projected(ColumnFamily family, byte[] key, java.util.List<TargetStoreBackend.Edit> overlay) {
                 final var raw = reader.projected(family, key, overlay);
                 if (raw == null) throw new TargetSourceAuthorityPreparation.InputUnavailable("Native exposure lacks an actual original Source dependency");
@@ -1583,12 +1735,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         return selected == null || selected.nativeReadLoansExited();
     }
 
-    void stopAuthorityPreparation() { final var migration=migrationCompatibility;if(migration!=null)migration.stopBinding(this);final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.requestStop();final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
-    void retryAuthorityCleanup() { final var migration=migrationCompatibility;if(migration!=null)migration.ioExited(this);final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.retryCleanup();final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
-    boolean authorityIoExited() { final var selected = authorityPreparation; return (migrationCompatibility==null||migrationCompatibility.ioExited(this))&&(selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited())&&(sloFinalMaintenance==null||sloFinalMaintenance.ioExited()); }
+    void stopAuthorityPreparation() { final var writer=writerOrigin;if(writer!=null)writer.requestStop();final var prefix=payloadSummaryLegacyPrefix;if(prefix!=null)prefix.requestStop();final var migration=migrationCompatibility;if(migration!=null)migration.stopBinding(this);final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.requestStop();final var exporter=sloCustodyExport;if(exporter!=null)exporter.requestStop();final var finals=activeSloFinal;if(finals!=null)finals.requestStop();final var selected = authorityPreparation; if (selected != null) selected.requestStop(); }
+    void retryAuthorityCleanup() { final var prefix=payloadSummaryLegacyPrefix;if(prefix!=null)prefix.retryCleanup();final var migration=migrationCompatibility;if(migration!=null)migration.ioExited(this);final var maintenance=sloFinalMaintenance;if(maintenance!=null)maintenance.retryCleanup();final var exporter=sloCustodyExport;if(exporter!=null)exporter.retryCleanup();final var finals=activeSloFinal;if(finals!=null)finals.retryCleanup();final var selected = authorityPreparation; if (selected != null) selected.retryCleanup(); }
+    boolean authorityIoExited() { final var selected = authorityPreparation; return (writerOrigin==null||writerOrigin.exited())&&(payloadSummaryLegacyPrefix==null||payloadSummaryLegacyPrefix.ioExited())&&(migrationCompatibility==null||migrationCompatibility.ioExited(this))&&(selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited())&&(sloFinalMaintenance==null||sloFinalMaintenance.ioExited()); }
     Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();final var finals=activeSloFinal==null?null:activeSloFinal.pendingIoFailure();final var maintenance=sloFinalMaintenance==null?null:sloFinalMaintenance.pendingIoFailure();return failure!=null?failure:finals!=null?finals:maintenance!=null?maintenance:sloCustodyExport!=null&&sloCustodyExport.pendingIoFailure()!=null?sloCustodyExport.pendingIoFailure():migrationCompatibility==null?null:migrationCompatibility.failure(this); }
 
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
+        final var preparation=authorityPreparation;
+        final var tail=preparation==null?null:preparation.archiveTail(entry);
+        return backend.withArchiveTail(tail,()->prepareAuthoritiesWithArchive(entry,clock,recovery));
+    }
+    private boolean prepareAuthoritiesWithArchive(SourceReplayEntry entry,LongSupplier clock,boolean recovery){
+        final var oldPrefix = payloadSummaryLegacyPrefix;
+        if (oldPrefix != null && !oldPrefix.prepare(this, entry)) return false;
         final var selected = authorityPreparation;
         if (selected == null && (sloInitialization != null || recoveryOnly)) return true;
         requireSubmission(entry, recovery); requireOwner(clock);
@@ -1598,10 +1757,28 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             if (route == TargetMigrationCompatibilityRuntime.Route.LEGACY
                     || route == TargetMigrationCompatibilityRuntime.Route.LEGACY_FIRST)
                 return migration.prepare(this, entry);
+            if(route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_LOOKUP
+                    ||route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_FIRST
+                    ||route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_CLOSED)
+                return migration.prepare(this,entry);
         }
         if (authorityRefresh) {
             if(selected!=null&&!(authorityRefreshFamily==null?selected.complete(entry):selected.refresh(entry,authorityRefreshFamily)))return false;
             authorityRefresh = false; authorityRefreshFamily = null;
+        }
+        final var writerRequest=writerPreparationRequest;
+        if(writerRequest!=null){
+            if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original writer preparation I/O owner unavailable");
+            final boolean ready=selected.prepareWriter(entry,contentFamily(entry),writerRequest);
+            if(ready)writerPreparationRequest=null;
+            return ready;
+        }
+        final var tailRequest=archiveTailRequest;
+        if(tailRequest!=null){
+            if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original archive tail preparation I/O owner unavailable");
+            final boolean ready=selected.prepareArchiveTail(entry,TargetSourceAuthorityPreparation.Family.SCOPE_FEES,tailRequest);
+            if(ready)archiveTailRequest=null;
+            return ready;
         }
         final var budget = new BoundedReadBudget(limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
         try {
@@ -1625,6 +1802,20 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                                 .requiresConfirmationInputs(budget, mutation, entry.position())) return true;
             }
         } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+        catch (com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.TailPreparationRequired requested) {
+            archiveTailRequest=requested;
+            if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original archive tail preparation I/O owner unavailable");
+            final boolean ready=selected.prepareArchiveTail(entry,TargetSourceAuthorityPreparation.Family.SCOPE_FEES,requested);
+            if(ready)archiveTailRequest=null;
+            return ready;
+        }
+        catch (com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired requested) {
+            writerPreparationRequest=requested;
+            if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original writer preparation I/O owner unavailable");
+            final boolean ready=selected.prepareWriter(entry,contentFamily(entry),requested);
+            if(ready)writerPreparationRequest=null;
+            return ready;
+        }
         catch (TargetSourceAuthorityPreparation.Required required) {
             if(required.family()!=null){
                 if(required.getCause()!=null){
@@ -1762,7 +1953,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     @Override boolean completeAuthorities(SourceReplayEntry entry) {
         final var migration = migrationCompatibility;
+        final var activation=archiveActivation;
+        if(activation!=null){
+            if(activation.entry()!=entry)throw new IllegalStateException("archive activation changed its committed Source event");
+            final var preparation=Objects.requireNonNull(authorityPreparation,"original archive activation I/O owner");
+            final var actual=preparation.committedArchive(entry,activation.request(),activation.clock());
+            if(actual==null)return false;
+            if(!Objects.requireNonNull(migration,"original compatibility graph for actual archive transfer")
+                    .activateArchive(this,entry,actual,activation.received()))return false;
+            archiveActivation=null;
+        }
         if (migration != null && !migration.complete(this, entry)) return false;
+        final var oldPrefix = payloadSummaryLegacyPrefix;
+        if (oldPrefix != null && !oldPrefix.complete(this, entry)) return false;
         final var selected = authorityPreparation;
         if(selected!=null&&!selected.complete(entry))return false;
         final var finals=activeSloFinal;
@@ -1798,12 +2001,18 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     @Override boolean isAuthorityPreparationRequired(Throwable failure) {
         return failure instanceof TargetSourceAuthorityPreparation.Required
+                || failure instanceof com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired
+                || failure instanceof com.nereusstream.delay.runtime.TargetRetirementPreparation.ViewChanged
+                || failure instanceof com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.TailPreparationRequired
+                || failure instanceof com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap.ViewChanged
                 || failure instanceof com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot.ViewChanged;
     }
 
     private static TargetSourceAuthorityPreparation.Family contentFamily(SourceReplayEntry entry) {
         if (entry instanceof SourceReplayRecord) return TargetSourceAuthorityPreparation.Family.COMMAND;
         final var mutation = ((SourceReplayMutation) entry).mutation();
+        if (com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.isControl(mutation))
+            return TargetSourceAuthorityPreparation.Family.PAYLOAD_SUMMARY;
         if (com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(mutation))
             return TargetSourceAuthorityPreparation.Family.MIGRATION;
         if (mutation.type() == SystemMutationType.TIME_FENCE) return TargetSourceAuthorityPreparation.Family.FENCE;
@@ -2122,6 +2331,57 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 || store.sharedResources() != Objects.requireNonNull(resources, "resources")) {
             throw new IllegalArgumentException("Target Worker requires the exact source Store resource graph");
         }
+    }
+
+    /** Borrows this active runtime's exact Native backend; no new root, Store or resource graph is created. */
+    synchronized TargetStoreBackend migrationMaintenanceBackend(final ShardStore actualStore,
+            final SharedRocksDbResources resources) {
+        requireWorkerStore(actualStore, resources);
+        if (recoveryOnly) throw new IllegalStateException("Target recovery cannot lend an active migration maintenance backend");
+        requireMigrationLocalCurrent();
+        backend.requireStore(actualStore);
+        return backend;
+    }
+
+    /** Capture outside SDK locks; the returned original-owner token performs only local volatile checks. */
+    public Runnable managementMaintenanceLocalGuard(final ShardStore actualStore,
+            final SharedRocksDbResources resources, final OwnerIdentity actualOwner, final LongSupplier clock) {
+        Objects.requireNonNull(clock,"management owner clock");
+        final OwnerLease original;
+        synchronized(this){
+            requireWorkerStore(actualStore,resources); backend.requireStore(actualStore);
+            requirePublicationOwner(Objects.requireNonNull(actualOwner,"actual management Owner"),clock);
+            if(recoveryOnly)throw new IllegalStateException("recovery Source cannot lend an active management SDK token");
+            original=lease;
+        }
+        return ()->{
+            final var current=lease; final long now=clock.getAsLong();
+            if(fenced||actualStore.closeFenceRaised()||current==null||!current.sameIdentity(original)
+                    ||current.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS||now<lastOwnerTime||!current.validAt(now)
+                    ||current.ownerEpoch()!=actualOwner.ownerEpoch()
+                    ||!Bytes.constantTimeEquals(current.leaseToken(),actualOwner.leaseFencingDigest()))
+                throw new IllegalStateException("management SDK token lost its original active Source Owner");
+        };
+    }
+    Runnable migrationArchiveLocalGuard(final ShardStore actualStore,final SharedRocksDbResources resources,
+            final LongSupplier clock){
+        final OwnerLease original;
+        synchronized(this){
+            requireWorkerStore(actualStore,resources);backend.requireStore(actualStore);
+            requireOwner(Objects.requireNonNull(clock));requireAcceptedAssignment(assignment);original=lease;
+        }
+        return ()->{
+            final var current=lease;final long now=clock.getAsLong();
+            if(fenced||actualStore.closeFenceRaised()||current==null||!current.sameIdentity(original)
+                    ||current.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS&&current.state()!=ShardLifecycleState.CATCHING_UP
+                    ||now<lastOwnerTime||!current.validAt(now))
+                throw new IllegalStateException("archive runtime lost its original local Source/Owner binding");
+        };
+    }
+
+    synchronized TargetStoreBackend.ReadAuthority migrationMaintenanceReads(final LongSupplier clock) {
+        requireGcOwner(Objects.requireNonNull(clock, "migration maintenance owner clock"));
+        return workerReads(clock);
     }
 
     synchronized void requireRuntimeLimits(final Limits expected) {
@@ -2852,7 +3112,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         final boolean duplicatePosition=resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim(),clock);
         return reclaimDiscovery.scan(reads,cursor,serviceableRows,workerReads(clock),unused,inline,nativeRetained,object,uncommitted,anchorAllocation,incarnation,duplicatePosition);
     }
-    synchronized ReclaimPreparationRead reclaimPreparationRead(
+    ReclaimPreparationRead reclaimPreparationRead(
             java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,LongSupplier clock){
         if(candidates.isEmpty()||candidates.size()>com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_OPERATIONS)
             throw new IllegalArgumentException("bounded original Native candidates required");
@@ -2894,53 +3154,89 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             final var operations=new java.util.ArrayList<com.nereusstream.delay.protocol.TargetResourceReclaimBody.Operation>();
             for(var candidate:candidates){
                 if(candidate.needsObjectProof()){
-                    synchronized(runtime){
                         runtime.requireGcOwner(clock);
                         final var origin=runtime.backend.guardedRead(nativeReads,reader->{
                             final var expected=candidate.objectSelection().expected();final byte[] raw=reader.get(ColumnFamily.META,expected.key());
                             if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.VALUE_TYPE).payload(),expected.canonicalBytes()))throw new IllegalStateException("OBJECT selected owner changed before original Native acceptance read");
                             final var value=com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.collect(reader,expected);held.run();requireCurrent();return value;
                         },runtime.workerReads(clock));
+                        runtime.requireGcOwner(clock);held.run();requireCurrent();
                         operations.add(candidate.withNativeOrigin(origin).operation());
-                    }
                 }else operations.add(candidate.operation());
             }
-            return catalog().selectNativeReclaimOperations(runtime.scope,runtime.lineage,root,retryUntil,operations,reads,()->{requireCurrent();held.run();});
+            final var selected=catalog().selectNativeReclaimOperations(runtime.scope,runtime.lineage,root,retryUntil,operations,reads,()->{requireCurrent();held.run();});
+            runtime.requireResourceReclaimProtocolActive(selected.requiredTuple(),clock);return selected;
         }
         void requirePendingObjectProvider(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,
                 com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,BoundedReadBudget reads,Runnable held){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("pending provider operation requires its completed original retirement preparation");
+        }
+        public com.nereusstream.delay.runtime.TargetRetirementPreparation beginPendingProtection(
+                com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,
+                com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+            requireCurrent();runtime.requireGcOwner(clock);
+            return com.nereusstream.delay.runtime.TargetRetirementPreparation.beginPending(runtime.backend,runtime.scope,runtime.lineage,
+                    pending,runtime.workerReads(clock),Objects.requireNonNull(protection),runtime.monotonicClock,catalog(),recovery);
+        }
+        public com.nereusstream.delay.runtime.TargetSloWriterOrigin.Preparation prepareWriterOrigin(
+                com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired requested,
+                com.nereusstream.delay.runtime.TargetSloWriterOrigin.Protection loan){
+            requireCurrent();runtime.requireGcOwner(clock);requested.origin().requireStore(runtime.store);
+            if(requested.origin()!=runtime.writerOrigin)throw new IllegalStateException("GC writer request changed its actual Source kernel");
+            return requested.origin().prepare(requested,Objects.requireNonNull(loan),runtime.workerReads(clock));
+        }
+        public void consumePendingProvider(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
+                BoundedReadBudget reads,Runnable held,com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof prepared){
             requireCurrent();held.run();recovery.requirePendingObject(pending);
-            synchronized(runtime){
-                runtime.requireGcOwner(clock);
+            Objects.requireNonNull(prepared);runtime.requireGcOwner(clock);
+            final long rows=reads.actualRecords(),bytes=reads.actualBytes();
+            try{
                 runtime.backend.guardedRead(reads,reader->{
+                    prepared.requirePending(reader,pending);
                     final var body=pending.body();final byte[] raw=reader.get(ColumnFamily.META,pending.key());
                     if(raw==null||!Arrays.equals(TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord.VALUE_TYPE).payload(),pending.canonicalBytes()))
                         throw new IllegalStateException("live Native OBJECT intent changed before provider operation");
                     com.nereusstream.delay.runtime.TargetObjectPayloadReclaim.requirePending(reader,java.util.List.of(),pending,reader.aggregate().mutation());
-                    final var applied=com.nereusstream.delay.runtime.TargetObjectPayloadReclaim.requireClosed(reader.auditLedger(),pending.intent(),recovery.objectPolicies(),true,reader::requireWithinElapsedBudget);
-                    if(!pending.appliedAt().equals(applied))throw new IllegalStateException("live OBJECT lacks original APPLIED pending decision");
                     held.run();requireCurrent();return Boolean.TRUE;
                 },runtime.workerReads(clock));
-            }
+            runtime.requireGcOwner(clock);recovery.requirePendingObject(pending);held.run();requireCurrent();
+            }finally{prepared.debitReads(reads.actualRecords()-rows,reads.actualBytes()-bytes);}
         }
         void requireClosedDraft(SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
                 BoundedReadBudget reads,Runnable held){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("reclaim draft requires its completed original cumulative preparation");
+        }
+        public com.nereusstream.delay.runtime.TargetRetirementPreparation beginRetirementPreparation(SystemMutation input,
+                com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery){
+            requireCurrent();runtime.requireGcOwner(clock);
+            recovery.requireHeldFor(catalog(),input);
+            return com.nereusstream.delay.runtime.TargetRetirementPreparation.begin(runtime.backend,runtime.scope,runtime.lineage,
+                    input,null,runtime.workerReads(clock),Objects.requireNonNull(protection),runtime.monotonicClock).recovery(catalog(),recovery);
+        }
+        public void consumeDraft(SystemMutation input,com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
+                BoundedReadBudget reads,Runnable held,com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof prepared){
             requireCurrent();held.run();recovery.requireHeldFor(catalog(),input);
-            synchronized(runtime){
-                runtime.requireGcOwner(clock);
+            Objects.requireNonNull(prepared);runtime.requireGcOwner(clock);
+            final long rows=reads.actualRecords(),bytes=reads.actualBytes();
+            try{
                 runtime.backend.guardedRead(reads,reader->{
+                    prepared.requireDraft(reader,input);
                     if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).objectPayloadReclaim())
-                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedObjectDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedObjectDraft(reader,runtime.scope,runtime.lineage,input,recovery,prepared);
                     else if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim())
-                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNativeDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedNativeDraft(reader,runtime.scope,runtime.lineage,input,recovery,prepared);
                     else if(com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease())
-                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInlineDraft(reader,runtime.scope,runtime.lineage,input,recovery);
-                    else com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery);
+                        com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedInlineDraft(reader,runtime.scope,runtime.lineage,input,recovery,prepared);
+                    else com.nereusstream.delay.runtime.TargetResourceReclaimStore.requireClosedUnusedDraft(reader,runtime.scope,runtime.lineage,input,recovery,prepared);
+                    held.run();requireCurrent();
                     return Boolean.TRUE;
                 },runtime.workerReads(clock));
                 runtime.requireGcOwner(clock);
-            }
             recovery.requireHeldFor(catalog(),input);held.run();requireCurrent();
+            }finally{prepared.debitReads(reads.actualRecords()-rows,reads.actualBytes()-bytes);}
         }
     }
 
@@ -2979,26 +3275,29 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     }
     private boolean resourceReclaimProtocolActive(com.nereusstream.delay.protocol.ProtocolTuple tuple,LongSupplier clock){
         requireGcOwner(clock);
-        final var compatible=store.controlSnapshot();
-        if(compatible==null||!compatible.protocolTuples().contains(tuple))return false;
+        final boolean migrated=tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationObjectPayloadReclaim())||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationUncommittedObjectReclaim());
+        final var activationTuple=tuple;
         return backend.guardedRead(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),reader->{
-            final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,tuple);
+            if(!com.nereusstream.delay.runtime.TargetProtocolActivationStore.readerAuthorized(reader,scope,lineage,tuple))return Boolean.FALSE;
+            final var activation=com.nereusstream.delay.runtime.TargetProtocolActivationStore.applied(reader,scope,lineage,activationTuple);
+            if(migrated){final var migration=com.nereusstream.delay.runtime.TargetMigrationStore.requireActivated(reader,java.util.List.of(),scope,lineage,reader.aggregate().mutation());
+                if(!migration.activated())return Boolean.FALSE;}
             if(activation==null||!activation.body().payload().descriptor().supportsResourceReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetInlinePayloadReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetInlinePayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsInlinePayloadReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetSelfContainedInlinePayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetDuplicatePositionReclaim())
                         &&!activation.body().payload().descriptor().supportsDuplicatePositionReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetIncarnationReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetIncarnationReclaim())
                         &&!activation.body().payload().descriptor().supportsIncarnationReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetAnchorAllocationReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetAnchorAllocationReclaim())
                         &&!activation.body().payload().descriptor().supportsAnchorAllocationReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetUncommittedObjectReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetUncommittedObjectReclaim())
                         &&!activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetObjectPayloadReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetObjectPayloadReclaim())
                         &&!activation.body().payload().descriptor().supportsObjectPayloadReclaim()
-                    ||tuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim())
+                    ||activationTuple.equals(com.nereusstream.delay.protocol.ProtocolTuple.targetNativeRetainedReclaim())
                         &&!activation.body().payload().descriptor().supportsNativeRetainedReclaim())
                 return Boolean.FALSE;
             return Boolean.TRUE;
@@ -3450,6 +3749,12 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     @Override
     synchronized SourceReplayOutcome apply(
             final SourceReplayEntry entry, final LongSupplier clock, final boolean recovery) {
+        final var preparation=authorityPreparation;
+        final var tail=preparation==null?null:preparation.archiveTail(entry);
+        return backend.withArchiveTail(tail,()->applyWithPreparedArchive(entry,clock,recovery));
+    }
+    private SourceReplayOutcome applyWithPreparedArchive(
+            final SourceReplayEntry entry, final LongSupplier clock, final boolean recovery) {
         final var budget = beginSourceAction();
         try {
             requireSubmission(entry, recovery);
@@ -3460,6 +3765,44 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 if (route == TargetMigrationCompatibilityRuntime.Route.LEGACY
                         || route == TargetMigrationCompatibilityRuntime.Route.LEGACY_FIRST)
                     return completeSourceAction(migration.apply(this, entry, writes(authorities.duplicateWrites(), entry, clock), budget));
+                if(route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_LOOKUP)
+                    throw new TargetSourceAuthorityPreparation.Required();
+                if(route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_CLOSED){
+                    final var original=migration.archiveClosed(this,entry);
+                    final SourceReplayOutcome outcome;
+                    final var frontier=Objects.requireNonNull(store.appliedShardLogPosition(),"actual Source frontier for closed-contract replay");
+                    if(entry.position().compareTo(frontier)<=0){
+                        try{
+                        outcome=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.readPhysicalReplay(backend,scope,lineage,
+                                entry,budget,reads(entry,clock));
+                        }catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                    }else{
+                        final com.nereusstream.delay.runtime.TargetMigrationArchiveStore.PreparedReplay first;
+                        try{first=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.prepareClosed(backend,scope,lineage,
+                                original.limits(),budget,original.takeover(),entry,original.decision(),original.inputs());
+                        }catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                        outcome=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.commitClosed(first,writes(original.commits(),entry,clock));
+                    }
+                    return completeSourceAction(outcome);
+                }
+                if(route==TargetMigrationCompatibilityRuntime.Route.ARCHIVE_FIRST){
+                    final var original=migration.archiveReplay(this,entry);
+                    final SourceReplayOutcome outcome;
+                    final var frontier=Objects.requireNonNull(store.appliedShardLogPosition(),"actual Source frontier for archive replay");
+                    if(entry.position().compareTo(frontier)<=0){
+                        try{
+                        outcome=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.readPhysicalReplay(backend,scope,lineage,
+                                entry,budget,reads(entry,clock));
+                        }catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                    }else{
+                        final com.nereusstream.delay.runtime.TargetMigrationArchiveStore.PreparedReplay first;
+                        try{first=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.prepareReplay(backend,scope,lineage,
+                                original.limits(),budget,original.takeover(),original.logical(),entry,original.inputs());
+                        }catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                        outcome=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.commitReplay(first,writes(original.commits(),entry,clock));
+                    }
+                    return completeSourceAction(outcome);
+                }
             }
             if (entry instanceof SourceReplayRecord command) {
                 return completeSourceAction(applyCommand(command, clock, budget));
@@ -3496,7 +3839,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         Objects.requireNonNull(authorities.expiries().resolve(mutation), "Target expiry control");
                 final TargetExpireGenerationStore.Prepared first;
                 try {
-                    first = expiries.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority());
+                    first = expiries.prepareFirst(budget, mutation.mutation(), entry.position(), control.authority(), legacyEvent(entry));
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -3507,7 +3850,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final TargetPublishAdmissionStore.Prepared first;
                 try {
                     first = targetAdmissions.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority(),qualifiedSloSamples(control.samples()));
+                            budget, mutation.mutation(), entry.position(), control.authority(),qualifiedSloSamples(control.samples()), legacyEvent(entry));
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -3519,7 +3862,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 final TargetPublishOutcomeStore.Prepared first;
                 try {
                     first = targetOutcomes.prepareFirst(
-                            budget, mutation.mutation(), entry.position(), control.authority());
+                            budget, mutation.mutation(), entry.position(), control.authority(), legacyEvent(entry));
                 } catch (ReadIncompleteException incomplete) {
                     throw new ReadYield(incomplete);
                 }
@@ -3570,22 +3913,56 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                     throw new ReadYield(incomplete);
                 }
                 result = retirement.commit(first, writes(control.commit(), entry, clock));
+            } else if (com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.isControl(mutation.mutation())) {
+                final var preparation = Objects.requireNonNull(authorityPreparation, "original summary Source input preparation");
+                final var control = preparation.payloadSummary(mutation);
+                final com.nereusstream.delay.runtime.TargetPayloadSummaryInitializationStore.Prepared first;
+                try {
+                    first = com.nereusstream.delay.runtime.TargetPayloadSummaryInitializationStore.prepareFirst(backend, scope, lineage,
+                            limits.counters(), limits.domains(), budget, control.prepared(), mutation.mutation(), entry.position(), control.authority());
+                } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+                result = com.nereusstream.delay.runtime.TargetPayloadSummaryInitializationStore.commit(first,
+                        writes(control.commit(), entry, clock));
             } else if (com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(mutation.mutation())) {
                 final var body = com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(mutation.mutation().canonicalBody());
-                if (!(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationSettlementRequest))
+                if (body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationActivateRequest)
                     throw new IllegalStateException("a new migration ACTIVATE requires its original fenced candidate bootstrap");
-                final var control = Objects.requireNonNull(authorities.migrations().resolve(mutation), "original migration custody settlement");
+                final var control = Objects.requireNonNull(authorities.migrations().resolve(mutation), "original migration management authority");
                 if (control.importLimits().maximumCounters() > limits.counters()
                         || control.importLimits().maximumDomains() > limits.domains())
-                    throw new IllegalArgumentException("migration settlement exceeds original Source limits");
-                final com.nereusstream.delay.runtime.TargetMigrationStore.PreparedSettlement first;
-                try {
-                    first = com.nereusstream.delay.runtime.TargetMigrationStore.prepareSettlement(backend, scope, lineage,
-                            control.importLimits(), budget, control.prepared(), mutation.mutation(), entry.position(),
-                            control.authority(), control.settlement());
-                } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
-                result = com.nereusstream.delay.runtime.TargetMigrationStore.commitSettlement(first,
-                        writes(control.commit(), entry, clock));
+                    throw new IllegalArgumentException("migration management exceeds original Source limits");
+                if (body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationSettlementRequest) {
+                    final com.nereusstream.delay.runtime.TargetMigrationStore.PreparedSettlement first;
+                    try {
+                        first = com.nereusstream.delay.runtime.TargetMigrationStore.prepareSettlement(backend, scope, lineage,
+                                control.importLimits(), budget, control.prepared(), mutation.mutation(), entry.position(),
+                                control.authority(), control.settlement(), legacyEvent(entry));
+                    } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+                    result = com.nereusstream.delay.runtime.TargetMigrationStore.commitSettlement(first,
+                            writes(control.commit(), entry, clock));
+                } else if(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationArchiveRequest) {
+                    final var archive=Objects.requireNonNull(control.archive(),"actual original archive inputs");
+                    final com.nereusstream.delay.runtime.TargetMigrationArchiveStore.Prepared first;
+                    try {
+                        first=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.prepareFirst(backend,scope,lineage,
+                                control.importLimits(),budget,control.prepared(),mutation.mutation(),entry.position(),control.authority(),
+                                archive.copy(),archive.takeover(),archive.received(),archive.original());
+                    } catch(ReadIncompleteException incomplete){throw new ReadYield(incomplete);}
+                    result=com.nereusstream.delay.runtime.TargetMigrationArchiveStore.commit(first,writes(control.commit(),entry,clock));
+                    if(((com.nereusstream.delay.protocol.TargetMigrationArchiveRequest)body.request()).takeover()
+                            &&result.applyStatus()==com.nereusstream.delay.runtime.ApplyStatus.APPLIED)
+                        archiveActivation=new ArchiveActivation(entry,(com.nereusstream.delay.protocol.TargetMigrationArchiveRequest)body.request(),
+                                Objects.requireNonNull(archive.received(),"actual new-owner received takeover"),clock);
+                } else {
+                    final com.nereusstream.delay.runtime.TargetMigrationRetirementStore.Prepared first;
+                    try {
+                        first = com.nereusstream.delay.runtime.TargetMigrationRetirementStore.prepareFirst(backend, scope, lineage,
+                                control.importLimits(), budget, control.prepared(), mutation.mutation(), entry.position(),
+                                control.authority(), control.retirement());
+                    } catch (ReadIncompleteException incomplete) { throw new ReadYield(incomplete); }
+                    result = com.nereusstream.delay.runtime.TargetMigrationRetirementStore.commit(first,
+                            writes(control.commit(), entry, clock));
+                }
             } else if (isProtocolActivation(mutation.mutation())) {
                 final var control=Objects.requireNonNull(authorities.protocolActivations().resolve(mutation),"Target protocol activation authority");
                 final var activations=new com.nereusstream.delay.runtime.TargetProtocolActivationStore(backend,scope,lineage,limits.counters(),limits.domains());
@@ -3715,6 +4092,15 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                             entry.position().canonicalBytes())));
         } catch (ReadYield incomplete) {
             throw incomplete;
+        } catch (com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.TailPreparationRequired requested) {
+            archiveTailRequest=requested;
+            throw requested;
+        } catch (com.nereusstream.delay.runtime.TargetRetirementPreparation.ViewChanged changed) {
+            Objects.requireNonNull(authorityPreparation).invalidateRetirement(entry,changed);
+            throw changed;
+        } catch (com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired requested) {
+            writerPreparationRequest=requested;
+            throw new TargetSourceAuthorityPreparation.Required();
         } catch (com.nereusstream.delay.runtime.TargetMigrationImporter.ViewChanged changed) {
             final var migration = Objects.requireNonNull(migrationCompatibility);
             migration.rebuild(this, entry); throw new TargetSourceAuthorityPreparation.Required();
@@ -3765,7 +4151,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             try {
                 if (permit != null) first = commands.prepareMigrationFirst(budget, entry.command(), entry.position(),
                         control.policy(), control.cancellations(), control.reservationControls(), control.schedules(),
-                        control.payloadProofs(), qualifiedSloSamples(control.samples()), permit);
+                        control.payloadProofs(), qualifiedSloSamples(control.samples()), permit, legacyEvent(entry));
                 else first = commands.prepareFirst(
                         budget,
                         entry.command(),
@@ -3782,7 +4168,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                         control.reservationControls(),
                         control.schedules(),
                         control.payloadProofs(),
-                        qualifiedSloSamples(control.samples()));
+                        qualifiedSloSamples(control.samples()), legacyEvent(entry));
             } catch (ReadIncompleteException incomplete) {
                 throw new ReadYield(incomplete);
             }
@@ -3834,15 +4220,19 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             requireOwner(clock);
             if (requiresSloQualification) requireIncomingSloScopeQualified();
             if(fees!=null)fees.requireCurrent();
+            final var oldEvent = legacyEvent(entry);
+            if (oldEvent != null) oldEvent.requireCommit(entry);
             final var held = guard(external.acquire(actual, actualScope, mutation), actual, actualScope, entry, clock);
-            if (!requiresSloQualification&&fees==null) return held;
+            if (!requiresSloQualification&&fees==null&&oldEvent==null) return held;
             return new TargetStoreBackend.CommitGuard() {
                 public void requireCurrent() {
+                    if(oldEvent!=null)oldEvent.requireCommit(entry);
                     if(requiresSloQualification)requireIncomingSloScopeQualified();
                     if(fees!=null)fees.requireCurrent();
                     held.requireCurrent();
                     if(fees!=null)fees.requireCurrent();
                     if(requiresSloQualification)requireIncomingSloScopeQualified();
+                    if(oldEvent!=null)oldEvent.requireCommit(entry);
                 }
                 public void close() { held.close(); }
             };
@@ -4062,7 +4452,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalArgumentException(
                     "Target source business branch is not wired yet; source must remain pending");
         }
-        if(com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(mutation.mutation())){
+        if(com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.isControl(mutation.mutation())){
+            com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.decode(mutation.mutation().canonicalBody());
+        }else if(com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(mutation.mutation())){
             com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(mutation.mutation().canonicalBody());
         }else if(isProtocolActivation(mutation.mutation())){
             com.nereusstream.delay.protocol.TargetProtocolActivationBody.decode(mutation.mutation().canonicalBody());

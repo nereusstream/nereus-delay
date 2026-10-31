@@ -23,19 +23,15 @@ public final class TargetSloWriterEpochStore {
 
     /** Minted only from actual guarded Native reads; no escaped Reader or caller-provided DTO is retained. */
     public static final class Applied {
-        private final TargetSloWriterEpochStore owner;
-        private final Supplier<BoundedReadBudget> freshReads;
-        private final TargetStoreBackend.ReadAuthority authority;
         private final TargetSloWriterEpoch value;
         private final TargetSloWriterContract.Reference reference;
-        private Applied(TargetSloWriterEpochStore owner, Supplier<BoundedReadBudget> freshReads,
-                TargetStoreBackend.ReadAuthority authority, TargetSloWriterEpoch value) {
-            this.owner = owner; this.freshReads = freshReads; this.authority = authority;
-            this.value = value; this.reference = value.reference();
+        private final TargetSloWriterOrigin.Loan loan;
+        private Applied(Open actual) {
+            this.value = actual.value(); this.reference = value.reference(); this.loan = actual.loan();
         }
         public TargetSloWriterEpoch value() { return value; }
         public TargetSloWriterContract.Reference reference() { return reference; }
-        public void requireCurrent() { owner.readOpen(freshReads, authority, reference); }
+        public void requireCurrent() { loan.requireCurrent(); }
     }
 
     private final TargetStoreBackend backend;
@@ -158,12 +154,16 @@ public final class TargetSloWriterEpochStore {
     public Applied applied(Supplier<BoundedReadBudget> freshReads, TargetStoreBackend.ReadAuthority authority,
             TargetSloWriterContract.Reference reference) {
         Objects.requireNonNull(freshReads); Objects.requireNonNull(authority); Objects.requireNonNull(reference);
-        return new Applied(this, freshReads, authority, readOpen(freshReads, authority, reference));
+        return new Applied(readOpen(freshReads, authority, reference));
     }
 
-    private TargetSloWriterEpoch readOpen(Supplier<BoundedReadBudget> freshReads,
+    private record Open(TargetSloWriterEpoch value, TargetSloWriterOrigin.Loan loan) {}
+
+    private Open readOpen(Supplier<BoundedReadBudget> freshReads,
             TargetStoreBackend.ReadAuthority authority, TargetSloWriterContract.Reference reference) {
         return backend.guardedRead(Objects.requireNonNull(freshReads.get(), "fresh SLO writer read budget"), reader -> {
+            final var context = Objects.requireNonNull(reader.writerOriginContext(),
+                    "registered SLO writer signing requires the original protected prefix runtime");
             final var epoch = Objects.requireNonNull(readEpoch(reader, scope, lineage, reference),
                     "actual registered SLO writer epoch");
             if (epoch.closed()) throw new IllegalStateException("original SLO writer epoch is closed");
@@ -171,7 +171,7 @@ public final class TargetSloWriterEpochStore {
                 throw new IllegalStateException("original SLO writer deadline is already fenced for new signing");
             }
             requireOrigin(reader, List.of(), scope, lineage, rootIdentity(reader), epoch, reader.aggregate().mutation());
-            return epoch;
+            return new Open(epoch, context.loan(epoch));
         }, authority);
     }
 
@@ -184,33 +184,25 @@ public final class TargetSloWriterEpochStore {
     public static void requireOrigin(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity root, TargetSloWriterEpoch epoch,
             TargetQuotaMutation frontier) {
+        final var context = view.writerOriginContext();
+        if (context != null) {
+            context.requireOrigin(view, overlay, scope, lineage, root, epoch, frontier);
+            return;
+        }
+        requireFullOrigin(view, overlay, scope, lineage, root, epoch, frontier);
+    }
+
+    /** Independent cold verification. A hot prefix qualification is never evidence for this traversal. */
+    public static void requireFullOrigin(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity root, TargetSloWriterEpoch epoch,
+            TargetQuotaMutation frontier) {
         Objects.requireNonNull(epoch); Objects.requireNonNull(frontier);
         final var owner = root(view, overlay, scope, lineage, root, frontier);
         requireFrontier(view, overlay, owner, frontier);
         TargetSloWriterEpoch current = epoch;
         while (true) {
-            final var actual = TargetSloWriterEpoch.decodeForStore(current.key(),
-                    payload(view, overlay, ColumnFamily.META, current.key(), TargetSloWriterEpoch.VALUE_TYPE), scope, lineage);
-            if (!Arrays.equals(actual.canonicalBytes(), current.canonicalBytes())) {
-                throw new IllegalStateException("SLO writer epoch differs from its actual Native row");
-            }
-            current.mutation().requireAtOrBefore(frontier);
+            requireNodeOrigin(view, overlay, scope, lineage, root, owner, current, frontier);
             final var contract = current.contract();
-            contract.requireSource(frontier.source());
-            contract.requireSource(current.register().appliedAt().source());
-            if (!scope.equals(contract.scope()) || !Arrays.equals(lineage, contract.lineage())
-                    || current.register().appliedAt().source().compareTo(contract.sourceAnchor()) <= 0) {
-                throw new IllegalStateException("SLO writer epoch changed its original scope/lineage/Source anchor");
-            }
-            requireControlActivation(view,overlay,scope,lineage,root,current.register(),frontier);
-            requireSystemOrigin(view, overlay, owner, current.register().input(), current.register().appliedAt(), frontier);
-            if (current.closed()) {
-                requireControlActivation(view,overlay,scope,lineage,root,current.close(),frontier);
-                requireSystemOrigin(view, overlay, owner, current.close().input(), current.close().appliedAt(), frontier);
-                final var close = current.close().body().request();
-                requireCloseFence(view, overlay, scope, lineage, root, current, close.fence(), close.fenceAt(),
-                        current.close().appliedAt().source(), frontier);
-            }
             final var priorDigest = current.register().body().request().expectedPriorDigest();
             if (contract.epoch() == 1) {
                 if (priorDigest != null) throw new IllegalStateException("first SLO writer epoch changed its predecessor");
@@ -229,6 +221,34 @@ public final class TargetSloWriterEpochStore {
             // A predecessor may close after this REGISTER; only its stable registration stamp orders epochs.
             current.register().appliedAt().requireAfter(prior.register().appliedAt());
             current = prior;
+        }
+    }
+
+    /** One complete original node. Both preparation and hot checks use the cold predicate, without recursion. */
+    static void requireNodeOrigin(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity identity, TargetQuotaIncarnation owner,
+            TargetSloWriterEpoch current, TargetQuotaMutation frontier) {
+        final var actual = TargetSloWriterEpoch.decodeForStore(current.key(),
+                payload(view, overlay, ColumnFamily.META, current.key(), TargetSloWriterEpoch.VALUE_TYPE), scope, lineage);
+        if (!Arrays.equals(actual.canonicalBytes(), current.canonicalBytes())) {
+            throw new IllegalStateException("SLO writer epoch differs from its actual Native row");
+        }
+        current.mutation().requireAtOrBefore(frontier);
+        final var contract = current.contract();
+        contract.requireSource(frontier.source());
+        contract.requireSource(current.register().appliedAt().source());
+        if (!scope.equals(contract.scope()) || !Arrays.equals(lineage, contract.lineage())
+                || current.register().appliedAt().source().compareTo(contract.sourceAnchor()) <= 0) {
+            throw new IllegalStateException("SLO writer epoch changed its original scope/lineage/Source anchor");
+        }
+        requireControlActivation(view, overlay, scope, lineage, identity, current.register(), frontier);
+        requireSystemOrigin(view, overlay, owner, current.register().input(), current.register().appliedAt(), frontier);
+        if (current.closed()) {
+            requireControlActivation(view, overlay, scope, lineage, identity, current.close(), frontier);
+            requireSystemOrigin(view, overlay, owner, current.close().input(), current.close().appliedAt(), frontier);
+            final var close = current.close().body().request();
+            requireCloseFence(view, overlay, scope, lineage, identity, current, close.fence(), close.fenceAt(),
+                    current.close().appliedAt().source(), frontier);
         }
     }
 
@@ -292,7 +312,7 @@ public final class TargetSloWriterEpochStore {
         }
     }
 
-    private static void requireFrontier(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+    static void requireFrontier(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaIncarnation root, TargetQuotaMutation frontier) {
         final var position = result(view, overlay, positionKey(frontier.source()));
         position.requireOwner(root); position.mutation().requireSourceApplied();
@@ -308,7 +328,7 @@ public final class TargetSloWriterEpochStore {
                 reader.aggregate().accountingIncarnation(), null, null);
     }
 
-    private static TargetQuotaIncarnation root(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+    static TargetQuotaIncarnation root(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
             TargetQuotaScope scope, byte[] lineage, TargetQuotaIdentity identity, TargetQuotaMutation frontier) {
         if (scope.target() != null || identity.kind() != TargetQuotaIdentity.Kind.SHARD
                 || !scope.shard().equals(identity.shard()) || !scope.shard().equals(view.shardId())) {

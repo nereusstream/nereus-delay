@@ -99,7 +99,16 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
     Prepared prepare(TargetSourceApplyRuntime.ReclaimPreparationRead source,List<TargetCheckpointRootVerifier.AuthenticatedImage> images,
             BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,java.util.function.Supplier<TrustedUtcIntervalEvidence> time,long retryUntil,
             long maximumInputBytes,Runnable originalHeld){
+        final var draft=begin(source,images,recoveryReads,nativeReads,time,retryUntil,maximumInputBytes,originalHeld);
+        source.requireClosedDraft(draft.input,draft.recovery,nativeReads,draft::requireCurrent);
+        return draft.legacyPrepared();
+    }
+    Draft begin(TargetSourceApplyRuntime.ReclaimPreparationRead source,List<TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,java.util.function.Supplier<TrustedUtcIntervalEvidence> time,long retryUntil,
+            long maximumInputBytes,Runnable originalHeld){
         Objects.requireNonNull(originalHeld);Objects.requireNonNull(source);Objects.requireNonNull(time);
+        final long beforeRows=Math.addExact(recoveryReads.actualRecords(),nativeReads.actualRecords());
+        final long beforeBytes=Math.addExact(recoveryReads.actualBytes(),nativeReads.actualBytes());
         if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||recoveryReads.maxBytes()==Long.MAX_VALUE||nativeReads.maxBytes()==Long.MAX_VALUE)
             throw new IllegalArgumentException("Native signing requires finite original input/read reservations");
         final Runnable current=()->{source.requireCurrent();originalHeld.run();};
@@ -115,13 +124,61 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
         if(!input.verifySignature(publicKey))throw new IllegalArgumentException("original Native private/public signing keys differ");
         current.run();requireSigningCurrent(time,retryUntil);
         final var recovery=source.catalog().captureNewNativeRecoveryProtection(input,images,recoveryReads,maximumInputBytes,current);
-        source.requireClosedDraft(input,recovery,nativeReads,current);
         recovery.requireCurrent(recoveryReads,current);
-        final var prepared=new Prepared(source,input,recovery,originalHeld);
-        if(prepared.retainedBytes()>maximumInputBytes)throw new IllegalStateException("complete Native signing inputs exceed original retained window");
+        final var preparedDraft=new Draft(source,input,recovery,originalHeld,maximumInputBytes);
+        preparedDraft.acquisition(Math.addExact(recoveryReads.actualRecords(),nativeReads.actualRecords())-beforeRows,
+                Math.addExact(recoveryReads.actualBytes(),nativeReads.actualBytes())-beforeBytes);
+        if(preparedDraft.retainedBytes()>maximumInputBytes)throw new IllegalStateException("complete Native signing inputs exceed original retained window");
         current.run();requireSigningCurrent(time,retryUntil);
         if(!recoveryReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw recoveryReads.incomplete();
-        prepared.requireCurrent();return prepared;
+        preparedDraft.requireCurrent();return preparedDraft;
+    }
+
+    /** Exact signed bytes remain private until the original Native preparation has actually completed. */
+    static final class Draft {
+        private final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        private final SystemMutation input;
+        private final OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery;
+        private final Runnable held;
+        private final long maximumInputBytes;
+        private com.nereusstream.delay.runtime.TargetRetirementPreparation preparation;
+        private Prepared prepared;
+        private long acquisitionRows,acquisitionBytes;
+        private Draft(TargetSourceApplyRuntime.ReclaimPreparationRead source,SystemMutation input,
+                OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable held,long maximumInputBytes){
+            this.source=source;this.input=input;this.recovery=recovery;this.held=held;this.maximumInputBytes=maximumInputBytes;
+        }
+        void begin(com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection){
+            requireCurrent();if(preparation!=null)throw new IllegalStateException("Native draft preparation already began");
+            preparation=source.beginRetirementPreparation(input,protection,recovery);
+            preparation.debitReads(acquisitionRows,acquisitionBytes);
+        }
+        void acquisition(long rows,long bytes){
+            if(preparation!=null||rows<0||bytes<0)throw new IllegalStateException("Native draft acquisition debit is already frozen or regressed");
+            acquisitionRows=Math.addExact(acquisitionRows,rows);acquisitionBytes=Math.addExact(acquisitionBytes,bytes);
+        }
+        java.util.Optional<Prepared> advance(BoundedReadBudget reads,int maximumRows,BoundedReadBudget recoveryReads){
+            requireCurrent();if(prepared!=null)return java.util.Optional.of(prepared);
+            if(preparation==null)throw new IllegalStateException("actual whole-flight Native draft protection is unavailable");
+            if(!preparation.advance(reads,maximumRows))return java.util.Optional.empty();
+            final var proof=preparation.proof();
+            final long beforeRecoveryRows=recoveryReads.actualRecords(),beforeRecoveryBytes=recoveryReads.actualBytes();
+            try{
+                source.consumeDraft(input,recovery,reads,this::requireCurrent,proof);
+                recovery.requireCurrent(recoveryReads,this::requireCurrent);
+                if(Math.addExact(retainedBytes(),proof.retainedBytes())>maximumInputBytes)throw new IllegalStateException("complete Native draft inventory exceeds its original input reservation");
+                prepared=new Prepared(source,input,recovery,held,proof);prepared.requireCurrent();return java.util.Optional.of(prepared);
+            }catch(com.nereusstream.delay.runtime.TargetRetirementPreparation.ViewChanged changed){preparation.invalidate();return java.util.Optional.empty();}
+            catch(com.nereusstream.delay.store.ReadIncompleteException incomplete){return java.util.Optional.empty();}
+            finally{preparation.debitReads(recoveryReads.actualRecords()-beforeRecoveryRows,recoveryReads.actualBytes()-beforeRecoveryBytes);}
+        }
+        private Prepared legacyPrepared(){requireCurrent();return new Prepared(source,input,recovery,held,null);}
+        SystemMutation mutation(){return input;}
+        void debitDependencyReads(long rows,long bytes){if(preparation==null)throw new IllegalStateException("Native draft preparation has not begun");preparation.debitReads(rows,bytes);}
+        TargetSourceApplyRuntime.ReclaimPreparationRead source(){return source;}
+        void requireCurrent(){source.requireCurrent();held.run();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
+        long retainedBytes(){return Math.addExact(input.canonicalEnvelope().length+4096L,recovery.retainedBytes());}
+        void close(){if(preparation!=null)preparation.close();}
     }
     private void requireSigningCurrent(java.util.function.Supplier<TrustedUtcIntervalEvidence> source,long retryUntil){
         signingOwner.run();final var time=Objects.requireNonNull(source.get(),"original signing time provider");time.requireWidthAtMost(maximumWidth);
@@ -137,15 +194,16 @@ public final class TargetResourceReclaimSigner implements AutoCloseable {
         private final SystemMutation input;
         private final OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery;
         private final Runnable held;
+        private final com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof preparation;
         private Prepared(TargetSourceApplyRuntime.ReclaimPreparationRead source,SystemMutation input,
-                OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable held){
-            this.source=source;this.input=input;this.recovery=recovery;this.held=held;
+                OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,Runnable held,com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof preparation){
+            this.source=source;this.input=input;this.recovery=recovery;this.held=held;this.preparation=preparation;
         }
         void requireRuntime(TargetSourceApplyRuntime actual){source.requireRuntime(actual);}
         /** Immutable data remains inspectable for retained-first reconciliation after a preparation hold expires. */
         public SystemMutation mutation(){return input;}
         /** Local held checks only; Source will independently collect its own historical apply protections. */
-        public void requireCurrent(){source.requireCurrent();held.run();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
+        public void requireCurrent(){source.requireCurrent();held.run();if(preparation!=null)preparation.requireCurrent();recovery.requireHeldFor(source.catalog(),input);source.requireCurrent();}
         public long retainedBytes(){return Math.addExact(input.canonicalEnvelope().length+4096L,recovery.retainedBytes());}
     }
 }

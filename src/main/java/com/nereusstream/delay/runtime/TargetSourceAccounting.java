@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
@@ -36,6 +37,8 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
     private final int maximumDomains;
     private final SystemMutation scopeSource;
     private final TargetScopeFeeAuthority scopeFees;
+    private final TargetPayloadObligationSummaryBootstrap.Qualification payloadSummaryInitialization;
+    private final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix;
 
     public TargetSourceAccounting(
             final TargetQuotaScope scope,
@@ -46,7 +49,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final int maximumTargets,
             final int maximumDomains) {
         this(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets, maximumDomains,
-                null, TargetScopeFeeAuthority.UNAVAILABLE);
+                null, TargetScopeFeeAuthority.UNAVAILABLE, null, null);
     }
 
     private TargetSourceAccounting(
@@ -58,7 +61,9 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final int maximumTargets,
             final int maximumDomains,
             final SystemMutation scopeSource,
-            final TargetScopeFeeAuthority scopeFees) {
+            final TargetScopeFeeAuthority scopeFees,
+            final TargetPayloadObligationSummaryBootstrap.Qualification payloadSummaryInitialization,
+            final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.source = TargetSourcePosition.requireBounded(source);
         Bytes.requireLength(lineage, 16, "lineage");
@@ -78,18 +83,36 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         this.maximumDomains = maximumDomains;
         this.scopeSource = scopeSource;
         this.scopeFees = Objects.requireNonNull(scopeFees, "original Scope fee authority");
+        if (payloadSummaryInitialization != null && legacyPrefix != null)
+            throw new IllegalArgumentException("legacy v1 prefix cannot initialize a v2 payload summary");
+        this.payloadSummaryInitialization = payloadSummaryInitialization;
+        this.legacyPrefix = legacyPrefix;
     }
 
     /** The complete actual frame is retained separately from business authorization and the logical first. */
     public TargetSourceAccounting withScopeSource(final SystemMutation input, final TargetScopeFeeAuthority fees) {
         return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, Objects.requireNonNull(input), Objects.requireNonNull(fees));
+                maximumDomains, Objects.requireNonNull(input), Objects.requireNonNull(fees), payloadSummaryInitialization, legacyPrefix);
     }
 
     /** Commands and ordinary business inputs only settle their additional scoped Native effects. */
     public TargetSourceAccounting withScopeFees(final TargetScopeFeeAuthority fees) {
         return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, scopeSource, Objects.requireNonNull(fees));
+                maximumDomains, scopeSource, Objects.requireNonNull(fees), payloadSummaryInitialization, legacyPrefix);
+    }
+
+    /** Only the original protected bootstrap can attach its opaque same-cut qualification to this Source batch. */
+    public TargetSourceAccounting withPayloadSummaryInitialization(
+            TargetPayloadObligationSummaryBootstrap.Qualification qualification) {
+        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
+                maximumDomains, scopeSource, scopeFees, Objects.requireNonNull(qualification), legacyPrefix);
+    }
+
+    /** The private exact-event recovery permit grants no live v1 writer or v2 initialization capability. */
+    public TargetSourceAccounting withLegacyPrefix(TargetPayloadSummaryLegacyPrefix.EventPermit permit) {
+        if (permit == null) return this;
+        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
+                maximumDomains, scopeSource, scopeFees, payloadSummaryInitialization, permit);
     }
 
     @Override
@@ -117,7 +140,18 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         final var aggregate = reader.aggregate();
         final var stamp =
                 new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, mutationDigest);
-        TargetMigrationStore.requireGuardEdits(reader, inputBusiness, stamp);
+        final boolean ownArchiveReplay=TargetMigrationArchiveStore.handlesSourceTail(reader,inputBusiness,stamp);
+        if(!ownArchiveReplay)TargetMigrationArchivePreparation.requireTail(reader,inputBusiness,stamp);
+        final List<TargetStoreBackend.Edit> archivedBusiness;
+        final var archiveTail=reader.archiveTailProof();
+        if(archiveTail!=null&&!ownArchiveReplay){
+            final var migration=TargetMigrationStore.requireActivated(reader,List.of(),scope,lineage,reader.aggregate().mutation());
+            final var retirement=Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader,List.of(),migration,reader.aggregate().mutation()));
+            archivedBusiness=TargetMigrationArchiveStore.appendTail(reader,inputBusiness,migration,retirement,archiveTail.actual(),stamp,archiveTail);
+        }else archivedBusiness=inputBusiness;
+        if(archivedBusiness.size()>reader.maximumWriteRecords())throw new IllegalArgumentException("archive Source batch exceeds its original write-record reservation");
+        TargetMigrationStore.requireGuardEdits(reader, archivedBusiness, stamp);
+        TargetMigrationRetirementStore.requireEdits(reader, archivedBusiness, stamp);
         final var rootId = new TargetQuotaIdentity(
                 TargetQuotaIdentity.Kind.SHARD, scope.shard(), aggregate.accountingIncarnation(), null, null);
         final byte[] descriptorKey = rootId.key();
@@ -125,7 +159,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         final var descriptor = TargetQuotaIncarnation.decodeForStore(
                 descriptorKey,
                 payload(
-                        reader.projected(ColumnFamily.META, descriptorKey, inputBusiness),
+                        reader.projected(ColumnFamily.META, descriptorKey, archivedBusiness),
                         TargetQuotaIncarnation.VALUE_TYPE),
                 scope.shard(),
                 scope.tenantScope());
@@ -159,8 +193,10 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                         1,
                         stamp)
                 : priorRoot;
-        final var business = TargetScopeNativeSettlement.append(reader, inputBusiness, scope, lineage, stamp, seed,
+        final var business = TargetScopeNativeSettlement.append(reader, archivedBusiness, scope, lineage, stamp, seed,
                 maximumDomains, scopeSource, scopeFees);
+        TargetMigrationArchiveStore.requireEdits(reader,business,stamp);
+        TargetPayloadObligationSource.requireSource(reader, business, scope, lineage, stamp, payloadSummaryInitialization, legacyPrefix);
         final var beforeView =
                 new TargetRecordAccounting(reader, List.of(), scope, lineage, stamp, seed, maximumDomains);
         final var afterView = new TargetRecordAccounting(reader, business, scope, lineage, stamp, seed, maximumDomains);

@@ -148,9 +148,14 @@ public final class TargetCheckpointDependencies {
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
     private final com.nereusstream.delay.protocol.TargetMigrationRoot migrationRoot;
     private final List<com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOrigins;
+    private final Map<String,com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOriginIndex;
     private final List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards;
     private final List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes;
+    private final Map<String,com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixIndex;
     private final com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt;
+    private final com.nereusstream.delay.protocol.TargetMigrationRetirementRecord migrationRetirement;
+    private final Map<String,com.nereusstream.delay.protocol.TargetMigrationArchiveRow> migrationArchives;
+    private final Map<String,com.nereusstream.delay.protocol.TargetMigrationArchiveState> migrationArchiveStates;
     private final List<TargetScopeNativeUsageAudit.Row> scopeNativeRows;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
@@ -183,55 +188,78 @@ public final class TargetCheckpointDependencies {
     private final Map<String,com.nereusstream.delay.protocol.TargetQuotaIncarnation> incarnations;
     private final Map<String,com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters;
     private final Map<com.nereusstream.delay.protocol.TargetQuotaIdentity,Long> ownerRecordCounts;
+    private final Map<String,Admission> admissionIndex;
+    private final Map<String,com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord> sourceHistoryIndex;
+    private final Map<String,com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> confirmationIndex;
+    private final Map<String,com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> guardIndex;
+    private final Map<String,StoredControl> controlIndex;
+    private final byte[] semanticDigestCache,storedControlsDigestCache;
 
     private final IngressFenceState ingressFence;
 
     private TargetCheckpointDependencies(Builder builder, List<Admission> admissions, boolean complete) {
         root = builder.root;
-        controls = List.copyOf(builder.controls.values());
-        controlResults = List.copyOf(builder.controlResults.values());
-        outcomeResults = List.copyOf(builder.outcomeResults.values());
-        retirementResults=List.copyOf(builder.retirementResults.values());
-        systemPositions=Map.copyOf(builder.systemPositions);
-        this.admissions = List.copyOf(admissions);
-        kafkaMappings = List.copyOf(builder.kafkaMappings.values());
-        externalEvidence = List.copyOf(builder.externalEvidence.values());
-        recoveryEvidence = List.copyOf(builder.recoveryEvidence.values());
-        retirements = List.copyOf(builder.retirements.values());
-        evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
-        protocolActivations=List.copyOf(builder.protocolActivations.values());
-        migrationRoot=builder.migrationRoot; migrationOrigins=List.copyOf(builder.migrationOrigins.values());
-        migrationGuards=List.copyOf(builder.migrationGuards.values());
-        migrationPrefixes=List.copyOf(builder.migrationPrefixes.values()); migrationAttempt=builder.migrationAttempt;
-        scopeNativeRows=List.copyOf(builder.scopeNativeRows.values());
-        sloStates=List.copyOf(builder.sloStates.values());
-        sloGenerations=List.copyOf(builder.sloGenerations.values());
-        sloSamples=List.copyOf(builder.sloSamples.values());
-        sloEvents=List.copyOf(builder.sloEvents.values());
-        sloCustodies=List.copyOf(builder.sloCustodies.values());
-        sloWriterEpochs=Map.copyOf(builder.sloWriterEpochs);
-        parentCredits=Map.copyOf(builder.parentCredits);parentCreditGrants=Map.copyOf(builder.parentCreditGrants);
-        scopeObligations=Map.copyOf(builder.scopeObligations);
-        sourceHistories=List.copyOf(builder.sourceHistories.values());
-        historyTips=List.copyOf(builder.historyTips.values());
-        profiles = List.copyOf(builder.profiles.values());
-        profileUses = List.copyOf(builder.profileUses.values());
-        bindings = List.copyOf(builder.bindings.values());bindingIndex=Map.copyOf(builder.bindings);reservationProjections=Map.copyOf(builder.reservationProjections);
-        retryPolicies = List.copyOf(builder.retries.values());
-        retryUses = List.copyOf(builder.retryUses.values());
-        trustSets = List.copyOf(builder.trusts.values());
-        objectProfileHashes = copies(builder.objectHashes.values().stream().toList());
-        artifactDigests = copies(builder.artifacts.values().stream().toList());
+        controls = builder.freezeList(builder.controls);
+        controlResults = builder.freezeList(builder.controlResults);
+        outcomeResults = builder.freezeList(builder.outcomeResults);
+        retirementResults=builder.freezeList(builder.retirementResults);
+        systemPositions=builder.freezeMap(builder.systemPositions);
+        this.admissions = builder.sealed ? builder.frozenAdmissions : List.copyOf(admissions);
+        kafkaMappings = builder.freezeList(builder.kafkaMappings);
+        externalEvidence = builder.freezeList(builder.externalEvidence);
+        recoveryEvidence = builder.freezeList(builder.recoveryEvidence);
+        retirements = builder.freezeList(builder.retirements);
+        evidenceConfirmations = builder.freezeList(builder.evidenceConfirmations);
+        protocolActivations=builder.freezeList(builder.protocolActivations);
+        migrationRoot=builder.migrationRoot; migrationOrigins=builder.freezeList(builder.migrationOrigins);
+        migrationOriginIndex=builder.freezeMap(builder.migrationOrigins);migrationPrefixIndex=builder.freezeMap(builder.migrationPrefixes);
+        migrationGuards=builder.freezeList(builder.migrationGuards);
+        migrationPrefixes=builder.freezeList(builder.migrationPrefixes); migrationAttempt=builder.migrationAttempt;
+        migrationRetirement=builder.migrationRetirement;
+        migrationArchives=builder.freezeMap(builder.migrationArchives);migrationArchiveStates=builder.freezeMap(builder.migrationArchiveStates);
+        scopeNativeRows=builder.freezeList(builder.scopeNativeRows);
+        sloStates=builder.freezeList(builder.sloStates);
+        sloGenerations=builder.freezeList(builder.sloGenerations);
+        sloSamples=builder.freezeList(builder.sloSamples);
+        sloEvents=builder.freezeList(builder.sloEvents);
+        sloCustodies=builder.freezeList(builder.sloCustodies);
+        sloWriterEpochs=builder.freezeMap(builder.sloWriterEpochs);
+        parentCredits=builder.freezeMap(builder.parentCredits);parentCreditGrants=builder.freezeMap(builder.parentCreditGrants);
+        scopeObligations=builder.freezeMap(builder.scopeObligations);
+        sourceHistories=builder.freezeList(builder.sourceHistories);
+        historyTips=builder.freezeList(builder.historyTips);
+        profiles = builder.freezeList(builder.profiles);
+        profileUses = builder.freezeList(builder.profileUses);
+        bindings = builder.freezeList(builder.bindings);bindingIndex=builder.freezeMap(builder.bindings);reservationProjections=builder.freezeMap(builder.reservationProjections);
+        retryPolicies = builder.freezeList(builder.retries);
+        retryUses = builder.freezeList(builder.retryUses);
+        trustSets = builder.freezeList(builder.trusts);
+        objectProfileHashes = builder.sealed ? builder.freezeList(builder.objectHashes) : copies(builder.objectHashes.values().stream().toList());
+        artifactDigests = builder.sealed ? builder.freezeList(builder.artifacts) : copies(builder.artifacts.values().stream().toList());
         admissionImagesComplete = complete;
-        payloadObjectIntents=Map.copyOf(builder.payloadObjectIntents);
-        messageStates=Map.copyOf(builder.messageStates);payloadOwners=Map.copyOf(builder.payloadOwners);
-        terminalGenerations=List.copyOf(builder.terminalGenerations.values());
-        retentionFirsts=Map.copyOf(builder.retentionFirsts);retentionPositions=Map.copyOf(builder.retentionPositions);
+        payloadObjectIntents=builder.freezeMap(builder.payloadObjectIntents);
+        messageStates=builder.freezeMap(builder.messageStates);payloadOwners=builder.freezeMap(builder.payloadOwners);
+        terminalGenerations=builder.freezeList(builder.terminalGenerations);
+        retentionFirsts=builder.freezeMap(builder.retentionFirsts);retentionPositions=builder.freezeMap(builder.retentionPositions);
         ingressFence=builder.ingressFence;
-        timeFences=Map.copyOf(builder.timeFences);
-        resultRecords=Map.copyOf(builder.resultRecords);
-        incarnations=Map.copyOf(builder.incarnations);quotaCounters=Map.copyOf(builder.quotaCounters);
-        ownerRecordCounts=Map.copyOf(builder.ownerRecordCounts);
+        timeFences=builder.freezeMap(builder.timeFences);
+        resultRecords=builder.freezeMap(builder.resultRecords);
+        incarnations=builder.freezeMap(builder.incarnations);quotaCounters=builder.freezeMap(builder.quotaCounters);
+        ownerRecordCounts=builder.freezeMap(builder.ownerRecordCounts);
+        admissionIndex=builder.sealed ? builder.freezeMap(builder.admissionIndex) : admissionIndex(admissions);
+        sourceHistoryIndex=builder.freezeMap(builder.sourceHistories);
+        confirmationIndex=builder.freezeMap(builder.evidenceConfirmations);
+        guardIndex=builder.freezeMap(builder.migrationGuards);
+        controlIndex=builder.freezeMap(builder.controls);
+        semanticDigestCache=builder.sealed?Objects.requireNonNull(builder.frozenSemanticDigest):null;
+        storedControlsDigestCache=builder.sealed?Objects.requireNonNull(builder.frozenControlsDigest):null;
+    }
+
+    private static Map<String,Admission> admissionIndex(List<Admission> values){
+        final var result=new TreeMap<String,Admission>();
+        for(var value:values)if(result.putIfAbsent(Bytes.hex(value.attempt().publishAttemptId()),value)!=null)
+            throw new IllegalStateException("duplicate original Admission attempt");
+        return java.util.Collections.unmodifiableMap(result);
     }
 
     public TargetCheckpointRootVerifier.RootProof root() { return root; }
@@ -239,6 +267,21 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents(){return List.copyOf(payloadObjectIntents.values());}
     public MessageState messageState(com.nereusstream.delay.protocol.DelayMessageId id){return messageStates.get(Bytes.hex(id.bytes()));}
     public com.nereusstream.delay.protocol.TargetQuotaPayloadOwner payloadOwner(com.nereusstream.delay.protocol.DelayMessageId id){return payloadOwners.get(Bytes.hex(id.bytes()));}
+    public List<com.nereusstream.delay.protocol.TargetQuotaPayloadOwner> payloadOwners(){return List.copyOf(payloadOwners.values());}
+    public List<MessageState> messageStates(){return List.copyOf(messageStates.values());}
+    /** Immutable complete-cut views; iterators do not copy the population at cursor creation. */
+    public Iterable<com.nereusstream.delay.protocol.TargetQuotaPayloadOwner> payloadOwnerRows(){return payloadOwners.values();}
+    public Iterable<MessageState> messageStateRows(){return messageStates.values();}
+    public Iterable<TargetResultRecord> resultRecordRows(){return resultRecords.values();}
+    public Admission admission(byte[] attemptId){return admissionIndex.get(Bytes.hex(attemptId));}
+    public com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord sourceHistory(byte[] mutationId){
+        return sourceHistoryIndex.get(Bytes.hex(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.key(mutationId)));
+    }
+    public com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord evidenceConfirmation(byte[] key){return confirmationIndex.get(Bytes.hex(key));}
+    public com.nereusstream.delay.protocol.TargetMigrationCustodyGuard migrationGuard(com.nereusstream.delay.protocol.DelayMessageId id){
+        return guardIndex.get(Bytes.hex(com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.keyFor(id)));
+    }
+    public StoredControl control(byte[] key){return controlIndex.get(ColumnFamily.META.rocksName()+'/'+Bytes.hex(key));}
     public List<com.nereusstream.delay.runtime.TargetTerminalGenerationRecord> terminalGenerations(){return terminalGenerations;}
     public IngressFenceState ingressFence(){return ingressFence;}
     public com.nereusstream.delay.protocol.TargetQuotaIncarnation incarnation(byte[] key){return incarnations.get(Bytes.hex(key));}
@@ -307,9 +350,20 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations(){return protocolActivations;}
     public com.nereusstream.delay.protocol.TargetMigrationRoot migrationRoot(){return migrationRoot;}
     public List<com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOrigins(){return migrationOrigins;}
+    public com.nereusstream.delay.protocol.TargetMigrationOrigin migrationOrigin(byte[] exactNativeKey){return migrationOriginIndex.get(Bytes.hex(exactNativeKey));}
     public List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards(){return migrationGuards;}
     public List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes(){return migrationPrefixes;}
+    public com.nereusstream.delay.protocol.TargetMigrationPrefixRecord migrationPrefix(byte[] exactNativeKey){return migrationPrefixIndex.get(Bytes.hex(exactNativeKey));}
     public com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt(){return migrationAttempt;}
+    public com.nereusstream.delay.protocol.TargetMigrationRetirementRecord migrationRetirement(){return migrationRetirement;}
+    public List<com.nereusstream.delay.protocol.TargetMigrationArchiveRow> migrationArchiveEntries(){return List.copyOf(migrationArchives.values());}
+    public List<com.nereusstream.delay.protocol.TargetMigrationArchiveState> migrationArchiveStates(){return List.copyOf(migrationArchiveStates.values());}
+    public Iterable<com.nereusstream.delay.protocol.TargetMigrationArchiveRow> migrationArchiveEntryValues(){return migrationArchives.values();}
+    public Iterable<com.nereusstream.delay.protocol.TargetMigrationArchiveState> migrationArchiveStateValues(){return migrationArchiveStates.values();}
+    public com.nereusstream.delay.protocol.TargetMigrationArchiveState migrationArchiveState(byte[] key){return migrationArchiveStates.get(Bytes.hex(key));}
+    public com.nereusstream.delay.protocol.TargetMigrationArchiveRow migrationArchive(byte[] originalKey){
+        return migrationArchives.get(Bytes.hex(com.nereusstream.delay.protocol.TargetMigrationArchiveRow.keyFor(originalKey)));
+    }
     public List<com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters(){return List.copyOf(quotaCounters.values());}
     /** Exact physical Native57..62 facts captured by the complete bounded image fold. */
     public List<TargetScopeNativeUsageAudit.Row> scopeNativeRows(){return scopeNativeRows;}
@@ -723,6 +777,7 @@ public final class TargetCheckpointDependencies {
             }
         }
         afterAuthentication(budget, protection);
+        com.nereusstream.delay.runtime.TargetPayloadObligationSummaryAudit.requireOutcomeInputs(this, checked);
         return checked;
     }
 
@@ -732,6 +787,9 @@ public final class TargetCheckpointDependencies {
      */
     @FunctionalInterface
     public interface ControlImageAuthority {
+        default TargetMigrationPayloadMaterials migrationPayloadMaterials(TargetCheckpointDependencies dependencies){
+            throw new IllegalStateException("Control history has no original protected migration payload material");
+        }
         /** Already-held original occurrence/Scope fee protection; settlement-v2 images require it. */
         default com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFeeAuthority(){return null;}
         java.security.PublicKey authenticate(ControlImage input, TargetResultRecord first);
@@ -743,6 +801,15 @@ public final class TargetCheckpointDependencies {
                 List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> originalPrefix,
                 com.nereusstream.delay.protocol.TargetMigrationActivationAttempt originalAttempt) {
             throw new IllegalStateException("checkpoint authority lacks original migration/bundle/custody authentication");
+        }
+        default java.security.PublicKey authenticateMigrationRetirement(ControlImage input, TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                com.nereusstream.delay.protocol.TargetMigrationRetirementRecord retirement) {
+            throw new IllegalStateException("checkpoint authority lacks original old-domain retirement materials");
+        }
+        default java.security.PublicKey authenticateMigrationArchive(ControlImage input,TargetResultRecord first,
+                TargetCheckpointDependencies dependencies){
+            throw new IllegalStateException("checkpoint authority lacks actual archive Source/new-owner materials");
         }
         /** Original SERVICE event history, endpoint/time and retained budget; APPLIED uses its frozen sample. */
         default java.security.PublicKey authenticateObservation(ControlImage input,TargetResultRecord first,
@@ -817,6 +884,12 @@ public final class TargetCheckpointDependencies {
         final var image=input.image();
         if(com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(image)) {
             if(migrationRoot==null || !migrationRoot.activated()) throw new IllegalStateException("migration Control lost actual activated root");
+            final var request=com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(image.canonicalBody()).request();
+            if(request instanceof com.nereusstream.delay.protocol.TargetMigrationArchiveRequest)
+                return authority.authenticateMigrationArchive(input,first,this);
+            if(request instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest
+                    ||request instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest)
+                return authority.authenticateMigrationRetirement(input,first,migrationRoot,migrationRetirement);
             return authority.authenticateMigration(input,first,migrationRoot,migrationOrigins,migrationGuards,migrationPrefixes,migrationAttempt);
         }
         if(TargetScopeControlObligationBody.isControl(image)){
@@ -878,12 +951,15 @@ public final class TargetCheckpointDependencies {
         requireParentCreditControlInputs(complete);
         requireScopeObligationControlInputs(complete);
         requireMigrationControlInputs(complete);
+        com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap.requireControlInputs(this,correlated);
         return correlated;
     }
 
     private void requireMigrationControlInputs(Map<String,ControlImage> inputs) {
         if(migrationRoot==null) {
-            if(!migrationOrigins.isEmpty() || !migrationGuards.isEmpty() || !migrationPrefixes.isEmpty() || migrationAttempt!=null || bindings.stream().anyMatch(TargetScheduleBinding::imported))
+            if(!migrationOrigins.isEmpty() || !migrationGuards.isEmpty() || !migrationPrefixes.isEmpty() || migrationAttempt!=null
+                    ||migrationRetirement!=null ||!migrationArchives.isEmpty()||!migrationArchiveStates.isEmpty()
+                    || bindings.stream().anyMatch(TargetScheduleBinding::imported))
                 throw new IllegalStateException("migration projection lost original root");
             return;
         }
@@ -895,6 +971,20 @@ public final class TargetCheckpointDependencies {
         if(migrationAttempt==null || !Arrays.equals(migrationAttempt.input().canonicalEnvelope(),migrationRoot.activation().canonicalEnvelope()))
             throw new IllegalStateException("formal migration checkpoint lost original durable may-be-exposed activation intent");
         migrationAttempt.requirePlan(migrationRoot.plan());
+        if(migrationRetirement!=null){
+            migrationRetirement.requireRoot(migrationRoot);
+            requireMigrationInput(inputs,migrationRetirement.intentInput(),migrationRetirement.intentAt());
+            if(migrationRetirement.retired())requireMigrationInput(inputs,migrationRetirement.confirmationInput(),migrationRetirement.confirmedAt());
+        }
+        if(!migrationArchives.isEmpty()||!migrationArchiveStates.isEmpty()){
+            if(migrationRetirement==null)throw new IllegalStateException("archive lost its actual original retirement intent");
+            for(var state:migrationArchiveStates.values()){
+                state.requireRetirement(migrationRoot,migrationRetirement);
+                if(state.history())requireMigrationInput(inputs,state.input(),state.managementAt());
+            }
+            for(var row:migrationArchives.values())row.requirePlan(migrationRoot.plan());
+            com.nereusstream.delay.runtime.TargetMigrationArchiveStore.requireCheckpoint(this);
+        }
         final var events=new TreeMap<Long,TargetQuotaMutation>(Long::compareUnsigned);
         final var legacySequences=new java.util.HashSet<Long>();
         events.put(migrationRoot.activatedAt().sequence(),migrationRoot.activatedAt());
@@ -935,6 +1025,13 @@ public final class TargetCheckpointDependencies {
         }
         for(var binding:bindings) if(binding.imported() && !Arrays.equals(binding.migrationPlanDigest(),migrationRoot.plan().digest()))
             throw new IllegalStateException("imported binding changed original migration authority");
+    }
+
+    private static void requireMigrationInput(Map<String,ControlImage> inputs,SystemMutation original,TargetQuotaMutation at){
+        final var actual=inputs.get(Bytes.hex(original.systemMutationId()));
+        if(actual==null||!Arrays.equals(actual.image().canonicalEnvelope(),original.canonicalEnvelope())
+                ||!Arrays.equals(actual.source().canonicalBytes(),at.source().canonicalBytes()))
+            throw new IllegalStateException("migration checkpoint lost its exact Source retirement intent/confirmation");
     }
 
     private void requireScopeObligationControlInputs(Map<String,ControlImage> inputs){
@@ -1216,6 +1313,7 @@ public final class TargetCheckpointDependencies {
 
     /** Deterministic local version inventory, not an authenticated control snapshot or publication authorization. */
     public byte[] semanticInputsDigest() {
+        if(semanticDigestCache!=null)return Bytes.copy(semanticDigestCache);
         final byte[] fields = CanonicalProtobuf.message(out -> {
             for (final var profile : profiles) { CanonicalProtobuf.bytes(out, 1, profile.canonicalBytes()); }
             for (final var retry : retryPolicies) { CanonicalProtobuf.bytes(out, 2, retry.canonicalBytes()); }
@@ -1238,12 +1336,23 @@ public final class TargetCheckpointDependencies {
             for(var guard:migrationGuards) CanonicalProtobuf.bytes(out,19,guard.digest());
             for(var prefix:migrationPrefixes) CanonicalProtobuf.bytes(out,20,prefix.digest());
             if(migrationAttempt!=null) CanonicalProtobuf.bytes(out,21,migrationAttempt.digest());
+            if(migrationRetirement!=null) CanonicalProtobuf.bytes(out,22,migrationRetirement.digest());
+            for(var owner:payloadOwners().stream().sorted(java.util.Comparator.comparing(value->Bytes.hex(value.key()))).toList()) if(owner.summaryQualified()) CanonicalProtobuf.bytes(out,23,
+                    CanonicalProtobuf.message(initialization->{
+                        CanonicalProtobuf.bytes(initialization,1,owner.key());
+                        CanonicalProtobuf.bytes(initialization,2,owner.initializationSource().canonicalBytes());
+                        CanonicalProtobuf.uint32(initialization,3,owner.summaryOrigin().wireValue());
+                        CanonicalProtobuf.bytes(initialization,4,owner.summaryOriginDigest());
+                    }));
+            for(var entry:migrationArchiveStates.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList())CanonicalProtobuf.bytes(out,24,entry.getValue().digest());
+            for(var entry:migrationArchives.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList())CanonicalProtobuf.bytes(out,24,entry.getValue().digest());
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
 
     /** Exact stored control inputs; providers must authenticate them and resolve all referenced immutable values. */
     public byte[] storedControlsDigest() {
+        if(storedControlsDigestCache!=null)return Bytes.copy(storedControlsDigestCache);
         final byte[] fields = CanonicalProtobuf.message(out -> {
             for (final var control : controls) {
                 CanonicalProtobuf.bytes(out, 1, CanonicalProtobuf.message(entry -> {
@@ -1261,6 +1370,248 @@ public final class TargetCheckpointDependencies {
 
     static final class Builder {
         private final TargetCheckpointRootVerifier.RootProof root;
+        private boolean freezeStarted,sealed;
+        private final Map<Map<?,?>,List<?>> frozenLists=new java.util.IdentityHashMap<>();
+        private List<Admission> frozenAdmissions;
+        private byte[] frozenSemanticDigest,frozenControlsDigest;
+        private final Map<String,Admission> admissionIndex=new TreeMap<>();
+
+        private void ensureMutable(){
+            if(freezeStarted)throw new IllegalStateException("Target dependency builder is privately frozen");
+        }
+        @SuppressWarnings("unchecked")
+        private <T> List<T> freezeList(Map<?,T> values){
+            if(!sealed)return List.copyOf(values.values());
+            final var list=frozenLists.get(values);
+            if(list==null)throw new IllegalStateException("incomplete private dependency-list freeze");
+            return (List<T>)list;
+        }
+        @SuppressWarnings("unchecked")
+        private <K,V> Map<K,V> freezeMap(Map<K,V> values){
+            if(sealed)return java.util.Collections.unmodifiableMap(values);
+            if(values instanceof java.util.SortedMap<?,?>)
+                return java.util.Collections.unmodifiableSortedMap(new TreeMap<>((java.util.SortedMap<K,V>)values));
+            return Map.copyOf(values);
+        }
+
+        /** Fixed-size pages avoid a population-sized ArrayList resize inside one bounded turn. */
+        private static final class FrozenPages<T> extends java.util.AbstractList<T> implements java.util.RandomAccess {
+            private static final int PAGE_SIZE=128;
+            private final Map<Integer,Object[]> pages=new TreeMap<>();
+            private int size;
+            private void append(T value){
+                Objects.requireNonNull(value);
+                final int page=size/PAGE_SIZE;
+                if(size%PAGE_SIZE==0)pages.put(page,new Object[PAGE_SIZE]);
+                pages.get(page)[size%PAGE_SIZE]=value;size=Math.incrementExact(size);
+            }
+            @SuppressWarnings("unchecked")
+            @Override public T get(int index){
+                Objects.checkIndex(index,size);return (T)pages.get(index/PAGE_SIZE)[index%PAGE_SIZE];
+            }
+            @Override public int size(){return size;}
+        }
+
+        private record DigestPart<T>(int field,Iterable<T> values,java.util.function.Function<T,byte[]> encode,boolean hashCanonical){
+            private DigestPart(int field,Iterable<T> values,java.util.function.Function<T,byte[]> encode){this(field,values,encode,false);}
+            @SuppressWarnings("unchecked") private byte[] bytes(Object value){return encode.apply((T)value);}
+        }
+        /** Streams exactly the previous protobuf field sequence, without an aggregate fields byte array. */
+        private static final class StreamingDigest {
+            private final java.security.MessageDigest digest;
+            private final List<DigestPart<?>> parts;
+            private int part;
+            private java.util.Iterator<?> values;
+            private byte[] result;
+            private StreamingDigest(String domain,List<DigestPart<?>> parts){
+                this.parts=parts;
+                try{digest=java.security.MessageDigest.getInstance("SHA-256");}
+                catch(java.security.NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
+                digest.update(Bytes.utf8(domain));
+            }
+            private boolean advance(java.util.function.LongConsumer copied){
+                while(part<parts.size()){
+                    final var selected=parts.get(part);
+                    if(values==null)values=selected.values().iterator();
+                    if(!values.hasNext()){part++;values=null;continue;}
+                    byte[] encoded=selected.bytes(values.next());
+                    if(encoded!=null){
+                        if(selected.hashCanonical()){copied.accept(encoded.length);encoded=Bytes.sha256(encoded);}
+                        final var prefix=new java.io.ByteArrayOutputStream(8);
+                        varint(prefix,((long)selected.field()<<3)|2);varint(prefix,encoded.length);
+                        final byte[] header=prefix.toByteArray();digest.update(header);digest.update(encoded);
+                        copied.accept(Math.addExact((long)header.length,encoded.length));
+                    }
+                    return false;
+                }
+                if(result==null){result=digest.digest();copied.accept(result.length);}
+                return true;
+            }
+            private static void varint(java.io.ByteArrayOutputStream out,long value){
+                while((value&~0x7fL)!=0){out.write((int)((value&0x7f)|0x80));value>>>=7;}out.write((int)value);
+            }
+        }
+
+        private StreamingDigest semanticDigest(){
+            return new StreamingDigest("nereus-delay-target-checkpoint-semantic-inputs\0",List.of(
+                    new DigestPart<>(1,profiles.values(),ProfileRef::canonicalBytes),
+                    new DigestPart<>(2,retries.values(),RetryPolicyRef::canonicalBytes),
+                    new DigestPart<>(3,trusts.values(),PayloadProofTrustSetRef::canonicalBytes),
+                    new DigestPart<>(4,objectHashes.values(),value->value),
+                    new DigestPart<>(5,artifacts.values(),value->value),
+                    new DigestPart<>(6,retryUses.values(),RetryUse::canonicalBytes),
+                    new DigestPart<>(7,externalEvidence.values(),value->value.canonicalBytes()),
+                    new DigestPart<>(8,recoveryEvidence.values(),value->value.canonicalBytes()),
+                    new DigestPart<>(9,retirements.values(),value->value.canonicalBytes(),true),
+                    new DigestPart<>(10,evidenceConfirmations.values(),value->value.canonicalBytes(),true),
+                    new DigestPart<>(11,protocolActivations.values(),value->value.digest()),
+                    new DigestPart<>(12,retirementResults.values(),value->value.canonicalBytes(),true),
+                    new DigestPart<>(13,sourceHistories.values(),value->value.digest()),
+                    new DigestPart<>(14,historyTips.values(),value->value.digest()),
+                    new DigestPart<>(15,parentCredits.values(),value->value.canonicalBytes(),true),
+                    new DigestPart<>(16,scopeObligations.values(),value->value.canonicalBytes(),true),
+                    new DigestPart<>(17,migrationRoot==null?List.<com.nereusstream.delay.protocol.TargetMigrationRoot>of():List.of(migrationRoot),value->value.digest()),
+                    new DigestPart<>(18,migrationOrigins.values(),value->value.digest()),
+                    new DigestPart<>(19,migrationGuards.values(),value->value.digest()),
+                    new DigestPart<>(20,migrationPrefixes.values(),value->value.digest()),
+                    new DigestPart<>(21,migrationAttempt==null?List.<com.nereusstream.delay.protocol.TargetMigrationActivationAttempt>of():List.of(migrationAttempt),value->value.digest()),
+                    new DigestPart<>(22,migrationRetirement==null?List.<com.nereusstream.delay.protocol.TargetMigrationRetirementRecord>of():List.of(migrationRetirement),value->value.digest()),
+                    new DigestPart<>(23,payloadOwners.values(),value->value.summaryQualified()?CanonicalProtobuf.message(out->{
+                        CanonicalProtobuf.bytes(out,1,value.key());CanonicalProtobuf.bytes(out,2,value.initializationSource().canonicalBytes());
+                        CanonicalProtobuf.uint32(out,3,value.summaryOrigin().wireValue());CanonicalProtobuf.bytes(out,4,value.summaryOriginDigest());
+                    }):null),
+                    new DigestPart<>(24,migrationArchiveStates.values(),value->value.digest()),
+                    new DigestPart<>(24,migrationArchives.values(),value->value.digest())));
+        }
+        private StreamingDigest controlsDigest(){
+            return new StreamingDigest("nereus-delay-target-checkpoint-stored-controls\0",List.of(
+                    new DigestPart<>(1,controls.values(),control->CanonicalProtobuf.message(entry->{
+                        CanonicalProtobuf.bytes(entry,1,Bytes.utf8(control.family().rocksName()));
+                        CanonicalProtobuf.bytes(entry,2,control.key);CanonicalProtobuf.uint32(entry,3,control.valueType());
+                        CanonicalProtobuf.bytes(entry,4,control.payload);
+                    }))));
+        }
+
+        RetirementFreeze beginRetirementFreeze(List<Admission> admissions,
+                List<com.nereusstream.delay.runtime.TargetResultLedgerAudit.Stored> resultRows){
+            ensureMutable();freezeStarted=true;
+            return new RetirementFreeze(admissions,resultRows);
+        }
+
+        /** Only the complete Native collector owns this builder and can request its final private transfer. */
+        final class RetirementFreeze {
+            private final List<Admission> admissions;
+            private final List<com.nereusstream.delay.runtime.TargetResultLedgerAudit.Stored> rows;
+            private final java.util.Set<String> needed=new java.util.TreeSet<>();
+            private final List<Map<?,?>> listMaps;
+            private java.util.Iterator<?> values;
+            private java.util.Iterator<com.nereusstream.delay.protocol.TargetResourceReclaimBody.RetainedPayload> payloadOperations;
+            private FrozenPages<Object> currentList;
+            private final FrozenPages<Admission> admissionList=new FrozenPages<>();
+            private int phase,index,mapIndex;
+            private boolean failed,complete;
+            private StreamingDigest semantic,stored;
+            private TargetCheckpointDependencies result;
+
+            private RetirementFreeze(List<Admission> admissions,List<com.nereusstream.delay.runtime.TargetResultLedgerAudit.Stored> rows){
+                this.admissions=Objects.requireNonNull(admissions);this.rows=Objects.requireNonNull(rows);
+                listMaps=List.of(controls,controlResults,outcomeResults,retirementResults,kafkaMappings,externalEvidence,
+                        recoveryEvidence,retirements,evidenceConfirmations,protocolActivations,migrationOrigins,migrationGuards,
+                        migrationPrefixes,scopeNativeRows,sloStates,sloGenerations,sloSamples,sloEvents,sloCustodies,
+                        sourceHistories,historyTips,profiles,profileUses,bindings,retries,retryUses,trusts,objectHashes,
+                        artifacts,terminalGenerations);
+                values=payloadOwners.values().iterator();
+            }
+            private String token(TargetQuotaMutation at,java.util.function.LongConsumer copied){
+                final byte[] canonical=at.canonicalBytes();copied.accept(canonical.length);
+                final byte[] hash=Bytes.sha256(canonical);copied.accept(hash.length);return Bytes.hex(hash);
+            }
+            private void need(TargetQuotaMutation at,java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+                final String value=token(at,copied);if(needed.add(value))retained.accept(value.length());
+            }
+            boolean advance(int maximumRows,Runnable current,java.util.function.LongConsumer retained,
+                    java.util.function.LongConsumer copied){
+                if(failed||maximumRows<1)throw new IllegalStateException("invalid or failed dependency freeze");
+                if(complete){current.run();return true;}
+                try{
+                    int used=0;
+                    while(used<maximumRows&&!complete){
+                        current.run();
+                        if(payloadOperations!=null){
+                            if(!payloadOperations.hasNext()){payloadOperations=null;continue;}
+                            need(payloadOperations.next().expected().mutation(),retained,copied);used++;continue;
+                        }
+                        switch(phase){
+                            case 0->{
+                                if(!values.hasNext()){phase++;values=sourceHistories.values().iterator();continue;}
+                                final var owner=(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner)values.next();
+                                if(owner.phase()==com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.Phase.RETAINED)
+                                    need(owner.mutation(),retained,copied);
+                            }
+                            case 1->{
+                                if(!values.hasNext()){phase++;continue;}
+                                final var history=(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord)values.next();
+                                if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
+                                    final var body=com.nereusstream.delay.protocol.TargetResourceReclaimBody.decode(history.input().canonicalBody());
+                                    if(body.inlinePayloadRelease()||body.objectPayloadReclaim()&&!body.uncommittedObjectReclaim())
+                                        payloadOperations=body.payloadOperations().iterator();
+                                }
+                            }
+                            case 2->{
+                                if(index>=rows.size()){phase++;index=0;values=null;continue;}
+                                final var row=rows.get(index++);final byte[] payload=row.payload();copied.accept(payload.length);
+                                final var value=TargetResultRecord.decode(payload);final String token=token(value.mutation(),copied);
+                                final byte[] key=value.key();copied.accept(key.length);
+                                if(resultRecords.put(Bytes.hex(key),value)==null)retained.accept(Math.addExact((long)payload.length,2L*key.length));
+                                if(needed.contains(token)){
+                                    if(value.kind()==TargetResultRecord.Kind.COMMAND||value.kind()==TargetResultRecord.Kind.SYSTEM){if(retentionFirsts.put(token,value)==null)retained.accept(token.length());}
+                                    else if(value.kind()==TargetResultRecord.Kind.POSITION_COMMAND||value.kind()==TargetResultRecord.Kind.POSITION_SYSTEM){if(retentionPositions.put(token,value)==null)retained.accept(token.length());}
+                                }
+                            }
+                            case 3->{
+                                if(mapIndex>=listMaps.size()){phase++;continue;}
+                                final var map=listMaps.get(mapIndex);
+                                if(values==null){values=map.values().iterator();currentList=new FrozenPages<>();}
+                                if(!values.hasNext()){
+                                    frozenLists.put(map,java.util.Collections.unmodifiableList(currentList));mapIndex++;values=null;continue;
+                                }
+                                Object value=values.next();
+                                if(map==objectHashes||map==artifacts){
+                                    value=Bytes.copy((byte[])value);copied.accept(((byte[])value).length);retained.accept(((byte[])value).length);
+                                }
+                                currentList.append(value);
+                            }
+                            case 4->{
+                                if(index>=admissions.size()){
+                                    frozenAdmissions=java.util.Collections.unmodifiableList(admissionList);sealed=true;
+                                    semantic=semanticDigest();phase++;continue;
+                                }
+                                final var admission=admissions.get(index++);admissionList.append(admission);
+                                final byte[] attempt=admission.attempt().publishAttemptId();copied.accept(attempt.length);
+                                final String identity=Bytes.hex(attempt);retained.accept(identity.length());
+                                if(admissionIndex.putIfAbsent(identity,admission)!=null)throw new IllegalStateException("duplicate original Admission attempt");
+                            }
+                            case 5->{
+                                if(semantic.advance(copied)){frozenSemanticDigest=semantic.result;stored=controlsDigest();phase++;continue;}
+                            }
+                            case 6->{
+                                if(stored.advance(copied)){
+                                    frozenControlsDigest=stored.result;
+                                    result=new TargetCheckpointDependencies(Builder.this,frozenAdmissions,frozenAdmissions.isEmpty());
+                                    complete=true;continue;
+                                }
+                            }
+                            default->throw new IllegalStateException("unknown dependency freeze phase");
+                        }
+                        used++;
+                    }
+                    current.run();return complete;
+                }catch(RuntimeException|Error failure){failed=true;throw failure;}
+            }
+            TargetCheckpointDependencies result(){
+                if(!complete||failed)throw new IllegalStateException("dependency freeze is incomplete");return result;
+            }
+        }
         private final Map<String, StoredControl> controls = new TreeMap<>();
         private final Map<String, TargetResultRecord> controlResults = new TreeMap<>();
         private final Map<String, TargetResultRecord> outcomeResults = new TreeMap<>();
@@ -1277,6 +1628,9 @@ public final class TargetCheckpointDependencies {
         private final Map<String,com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes=new TreeMap<>();
         private com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt;
+        private com.nereusstream.delay.protocol.TargetMigrationRetirementRecord migrationRetirement;
+        private final Map<String,com.nereusstream.delay.protocol.TargetMigrationArchiveRow> migrationArchives=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetMigrationArchiveState> migrationArchiveStates=new TreeMap<>();
         private final Map<String,TargetScopeNativeUsageAudit.Row> scopeNativeRows=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
@@ -1307,7 +1661,8 @@ public final class TargetCheckpointDependencies {
         private final Map<String,TargetResultRecord> resultRecords=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetQuotaIncarnation> incarnations=new TreeMap<>();
         private final Map<String,com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters=new TreeMap<>();
-        private final Map<com.nereusstream.delay.protocol.TargetQuotaIdentity,Long> ownerRecordCounts=new java.util.HashMap<>();
+        private final Map<com.nereusstream.delay.protocol.TargetQuotaIdentity,Long> ownerRecordCounts=
+                new TreeMap<>(java.util.Comparator.comparing(value->Bytes.hex(value.key())));
         private IngressFenceState ingressFence=new IngressFenceState(IngressFenceState.OPEN,null);
 
         Builder(TargetCheckpointRootVerifier.RootProof root) { this.root = root; }
@@ -1328,6 +1683,9 @@ public final class TargetCheckpointDependencies {
             prior.protocolActivations.forEach(this::protocolActivation);
             if(prior.migrationRoot!=null) migrationRoot(prior.migrationRoot);
             prior.migrationOrigins.forEach(this::migrationOrigin); prior.migrationGuards.forEach(this::migrationGuard); prior.migrationPrefixes.forEach(this::migrationPrefix); if(prior.migrationAttempt!=null)migrationAttempt(prior.migrationAttempt);
+            if(prior.migrationRetirement!=null)migrationRetirement(prior.migrationRetirement);
+            prior.migrationArchives.values().forEach(this::migrationArchive);
+            prior.migrationArchiveStates.values().forEach(this::migrationArchiveState);
             prior.scopeNativeRows.forEach(this::scopeNativeRow);
             prior.sloStates.forEach(this::sloState);
             prior.sloGenerations.forEach(this::sloGeneration);
@@ -1354,17 +1712,19 @@ public final class TargetCheckpointDependencies {
             resultRecords.putAll(prior.resultRecords);incarnations.putAll(prior.incarnations);quotaCounters.putAll(prior.quotaCounters);
             ownerRecordCounts.putAll(prior.ownerRecordCounts);
         }
-        void incarnation(com.nereusstream.delay.protocol.TargetQuotaIncarnation value){if(incarnations.putIfAbsent(Bytes.hex(value.key()),value)!=null)throw new IllegalStateException("duplicate actual incarnation");}
-        void quotaCounter(com.nereusstream.delay.protocol.TargetQuotaCounter value){if(quotaCounters.putIfAbsent(Bytes.hex(value.identity().key()),value)!=null)throw new IllegalStateException("duplicate actual quota counter");}
-        void ownerRecord(com.nereusstream.delay.protocol.TargetQuotaIdentity id){ownerRecordCounts.merge(id,1L,Math::addExact);}
+        void incarnation(com.nereusstream.delay.protocol.TargetQuotaIncarnation value){ensureMutable();if(incarnations.putIfAbsent(Bytes.hex(value.key()),value)!=null)throw new IllegalStateException("duplicate actual incarnation");}
+        void quotaCounter(com.nereusstream.delay.protocol.TargetQuotaCounter value){ensureMutable();if(quotaCounters.putIfAbsent(Bytes.hex(value.identity().key()),value)!=null)throw new IllegalStateException("duplicate actual quota counter");}
+        void ownerRecord(com.nereusstream.delay.protocol.TargetQuotaIdentity id){ensureMutable();ownerRecordCounts.merge(id,1L,Math::addExact);}
         void messageState(com.nereusstream.delay.runtime.TargetMessageRecord message,byte[] canonical){
+            ensureMutable();
             messageStates.put(Bytes.hex(message.locator().messageId().bytes()),new MessageState(message.locator(),message.stateVersion(),message.runtime(),Bytes.sha256(canonical)));
         }
-        void payloadOwner(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner owner){payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);}
-        void terminalGeneration(com.nereusstream.delay.runtime.TargetTerminalGenerationRecord terminal){terminalGenerations.put(Bytes.hex(terminal.key()),terminal);}
-        void ingressFence(IngressFenceState state){ingressFence=Objects.requireNonNull(state);}
-        void timeFence(TargetResultRecord first){timeFences.put(Bytes.hex(first.logicalId()),first);}
+        void payloadOwner(com.nereusstream.delay.protocol.TargetQuotaPayloadOwner owner){ensureMutable();payloadOwners.put(Bytes.hex(owner.messageId().bytes()),owner);}
+        void terminalGeneration(com.nereusstream.delay.runtime.TargetTerminalGenerationRecord terminal){ensureMutable();terminalGenerations.put(Bytes.hex(terminal.key()),terminal);}
+        void ingressFence(IngressFenceState state){ensureMutable();ingressFence=Objects.requireNonNull(state);}
+        void timeFence(TargetResultRecord first){ensureMutable();timeFences.put(Bytes.hex(first.logicalId()),first);}
         void captureRetentionDecisions(List<com.nereusstream.delay.runtime.TargetResultLedgerAudit.Stored> rows){
+            ensureMutable();
             final var needed=new java.util.HashSet<String>();
             for(var owner:payloadOwners.values())if(owner.phase()==com.nereusstream.delay.protocol.TargetQuotaPayloadOwner.Phase.RETAINED)needed.add(retentionToken(owner.mutation()));
             for(var history:sourceHistories.values())if(history.input().type()==SystemMutationType.TARGET_RESOURCE_RECLAIM){
@@ -1381,45 +1741,57 @@ public final class TargetCheckpointDependencies {
         }
 
         void externalEvidence(com.nereusstream.delay.protocol.TargetExternalEvidenceOwner owner) {
+            ensureMutable();
             final var previous=externalEvidence.putIfAbsent(Bytes.hex(owner.key()),owner);
             if(previous!=null&&!Arrays.equals(previous.canonicalBytes(),owner.canonicalBytes()))throw new IllegalStateException("duplicate external evidence owner");
         }
         void recoveryEvidence(com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner owner) {
+            ensureMutable();
             final var previous=recoveryEvidence.putIfAbsent(Bytes.hex(owner.key()),owner);
             if(previous!=null&&!Arrays.equals(previous.canonicalBytes(),owner.canonicalBytes()))throw new IllegalStateException("duplicate recovery evidence owner");
         }
-        void payloadObjectIntent(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord record){payloadObjectIntents.put(Bytes.hex(record.expectedOwner().messageId().bytes()),record);}
+        void payloadObjectIntent(com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord record){ensureMutable();payloadObjectIntents.put(Bytes.hex(record.expectedOwner().messageId().bytes()),record);}
         void retirement(com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord record) {
+            ensureMutable();
             if(retirements.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target retiring identity");
         }
         void evidenceConfirmation(com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord record) {
+            ensureMutable();
             if(evidenceConfirmations.putIfAbsent(Bytes.hex(record.key()),record)!=null)
                 throw new IllegalStateException("duplicate Target confirmed identity");
         }
         void historyTip(com.nereusstream.delay.protocol.TargetRetirementHistoryTipRecord record){
+            ensureMutable();
             if(historyTips.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate accepted history tip scope");
         }
         void sourceHistory(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord record){
+            ensureMutable();
             if(sourceHistories.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate retirement Source history");
         }
         void scopeNativeRow(TargetScopeNativeUsageAudit.Row row){
+            ensureMutable();
             if(scopeNativeRows.putIfAbsent(Bytes.hex(row.key()),row)!=null)
                 throw new IllegalStateException("duplicate actual Scope Native row");
         }
         void sloState(com.nereusstream.delay.protocol.TargetSloObservationState record) {
+            ensureMutable();
             if(sloStates.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO current state");
         }
         void sloGeneration(com.nereusstream.delay.protocol.TargetSloObservationGeneration record) {
+            ensureMutable();
             if(sloGenerations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO generation");
         }
         void sloCustody(com.nereusstream.delay.protocol.TargetSloCustodyRecord record){
+            ensureMutable();
             if(sloCustodies.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate exact Target custody version");
         }
         void sloWriterEpoch(TargetSloWriterEpoch record){
+            ensureMutable();
             if(sloWriterEpochs.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate original SLO writer epoch");
         }
         void parentCredit(TargetParentControlCredit record){
+            ensureMutable();
             Objects.requireNonNull(record);
             if(parentCredits.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate original parent Control credit");
             final var grant=record.actualPayerGrant();
@@ -1428,35 +1800,57 @@ public final class TargetCheckpointDependencies {
                 throw new IllegalStateException("parent Control credits disagree on their original Native SHARD grant activation");
         }
         void scopeObligation(TargetScopeControlObligation record){
+            ensureMutable();
             Objects.requireNonNull(record);
             if(scopeObligations.putIfAbsent(Bytes.hex(record.headerReference().scopeId()),record)!=null)
                 throw new IllegalStateException("duplicate original Scope Control obligation");
         }
         void sloEvent(com.nereusstream.delay.protocol.TargetSloObservationEventRecord record) {
+            ensureMutable();
             if(sloEvents.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO Source event");
         }
         void sloSample(com.nereusstream.delay.protocol.TargetSloObservationSample record) {
+            ensureMutable();
             if(sloSamples.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO sample");
         }
         void migrationAttempt(com.nereusstream.delay.protocol.TargetMigrationActivationAttempt record){
+            ensureMutable();
             if(migrationAttempt!=null)throw new IllegalStateException("duplicate durable migration intent"); migrationAttempt=record;
         }
         void migrationPrefix(com.nereusstream.delay.protocol.TargetMigrationPrefixRecord record){
+            ensureMutable();
             if(migrationPrefixes.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration prefix");
         }
         void migrationRoot(com.nereusstream.delay.protocol.TargetMigrationRoot record){
+            ensureMutable();
             if(migrationRoot!=null)throw new IllegalStateException("duplicate migration root"); migrationRoot=record;
         }
+        void migrationRetirement(com.nereusstream.delay.protocol.TargetMigrationRetirementRecord record){
+            ensureMutable();
+            if(migrationRetirement!=null)throw new IllegalStateException("duplicate migration retirement fact"); migrationRetirement=record;
+        }
+        void migrationArchive(com.nereusstream.delay.protocol.TargetMigrationArchiveRow row){
+            ensureMutable();if(migrationArchives.putIfAbsent(Bytes.hex(row.key()),row)!=null)
+                throw new IllegalStateException("duplicate original logical archive identity");
+        }
+        void migrationArchiveState(com.nereusstream.delay.protocol.TargetMigrationArchiveState state){
+            ensureMutable();if(migrationArchiveStates.putIfAbsent(Bytes.hex(state.key()),state)!=null)
+                throw new IllegalStateException("duplicate actual archive head/history identity");
+        }
         void migrationOrigin(com.nereusstream.delay.protocol.TargetMigrationOrigin record){
+            ensureMutable();
             if(migrationOrigins.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration origin");
         }
         void migrationGuard(com.nereusstream.delay.protocol.TargetMigrationCustodyGuard record){
+            ensureMutable();
             if(migrationGuards.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration custody");
         }
         void protocolActivation(com.nereusstream.delay.protocol.TargetProtocolActivationRecord record){
+            ensureMutable();
             if(protocolActivations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target protocol activation");
         }
         void kafkaMapping(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
+            ensureMutable();
             final String attempt = Bytes.hex(mapping.admission().publishAttemptId());
             final var previous = kafkaMappings.putIfAbsent(attempt, mapping);
             if (previous != null && !Arrays.equals(previous.canonicalBytes(), mapping.canonicalBytes())) {
@@ -1465,10 +1859,12 @@ public final class TargetCheckpointDependencies {
         }
 
         void control(ColumnFamily family, byte[] key, int type, byte[] payload) {
+            ensureMutable();
             controls.put(family.rocksName() + '/' + Bytes.hex(key), new StoredControl(family, key, type, payload));
         }
 
         void controlResult(TargetResultRecord first) {
+            ensureMutable();
             final var result = SystemMutationResult.decode(first.typedPayload());
             if (first.kind() != TargetResultRecord.Kind.SYSTEM
                     || !first.primaryIdentity().equals(root.root().identity())
@@ -1482,6 +1878,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void retirementResult(TargetResultRecord first){
+            ensureMutable();
             final var result=SystemMutationResult.decode(first.typedPayload());
             if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(root.root().identity())
                     ||result.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT&&result.mutationType()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED
@@ -1490,11 +1887,13 @@ public final class TargetCheckpointDependencies {
             retirementResults.put(Bytes.hex(first.key()),first);
         }
         void systemPosition(TargetResultRecord position){
+            ensureMutable();
             if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM)throw new IllegalArgumentException("actual system POSITION required");
             if(systemPositions.putIfAbsent(Bytes.hex(position.key()),position)!=null)throw new IllegalStateException("duplicate physical system POSITION");
         }
 
         void outcomeResult(TargetResultRecord first) {
+            ensureMutable();
             final var result = SystemMutationResult.decode(first.typedPayload());
             if (first.kind() != TargetResultRecord.Kind.SYSTEM
                     || !first.mutation().source().shardId().equals(root.metadata().shardId())
@@ -1506,9 +1905,11 @@ public final class TargetCheckpointDependencies {
         }
 
         void reservation(byte[] key,com.nereusstream.delay.runtime.TargetReservationRecord record){
+            ensureMutable();
             if(reservationProjections.putIfAbsent(Bytes.hex(key),record)!=null)throw new IllegalStateException("duplicate physical Native reservation projection");
         }
         void binding(TargetScheduleBinding binding) {
+            ensureMutable();
             bindings.put(Bytes.hex(binding.digest()), binding);
             profileUse(new ProfileUse(binding.intent().profile(), binding.bindingSource()));
             retryUse(new RetryUse(binding.intent().retryPolicy(), binding.bindingSource()));
@@ -1523,12 +1924,14 @@ public final class TargetCheckpointDependencies {
         }
 
         void membership(TargetMembershipGrant grant) {
+            ensureMutable();
             profileUse(new ProfileUse(grant.memberProfile(), grant.activationSource()));
         }
 
-        void nativeScope(TargetNativePolicyScope scope) { artifact(scope.artifacts().digest()); }
+        void nativeScope(TargetNativePolicyScope scope) { ensureMutable();artifact(scope.artifacts().digest()); }
 
         void admissionImage(AdmissionImage input) {
+            ensureMutable();
             final var body = TargetPublishAdmissionBody.decode(input.image().canonicalBody());
             if (!body.materialized()) {
                 throw new IllegalArgumentException(
@@ -1551,6 +1954,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void profileUse(ProfileUse use) {
+            ensureMutable();
             if (!root.metadata().shardId().equals(use.source().shardId())
                     || !root.source().sameSourceIdentity(use.source()) || root.source().kind() != use.source().kind()) {
                 throw new IllegalArgumentException("Target Profile use belongs to another Source identity");
@@ -1560,6 +1964,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void profile(ProfileRef profile) {
+            ensureMutable();
             final String identity = Bytes.hex(profile.profileId()) + '/' + unsigned(profile.version());
             final var old = profiles.putIfAbsent(identity, profile);
             if (old != null && !old.equals(profile)) {
@@ -1568,6 +1973,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void retry(RetryPolicyRef retry) {
+            ensureMutable();
             final String identity = Bytes.hex(retry.policyId()) + '/' + unsigned(retry.version());
             final var old = retries.putIfAbsent(identity, retry);
             if (old != null && !old.equals(retry)) {
@@ -1576,6 +1982,7 @@ public final class TargetCheckpointDependencies {
         }
 
         void retryUse(RetryUse use) {
+            ensureMutable();
             retry(use.reference());
             if (!root.metadata().shardId().equals(use.source().shardId())) {
                 throw new IllegalArgumentException("Target Retry Policy use belongs to another Source Shard");
@@ -1584,16 +1991,18 @@ public final class TargetCheckpointDependencies {
         }
 
         void trust(PayloadProofTrustSetRef trust) {
+            ensureMutable();
             final var old = trusts.putIfAbsent(unsigned(trust.version()), trust);
             if (old != null && !old.equals(trust)) {
                 throw new IllegalArgumentException("conflicting immutable Target Payload Trust Set version");
             }
         }
 
-        void objectHash(byte[] hash) { objectHashes.put(Bytes.hex(hash), Bytes.copy(hash)); }
-        void artifact(byte[] digest) { artifacts.put(Bytes.hex(digest), Bytes.copy(digest)); }
+        void objectHash(byte[] hash) { ensureMutable();objectHashes.put(Bytes.hex(hash), Bytes.copy(hash)); }
+        void artifact(byte[] digest) { ensureMutable();artifacts.put(Bytes.hex(digest), Bytes.copy(digest)); }
 
         TargetCheckpointDependencies finish(List<Admission> admissions) {
+            ensureMutable();
             return new TargetCheckpointDependencies(this, admissions, admissions.isEmpty());
         }
 

@@ -1061,6 +1061,7 @@ public final class TargetWorkerCheckpointComposition implements AutoCloseable,
         private volatile OwnedCheckpointIo<CutInputs> acquisition;
         private volatile CutInputs original;
         private volatile TargetCheckpointSemanticInputs inputs;
+        private volatile TargetCheckpointSemanticInputs.OriginalAuthorities authenticatedAuthorities;
         private volatile boolean stopped;
         private boolean closeRequested;
         private volatile CompletableFuture<Void> cleanup;
@@ -1094,7 +1095,8 @@ public final class TargetWorkerCheckpointComposition implements AutoCloseable,
             final var attempt = acquisition;
             if (!attempt.operationExited() || !attempt.receipt().isDone()) return Optional.empty();
             final var actual = attempt.receipt().join();
-            return Objects.requireNonNull(actual.authorities()).prepare(controls, outcomes, admissions, dependencies);
+            final var prepared=Objects.requireNonNull(actual.authorities()).prepare(controls, outcomes, admissions, dependencies);
+            prepared.ifPresent(value -> authenticatedAuthorities=value);return prepared;
         }
 
         @Override public TargetCheckpointSemanticInputs.OriginalAuthorities create(
@@ -1109,6 +1111,13 @@ public final class TargetWorkerCheckpointComposition implements AutoCloseable,
             if (original == null || acquisition == null || !acquisition.operationExited())
                 throw unavailable("original checkpoint image authority is pending");
             return original;
+        }
+        void authenticateMigrationImage(TargetCheckpointRootVerifier.LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+            if(proof.dependencies().migrationRoot()==null)return;
+            requireCurrent();final var actual=Objects.requireNonNull(authenticatedAuthorities,"original authenticated Control/material owner");
+            proof.dependencies().requireControlImages(snapshot.controls(),graph.config().checkpoint().semantics().maximumBytes(),
+                    graph.config().checkpoint().newReadBudget(nanos),actual.controls(),this::requireCurrent);
+            actual.controls().migrationPayloadMaterials(proof.dependencies()).requireComplete(proof.dependencies());requireCurrent();
         }
 
         CatalogInitializationAuthority initialization() {
@@ -1165,7 +1174,10 @@ public final class TargetWorkerCheckpointComposition implements AutoCloseable,
             return original;
         }
         @Override public void requireAuthenticated(CheckpointManifest m, TargetCheckpointRootVerifier.LedgerProof p,
-                TargetCheckpointSemanticSnapshot s) { original().requireAuthenticated(m, p, s); }
+                TargetCheckpointSemanticSnapshot s) { original().requireAuthenticated(m, p, s);loan.authenticateMigrationImage(p,s); }
+        @Override public void requirePayloadSummaryInitializationAuthenticated(CheckpointManifest m,TargetCheckpointRootVerifier.LedgerProof p,
+                TargetCheckpointSemanticSnapshot s,com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationRequest request,
+                com.nereusstream.delay.protocol.TargetQuotaMutation at){original().requirePayloadSummaryInitializationAuthenticated(m,p,s,request,at);}
         @Override public void requireLifecycleAuthenticated(CheckpointManifest m, TargetCheckpointRootVerifier.LedgerProof p,
                 TargetCheckpointSemanticSnapshot s) { original().requireLifecycleAuthenticated(m, p, s); }
         @Override public void requireTerminalPoliciesAuthenticated(CheckpointManifest m, TargetCheckpointRootVerifier.LedgerProof p,
@@ -1192,6 +1204,11 @@ public final class TargetWorkerCheckpointComposition implements AutoCloseable,
         @Override public void requireObjectPayloadAcceptanceAuthenticated(CheckpointManifest m, TargetCheckpointRootVerifier.LedgerProof p,
                 TargetCheckpointSemanticSnapshot s, com.nereusstream.delay.protocol.TargetResourceReclaimBody b) {
             original().requireObjectPayloadAcceptanceAuthenticated(m, p, s, b);
+        }
+        @Override public com.nereusstream.delay.store.TargetMigrationPayloadMaterials migrationPayloadMaterials(CheckpointManifest m,TargetCheckpointRootVerifier.LedgerProof p,TargetCheckpointSemanticSnapshot s){
+            loan.requireCurrent();
+            final var authorities=Objects.requireNonNull(loan.authenticatedAuthorities,"original complete checkpoint Control authorities");
+            return authorities.controls().migrationPayloadMaterials(p.dependencies());
         }
         @Override public com.nereusstream.delay.protocol.TargetUncommittedPayloadFacts uncommittedPayloadFacts(
                 CheckpointManifest m, TargetCheckpointRootVerifier.LedgerProof p, TargetCheckpointSemanticSnapshot s,

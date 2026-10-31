@@ -276,7 +276,17 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
-            case ACTIVATE_TARGET_MIGRATION, SETTLE_TARGET_MIGRATION_CUSTODY -> {
+            case INITIALIZE_TARGET_PAYLOAD_SUMMARY -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var initialization = branch(request, TargetPayloadSummaryInitializationRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst().shard().shardId().equals(initialization.scope().shard()))
+                    throw new IllegalArgumentException("payload summary initialization requires its exact original Source Shard at index zero");
+            }
+            case ACTIVATE_TARGET_MIGRATION, SETTLE_TARGET_MIGRATION_CUSTODY, MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE,
+                    RETIRE_TARGET_MIGRATION, CONFIRM_TARGET_MIGRATION_RETIRED -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);
                 requireMutationPresence(values, ControlTargetKind.SHARD, true);

@@ -62,6 +62,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private KafkaSourcePosition lastDeliveredPosition;
     private SourceReplayEntry lastDeliveredEntry;
     private com.nereusstream.delay.ownership.TargetOwnedBackendGroup migrationBackend;
+    private com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
     private boolean closed;
     private boolean failed;
 
@@ -100,7 +101,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
                 throw new IllegalArgumentException("recovery reader exceeds the original Source frame envelope");
             }
-            final var last = startup.auditedRecoveryCut();
+            final var last = startup.recoveryReaderCut();
             if (!(last instanceof KafkaSourcePosition position) || position.offset() < 0) {
                 throw new IllegalArgumentException("actual recovery Store lacks its K1 Source cut");
             }
@@ -109,6 +110,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                     () -> { startup.requireCurrent(); originalProtection.run(); }, budget, allocationId,
                     maximumConnections, cost, graph.classes(), graph.resources());
             cursor.positionedAnchor = position;
+            cursor.sourceStartup = startup;
             startup.retainRecoverySource(cursor); original.requireCurrent();
             return cursor;
         } catch (com.nereusstream.delay.ownership.TargetSdkCleanupFailure partial) {
@@ -160,7 +162,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
 
     /** The original migration owner has already registered the SDK construction before this synchronous open. */
     static KafkaClientArtifactRecoverySourceCursor openForMigration(
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            com.nereusstream.delay.ownership.TargetMigrationSourceOpening opening,
             com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend, java.util.Map<String,Object> operational,
             byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             KafkaSourcePosition actualCut, Duration pollTimeout, int maximumFrameBytes,
@@ -528,6 +530,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                 consumer.closeGuardedResources(pollTimeout);
                 if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete");
                 current = null;
+                lastDeliveredEntry = null;
                 buffered.clear();
             }
             else { consumer.close(); }
@@ -567,7 +570,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
     }
     @Override public synchronized void requireReaderBinding(SourceAssignment expected, SourcePosition positionedCut) {
-        if (migrationBackend == null || verifiedCredential == null || allocation == null || allocation.released()
+        if (migrationBackend == null && sourceStartup == null || verifiedCredential == null || allocation == null || allocation.released()
                 || positionedAnchor == null || !assignment.sameIdentity(expected)
                 || !java.util.Arrays.equals(positionedAnchor.canonicalBytes(), positionedCut.canonicalBytes())) {
             throw new IllegalStateException("migration K1 reader changed its original independent Source binding");

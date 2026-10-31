@@ -187,6 +187,15 @@ public final class TargetWorkerProcessRuntime {
     private final java.util.Set<TargetMigrationProcessDriver> migrationReservations =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private long migrationInputBytes;
+    private final java.util.Map<ShardId, MigrationMaintenanceAdmission> migrationMaintenance = new java.util.LinkedHashMap<>();
+    private long migrationMaintenanceInputBytes;
+    private int migrationMaintenanceRotation;
+    private final java.util.Map<ShardId, PayloadSummaryAdmission> payloadSummaryMaintenance = new java.util.LinkedHashMap<>();
+    private final java.util.Map<TargetWorkerSourceStartup, PayloadSummaryPrefixInputs> payloadSummaryPrefixes = new java.util.IdentityHashMap<>();
+    private long payloadSummaryInputBytes, payloadSummaryPrefixInputBytes;
+    private int payloadSummaryRotation;
+    private final java.util.Map<TargetWorkerSourceStartup, WriterOriginInputs> writerOriginInputs = new java.util.IdentityHashMap<>();
+    private long writerOriginInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private TargetWorkerHostRuntime.PreparationAttempt hostPreparation;
@@ -458,8 +467,329 @@ public final class TargetWorkerProcessRuntime {
 
     /** The original metric queue/context charge shares the existing process input heap envelope. */
     private long maximumInputHeapBytes() {
-        return Math.subtractExact(Math.subtractExact(configuration.worker().resources().certifiedJvmHeapBytes(),
-                configuration.maximumMetricRetainedHeapBytes()), migrationInputBytes);
+        return Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(
+                configuration.worker().resources().certifiedJvmHeapBytes(), configuration.maximumMetricRetainedHeapBytes()),
+                migrationInputBytes), migrationMaintenanceInputBytes), payloadSummaryInputBytes), payloadSummaryPrefixInputBytes), writerOriginInputBytes);
+    }
+    synchronized WriterOriginInputs reserveWriterOrigin(TargetWorkerSourceStartup source, long bytes) {
+        requireSourceAssemblyAdmission(source);
+        if (bytes < 1 || bytes == Long.MAX_VALUE || writerOriginInputs.containsKey(source)
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes),
+                        checkpointInputBytes), bytes) > maximumInputHeapBytes())
+            throw new IllegalStateException("actual Source writer preparation window exceeds its original Process input envelope");
+        final var token = new WriterOriginInputs(this, source, bytes); writerOriginInputs.put(source, token);
+        writerOriginInputBytes = Math.addExact(writerOriginInputBytes, bytes); return token;
+    }
+    static final class WriterOriginInputs {
+        private final TargetWorkerProcessRuntime process; private final TargetWorkerSourceStartup source; private final long bytes;
+        private WriterOriginInputs(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source, long bytes) {
+            this.process = process; this.source = source; this.bytes = bytes;
+        }
+        void release() {
+            synchronized (process) {
+                if (!process.writerOriginInputs.remove(source, this)) throw new IllegalStateException("writer history preparation changed its original owner");
+                process.writerOriginInputBytes = Math.subtractExact(process.writerOriginInputBytes, bytes);
+            }
+        }
+    }
+
+    synchronized PayloadSummaryPrefixInputs reservePayloadSummaryPrefix(TargetWorkerSourceStartup source, long bytes) {
+        requireSourceAssemblyAdmission(source);
+        if (bytes < 1 || bytes == Long.MAX_VALUE || payloadSummaryPrefixes.containsKey(source)
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes),
+                        checkpointInputBytes), bytes) > maximumInputHeapBytes())
+            throw new IllegalStateException("original controlled prefix exceeds the actual Process retained-input envelope");
+        final var original = new PayloadSummaryPrefixInputs(this, source, bytes);
+        payloadSummaryPrefixes.put(source, original); payloadSummaryPrefixInputBytes = Math.addExact(payloadSummaryPrefixInputBytes, bytes);
+        return original;
+    }
+    static final class PayloadSummaryPrefixInputs {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private final long bytes;
+        private boolean released;
+        private PayloadSummaryPrefixInputs(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source, long bytes) {
+            this.process = process; this.source = source; this.bytes = bytes;
+        }
+        void requireCurrent() {
+            synchronized (process) {
+                if (released || process.payloadSummaryPrefixes.get(source) != this)
+                    throw new IllegalStateException("actual controlled prefix input share was released");
+            }
+        }
+        void release() {
+            synchronized (process) {
+                if (released || !process.payloadSummaryPrefixes.remove(source, this))
+                    throw new IllegalStateException("controlled prefix release changed its original Source owner");
+                released = true; process.payloadSummaryPrefixInputBytes = Math.subtractExact(process.payloadSummaryPrefixInputBytes, bytes);
+            }
+        }
+    }
+
+    synchronized TargetPayloadSummaryInitializationMaintenance configurePayloadSummaryInitialization(TargetWorkerSourceStartup source,
+            TargetWorkerShardRuntime worker, OwnedSourceSystemWriter writer,
+            TargetPayloadSummaryInitializationMaintenance.Configuration requested,
+            TargetPayloadSummaryInitializationMaintenance.Inputs.Provider provider) {
+        requireSourceAssemblyAdmission(source); source.requireAdmittedWorker(worker);
+        if (sources.get(requested.scope().shard()) != source || !source.sourceScopeForExitBinding().equals(requested.scope())
+                || writer.sourceWriterWorker() != worker || payloadSummaryMaintenance.containsKey(requested.scope().shard())
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes),
+                        checkpointInputBytes), requested.maximumRetainedBytes()) > maximumInputHeapBytes())
+            throw new IllegalStateException("summary initialization lacks actual Process/Worker/Source-writer/finite input ownership");
+        final var original = new PayloadSummaryAdmission(this, source, worker, writer, requested);
+        final var actual = new TargetPayloadSummaryInitializationMaintenance(original, requested, provider, nanos);
+        original.maintenance = actual; payloadSummaryMaintenance.put(requested.scope().shard(), original);
+        payloadSummaryInputBytes = Math.addExact(payloadSummaryInputBytes, requested.maximumRetainedBytes()); return actual;
+    }
+    private static final class PayloadSummaryAdmission implements TargetPayloadSummaryInitializationMaintenance.Admission {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private final TargetWorkerShardRuntime worker;
+        private final OwnedSourceSystemWriter writer;
+        private final TargetPayloadSummaryInitializationMaintenance.Configuration configuration;
+        private final com.nereusstream.delay.store.TargetStoreBackend backend;
+        private final OwnerIdentity identity;
+        private final Runnable localOwner;
+        private TargetPayloadSummaryInitializationMaintenance maintenance;
+        private boolean released;
+        PayloadSummaryAdmission(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source,
+                TargetWorkerShardRuntime worker, OwnedSourceSystemWriter writer,
+                TargetPayloadSummaryInitializationMaintenance.Configuration configuration) {
+            this.process = process; this.source = source; this.worker = worker; this.writer = writer; this.configuration = configuration;
+            backend = source.migrationMaintenanceBackend(worker); identity = source.migrationMaintenanceOwner(worker);
+            localOwner = source.managementMaintenanceLocalToken(worker, identity);
+        }
+        @Override public Assembly graph() { return source.graph(); }
+        @Override public TargetWorkerShardRuntime worker() { return worker; }
+        @Override public com.nereusstream.delay.store.ShardStore store() { return source.store(); }
+        @Override public com.nereusstream.delay.store.TargetStoreBackend backend() { return backend; }
+        @Override public com.nereusstream.delay.store.TargetStoreBackend.ReadAuthority reads() { return source.payloadSummaryMaintenanceReads(maintenance, worker); }
+        @Override public OwnedSourceSystemWriter writer() { return writer; }
+        @Override public OwnerIdentity ownerIdentity() { return identity; }
+        @Override public long reservedBytes() { return configuration.maximumRetainedBytes(); }
+        @Override public void requireCurrent(TargetPayloadSummaryInitializationMaintenance actual) {
+            process.requirePayloadSummaryMaintenance(source, worker, actual); source.requirePayloadSummaryMaintenanceCurrent(actual, worker); localOwner.run();
+        }
+        @Override public void requireLocalCurrent(TargetPayloadSummaryInitializationMaintenance actual) {
+            process.requirePayloadSummaryMaintenance(source, worker, actual); localOwner.run();
+        }
+        @Override public void release(TargetPayloadSummaryInitializationMaintenance actual) {
+            synchronized (process) {
+                if (actual != maintenance || released || process.payloadSummaryMaintenance.get(configuration.scope().shard()) != this)
+                    throw new IllegalStateException("summary initialization release changed its original Process owner");
+                released = true; process.payloadSummaryInputBytes = Math.subtractExact(process.payloadSummaryInputBytes, configuration.maximumRetainedBytes());
+            }
+        }
+    }
+    void requirePayloadSummaryMaintenance(TargetWorkerSourceStartup source, TargetWorkerShardRuntime worker,
+            TargetPayloadSummaryInitializationMaintenance actual) {
+        final TargetWorkerHostRuntime current;
+        synchronized (this) {
+            final var original = payloadSummaryMaintenance.get(source.sourceScopeForExitBinding().shard());
+            if (stopping || resourcesClosed || controlledStartupFailure != null || receiptManagementFailed
+                    || original == null || original.source != source || original.worker != worker || original.maintenance != actual
+                    || original.released || sources.get(worker.shardId()) != source
+                    || host == null || !hostTransferred)
+                throw new IllegalStateException("platform summary initialization lost its actual Process/Source/Host input ownership");
+            current = host;
+        }
+        if (!current.migrationMaintenanceAdmitted(worker)) throw new IllegalStateException("Host no longer admits this actual platform upgrade Worker");
+    }
+    void runNextPayloadSummaryMaintenanceTurn() {
+        final PayloadSummaryAdmission next;
+        final TargetWorkerHostRuntime current;
+        synchronized (this) {
+            if (stopping || host == null || !hostTransferred || payloadSummaryMaintenance.isEmpty()) return;
+            final var all = new ArrayList<>(payloadSummaryMaintenance.values());
+            next = all.get(Math.floorMod(payloadSummaryRotation++, all.size())); current = host;
+        }
+        if (!next.maintenance.ioExited() && current.migrationMaintenanceAdmitted(next.worker)) next.maintenance.runTurn();
+    }
+
+    /** Registers finite live custody before Host transfer; its SDK acquisition occurs on ordinary maintenance I/O. */
+    synchronized TargetMigrationMaintenance configureMigrationMaintenance(TargetWorkerSourceStartup source,
+            TargetWorkerShardRuntime worker, TargetMigrationMaintenanceConfiguration requested,
+            TargetMigrationMaintenanceInputs.Provider provider, TargetDestinationSdkBudget originalSdk,
+            java.util.function.Function<TargetMigrationSourceOpening, TargetMigrationTransport> transport) {
+        requireSourceAssemblyAdmission(source); source.requireAdmittedWorker(worker); Objects.requireNonNull(requested);
+        final var shard = requested.migration().scope().shard();
+        if (sources.get(shard) != source || originalSdk != destinationSdkBudget || migrationMaintenance.containsKey(shard)
+                || !requested.migration().scope().equals(source.sourceScopeForExitBinding())
+                || migrationMaintenance.size() >= configuration.worker().store().maxOwnedShards()
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes), scopeInputBytes),
+                        checkpointInputBytes), requested.maximumRetainedBytes()) > maximumInputHeapBytes())
+            throw new IllegalStateException("live migration lacks its original Process/Source/SDK/input reservation");
+        originalSdk.requireWorker(classes, resources);
+        if (systemWriters == null) systemWriters = configuration.worker().newSystemWriterBudget(classes, resources);
+        final var admitted = new MigrationMaintenanceAdmission(this, source, worker, requested, originalSdk, systemWriters);
+        final var actual = new TargetMigrationMaintenance(admitted, requested, provider, transport, nanos);
+        admitted.maintenance = actual; migrationMaintenance.put(shard, admitted);
+        migrationMaintenanceInputBytes = Math.addExact(migrationMaintenanceInputBytes, requested.maximumRetainedBytes());
+        return actual;
+    }
+
+    private static final class MigrationMaintenanceAdmission implements TargetMigrationMaintenance.Admission {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private final TargetWorkerShardRuntime worker;
+        private final TargetMigrationMaintenanceConfiguration configuration;
+        private final TargetDestinationSdkBudget sdk;
+        private final SystemWriterAppendBudget writers;
+        private final com.nereusstream.delay.store.TargetStoreBackend backend;
+        private final OwnerIdentity identity;
+        private final Runnable localOwner;
+        private TargetMigrationMaintenance maintenance;
+        private Thread construction;
+        private boolean released;
+        private MigrationMaintenanceAdmission(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source,
+                TargetWorkerShardRuntime worker, TargetMigrationMaintenanceConfiguration configuration,
+                TargetDestinationSdkBudget sdk, SystemWriterAppendBudget writers) {
+            this.process = process; this.source = source; this.worker = worker; this.configuration = configuration;
+            this.sdk = sdk; this.writers = writers;
+            backend = source.migrationMaintenanceBackend(worker);
+            identity = source.migrationMaintenanceOwner(worker);
+            localOwner = source.managementMaintenanceLocalToken(worker, identity);
+        }
+        @Override public Assembly graph() { return source.graph(); }
+        @Override public TargetWorkerSourceStartup startup() { return source; }
+        @Override public TargetWorkerShardRuntime worker() { return worker; }
+        @Override public com.nereusstream.delay.store.TargetStoreBackend backend() { return backend; }
+        @Override public com.nereusstream.delay.store.TargetStoreBackend.ReadAuthority reads() { return source.migrationMaintenanceReads(maintenance, worker); }
+        @Override public TargetDestinationSdkBudget sdkBudget() { return sdk; }
+        @Override public SystemWriterAppendBudget systemWriters() { return writers; }
+        @Override public OwnerIdentity ownerIdentity() { return identity; }
+        @Override public LongSupplier clock() { return source.migrationMaintenanceClock(); }
+        @Override public com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.Held openArchive(
+                TargetMigrationMaintenance actual, TargetMigrationMaintenance.Opening opening,
+                com.nereusstream.delay.runtime.TargetMigrationRetirementStore.AppliedIntent intent,
+                com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.Limits limits,
+                com.nereusstream.delay.store.BoundedReadBudget cumulative) {
+            requireCurrent(actual);
+            return process.migrationForMaintenance(this).openArchiveHold(opening, intent, limits, cumulative);
+        }
+        @Override public boolean exitArchive(TargetMigrationMaintenance actual,
+                com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover) {
+            requireCurrent(actual);
+            return process.migrationForMaintenance(this).exitAfterArchiveTakeover(takeover, source.activation().runtime());
+        }
+        @Override public boolean archiveActive(TargetMigrationMaintenance actual,
+                com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover takeover) {
+            requireLocalCurrent(actual);
+            return process.migrationForMaintenance(this).archiveTakeoverActive(takeover, source.activation().runtime());
+        }
+        @Override public long reservedBytes() { return configuration.maximumRetainedBytes(); }
+        @Override public void requireCurrent(TargetMigrationMaintenance actual) {
+            process.requireMigrationMaintenance(this, actual); source.requireMigrationMaintenanceCurrent(actual, worker); localOwner.run();
+        }
+        @Override public void requireLocalCurrent(TargetMigrationMaintenance actual) {
+            process.requireMigrationMaintenance(this, actual); localOwner.run();
+        }
+        @Override public TargetMigrationMaintenance.Construction beginConstruction(TargetMigrationMaintenance actual) {
+            requireCurrent(actual);
+            synchronized (this) {
+                if (construction != null) throw new IllegalStateException("original live SDK acquisition is already owned");
+                construction = Thread.currentThread();
+            }
+            return () -> {
+                synchronized (MigrationMaintenanceAdmission.this) {
+                    if (construction != Thread.currentThread()) throw new IllegalStateException("live SDK acquisition changed its actual I/O owner");
+                    construction = null;
+                }
+            };
+        }
+        @Override public void release(TargetMigrationMaintenance actual) {
+            synchronized (process) {
+                if (maintenance != actual || released || construction != null
+                        || process.migrationMaintenance.get(configuration.migration().scope().shard()) != this)
+                    throw new IllegalStateException("live migration input release changed its original Process acquisition");
+                released = true;
+                process.migrationMaintenanceInputBytes = Math.subtractExact(process.migrationMaintenanceInputBytes, configuration.maximumRetainedBytes());
+            }
+        }
+    }
+
+    private void requireMigrationMaintenance(MigrationMaintenanceAdmission original, TargetMigrationMaintenance actual) {
+        final TargetWorkerHostRuntime current;
+        synchronized (this) {
+            if (stopping || resourcesClosed || controlledStartupFailure != null || receiptManagementFailed
+                    || original.released || original.maintenance != actual
+                    || migrationMaintenance.get(original.configuration.migration().scope().shard()) != original
+                    || sources.get(original.configuration.migration().scope().shard()) != original.source
+                    || !hostTransferred || host == null)
+                throw new IllegalStateException("live migration lost its actual Process/Host/Source/input ownership");
+            current = host;
+        }
+        if (!current.migrationMaintenanceAdmitted(original.worker))
+            throw new IllegalStateException("original Host no longer admits this live migration Worker");
+    }
+    private synchronized TargetMigrationProcessDriver migrationForMaintenance(MigrationMaintenanceAdmission original) {
+        if (migrationMaintenance.get(original.configuration.migration().scope().shard()) != original
+                || sources.get(original.configuration.migration().scope().shard()) != original.source || original.released)
+            throw new IllegalStateException("archive action lost its original Process/Source maintenance acquisition");
+        return Objects.requireNonNull(migrations.get(original.configuration.migration().scope().shard()),
+                "actual original migration Driver for archive and old-only loan exit");
+    }
+    TargetSourceAuthorityLoader.HeldInputs loadMigrationMaintenanceSource(TargetWorkerSourceStartup source,
+            TargetMigrationMaintenanceInputs.Provider provider, SourceReplayMutation entry, Runnable current) {
+        final MigrationMaintenanceAdmission actual;
+        synchronized (this) { actual = migrationMaintenance.get(source.sourceScopeForExitBinding().shard()); }
+        if (actual == null || actual.source != source || actual.released || actual.maintenance.ioExited())
+            return provider.loadSource(entry, current);
+        return actual.maintenance.loadSource(entry, provider, current);
+    }
+    void requireMigrationMaintenance(TargetWorkerSourceStartup source, TargetWorkerShardRuntime worker, TargetMigrationMaintenance actual) {
+        final MigrationMaintenanceAdmission original;
+        synchronized (this) { original = migrationMaintenance.get(source.sourceScopeForExitBinding().shard()); }
+        if (original == null || original.source != source || original.worker != worker)
+            throw new IllegalStateException("live migration changed its original Startup/Worker");
+        requireMigrationMaintenance(original, actual);
+    }
+    /** One original caller per tick, sharing the Host's existing maintenance rotation. */
+    void runNextMigrationMaintenanceTurn() {
+        final MigrationMaintenanceAdmission next;
+        synchronized (this) {
+            if (stopping || host == null || !hostTransferred || migrationMaintenance.isEmpty()) return;
+            final var all = new ArrayList<>(migrationMaintenance.values());
+            next = all.get(Math.floorMod(migrationMaintenanceRotation++, all.size()));
+        }
+        if (next.maintenance.ioExited()) return;
+        if (!host.migrationMaintenanceAdmitted(next.worker)) return;
+        next.maintenance.runTurn();
+    }
+    boolean stopMigrationMaintenanceForWorker(TargetWorkerShardRuntime worker) {
+        final MigrationMaintenanceAdmission original;
+        final PayloadSummaryAdmission summary;
+        synchronized (this) { original = migrationMaintenance.get(worker.shardId()); summary = payloadSummaryMaintenance.get(worker.shardId()); }
+        boolean stopped = true;
+        if (original != null && original.worker == worker && !original.maintenance.ioExited()) {
+            original.maintenance.requestStop(); stopped = original.maintenance.retryCleanup();
+        }
+        if (summary != null && summary.worker == worker && !summary.maintenance.ioExited())
+            stopped &= summary.maintenance.prepareForHostDrain(summary.writer);
+        return stopped;
+    }
+    private boolean closeMigrationMaintenance() {
+        final List<MigrationMaintenanceAdmission> original;
+        synchronized (this) { original = List.copyOf(migrationMaintenance.values()); }
+        boolean done = true;
+        for (var held : original) {
+            try { held.maintenance.requestStop(); done &= held.maintenance.retryCleanup(); }
+            catch (RuntimeException | Error failure) { retain(failure); done = false; }
+        }
+        return done;
+    }
+    private boolean closePayloadSummaryMaintenance() {
+        final List<PayloadSummaryAdmission> original;
+        synchronized (this) { original = List.copyOf(payloadSummaryMaintenance.values()); }
+        boolean done = true;
+        for (var held : original) {
+            try { held.maintenance.requestStop(); held.maintenance.retryCleanup(); done &= held.maintenance.cleanupComplete(); }
+            catch (RuntimeException | Error failure) { retain(failure); done = false; }
+        }
+        return done;
+    }
+    boolean closePayloadSummaryMaintenanceForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
+        permit.requireOriginalRoot(oxia); return closePayloadSummaryMaintenance();
     }
 
     /** Maintenance runs before the normal Source constructor on this same bounded Process graph. */
@@ -479,6 +809,70 @@ public final class TargetWorkerProcessRuntime {
         migrations.put(request.scope().shard(), driver); migrationReservations.add(driver);
         migrationInputBytes = Math.addExact(migrationInputBytes, request.maximumRetainedBytes());
         return driver;
+    }
+
+    /** Registers only the recovery custody owner; the already activated Native root is read after actual open/install. */
+    public synchronized TargetMigrationProcessDriver recoverMigrationCompatibility(TargetMigrationConfiguration request,
+            TargetWorkerSourceStartup.Owner owner, TargetMigrationInputs.Provider provider,
+            TargetDestinationSdkBudget originalSdk) {
+        final var original = beginMigration(request, owner, provider, originalSdk);
+        original.recoverCompatibility(); return original;
+    }
+
+    void bindMigrationRoot(TargetWorkerSourceStartup source, com.nereusstream.delay.store.ShardStore actual,
+            com.nereusstream.delay.protocol.TargetMigrationRoot root) {
+        final TargetMigrationProcessDriver original;
+        synchronized (this) {
+            requireSourceAssemblyAdmission(source);
+            original = migrations.get(source.sourceScopeForExitBinding().shard());
+        }
+        if (root == null) {
+            if (original != null && original.compatibilityRecovery())
+                throw new IllegalStateException("configured compatibility recovery has no actual Native migration root");
+            return;
+        }
+        if (original == null)
+            throw new IllegalStateException("migrated Source requires its original protected compatibility input provider");
+        if (original.compatibilityRecovery()) original.attachReopened(source, actual, root);
+    }
+
+    private synchronized TargetMigrationProcessDriver migrationRecovery(TargetWorkerSourceStartup source) {
+        requireSourceAssemblyAdmission(source);
+        final var original = migrations.get(source.sourceScopeForExitBinding().shard());
+        return original != null && original.compatibilityRecovery() ? original : null;
+    }
+
+    boolean prepareMigrationRecovery(TargetWorkerSourceStartup source) {
+        final var original = migrationRecovery(source);
+        return original == null || original.prepareCompatibilityRecovery();
+    }
+
+    boolean migrationHistoryRequired(TargetWorkerSourceStartup source) {
+        final var original = migrationRecovery(source); return original != null && original.historyRequired();
+    }
+
+    com.nereusstream.delay.protocol.SourcePosition migrationReaderCut(TargetWorkerSourceStartup source) {
+        final var original = migrationRecovery(source);
+        return original != null && original.historyRequired() ? original.recoveryReaderCut() : null;
+    }
+
+    boolean advanceMigrationHistory(TargetWorkerSourceStartup source, TargetWorkerRecoverySource reader) {
+        final var original = migrationRecovery(source);
+        if (original == null) throw new IllegalStateException("actual history reader has no registered compatibility recovery");
+        return original.advanceHistory(reader);
+    }
+
+    void requireMigrationRecoveryAdmission(TargetMigrationProcessDriver original, TargetWorkerSourceStartup source,
+            com.nereusstream.delay.store.ShardStore actual) {
+        synchronized (this) {
+            if (stopping || resourcesClosed || host != null || hostPreparationStarted
+                    || migrations.get(original.configuration().scope().shard()) != original
+                    || !migrationReservations.contains(original)
+                    || sources.get(original.configuration().scope().shard()) != source)
+                throw new IllegalStateException("compatibility recovery lost its original Process/Source/reservation");
+        }
+        if (source == null || !source.hasMigrationStore(actual))
+            throw new IllegalStateException("compatibility recovery changed its actual opened Source Store");
     }
 
     synchronized void requireMigrationAdmission(TargetMigrationProcessDriver original) {
@@ -529,7 +923,8 @@ public final class TargetWorkerProcessRuntime {
     private void requireMigrationAdopted(ShardId shard) {
         final var migration = migrations.get(shard);
         if (migration != null) {
-            if (!migration.serviceAdmitted()) throw new IllegalStateException("original migration has not adopted actual Source A");
+            if (!migration.compatibilityRecovery() && !migration.serviceAdmitted())
+                throw new IllegalStateException("original migration has not adopted actual Source A");
         }
     }
 
@@ -1175,6 +1570,7 @@ public final class TargetWorkerProcessRuntime {
     /** Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread. */
     public void retryCleanup() {
         synchronized (this) { if (!stopping || !dependenciesExited || resourcesClosed) return; }
+        if (!closeMigrationMaintenance() || !closePayloadSummaryMaintenance()) return;
         if (!closeMigrationsAfterDependencies()) return;
         if (!closeCheckpointCompositionsAfterDependencies()) return;
         if (!closeReceiptManagementAfterDependencies()) return;
@@ -1194,7 +1590,8 @@ public final class TargetWorkerProcessRuntime {
             if (checkpointInputBytes != 0 || !channelInputs.isEmpty() || channelInputBytes != 0
                     || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
                     || !scopeInputs.isEmpty() || scopeInputBytes != 0
-                    || !migrationReservations.isEmpty() || migrationInputBytes != 0) return;
+                    || !migrationReservations.isEmpty() || migrationInputBytes != 0 || migrationMaintenanceInputBytes != 0
+                    || payloadSummaryInputBytes != 0 || payloadSummaryPrefixInputBytes != 0 || writerOriginInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

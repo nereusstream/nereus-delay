@@ -73,6 +73,8 @@ public final class TargetKeyCodec {
     public static final int MIGRATION_PREFIX_TAG = 62;
     public static final int MIGRATION_ACTIVATION_ATTEMPT_TAG = 63;
     public static final int MIGRATION_SHADOW_PROGRESS_TAG = 64;
+    public static final int MIGRATION_RETIREMENT_TAG = 65;
+    public static final int MIGRATION_ARCHIVE_TAG = 66;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

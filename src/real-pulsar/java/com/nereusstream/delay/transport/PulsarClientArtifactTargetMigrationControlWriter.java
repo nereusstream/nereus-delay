@@ -6,9 +6,11 @@ import com.nereusstream.delay.ownership.ShardLogMutationAppender;
 import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
 import com.nereusstream.delay.ownership.SystemWriterAppendBudget;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
+import com.nereusstream.delay.ownership.TargetMigrationAppendPermit;
 import com.nereusstream.delay.ownership.TargetMigrationControlWriter;
 import com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory;
 import com.nereusstream.delay.ownership.TargetMigrationProcessDriver;
+import com.nereusstream.delay.ownership.TargetMigrationSourceOpening;
 import com.nereusstream.delay.ownership.TargetScopeExposureSource;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.TargetMigrationControlBody;
@@ -31,7 +33,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 /** Independent migration CONTROL producer retained on the original guarded P1 Source client. */
 public final class PulsarClientArtifactTargetMigrationControlWriter implements TargetMigrationControlWriter {
     private final Object gate = new Object();
-    private final TargetMigrationProcessDriver.Opening opening;
+    private final TargetMigrationSourceOpening opening;
     private final PulsarClientArtifactOwnedBackendGroup group;
     private final PulsarClient client;
     private final PulsarClientArtifactRecoverySourceCursor reader;
@@ -52,7 +54,7 @@ public final class PulsarClientArtifactTargetMigrationControlWriter implements T
     private boolean nativeClosed, untrackedSdkOutcome, released;
     private int activeAppends, activeNativeCalls;
 
-    private PulsarClientArtifactTargetMigrationControlWriter(TargetMigrationProcessDriver.Opening opening,
+    private PulsarClientArtifactTargetMigrationControlWriter(TargetMigrationSourceOpening opening,
             PulsarClientArtifactOwnedBackendGroup group, PulsarClient client,
             PulsarClientArtifactRecoverySourceCursor reader, GuardedConsumer<byte[]> source,
             LocalBrokerMtlsResolver.SourceReceipt credential, Supplier<TrustedUtcIntervalEvidence> time,
@@ -74,7 +76,7 @@ public final class PulsarClientArtifactTargetMigrationControlWriter implements T
 
     /** Runs in the already-owned strict preparation I/O task; no nested submission to that executor is made. */
     public static PulsarClientArtifactTargetMigrationControlWriter open(String allocationId,
-            TargetMigrationProcessDriver.Opening opening, PulsarClientArtifactOwnedBackendGroup group,
+            TargetMigrationSourceOpening opening, PulsarClientArtifactOwnedBackendGroup group,
             Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, TargetDestinationSdkBudget budget,
             CapacityVector cost, LocalBrokerMtlsResolver.SourceReceipt credential,
             PulsarClientArtifactRecoverySourceCursor reader) {
@@ -182,7 +184,7 @@ public final class PulsarClientArtifactTargetMigrationControlWriter implements T
         }
     }
 
-    @Override public void requireBinding(TargetMigrationProcessDriver.Opening expected) {
+    @Override public void requireBinding(TargetMigrationSourceOpening expected) {
         if (opening != expected) throw new IllegalStateException("migration CONTROL writer changed its original input opening");
     }
     @Override public PulsarClientArtifactOwnedBackendGroup backend() { return group; }
@@ -196,7 +198,7 @@ public final class PulsarClientArtifactTargetMigrationControlWriter implements T
     }
 
     @Override public ShardLogMutationAppender.AppendOutcome append(TargetMigrationControlMutationFactory.Prepared exact,
-            TargetMigrationProcessDriver.AppendPermit permit) {
+            TargetMigrationAppendPermit permit) {
         Objects.requireNonNull(exact);
         if (exact.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL
                 || !TargetMigrationControlBody.decode(exact.mutation().canonicalBody()).request().scope().equals(opening.configuration().scope())) {
@@ -225,7 +227,7 @@ public final class PulsarClientArtifactTargetMigrationControlWriter implements T
     /** Called only from the existing SystemWriter SDK handoff, after the authoritative Root checks above. */
     CompletableFuture<MessageId> nativeSend(PulsarClientArtifactShardLogMutationAppender original,
             Producer<?> actual, TargetMigrationControlMutationFactory.Prepared exact,
-            TargetMigrationProcessDriver.AppendPermit permit, Supplier<CompletableFuture<MessageId>> send) {
+            TargetMigrationAppendPermit permit, Supplier<CompletableFuture<MessageId>> send) {
         synchronized (gate) {
             if (appender != original || producer != actual || activeAppends == 0 || closeRequested || nativeClosed) {
                 throw new IllegalStateException("migration CONTROL SEND changed its original native producer/call");

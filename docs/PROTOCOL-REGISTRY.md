@@ -6550,7 +6550,236 @@ Schedule membership. The old applier only handles entities genuinely still owned
 it cannot overwrite Native Claim/Admission/Reschedule state. An original pre-C legacy first remains
 in its original retained result/custody and must not be fabricated as a Target baseline first.
 
-These codec reservations do not raise descriptor maximum14, advertised Native56, validation flags,
+The preceding migration codec reservations alone do not raise the old descriptor1–14 matrix, advertised Native56, validation flags,
 deployment/resource qualification or production authority. Full resources/JVM peak qualification,
 real old-writer fencing, migration/restore/conservation validation and environment retirement remain
 separate requirements; no environment migration, deletion or protection release is authorized here.
+
+Migrated OBJECT acceptance and uncommitted reservation retirement use distinct closed Source bodies:
+
+| Reader / Source tuple | TARGET_RESOURCE_RECLAIM field9 | Retained deletion grant |
+| --- | --- | --- |
+| `(1,1,SYSTEM_MUTATION,1,30)` | 18, migrated committed OBJECT | original OBJECT tuple13 |
+| `(1,1,SYSTEM_MUTATION,1,31)` | 19, migrated uncommitted OBJECT | original uncommitted tuple14 |
+
+`requiredTuple`30/31 and `authorizationTuple`13/14 are separate. The new bodies do not grant a
+SERVICE a new delete purpose: the original accepted OBJECT/uncommitted activation, full signed
+Source authorization history, actual migration A/Prepared/registration and independently eligible
+readers remain necessary. No new descriptor is inferred from a supported codec or from a tuple in
+a proposed DTO. The old descriptor1–14 matrix and its advertised Native56 remain unchanged; the explicit descriptor15–19 extensions below are separate.
+
+TargetObjectPayloadOrigin schema1 bytes and its ordinary Prepare/Commit first/POS joins are unchanged.
+Its schema2 fields are1 version2,2 kind3 MIGRATED_PREPARE_COMMIT or4 MIGRATED_DIRECT_SCHEDULE,
+3 full frozen imported binding; optional4 actual post-import Commit COMMAND first and5 its actual
+POSITION;6 full committed Native38 for kind3;9 full TargetMigrationPayloadHistory. A baseline already
+COMMITTED reservation has neither4 nor5: its original Commit is complete legacy custody, never an
+invented Target first at C. An imported RESERVED reservation subsequently committed on Target retains
+its real post-A Commit first/POS in4/5. Direct imported OBJECT Schedule has neither reservation nor
+Native first; its original accepted Schedule/ownership remains explicitly authenticated.
+
+TargetUncommittedPayloadFacts schema1 bytes are unchanged. Schema2 fields1 version2,2 full imported
+binding,3 terminal Native38,6 actual terminal causal Frame1,7 actual later accepted closure Fence
+Frame1,8 frozen Retry semantic,9 frozen Terminal semantic,10 full TargetMigrationPayloadHistory.
+Ordinary Prepare first/POS fields4/5 are absent. Migration does not change actual expiry/local-close/
+Cancel causality, Source/local ordinals, retention, Floor coverage, absent Message/Attempt checks,
+original upload closure or provider public-history requirements.
+
+TargetMigrationPayloadHistory1 is bounded by the existing OBJECT intent limit, with fields1
+version1,2 actual Native65 root digest32,3 complete immutable Native66 binding origin,4 repeated
+finite Evidence entries. Each Evidence contains1 registered kind,2 complete exact immutable
+TargetMigrationRecordReference,3 SHA256 of the complete unchanged custody record. The raw bytes remain in the exact immutable
+chunk; the core reads them completely before interpretation and authentication. The only closed inventories
+are six original reservation/binding/receipt/Prepare Source/Prepare first/result records; nine records
+add original Commit Source/first/result for a baseline COMMITTED reservation; four records retain
+binding/original Schedule Source/first/result for a direct OBJECT. Kind numbers are1 RESERVATION,
+2 BINDING,3 RECEIPT,4 PREPARE_SOURCE,5 PREPARE_FIRST,6 PREPARE_RESULT,7 COMMIT_SOURCE,8 COMMIT_FIRST,
+9 COMMIT_RESULT,10 SCHEDULE_SOURCE,11 SCHEDULE_FIRST,12 SCHEDULE_RESULT. These are complete original
+raw records and actual Source frames; no ordinary first, current object layout or fake Source is made.
+
+The core TargetMigrationPayloadMaterials reads the full exact mapping/custody/conservation fixed
+inventories and necessary existing Native68 custody inventories under the original held material,
+compares complete C bytes with its genuinely captured image, checks original closed writers,
+conservation/old fees, original reservation/receipt custody and actual A/first/POS/Native66 owner.
+It freezes only their finite exact references and full-record hashes into the signed intent; it does
+not duplicate large legal original bindings/frames or serialize an unbounded inventory. Image and lifecycle
+cold authentication repeat those actual immutable reads; hashes and successful callbacks alone do
+not establish historical acceptance or deletion ownership. The original Prepare Source and complete
+receipt remain separate from import accounting C/planDigest (or actual prefix S). Original Commit
+proof/Profile/trust semantics and the separate reader/Pin/upload/commit/delete-purpose protections
+remain mandatory. A receipt does not prove that an uploader has exited or that no object can exist.
+
+OBJECT intent operation schema3 carries migrated Origin2 at existing field10; ordinary operation
+schemas1/2 retain their bytes. Uncommitted intent operation schema2 carries migrated Facts2 at
+existing field11; its schema1 is unchanged. Existing Native56 retiring-row schema3/4 retain committed/
+uncommitted migrated intents respectively; ordinary schemas1/2 and the nonrecursive nested-intent
+parser are preserved. Existing Native54 Source-history schemas11/12 distinguish migrated committed/
+uncommitted bodies while retaining the original Source proof, SERVICE grant and actual first/POS.
+No additional Native ledger is allocated. Provider I/O still follows an actually APPLIED intent;
+confirmation retains exact provider/public history and the same one-time Native release/refund batch.
+
+Reserved alongside this work (implemented by the corresponding original owners):
+
+- tuple32 `targetMigrationRetireIntent`, tuple33 `targetMigrationRetireConfirm`; CONTROL operation37/38,
+  APPLY_SHARD_CONTROL kind36/37; Native71 TargetMigrationRetirementRecord, META key tag65. The permanent
+  per-migration RETIRING to RETIRED subrecord retains the actual signed Prepared intent, actual first/POS,
+  exact full retirement inventory and exact confirmation coverage. It does not rewrite Native65 A.
+- tuple34 `targetPayloadObligationSummary`; CONTROL operation39 / Source kind38 reserved for explicit
+  summary initialization under the separately specified original authorization. Native32 schema2 keeps
+  original fields1–18 (1 value2;18 digest) and adds19 nonnegative unresolved count,20 Source-applied
+  initialization stamp,21 origin FRESH1/IMPORTED2/BOOTSTRAP3,22 origin digest32,23 nonzero summary revision,
+  24 last summary Source-applied mutation. Digest input retains the original domain and includes original
+  fields1–17 followed by19–24; encoding keeps18 in its original place. Business mutation/revision remains
+  distinct from summary initialization/count-only changes. Schema1 bytes and fee ceiling stay unchanged.
+
+F2's concrete closed metadata encodings use these fields (schema1 throughout): retirement intent
+fields1 version,2 Shard scope,3 migrationId32,4 planDigest32,5 actual A,6 full frozen retirement
+inventory,7 exact eligible-reader object reference; digest domain
+`nereus-delay-target-migration-retire-intent-v1` plus NUL. Confirmation fields1 version,2 scope,
+3 migrationId32,4 planDigest32,5 exact intent digest32,6 actual intent Source mutation,7 actual Catalog
+barrier receipt, repeated8 exact per-resource receipts,9 complete closure. Closure fields2–8 retain
+noFuture/Pin/query/reader/retention/Source-history/original-fee materials respectively. Inventory
+resources have finite complete coverage (at most128); their shared-retain/transfer/retire/permanent
+classifications do not themselves grant deletion or a replacement counter.
+
+Native71 fields1 version1,2 state RETIRING1/RETIRED2,3 complete original management payer descriptor,
+4 exact intent PreparedControlOperation,5 exact signed intent System envelope,6 actual intent Source
+mutation; RETIRED additionally retains7 exact confirmation Prepared,8 exact confirmation envelope,
+9 actual confirmation Source mutation;10 SHA256 under domain
+`nereus-delay-target-migration-retirement-root-v1` plus NUL over preceding fields. The META key is
+`65 | KEY_FORMAT | migrationId32`. Original Native65 birth, Native71, both actual management first/POS
+pairs and the frozen original resource identities remain permanent. Catalog barrier and provider
+receipts still require their actual original authorities; metadata hashes or caller classification
+cannot authorize resource retirement or transfer.
+
+Explicit reader activation now adds descriptor15→tuple30,16→31,17→32,18→33,19→34. Each has its
+own exact tuple/purpose discriminator and closed codec matrix; no later permission is inferred.
+Descriptor20 is added only by the explicit archive extension below. The matrices declare current Native65–71 readers, Native32 schema2, Native53 activation2,
+Native54 history through12 and Native56 retiring through4. Old descriptor1–14 canonical bytes,
+default descriptor5, their version matrices, `TARGET_NATIVE_MAX=56` and actual default advertisements
+stay unchanged. These codec declarations do not publish capabilities or apply a Source activation.
+ProtocolCapabilityDeclaration adds explicit version4 with at most10 descriptor slots (four original
+plus six new), preserving versions1–3, version3's four-slot cap and the shared32 tuple cap. The
+explicit `extendedTarget` factory selects actual descriptors; it never advertises all tuple numbers.
+
+ACTIVATE_TARGET_PROTOCOL adds payload2: old fields2 scope,3 lineage,4 exact descriptor,5 complete
+reader-set hash retain their meanings; field1 is2 and6 is TargetProtocolTupleAuthorization. Payload1
+retains the original immutable META10 tuple/base whitelist. Native53 adds record2 fields1 version2,
+2 exact signed marker,3 exact registered Prepared,4 actual Source mutation,5 complete original reader
+snapshot,6 existing PublicEvidence1,8 complete RootIssuerEvidence,9 digest in the original Native53
+domain over fields1–6/8. Record1 fields/digest7/bytes and explicit V1 input caps are unchanged.
+The exact original CONTROL/signature/RBAC/scope/registration, complete eligible membership/revision/
+session and binary/SDK/schema locks remain mandatory. Source writes activation+first/POS+State fees
+in the original Native batch. Codec availability or a Worker signature does not establish Root trust.
+
+TargetProtocolTupleAuthorization schema1 is the immutable META10 origin: fields1 version1,2 exact
+Root identity,3 initial snapshot digest32,4 original signed input digest32,5 original grant digest32,
+6 complete original Source mutation including envelope digest,7 Shard scope,8 lineage16,9 exact
+descriptor digest32,10 only this tuple,11 only its base System tuple,12 original issuer key version,
+13 digest32,14 original issuer signature64. Domains are `nereus-delay-target-root-tuple-authorization-v1`
+and `nereus-delay-target-root-tuple-authorization-signature-v1`, each plus NUL. META10/Profiles/other
+permissions are not rewritten or widened. RootIssuerEvidence1 fields1 version1,2 complete immutable
+META10 projection,3 original issuer public key44. That key is public evidence only: the original
+InitialControlAuthority must independently authenticate its historical Source/issuer/pin and exact
+initial Prepared/frame; Source also checks actual META10 and its original first/POS.
+
+Migration Root tuple authorization uses separate schema2. Old META10/grant fields3–6 are absent.
+Common2 Root,7 scope,8 lineage,9 descriptor,10 tuple,11 base,12 issuer version retain those meanings;
+15 actual Native65 digest32,16 plan digest32,17 actual A Source mutation,18 original management
+authority anchor32,19 digest32,20 signature64 bind the accepted migration origin. Its digest domain is
+`nereus-delay-target-migration-root-tuple-authorization-v1` plus NUL; the signature domain above is
+unchanged. RootIssuerEvidence2 fields1 version2,3 independently pinned issuer key44,4 complete actual
+Native65,5 original Native69 attempt digest32. Native Store checks actual A/first/POS, exact root and
+original durable Prepared/registration; cold and Source authenticate complete original management
+materials and the independent issuer policy/pin. The A business signer is not automatically this
+issuer. Only the explicit migration deletion prerequisites descriptor10/11 may additionally use
+payload2 for existing tuple13/14; their old descriptor bytes and independent SERVICE purpose remain.
+
+ACTIVATE migration A2 has required tuple `(1,1,SYSTEM_MUTATION,1,35)`, while A1 retains27. Both use
+CONTROL operation35 / APPLY_SHARD_CONTROL kind34. A2 Control field12 is2 and its request fields1
+version2,2 full unchanged Plan,3 exact sealed C candidate,4 complete signed
+TargetMigrationRootIssuerAuthorization. A1 request/Control schema1 and V1 bounds remain unchanged.
+A2 does not require a nonexistent pre-A Target tuple35 activation and does not activate30–34 itself;
+the original actual eligible-reader/required-generation proof must explicitly cover35 and the
+Native32v2 import reader contract before A2 can enter SDK ownership.
+
+RootIssuerAuthorization1 fields1 version1,2 original deployment authority32,3 original management
+authority digest32,4 migrationId32,5 exact pre-A plan digest32,6 Shard/tenant scope,7 original physical
+Source at C,8 new Store16,9 new DB32,10 new lineage16,11 original issuer identity32,12 issuer key
+version,13 purpose1 (this Root may request these exact reader extensions), repeated14 permitted
+tuples (a sorted subset of13,14,30–34,36; at most8),15 complete bounded original authority/succession
+history,16 digest32,17 independent management signature64. Domains are
+`nereus-delay-migration-root-issuer-authorization-v1` and
+`nereus-delay-migration-root-issuer-authorization-signature-v1`, each plus NUL. The statement is
+signed before A, so it contains neither unknown A position nor final Native65 digest. Actual original
+management authorization must authenticate its deployment/scope/issuer/policy/history and signature;
+a key returned without that purpose/history is insufficient. The signed statement survives in full
+A2/Native65, Native69, formal companion and cold authentication. An A1 Root can extend only when its
+original signed contract and complete continuously protected history already prove that permission;
+missing history is unavailable, never a fresh retroactive grant.
+
+Native65 and Native69 add explicit schema2 for A2, with their existing fields and complete A2 frame;
+their independent v2 digest domains end `migration-root-v2` and `migration-activation-attempt-v2`
+respectively, plus NUL. PREPARED C remains schema1 and immutable. Old A1 bytes and `V1_MAX_*` caps
+remain fixed; A2 caps add its complete statement/Prepared/frame fields explicitly. No new Native
+ledger is allocated. Post-A reader extensions must be covered by the original signed A2 policy,
+actual RootAnchor/Prepared/first/POS and independently authenticated issuer, then receive their own
+real ACTIVATE_TARGET_PROTOCOL Source activation and eligible-reader evidence.
+
+A custody settlement that is the actual last payload-retention cause uses the unchanged Frame1
+SYSTEM branch with its full original kind35 request/Source. INLINE/committed OBJECT history point
+reads the actual permanently settled Native67, exact request ID/kind/plan and same business Source
+stamp, plus the original APPLIED/OK first/POS. It keeps the original Message/Terminal cause and
+summary anchor; settlement is not itself a physical release, provider delete or refund.
+
+The logical-first archive adds tuple `(1,1,SYSTEM_MUTATION,1,36)` via
+`targetMigrationLogicalFirstArchive`, independent CONTROL operation40
+`MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE`, APPLY_SHARD_CONTROL kind39 and ArchiveRequest schema1.
+COPY_BATCH and TAKEOVER are the only management actions in this branch. They retain the original
+F2 intent/scope, independent PLATFORM_OPERATOR management purpose and actual CONTROL signature,
+Prepared registration, Source first/POS and Native accounting. SERVICE permissions, reader ability
+and an archive metadata constructor cannot substitute for that purpose.
+
+Descriptor20 alone selects36 and Native72. Its closed matrix retains common fields1–46, with2 and45
+set to72,41 set to6, and adds47 Native72 schema1,48 Native71 archive-head/history schema2,49 archive
+request schema1. Descriptor1–19 canonical bytes/matrices and default advertisements remain unchanged.
+Declaration v4 now has ten explicit slots: at most four original descriptors and six versions15–20;
+versions1–3 and v3's four-slot limit remain unchanged. The tuple list stays capped at32 entries;
+35/36 are identifiers, not a requirement to publish every preceding number. Root signed policy must
+explicitly permit36; its finite allowed set is13,14,30–34,36 (at most8). An earlier signed policy
+without36 remains unchanged and does not acquire archive permission.
+
+Native72 uses META tag66, KEY_FORMAT1 and the complete original DEDUPE key, retaining its original
+namespace tags1–5 and physical-position namespace3 distinction. The point key has no added migration,
+Target or generation suffix and preserves the original logical conflict domain. Its value binds the
+old Store/physical Source domain, complete exact original bytes/hash/result/tuple/provenance and the
+actual new owner/fees. Logical-first Source and actual archive-materialization Source stamp are
+separate. A compact original lacking a complete Command/first Source retains that absence and its
+actual Manifest/key/raw compact/C-or-prefix provenance; neither C nor a batch stamp becomes a fake
+logical first. Exact protected references retain complete content while it is needed.
+
+Native72 provenance branches distinguish COPY_BATCH (the original Native71 history), LEGACY_PREFIX
+(the complete original Source/frame and actual Native68 proof) and TARGET_FIRST (the actual original
+Native first/POS). Native66 row-origin and Native68 physical-prefix retain their existing meanings.
+Native71 keeps schema1 bytes and adds bounded archive head/history schema2 under the same original
+root key, recording the exact signed batch control, actual Source first/POS, finite coverage and T.
+There is no parallel generic migration/archive ledger.
+
+Under the actual RETIRE intent I, original WorkClass/Owned I/O reads the full required family/range
+inventory in bounded protected turns, retaining actual page continuity/EOF/conflict/count/bytes,
+original result and owner/fees. Each Source COPY_BATCH checks exact prior values and pays its own
+new physical State/first/POS. During copy, genuinely new old-domain firsts maintain archive/tail in
+the same actual Target Source Native batch; old shadow and Target are not cross-DB atomic. Missing
+family/material/ownership coverage remains held.
+
+Actual TAKEOVER T binds I/plan/A/shadow cut, the covered frontier before T, archive root/ranges/count/
+bytes, exact prior values and real new-owner protection acceptance. T precedes final RETIRED R and
+closes the old interpretation/bridge domain; it does not refund, grant object deletion or declare R.
+Normal Source/replay/REOPEN/PUBLISHED/cold choose the durable T domain, point-read original identity
+from archive first and preserve same-ID/hash conflicts/results. Unknown domains or missing content
+cannot default to TARGET. Expired/unallowed physical-only inputs retain their actual contract and
+Native70 PHYSICAL_ONLY semantics, without a fabricated logical first or reconstructed sendable work.
+Only after actual bridge/reader/callback/I/O exits, new custody acceptance and complete resource
+receipts may the old dedicated subloan/DB be returned and R confirmed; shared Source/client/credential
+resources keep their original ownership. Archive/T provenance, first/POS, protection and permanent
+identity/retirement tombstones enter the formal checkpoint and independent cold audit. Fees release
+only on the original exact actual settlement, once, without per-ID double refunds.

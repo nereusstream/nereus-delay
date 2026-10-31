@@ -9,6 +9,7 @@ import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
 import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.QueryCodecSupport;
+import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -60,6 +61,30 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
      * This includes independent management/eligible readers, exact mapping/custody/conservation, added-copy
      * funding, every original C-after Source classification and durable intent. Hashes/row lists are indexes. */
     public interface MigrationMaterials {
+        /** Same original held full bundle; the caller/core performs actual immutable reads, not a yes/no permission check. */
+        default TargetMigrationPayloadMaterials payloadMaterials(){throw new IllegalStateException("original migration holder has no retained payload material");}
+        default void requireComplete(TargetCheckpointDependencies dependencies){payloadMaterials().requireComplete(dependencies);}
+        /** The original pre-A management policy and complete authority/succession history, independently pinned. */
+        default PublicKey authenticateRootIssuerAuthorization(com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization statement,
+                com.nereusstream.delay.protocol.TargetMigrationPlan plan,
+                com.nereusstream.delay.protocol.TargetMigrationActivationAttempt attempt,SourcePosition actualA){
+            throw new IllegalStateException("migration materials lack the original signed A2 Root issuer policy history");
+        }
+        /** Independently pinned issuer of plan.managementAuthorityDigest; the A Source signer is not that authority. */
+        default PublicKey authenticateRootTupleIssuer(com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                com.nereusstream.delay.protocol.TargetMigrationActivationAttempt attempt,
+                com.nereusstream.delay.protocol.TargetProtocolTupleAuthorization authorization,SourcePosition tupleSource){
+            throw new IllegalStateException("migration materials lack the original independently pinned management snapshot issuer");
+        }
+        default void requireRetirementHistorical(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                com.nereusstream.delay.protocol.TargetMigrationRetirementRecord retirement){
+            throw new IllegalStateException("original migration holder lacks actual retirement/Catalog/resource history");
+        }
+        default void requireArchiveHistorical(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+                TargetCheckpointDependencies dependencies){
+            throw new IllegalStateException("original migration holder lacks actual received archive/raw/fee history");
+        }
         void requireCurrent();
         void requireHistorical(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first,
                 com.nereusstream.delay.protocol.TargetMigrationRoot root,
@@ -192,7 +217,68 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         final var materials = Objects.requireNonNull(migrations, "original migration bundle/custody history authority");
         before(); materials.requireCurrent();
         materials.requireHistorical(input, first, actual, origins, guards, originalPrefix, intent);
+        if(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationActivateRequest activation
+                &&activation.rootIssuerAuthorization()!=null){
+            final var statement=activation.rootIssuerAuthorization();statement.requirePlan(actual.plan());
+            final var issuer=Objects.requireNonNull(materials.authenticateRootIssuerAuthorization(statement,actual.plan(),intent,actual.activatedAt().source()),
+                    "original independently pinned A2 management issuer");
+            if(!statement.verifySignature(issuer))throw new IllegalStateException("actual A2 changed its original Root issuer statement signature");
+        }
         materials.requireCurrent(); after(); return authenticated.key();
+    }
+
+    @Override public PublicKey authenticateMigrationRetirement(TargetCheckpointDependencies.ControlImage input,
+            TargetResultRecord first, com.nereusstream.delay.protocol.TargetMigrationRoot root,
+            com.nereusstream.delay.protocol.TargetMigrationRetirementRecord retirement) {
+        final var authenticated=authenticateControl(input,first);
+        if(authenticated==null)return null;
+        final var record=Objects.requireNonNull(retirement,"APPLIED retirement has no actual permanent Native71 record");
+        record.requireRoot(Objects.requireNonNull(root));
+        final var body=com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(input.image().canonicalBody());
+        body.requireInput(input.image());
+        final com.nereusstream.delay.protocol.SystemMutation original;
+        final com.nereusstream.delay.protocol.PreparedControlOperation prepared;
+        final com.nereusstream.delay.protocol.TargetQuotaMutation at;
+        if(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest request){
+            if(!request.equals(record.intention()))throw new IllegalStateException("retirement history changed the full original inventory/member cut");
+            original=record.intentInput();prepared=record.intentControl();at=record.intentAt();
+        }else if(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest request){
+            if(!record.retired()||!request.equals(record.confirmation()))throw new IllegalStateException("retirement history changed actual complete confirmation");
+            request.requireIntent(record.intention(),record.intentAt());
+            original=record.confirmationInput();prepared=record.confirmationControl();at=record.confirmedAt();
+        }else throw new IllegalArgumentException("independent retirement authentication requires intent or confirmation");
+        if(!Arrays.equals(original.canonicalEnvelope(),input.image().canonicalEnvelope())||!first.mutation().equals(at)
+                ||!Arrays.equals(prepared.canonicalBytes(),authenticated.registered().canonicalBytes()))
+            throw new IllegalStateException("retirement Control lost exact original Prepared/frame/Source first");
+        final var materials=Objects.requireNonNull(migrations,"original complete retirement materials");
+        before();materials.requireCurrent();materials.requireRetirementHistorical(input,first,root,record);
+        materials.requireCurrent();after();return authenticated.key();
+    }
+
+    @Override public PublicKey authenticateMigrationArchive(TargetCheckpointDependencies.ControlImage input,TargetResultRecord first,
+            TargetCheckpointDependencies dependencies){
+        final var authenticated=authenticateControl(input,first);if(authenticated==null)return null;
+        final var root=Objects.requireNonNull(dependencies.migrationRoot());final var retirement=Objects.requireNonNull(dependencies.migrationRetirement());
+        final var body=com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(input.image().canonicalBody());body.requireInput(input.image());
+        if(!(body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationArchiveRequest request))throw new IllegalArgumentException("archive Control required");
+        final var step=Objects.requireNonNull(dependencies.migrationArchiveState(com.nereusstream.delay.protocol.TargetMigrationArchiveState.historyKey(
+                root.plan().migrationId(),first.mutation().sequence())),"APPLIED archive Control has no actual permanent Native71 history step");
+        step.requireRetirement(root,retirement);
+        if(!step.request().equals(request)||!Arrays.equals(step.input().canonicalEnvelope(),input.image().canonicalEnvelope())
+                ||!Arrays.equals(step.control().canonicalBytes(),authenticated.registered().canonicalBytes()))
+            throw new IllegalStateException("archive history changed its full exact original Prepared/Source/receipt");
+        final var materials=Objects.requireNonNull(migrations);before();materials.requireCurrent();
+        materials.requireArchiveHistorical(input,first,dependencies);materials.requireCurrent();after();return authenticated.key();
+    }
+
+    /** Reuses the genuinely registered/signed actual A and its original protected material owner. */
+    @Override public TargetMigrationPayloadMaterials migrationPayloadMaterials(TargetCheckpointDependencies d){
+        final var root=Objects.requireNonNull(d.migrationRoot(),"actual migration root");
+        final byte[] key=com.nereusstream.delay.protocol.Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},root.activation().systemMutationId());
+        final var first=Objects.requireNonNull(d.resultRecord(key),"actual A first");
+        if(authenticateMigration(new TargetCheckpointDependencies.ControlImage(root.activatedAt().source(),root.activation()),first,root,d.migrationOrigins(),d.migrationGuards(),d.migrationPrefixes(),d.migrationAttempt())==null)
+            throw new IllegalStateException("migration payload material has no authenticated actual A");
+        final var materials=Objects.requireNonNull(migrations);materials.requireCurrent();final var value=Objects.requireNonNull(materials.payloadMaterials());value.held().requireCurrent();after();return value;
     }
 
     @Override
@@ -427,6 +513,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         }
         snapshot.validateAgainst(dependencies, limits);
         if (dependencies.migrationRoot() != null) {
+            before();Objects.requireNonNull(migrations,"original complete migration materials").requireComplete(dependencies);after();
             final var firsts = new TreeMap<String, TargetResultRecord>();
             dependencies.controlResults().forEach(first -> firsts.put(Bytes.hex(first.logicalId()), first));
             for (var input : dependencies.correlateControlImages(snapshot.controls(), limits.maximumBytes())) {
@@ -501,6 +588,99 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     }
 
     private record AuthenticatedControl(PreparedControlOperation registered, PublicKey key) {}
+
+    /** Uses the same real initial issuer/reader/Profile authority, original Source frame and registration. */
+    public TargetCheckpointLifecycleInputs.Authority withRootTupleIssuer(TargetCheckpointLifecycleInputs.Authority original,
+            TargetStoreBootstrap.InitialControlAuthority initialAuthority,TargetCheckpointDependencies dependencies,
+            List<TargetCheckpointDependencies.ControlImage> originalInputs){
+        return new TargetCheckpointRootTupleAuthority(original,this,initialAuthority,dependencies,originalInputs);
+    }
+    /** Parallel actual-A Root path. It neither creates nor substitutes an ordinary initial META10 snapshot. */
+    public TargetCheckpointLifecycleInputs.Authority withMigrationRootTupleIssuer(TargetCheckpointLifecycleInputs.Authority original,
+            TargetCheckpointDependencies dependencies,List<TargetCheckpointDependencies.ControlImage> originalInputs){
+        Objects.requireNonNull(migrations,"original complete management snapshot material");
+        return new TargetCheckpointRootTupleAuthority(original,this,null,dependencies,originalInputs);
+    }
+    /** Same actual complete protected A image and material owner for the live Source activation provider. */
+    public com.nereusstream.delay.runtime.TargetProtocolActivationStore.RootIssuerAuthority migrationRootTupleIssuer(
+            TargetCheckpointRootVerifier.AuthenticatedImage image,com.nereusstream.delay.protocol.TargetProtocolActivatePayload payload){
+        Objects.requireNonNull(image);Objects.requireNonNull(payload);Objects.requireNonNull(migrations);
+        return (evidence,extension,actualSource)->{
+            if(!Objects.requireNonNull(evidence).migrated()||!Objects.requireNonNull(extension).equals(payload.rootAuthorization()))
+                throw new IllegalArgumentException("migration issuer acquisition changed its exact Root/tuple extension");
+            image.requireCurrent();final var dependencies=image.payloadSummaryDependencies();
+            final var issuer=authenticateMigrationRootTupleIssuer(evidence,payload,actualSource,dependencies);
+            image.requireCurrent();return issuer;
+        };
+    }
+
+    void requireRootTupleAuthorization(com.nereusstream.delay.protocol.TargetProtocolActivationRecord activation,
+            TargetStoreBootstrap.InitialControlAuthority initialAuthority,TargetCheckpointDependencies dependencies,
+            List<TargetCheckpointDependencies.ControlImage> originalInputs){
+        final var evidence=Objects.requireNonNull(activation.rootEvidence(),"original Root issuer material");
+        if(evidence.migrated()){
+            authenticateMigrationRootTupleIssuer(evidence,activation.body().payload(),activation.appliedAt().source(),dependencies);return;
+        }
+        Objects.requireNonNull(initialAuthority,"original initial Root issuer authority");
+        final var initial=evidence.initial();
+        final var stored=dependencies.controls().stream().filter(control->control.family()==ColumnFamily.META
+                &&Arrays.equals(control.key(),initial.key())).findFirst().orElseThrow();
+        if(!Arrays.equals(stored.payload(),initial.canonicalBytes()))
+            throw new IllegalStateException("tuple issuer material changes the actual original META10");
+        final var input=originalInputs.stream().filter(value->value.source().equals(initial.mutation().source())
+                &&Arrays.equals(Bytes.sha256(value.image().canonicalEnvelope()),initial.mutation().mutationDigest()))
+                .findFirst().orElseThrow(()->new IllegalStateException("tuple issuer lost the complete original initial Source frame"));
+        final var first=Objects.requireNonNull(dependencies.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},
+                input.image().systemMutationId())),"original initial Source first");
+        dependencies.requireSystemPosition(first);
+        final var authenticated=Objects.requireNonNull(authenticateControl(input,first),"original Root grant was not APPLIED");
+        if(!first.mutation().equals(initial.mutation()))throw new IllegalStateException("tuple issuer changed the original initial first");
+        final var grant=TargetQuotaGrantControlBody.decode(input.image().canonicalBody());
+        if(!Arrays.equals(grant.request().canonicalBytes(),initial.initialGrant().request().canonicalBytes())
+                ||!grant.controlRef().equals(initial.initialGrant().controlRef())
+                ||!Arrays.equals(initial.authorIdentity(),input.image().authorIdentity()))
+            throw new IllegalStateException("tuple issuer changed the original root grant/author");
+        initial.input().requireInitial(dependencies.root().root().scope(),dependencies.root().root().recoveryLineage(),
+                grant.request().next(),input.source(),Bytes.sha256(input.image().canonicalEnvelope()));
+        before();
+        if(!budget.tryCharge(initial.key().length,initial.input().canonicalBytes().length))throw budget.incomplete();
+        final var issuer=Objects.requireNonNull(initialAuthority.authenticate(initial.input(),authenticated.registered(),input.image(),input.source()),
+                "original independently pinned Root issuer");
+        after();evidence.require(activation.body().payload());
+        if(!Arrays.equals(issuer.getEncoded(),evidence.issuerKey())||!initial.input().verifySignature(issuer)
+                ||!activation.body().payload().rootAuthorization().verifySignature(issuer))
+            throw new IllegalStateException("tuple extension lacks the actual original snapshot issuer pin");
+        after();
+    }
+
+    private PublicKey authenticateMigrationRootTupleIssuer(com.nereusstream.delay.protocol.TargetProtocolRootIssuerEvidence evidence,
+            com.nereusstream.delay.protocol.TargetProtocolActivatePayload payload,SourcePosition tupleSource,TargetCheckpointDependencies dependencies){
+        final var root=Objects.requireNonNull(dependencies.migrationRoot(),"actual Native65 Root");
+        final var attempt=Objects.requireNonNull(dependencies.migrationAttempt(),"actual durable Native69 Prepared attempt");
+        if(!evidence.migrated()||!Arrays.equals(root.canonicalBytes(),evidence.migration().canonicalBytes())
+                ||!Arrays.equals(attempt.digest(),evidence.activationAttemptDigest()))
+            throw new IllegalStateException("tuple issuer material changed actual migration Root/A/Prepared");
+        final var first=Objects.requireNonNull(dependencies.resultRecord(Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},
+                root.activation().systemMutationId())),"actual A first");
+        dependencies.requireSystemPosition(first);
+        if(authenticateMigration(new TargetCheckpointDependencies.ControlImage(root.activatedAt().source(),root.activation()),first,
+                root,dependencies.migrationOrigins(),dependencies.migrationGuards(),dependencies.migrationPrefixes(),attempt)==null)
+            throw new IllegalStateException("migration tuple issuer has no authenticated actual A");
+        final var materials=Objects.requireNonNull(migrations);before();materials.requireComplete(dependencies);
+        final var issuer=Objects.requireNonNull(materials.authenticateRootTupleIssuer(root,attempt,payload.rootAuthorization(),tupleSource),
+                "original management snapshot issuer");
+        if(root.rootIssuerAuthorization()!=null){
+            final var statement=root.rootIssuerAuthorization();statement.requireExtension(payload.rootAuthorization());
+            final var original=Objects.requireNonNull(materials.authenticateRootIssuerAuthorization(statement,root.plan(),attempt,root.activatedAt().source()),
+                    "original actual A2 issuer policy pin");
+            if(!Arrays.equals(original.getEncoded(),issuer.getEncoded())||!statement.verifySignature(original))
+                throw new IllegalStateException("tuple extension changed the actual independently authorized A2 issuer");
+        }
+        evidence.require(payload);
+        if(!Arrays.equals(issuer.getEncoded(),evidence.issuerKey())||!payload.rootAuthorization().verifySignature(issuer))
+            throw new IllegalStateException("migration tuple extension lacks its original management snapshot issuer pin");
+        materials.requireCurrent();after();return issuer;
+    }
 
     private void before() {
         protection.run();

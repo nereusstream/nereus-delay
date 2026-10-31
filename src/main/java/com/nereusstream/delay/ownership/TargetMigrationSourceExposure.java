@@ -29,10 +29,62 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
          * Partial failures retain their actual native work through Cleanup and inFlight().
          */
         Debit reserveMigrationControl(Request request, Runnable current);
+
+        /** Actual original controlled namespace/cost/retention loan; raw custody algorithm remains in this repository. */
+        default TargetMigrationPreparedCustody.Backing maintenancePreparedBacking(PreparedRequest request) {
+            throw new IllegalStateException("original Source owner lacks prepaid exact Prepared history backing");
+        }
+    }
+
+    public record PreparedRequest(TargetMigrationSourceOpening opening,
+            com.nereusstream.delay.protocol.TargetMigrationRequest request) {
+        public PreparedRequest {
+            Objects.requireNonNull(opening); Objects.requireNonNull(request);
+            final byte[] migrationId = switch (request) {
+                case com.nereusstream.delay.protocol.TargetMigrationSettlementRequest value -> value.migrationId();
+                case com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest value -> value.migrationId();
+                case com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest value -> value.migrationId();
+                case com.nereusstream.delay.protocol.TargetMigrationArchiveRequest value -> value.migrationId();
+                default -> throw new IllegalArgumentException("live custody does not authorize ACTIVATE");
+            };
+            if (!request.scope().equals(opening.configuration().scope())
+                    || !java.util.Arrays.equals(migrationId, opening.configuration().migrationId()))
+                throw new IllegalArgumentException("live migration Prepared custody changed its original scope/operation");
+        }
+        /** Same candidate forever; expiry/UNKNOWN/response loss cannot create another operation ID. */
+        public byte[] candidateId() { return candidateId(request); }
+        /** Pure identity for startup recovery's independent original Source/registration loader; grants no capability. */
+        public static byte[] candidateId(com.nereusstream.delay.protocol.TargetMigrationRequest request) {
+            final byte[] identity = switch (request) {
+                case com.nereusstream.delay.protocol.TargetMigrationSettlementRequest value -> Bytes.concat(value.migrationId(),
+                        value.planDigest(), value.messageId().bytes(), Bytes.u32be(Integer.toUnsignedLong(value.originalGeneration())),
+                        Bytes.u32be(value.guardKind().wireValue()), value.expectedGuardDigest());
+                case com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest value -> Bytes.concat(value.migrationId(),
+                        value.planDigest(), value.activation().canonicalBytes());
+                case com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest value -> Bytes.concat(value.migrationId(),
+                        value.planDigest(), value.intentDigest(), value.intentAt().canonicalBytes());
+                case com.nereusstream.delay.protocol.TargetMigrationArchiveRequest value -> value.canonicalBytes();
+                default -> throw new IllegalArgumentException("live custody cannot activate a migration");
+            };
+            return Bytes.sha256(Bytes.utf8("nereus-delay-live-migration-prepared-v1\0"), Bytes.u32be(request.controlKind()), identity);
+        }
+    }
+
+    /** Actual durable original operation handle. close releases a local loan, never persistent UNKNOWN. */
+    public interface PreparedCustody extends CheckpointInputFuture.Cleanup, AutoCloseable {
+        TargetMigrationControlMutationFactory.Prepared exact();
+        void requireBound(PreparedRequest request);
+        void requireCurrent();
+        long retainedBytes();
+        boolean ioExited();
+        void requestStop();
+        /** Actual first/POS and Native67/71 have been checked; this does not authorize physical deletion. */
+        void observedApplied(com.nereusstream.delay.runtime.SystemMutationResult first);
+        @Override void close();
     }
 
     /** Data borrowed from the same original opening and SDK; construction is not a grant. */
-    public record Request(TargetMigrationProcessDriver.Opening opening,
+    public record Request(TargetMigrationSourceOpening opening,
             TargetMigrationControlMutationFactory.Prepared exact,
             TargetScopeExposureSource.CopyContract copies, SourcePosition source,
             TargetScopeDeploymentAllocation.RegistryHandle registry) {
@@ -60,6 +112,10 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
         void requireBound(Request exact);
         void requireCurrent();
         void claimNative(Request exact);
+        /** Another real native attempt against the same durable operation; no fresh physical share. */
+        default void claimRetry(Request exact) {
+            throw new IllegalStateException("original Source owner has no remaining bounded exact-frame retry capability");
+        }
         long retainedBytes();
         boolean ioExited();
         void requestStop();
@@ -78,6 +134,7 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
     private volatile boolean acquired;
     private volatile boolean closing;
     private boolean claimed;
+    private volatile boolean applied;
 
     private TargetMigrationSourceExposure(Request request, ManagementHandle source,
             TargetMigrationControlWriter writer, long maximumRetainedBytes) {
@@ -89,7 +146,7 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
     }
 
     /** Run on the original owned I/O path, before taking any producer/native handoff lock. */
-    public static TargetMigrationSourceExposure acquire(TargetMigrationProcessDriver.Opening opening,
+    public static TargetMigrationSourceExposure acquire(TargetMigrationSourceOpening opening,
             TargetScopeDeploymentAllocation.SourceHandle original,
             TargetScopeDeploymentAllocation.RegistryHandle registry,
             TargetMigrationControlMutationFactory.Prepared exact, TargetMigrationControlWriter writer,
@@ -106,9 +163,14 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
         try {
             management.requireLocalCurrent();
             registry.requireLocalCurrent();
-            final var purpose = exact.control().kind() == com.nereusstream.delay.protocol.ControlOperationKind.ACTIVATE_TARGET_MIGRATION
-                    ? TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_ACTIVATE
-                    : TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_SETTLE;
+            final var purpose = switch (exact.control().kind()) {
+                case ACTIVATE_TARGET_MIGRATION -> TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_ACTIVATE;
+                case SETTLE_TARGET_MIGRATION_CUSTODY -> TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_SETTLE;
+                case RETIRE_TARGET_MIGRATION -> TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_RETIRE_INTENT;
+                case CONFIRM_TARGET_MIGRATION_RETIRED -> TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_RETIRE_CONFIRM;
+                case MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE -> TargetScopeDeploymentAllocation.ManagerPurpose.MIGRATION_ARCHIVE;
+                default -> throw new IllegalArgumentException("unassigned migration management purpose");
+            };
             final var actor = AuthorIdentity.decode(exact.mutation().authorIdentity());
             management.requireManagementPurpose(purpose, actor);
             registry.requireManagementPurpose(purpose, actor);
@@ -168,7 +230,29 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
         claimed = true;
     }
 
+    /** A new same-byte SDK invocation consumes another actual original-owner attempt, including after UNKNOWN. */
+    synchronized void claimRetry(TargetMigrationControlWriter actual,
+            TargetMigrationControlMutationFactory.Prepared exact, TargetScopeExposureSource.CopyContract copies) {
+        requireCurrent();
+        if (!claimed || actual != writer || exact != request.exact() || !request.copies().equals(copies)
+                || !writer.operationsExited())
+            throw new IllegalStateException("migration retry changed original frame/copies or prior native I/O remains live");
+        debit.claimRetry(request);
+    }
+
     public long retainedBytes() { return debit == null ? 0 : debit.retainedBytes(); }
+
+    /** The live caller has independently checked exact first/POS/Native before disabling this permit. */
+    void observedApplied(TargetMigrationControlMutationFactory.Prepared exact,
+            com.nereusstream.delay.runtime.SystemMutationResult first) {
+        if (exact != request.exact()
+                || !java.util.Arrays.equals(first.mutationId(), exact.mutation().systemMutationId())
+                || !java.util.Arrays.equals(first.mutationHash(), exact.mutation().mutationHash())
+                || first.applyStatus() != com.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                || first.stableCode() != com.nereusstream.delay.protocol.StableCode.OK)
+            throw new IllegalArgumentException("migration Source loan release changed its actual applied frame");
+        applied = true; closing = true;
+    }
 
     @Override public void close() { closing = true; }
 
@@ -177,8 +261,8 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
     @Override public CompletableFuture<Void> retryCleanup() {
         if (cleaned.isDone()) return cleaned;
         // This is only the same actual SDK owner's terminal fact, never a noFuture/business conclusion.
-        if (!writer.operationsExited() || !writer.backend().resourcesTerminated()
-                || !writer.backend().nativeResourcesTerminated()) return cleaned;
+        if (!writer.operationsExited() || !applied && (!writer.backend().resourcesTerminated()
+                || !writer.backend().nativeResourcesTerminated())) return cleaned;
         closing = true;
         final var failed = failedAcquisition;
         if (failed != null) {

@@ -701,6 +701,7 @@ public final class TargetMigrationImporter {
                     (row, shared) -> {
                         if (TargetMigrationStore.isImportInfrastructure(family, row.key())) return true;
                         final var value = TargetValueEnvelope.decodeAny(row.value());
+                        requireInitialSummaryRow(value.valueType(), value.payload());
                         if (value.valueType() == TargetMigrationOrigin.VALUE_TYPE) count[1]++;
                         else if (value.valueType() == TargetMigrationCustodyGuard.VALUE_TYPE) count[2]++;
                         else if (value.valueType() != TargetMigrationRoot.VALUE_TYPE) {
@@ -734,6 +735,32 @@ public final class TargetMigrationImporter {
         TargetQuotaUsage sum = TargetQuotaUsage.empty();
         for (var entry : charges.entrySet()) if (!entry.getKey().kind().isMirror()) sum = sum.add(entry.getValue());
         return new ImportSummary(count[0], count[1], count[2], charges, sum);
+    }
+
+    /** The C candidate has no Target Admission: every original old attempt remains in legacy custody. */
+    private void requireInitialSummaryRow(int type, byte[] payload) {
+        if (type == TargetQuotaPayloadOwner.VALUE_TYPE) {
+            final var owner = TargetQuotaPayloadOwner.decode(payload);
+            owner.requireQualifiedSummary();
+            if (owner.unresolvedCount() != 0
+                    || owner.summaryOrigin() != TargetQuotaPayloadOwner.SummaryOrigin.IMPORTED
+                    || !owner.initializationSource().equals(baseline))
+                throw new IllegalStateException("initial imported payload summary differs from its complete C qualification");
+        } else if (type == TargetMessageRecord.VALUE_TYPE) {
+            if (!TargetMessageRecord.decode(payload).runtime().attemptObligations().isEmpty())
+                throw new IllegalStateException("initial import cannot omit a current generation attempt from Native32");
+        } else if (type == TargetTerminalGenerationRecord.VALUE_TYPE) {
+            if (!TargetTerminalGenerationRecord.decode(payload).runtime().attemptObligations().isEmpty())
+                throw new IllegalStateException("initial import cannot omit a historical generation attempt from Native32");
+        } else if (type == TargetQuotaAttemptBudget.VALUE_TYPE) {
+            throw new IllegalStateException("original legacy Admission cannot be relabeled as a Target Budget at C");
+        } else if (type == TargetResultRecord.VALUE_TYPE) {
+            final var result = TargetResultRecord.decode(payload);
+            if (result.kind() == TargetResultRecord.Kind.SYSTEM && result.appliedFirst()
+                    && SystemMutationResult.decode(result.typedPayload()).mutationType()
+                        == SystemMutationType.TARGET_PUBLISH_ADMISSION)
+                throw new IllegalStateException("initial import cannot manufacture a Target Admission first at C");
+        }
     }
 
     private void addExact(List<StoredEdit> changes, ColumnFamily family, byte[] key, byte[] after) {

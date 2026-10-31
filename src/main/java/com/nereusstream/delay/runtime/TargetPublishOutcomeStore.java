@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishEvidence;
@@ -87,6 +88,12 @@ public final class TargetPublishOutcomeStore {
             final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
             final TargetPublishOutcomeVerifier.Authority authority) {
+        return prepareFirst(budget, mutation, source, authority, null);
+    }
+
+    public Prepared prepareFirst(final BoundedReadBudget budget, final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetPublishOutcomeVerifier.Authority authority, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
         TargetSourcePosition.requireBounded(source);
@@ -106,7 +113,7 @@ public final class TargetPublishOutcomeStore {
                 Bytes.sha256(mutation.canonicalEnvelope()),
                 maximumCounters,
                 maximumTargets,
-                maximumDomains);
+                maximumDomains).withLegacyPrefix(legacyPrefix);
         final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
                 (reader, business) -> sourceAccounting.assemble(reader, business, null,
                         acceptedCursor[0] == null ? null : reader.advanceEvidenceCursor(acceptedCursor[0])),
@@ -115,6 +122,7 @@ public final class TargetPublishOutcomeStore {
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
+                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
                     requireFirstPosition(reader, source);
                     final var stamp = stamp(reader, source, mutation);
                     final var decision = reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
@@ -132,7 +140,7 @@ public final class TargetPublishOutcomeStore {
                         final var writer = author.kind() == AuthorIdentity.Kind.OWNER ? author.asOwnerIdentity() : null;
                         final var projection = outcome.sideEffect() != 3
                                 ? definitive(reader, outcome, stamp, writer, decision.authorization(),
-                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION,mutation)
+                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION,mutation,legacyPrefix)
                                 : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
                         appliedCode = projection.appliedCode();
@@ -520,7 +528,8 @@ public final class TargetPublishOutcomeStore {
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
             final OwnerIdentity writer,
-            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution,final SystemMutation sourceMutation) {
+            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution, final SystemMutation sourceMutation,
+            final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 outcome.publishAttemptId());
@@ -671,8 +680,35 @@ public final class TargetPublishOutcomeStore {
                     com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, settled.canonicalBytes()));
         }
         final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
+        final var payloadOwner = TargetPayloadObligationSource.owner(reader, scope, lineage, budget.locator().messageId());
+        payloadOwner.requireMessagePayload(generation.current());
+        final var currentAfter = after == null ? generation.current() : after;
         extra.add(reader.replace(
                 ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, resolved.canonicalBytes()));
+        final TargetQuotaPayloadOwner nextOwner;
+        if (payloadOwner.summaryQualified()) {
+            final long remaining = Math.subtractExact(payloadOwner.unresolvedCount(), 1L);
+            final boolean retainPayload = TargetPayloadObligationSource.canRetain(reader, currentAfter, payloadOwner, remaining);
+            nextOwner = payloadOwner.resolveAttempt(budget, resolved, retainPayload, stamp, (prior, next, floor) -> {
+                if (prior != payloadOwner || floor != null || !next.summaryMutation().equals(stamp)) {
+                    throw new IllegalStateException("Outcome summary changed its original payload owner/Source");
+                }
+            });
+        } else {
+            final var original = Objects.requireNonNull(legacyPrefix,
+                    "unqualified payload resolution requires its original finite v1 prefix permit");
+            original.requireCurrent(reader, sourceMutation, stamp.source());
+            final boolean retainPayload = payloadOwner.phase() == TargetQuotaPayloadOwner.Phase.ACTIVE
+                    && currentAfter.runtime().terminal() && currentAfter.runtime().currentWorkKind() == CurrentSendWorkKind.NONE
+                    && currentAfter.runtime().attemptObligations().isEmpty()
+                    && original.noUnresolvedAfter(reader, payloadOwner, extra)
+                    && original.noLegacyCustodyAfter(reader, payloadOwner, extra);
+            nextOwner = retainPayload ? payloadOwner.retain(stamp, (prior, next, floor) -> {
+                if (prior != payloadOwner || floor != null) throw new IllegalStateException("legacy prefix changed its original retention owner");
+            }) : null;
+        }
+        if (nextOwner != null) extra.add(reader.replace(ColumnFamily.META, nextOwner.key(),
+                TargetQuotaPayloadOwner.VALUE_TYPE, nextOwner.canonicalBytes()));
         if (generation.runtime().terminal()) {
             final var terminalAfter = terminalEdits(reader, generation, after, after == null
                     ? resolution ? generation.runtime().evidenceOutcome(
@@ -696,31 +732,10 @@ public final class TargetPublishOutcomeStore {
         if (reader.get(ColumnFamily.TERMINAL, terminal.key()) != null) {
             throw new IllegalStateException("current Target publication already has terminal history");
         }
-        final byte[] payloadKey = Bytes.concat(
-                new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
-                before.locator().messageId().bytes());
-        final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
-                payloadKey, TargetValueEnvelope.decode(
-                                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
-                        .payload(),
-                scope.shard(), scope.tenantScope());
         payloadOwner.requireMessagePayload(before);
         terminal.requireOwner(payloadOwner);
-        payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if (payloadOwner.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("current publishing Target Message lacks active payload ownership");
-        }
-        if (canRetainPayload(reader, after, payloadOwner)) {
-            final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
-                if (floor != null || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
-                        || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
-                        || !next.mutation().equals(stamp)) {
-                    throw new IllegalStateException("Target definitive result changed its frozen payload retention");
-                }
-                next.requireMessagePayload(after);
-            });
-            extra.add(reader.replace(
-                    ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
         }
         extra.add(reader.replace(
                 ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
@@ -842,19 +857,6 @@ public final class TargetPublishOutcomeStore {
         if (payload.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("unresolved Target terminal history lacks active payload ownership");
         }
-        // An old summary alone cannot prove that all other generations have closed their payload references.
-        if (!generation.historical() && canRetainPayload(reader, after, payload)) {
-            final var retained = payload.retain(stamp, (prior, successor, floor) -> {
-                if (floor != null || !Arrays.equals(prior.canonicalBytes(), payload.canonicalBytes())
-                        || successor.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
-                        || !successor.mutation().equals(stamp)) {
-                    throw new IllegalStateException("late terminal Outcome changed frozen payload retention");
-                }
-                successor.requireMessagePayload(after);
-            });
-            extra.add(reader.replace(ColumnFamily.META, payloadKey,
-                    TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
-        }
         extra.add(reader.replace(ColumnFamily.TERMINAL, next.key(),
                 TargetTerminalGenerationRecord.VALUE_TYPE, next.canonicalBytes()));
         return next;
@@ -875,39 +877,6 @@ public final class TargetPublishOutcomeStore {
         return new TargetMessageStore.OrderTransition(before,
                 resolution ? before.afterHistoricalEvidenceResolution(generation.history(), after, attemptId, effect)
                         : before.afterHistoricalTerminalOutcome(generation.history(), after, attemptId, effect));
-    }
-
-    /** Bounded by the source ReadView budget; a partial history range cannot authorize payload retention. */
-    private boolean canRetainPayload(
-            final TargetStoreBackend.Reader reader, final TargetMessageRecord after,
-            final TargetQuotaPayloadOwner payload) {
-        if (!after.runtime().attemptObligations().isEmpty()) {
-            return false;
-        }
-        final byte[] prefix = Bytes.concat(new byte[] {TargetKeyCodec.TERMINAL_GENERATION_TAG, 1},
-                after.locator().messageId().bytes());
-        final byte[] upper = Bytes.concat(prefix, Bytes.u32beBits(-1), new byte[] {0});
-        byte[] lower = prefix;
-        while (true) {
-            final var row = reader.first(ColumnFamily.TERMINAL, lower, upper, List.of());
-            if (row == null) {
-                return true;
-            }
-            final var history = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                    row.value(), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
-            if (!Arrays.equals(row.key(), history.key())
-                    || !history.locator().messageId().equals(after.locator().messageId())
-                    || Integer.compareUnsigned(history.locator().generation(), after.locator().generation()) > 0
-                    || !Arrays.equals(history.recoveryLineage(), lineage)) {
-                throw new IllegalStateException("payload retention history differs from its Message generation range");
-            }
-            history.requireOwner(payload);
-            history.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if (!history.locator().equals(after.locator()) && !history.runtime().attemptObligations().isEmpty()) {
-                return false;
-            }
-            lower = Bytes.concat(row.key(), new byte[] {0});
-        }
     }
 
     private static byte[] required(
@@ -961,13 +930,15 @@ public final class TargetPublishOutcomeStore {
         if (!binding.intent().retryPolicy().equals(policy.ref())) {
             throw new IllegalStateException("Target retry policy differs from the immutable Schedule binding");
         }
-        if (generation.historical() && current.publication() == null) {
+        if (generation.historical() && !current.materialized()) {
             throw new IllegalStateException("historical Target retry window requires materialized Admission history");
         }
         requireRetryDecision(generation.locator(), generation.runtime(),
-                generation.historical() ? current.publication().deliverAtEpochMs()
+                generation.historical() ? current.nativePublication() == null
+                                ? current.publication().deliverAtEpochMs() : current.nativePublication().deliverAtEpochMs()
                         : generation.current().deliverAtEpochMs(),
-                generation.historical() ? current.publication().expireAtEpochMs()
+                generation.historical() ? current.nativePublication() == null
+                                ? current.publication().expireAtEpochMs() : current.nativePublication().expireAtEpochMs()
                         : generation.current().expireAtEpochMs(), current, first, policy, outcome);
     }
 

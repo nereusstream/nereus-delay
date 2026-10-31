@@ -96,12 +96,14 @@ public final class TargetStoreBootstrap {
         private final TargetStoreBackend backend;
         private final TargetQuotaIncarnation root;
         private final ShardStore.ReadView view;
+        private final TargetCheckpointDependencies dependencies;
 
         private Reopened(final TargetStoreBackend backend, final TargetQuotaIncarnation root,
-                final ShardStore.ReadView view) {
+                final ShardStore.ReadView view, final TargetCheckpointDependencies dependencies) {
             this.backend = backend;
             this.root = root;
             this.view = view;
+            this.dependencies = dependencies;
         }
 
         public TargetStoreBackend backend() {
@@ -116,6 +118,8 @@ public final class TargetStoreBootstrap {
         public ShardStore.ReadView view() {
             return view;
         }
+        /** The actual complete dependency fold from this same Native read view, never caller supplied. */
+        public TargetCheckpointDependencies dependencies() { return Objects.requireNonNull(dependencies, "this reopen did not retain archive dependencies"); }
     }
 
     /** Actual Source-applied SLO material at one audited reopen cut; this does not close any old writer domain. */
@@ -144,7 +148,7 @@ public final class TargetStoreBootstrap {
 
     private record SloFacts(TargetQuotaMutation cut, List<TargetSloObservationGeneration> generations,
             List<TargetSloWriterEpoch> writers, long retainedBytes) {}
-    private record ReopenFacts(TargetCheckpointRootVerifier.RootProof proof, SloFacts slo) {}
+    private record ReopenFacts(TargetCheckpointRootVerifier.RootProof proof, TargetCheckpointDependencies dependencies, SloFacts slo) {}
     private record ReopenResult(Reopened reopened, SloRecoveryAudit slo) {}
 
     /** Rebuilds the exact Target root after Store reopen; external Owner/recovery authority must guard the read. */
@@ -166,6 +170,12 @@ public final class TargetStoreBootstrap {
             final TargetStoreBackend.ReadAuthority reads,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0).reopened();
+    }
+    /** Retains this existing complete fold only while post-T startup authenticates its original raw archive inputs. */
+    public static Reopened reopenForArchiveRecovery(final ShardStore store, final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads, final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0, true).reopened();
     }
 
     public static SloRecoveryAudit reopenForSloRecovery(
@@ -202,6 +212,12 @@ public final class TargetStoreBootstrap {
             final TargetStoreBackend.ReadAuthority reads,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final long maximumRetainedBytes) {
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, maximumRetainedBytes, false);
+    }
+    private static ReopenResult reopen0(final ShardStore store, final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads, final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final long maximumRetainedBytes, final boolean retainArchiveDependencies) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
@@ -278,7 +294,7 @@ public final class TargetStoreBootstrap {
                         store.metadata(), source, sequence, persistedRoot, bookkeeping, aggregate);
                 final var dependencies = TargetCheckpointRootVerifier.auditLiveStoreDependencies(
                         store, proof, ledgerLimits, budget);
-                return new ReopenFacts(proof, maximumRetainedBytes == 0 ? null
+                return new ReopenFacts(proof, dependencies, maximumRetainedBytes == 0 ? null
                         : sloFacts(proof, dependencies, maximumRetainedBytes));
             });
             return store.withReadView(plan.view(), () -> {
@@ -287,7 +303,7 @@ public final class TargetStoreBootstrap {
                 final var reopened = new Reopened(
                         new TargetStoreBackend(
                                 store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),
-                        root, plan.view());
+                        root, plan.view(), retainArchiveDependencies ? plan.value().dependencies() : null);
                 final var facts = plan.value().slo();
                 return new ReopenResult(reopened, facts == null ? null : new SloRecoveryAudit(reopened, facts));
             });

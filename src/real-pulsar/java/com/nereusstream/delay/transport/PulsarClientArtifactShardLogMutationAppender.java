@@ -131,7 +131,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     /** Independent migration CONTROL entry; the ordinary Host nativeSend gate remains unchanged. */
     AppendOutcome appendMigrationControl(com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared exact,
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit permit,
+            com.nereusstream.delay.ownership.TargetMigrationAppendPermit permit,
             PulsarClientArtifactTargetMigrationControlWriter writer) {
         return append(Objects.requireNonNull(exact).mutation(), null, null, null, Objects.requireNonNull(writer),
                 exact, Objects.requireNonNull(permit));
@@ -142,7 +142,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
             PulsarClientArtifactTargetMigrationControlWriter migrationWriter,
             com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared migration,
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit migrationPermit) {
+            com.nereusstream.delay.ownership.TargetMigrationAppendPermit migrationPermit) {
         final SystemMutation exact = Objects.requireNonNull(mutation, "mutation");
         if (!shard.equals(exact.shardId())) {
             throw new IllegalArgumentException("Pulsar Shard Log mutation belongs to another Shard");
@@ -164,7 +164,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
             PulsarClientArtifactTargetMigrationControlWriter migrationWriter,
             com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared migration,
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit migrationPermit) {
+            com.nereusstream.delay.ownership.TargetMigrationAppendPermit migrationPermit) {
         final SourceProof before;
         try {
             before = sourceProof();
@@ -186,7 +186,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
         }
         final NativeAppend nativeAppend;
         try {
-            nativeAppend = new NativeAppend(TargetScopeExposureSource.acquire(exact, copyContract, exposureIssuer));
+            nativeAppend = new NativeAppend(TargetScopeExposureSource.acquire(exact, copyContract, exposureIssuer), exact);
             synchronized (this) { retainedAppends.add(nativeAppend); }
         } catch (RuntimeException | Error failed) {
             if (reservation != null) reservation.sdkCompleted();
@@ -368,6 +368,9 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
     synchronized boolean exposureLoansExited() {
         return retainedAppends.stream().noneMatch(append -> append.exposure != null);
     }
+    synchronized boolean nativeOperationsExited(SystemMutation exact) {
+        return retainedAppends.stream().noneMatch(append -> !append.exited && java.util.Arrays.equals(append.mutationId, exact.systemMutationId()));
+    }
 
     /** Called only after this producer's original native close or its original client backend actually exits. */
     void producerNativeClosed() {
@@ -378,13 +381,14 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     private static final class NativeAppend {
         private final TargetSloControlScopeAuthority.ExposurePermit exposure;
+        private final byte[] mutationId;
         private boolean started;
         private volatile boolean exited;
         private CheckpointInputFuture.Cleanup cleanup;
         private CompletableFuture<Void> cleanupRetry;
         private Throwable cleanupFailure;
-        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure) {
-            this.exposure = exposure; this.cleanup = exposure;
+        private NativeAppend(TargetSloControlScopeAuthority.ExposurePermit exposure, SystemMutation exact) {
+            this.exposure = exposure; this.cleanup = exposure; mutationId = exact.systemMutationId();
         }
     }
 

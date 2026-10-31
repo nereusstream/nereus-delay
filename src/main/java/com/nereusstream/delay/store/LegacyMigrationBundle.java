@@ -60,6 +60,7 @@ import com.nereusstream.delay.runtime.TargetOrderState;
 import com.nereusstream.delay.runtime.TargetReservationRecord;
 import com.nereusstream.delay.runtime.TargetTimelineWorkRef;
 import com.nereusstream.delay.runtime.TargetMigrationImporter;
+import com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap;
 import com.nereusstream.delay.runtime.TerminalGenerationRecord;
 import com.nereusstream.delay.runtime.SystemMutationResult;
 import com.nereusstream.delay.runtime.TimelineWorkKind;
@@ -435,6 +436,117 @@ public final class LegacyMigrationBundle {
         public OriginInput {
             Objects.requireNonNull(row); Objects.requireNonNull(original); Objects.requireNonNull(originalRef);
             Objects.requireNonNull(owner); Objects.requireNonNull(retainedLegacyCharge);
+        }
+    }
+
+    /**
+     * Complete old responsibility is checked before a new Target summary is qualified. Old attempts are
+     * never converted into a zero Target count merely because the current generation is reversible.
+     */
+    public static void requireSummaryImport(LegacyCheckpointStateInventory.LiveView complete,
+            java.util.Collection<TargetRow> projected, TargetQuotaPayloadOwner owner,
+            TargetScheduleBinding binding, TargetMigrationPlan plan) {
+        Objects.requireNonNull(complete); Objects.requireNonNull(projected); Objects.requireNonNull(owner);
+        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
+        owner.requireInitialBinding(binding);
+        if (!binding.imported() || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
+                || !Arrays.equals(complete.metadata().storeIncarnation(), plan.oldStore())
+                || !complete.applied().sameSourceIdentity(plan.baseline().source())
+                || !Arrays.equals(owner.mutation().source().canonicalBytes(), complete.applied().canonicalBytes()))
+            throw new IllegalArgumentException("payload summary import changed its complete original Store/Source");
+        requireNoLegacyObligations(complete.entries(), complete.applied(), owner.messageId());
+        boolean actualOwner = false;
+        for (var row : projected) if (row.family() == ColumnFamily.META && Arrays.equals(row.key(), owner.key())) {
+            if (actualOwner || !Arrays.equals(row.value(), TargetValueEnvelope.encode(
+                    TargetQuotaPayloadOwner.VALUE_TYPE, owner.canonicalBytes())))
+                throw new IllegalArgumentException("payload summary import lost its exact proposed owner");
+            actualOwner = true;
+        }
+        if (!actualOwner) throw new IllegalArgumentException("payload summary import has no proposed owner");
+    }
+
+    private static void requireNoLegacyObligations(List<LegacyCheckpointStateInventory.RawEntry> entries,
+            SourcePosition frontier, DelayMessageId id) {
+        final Map<String, com.nereusstream.delay.runtime.AttemptObligationRef> obligations = new TreeMap<>();
+        final Map<String, PublishAttemptLedger> ledgers = new TreeMap<>();
+        final Map<Integer, List<com.nereusstream.delay.runtime.AttemptObligationRef>> generations = new HashMap<>();
+        for (var row : entries) {
+            List<com.nereusstream.delay.runtime.AttemptObligationRef> references = null;
+            int generation = 0;
+            SourcePosition source = null;
+            if (row.family() == ColumnFamily.ID && Arrays.equals(row.key(), KeyCodec.idMessage(id))) {
+                final byte[] bytes = ValueEnvelope.decodeAny(row.value()).payload();
+                if (RetiredMessageIdentityRecord.isEncoded(bytes)) continue;
+                final var message = MessageRecord.decode(bytes);
+                references = message.runtimeIndex().attemptObligations(); generation = message.generation();
+                source = SourcePositionCodec.decode(message.scheduleSourcePosition());
+            } else if (row.family() == ColumnFamily.TERMINAL && kind(row.key(), 1)) {
+                final var terminal = TerminalGenerationRecord.decode(ValueEnvelope.decodeAny(row.value()).payload());
+                if (!terminal.messageId().equals(id)) continue;
+                if (!Arrays.equals(row.key(), KeyCodec.terminalGeneration(id, terminal.generation())))
+                    throw new IllegalArgumentException("original terminal summary changed its exact generation key");
+                references = terminal.openObligations(); generation = terminal.generation();
+                source = SourcePositionCodec.decode(terminal.appliedSourcePosition());
+            } else if (row.family() == ColumnFamily.INFLIGHT && row.key().length >= 2
+                    && row.key()[1] == 1 && (row.key()[0] == 2 || row.key()[0] == 3)) {
+                final var ledger = PublishAttemptLedger.decode(ValueEnvelope.decode(row.value(), PublishAttemptLedger.VALUE_TYPE).payload());
+                if (!ledger.delayMessageId().equals(id)) continue;
+                if (!Arrays.equals(row.key(), ledger.encodedKey())
+                        || ledgers.put(Bytes.hex(row.key()), ledger) != null)
+                    throw new IllegalArgumentException("original attempt ledger changed its exact identity");
+                source = SourcePositionCodec.decode(ledger.sourcePosition());
+            }
+            if (source != null && (!source.sameSourceIdentity(frontier) || source.compareTo(frontier) > 0))
+                throw new IllegalArgumentException("original payload obligation exceeds its complete Source cut");
+            if (references == null) continue;
+            final var mirror = generations.putIfAbsent(generation, references);
+            if (mirror != null && !mirror.equals(references))
+                throw new IllegalArgumentException("original current/terminal obligation mirrors disagree");
+            for (var reference : references) {
+                if (reference.generation() != generation)
+                    throw new IllegalArgumentException("original payload obligation changed generation");
+                final String key = Bytes.hex(reference.encodedInflightKey());
+                final var prior = obligations.putIfAbsent(key, reference);
+                if (prior != null && !prior.equals(reference))
+                    throw new IllegalArgumentException("original payload obligation identity has conflicting projections");
+            }
+        }
+        for (var entry : obligations.entrySet()) {
+            final var ledger = Objects.requireNonNull(ledgers.get(entry.getKey()), "original obligation ledger");
+            if (!entry.getValue().equals(ledger.obligationRef()))
+                throw new IllegalArgumentException("original payload obligation differs from its actual attempt ledger");
+        }
+        if (!obligations.isEmpty() || !ledgers.isEmpty())
+            throw new AuditUnavailable("original all-generation attempt responsibility remains in legacy custody for "
+                    + Bytes.hex(id.bytes()));
+    }
+
+    private static void qualifyImportedSummaries(LegacyCheckpointStateInventory.LiveView complete,
+            Map<String, TargetRow> rows, Map<String, TargetRow> prior, TargetMigrationPlan plan, Held held) {
+        for (var row : List.copyOf(rows.values())) {
+            if (row.family() != ColumnFamily.META || prior.containsKey(rowId(row.family(), row.key()))) continue;
+            final var value = TargetValueEnvelope.decodeAny(row.value());
+            if (value.valueType() != TargetQuotaPayloadOwner.VALUE_TYPE) continue;
+            final var owner = TargetQuotaPayloadOwner.decode(value.payload());
+            if (owner.summaryQualified()) continue;
+            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(owner.initialBindingDigest());
+            final var binding = TargetScheduleBinding.decodeForStore(bindingKey,
+                    TargetValueEnvelope.decode(Objects.requireNonNull(value(rows, ColumnFamily.ID, bindingKey),
+                            "imported payload summary binding"), TargetScheduleBinding.VALUE_TYPE).payload(),
+                    plan.scope().shard());
+            held.requireCurrent();
+            final var qualification = TargetPayloadObligationSummaryBootstrap.imported(
+                    complete, rows.values(), owner, binding, plan, owner.mutation());
+            final var qualified = owner.initializeSummary(qualification, owner.mutation(), (before, after, floor) -> {
+                held.requireCurrent();
+                if (floor != null || !Arrays.equals(before.canonicalBytes(), owner.canonicalBytes())
+                        || !after.mutation().equals(owner.mutation()))
+                    throw new IllegalStateException("imported payload summary changed its original migration birth");
+                after.requireInitialBinding(binding);
+            });
+            rows.put(rowId(row.family(), row.key()), typed(ColumnFamily.META, qualified.key(),
+                    TargetQuotaPayloadOwner.VALUE_TYPE, qualified.canonicalBytes()));
+            held.requireCurrent();
         }
     }
 
@@ -827,6 +939,7 @@ public final class LegacyMigrationBundle {
                 final var mapping = requireMapping(byLane, old.laneId(), binding.canonicalLaneTuple());
                 final var spec = held.conversion(id, old, binding, mapping);
                 if (spec != null) {
+                    requireNoLegacyObligations(after.entries(), after.applied(), id);
                     final List<ExternalRecord> protectedCommands = new ArrayList<>(material.externalRecords());
                     protectedCommands.addAll(held.externalRecords());
                     if (original instanceof SourceReplayRecord command) protectedCommands.add(new ExternalRecord("SOURCE",
@@ -904,6 +1017,7 @@ public final class LegacyMigrationBundle {
                     continue;
                 }
                 if (proof != null && (reservation.status() == PayloadReservationStatus.RESERVED || reservation.status() == PayloadReservationStatus.COMMITTED)) {
+                    requireNoLegacyObligations(after.entries(), after.applied(), reservation.delayMessageId());
                     final var oldBindingRow = Objects.requireNonNull(bindings.get(Bytes.hex(reservation.delayMessageId().bytes())), "original Prepare binding");
                     final var oldBinding = ScheduleBinding.decode(ValueEnvelope.decodeAny(oldBindingRow.value()).payload());
                     final var spec = proof.conversion();
@@ -968,6 +1082,7 @@ public final class LegacyMigrationBundle {
                         Bytes.sha256(tail.manifest().canonicalBytes(), entity.messageId().bytes()), entity.retainedCharge()));
             }
         }
+        qualifyImportedSummaries(after, desired, actual.value().rows(), plan, held);
         buildOrderStates(material.mappings(), converted, after.entries(), desired, actual.value().rows());
         buildQueues(material.mappings(), converted, desired, actual.value().rows());
         final List<RowKey> deletions = new ArrayList<>();
@@ -1081,7 +1196,7 @@ public final class LegacyMigrationBundle {
         @Override public List<byte[]> records() { return records.stream().map(Bytes::copy).toList(); }
     }
 
-    public static LoadedCompanion readCompanion(CheckpointResource manifest, Section expected, Material material,
+    public static Companion readCompanionIndex(CheckpointResource manifest, Section expected, Material material,
             Held held, Limits limits, ImmutableObjects objects) {
         Objects.requireNonNull(manifest); Objects.requireNonNull(expected); Objects.requireNonNull(material);
         held.requireCurrent();
@@ -1122,22 +1237,40 @@ public final class LegacyMigrationBundle {
             throw new IllegalStateException("original flight has no charged complete companion read buffers");
         final var companion = new Companion(expected, count, manifest, chunks);
         objects.requireReserved(maximumBytes, chunks.size());
+        held.requireCurrent(); return companion;
+    }
+
+    public static LoadedCompanion readCompanion(CheckpointResource manifest, Section expected, Material material,
+            Held held, Limits limits, ImmutableObjects objects) {
+        final var companion = readCompanionIndex(manifest, expected, material, held, limits, objects);
         final List<byte[]> records = new ArrayList<>();
-        for (var chunk : chunks) {
-            held.requireCurrent();
-            final byte[] bytes = readExact(objects, chunk.object(), limits.maxChunkBytes());
-            final var input = ByteBuffer.wrap(bytes);
-            if (input.remaining() < 13 || input.getInt() != 1 || Byte.toUnsignedInt(input.get()) != expected.ordinal() + 1
-                    || input.getLong() != chunk.firstOrdinal()) throw new IllegalArgumentException("fixed companion chunk header changed");
-            for (int index = 0; index < chunk.records(); index++) {
-                if (input.remaining() < 4) throw new IllegalArgumentException("fixed companion chunk is truncated");
-                final int length = input.getInt();
-                if (length <= 0 || length > input.remaining()) throw new IllegalArgumentException("fixed companion record is truncated");
-                final byte[] record = new byte[length]; input.get(record); records.add(record);
-            }
-            if (input.hasRemaining()) throw new IllegalArgumentException("fixed companion chunk has unaccounted records");
-        }
+        for (int chunk = 0; chunk < companion.chunks().size(); chunk++)
+            records.addAll(readCompanionChunk(companion, chunk, held, limits, objects));
         held.requireCurrent(); return new LoadedCompanion(companion, records);
+    }
+
+    /** One exact fixed chunk per owned-I/O turn; no object listing or reconstructed inventory. */
+    public static List<byte[]> readCompanionChunk(Companion companion, int chunkIndex, Held held,
+            Limits limits, ImmutableObjects objects) {
+        held.requireCurrent();
+        if (chunkIndex < 0 || chunkIndex >= companion.chunks().size())
+            throw new IllegalArgumentException("fixed companion chunk index is outside its authenticated inventory");
+        final var chunk = companion.chunks().get(chunkIndex);
+        final byte[] bytes = readExact(objects, chunk.object(), limits.maxChunkBytes());
+        final var input = ByteBuffer.wrap(bytes);
+        if (input.remaining() < 13 || input.getInt() != 1
+                || Byte.toUnsignedInt(input.get()) != companion.section().ordinal() + 1
+                || input.getLong() != chunk.firstOrdinal())
+            throw new IllegalArgumentException("fixed companion chunk header changed");
+        final List<byte[]> records = new ArrayList<>();
+        for (int index = 0; index < chunk.records(); index++) {
+            if (input.remaining() < 4) throw new IllegalArgumentException("fixed companion chunk is truncated");
+            final int length = input.getInt();
+            if (length <= 0 || length > input.remaining()) throw new IllegalArgumentException("fixed companion record is truncated");
+            final byte[] record = new byte[length]; input.get(record); records.add(record);
+        }
+        if (input.hasRemaining()) throw new IllegalArgumentException("fixed companion chunk has unaccounted records");
+        held.requireCurrent(); return List.copyOf(records);
     }
 
     private static byte[] readExact(ImmutableObjects objects, CheckpointResource resource, int maximumBytes) {
@@ -1288,7 +1421,7 @@ public final class LegacyMigrationBundle {
                 messageCount++; payloadBytes = Math.addExact(payloadBytes, length);
                 if (!blockers.contains(Audit.FENCED_MAINTENANCE_AUTHORITY_NOT_AUDITED)
                         && strictMappable && safeShape(old) && binding != null && held.noFuture(id, old, binding)) {
-                    final Conversion conversion;
+                    Conversion conversion;
                     if (binding.commandType() == com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
                         final var committed = old.payloadReference() == null ? null : originalReservations.get(Bytes.hex(old.payloadReference().reservationId()));
                         final var proof = committed == null ? null : held.reservation(committed, binding, mapping);
@@ -1299,6 +1432,15 @@ public final class LegacyMigrationBundle {
                             conversion = proof.conversion();
                         } else conversion = null;
                     } else conversion = held.conversion(id, old, binding, mapping);
+                    if (conversion != null) {
+                        try { requireNoLegacyObligations(view.entries(), baseline.source(), id); }
+                        catch (AuditUnavailable outstanding) {
+                            conflicts.add("ORIGINAL_ALL_GENERATION_ATTEMPTS_REQUIRE_LEGACY_CUSTODY:" + Bytes.hex(entry.key()));
+                            if (old.payloadReference() != null)
+                                reservationConversions.remove(Bytes.hex(old.payloadReference().reservationId()));
+                            conversion = null;
+                        }
+                    }
                     if (conversion != null) {
                         requireOriginalCommand(conversion, binding, external);
                         conversions.put(Bytes.hex(id.bytes()), conversion);
@@ -1345,6 +1487,13 @@ public final class LegacyMigrationBundle {
                                 requireReservationIndex(view.entries(), reservation, entry.value());
                             }
                         } catch (AuditUnavailable unavailable) { proof = null; }
+                    }
+                    if (proof != null) {
+                        try { requireNoLegacyObligations(view.entries(), baseline.source(), reservation.delayMessageId()); }
+                        catch (AuditUnavailable outstanding) {
+                            conflicts.add("ORIGINAL_ALL_GENERATION_ATTEMPTS_REQUIRE_LEGACY_CUSTODY:" + Bytes.hex(entry.key()));
+                            proof = null;
+                        }
                     }
                     if (proof != null) {
                         reservationConversions.put(Bytes.hex(reservation.reservationId()), proof);
@@ -1460,6 +1609,7 @@ public final class LegacyMigrationBundle {
             requireReferences(imported, mapping, spec);
             messages.add(message); addConverted(rows, message, imported, owner, spec.supportingRows());
         }
+        qualifyImportedSummaries(LegacyCheckpointStateInventory.baselineView(material.view()), rows, Map.of(), plan, held);
         buildOrderStates(material.mappings(), messages, material.view().entries(), rows);
         buildQueues(material.mappings(), messages, rows);
         long retained = material.retainedBytes();

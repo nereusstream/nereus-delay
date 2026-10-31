@@ -39,6 +39,17 @@ public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descrip
         final byte[] encoded=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,4,digest())));
         if(encoded.length>MAX_BYTES)throw new IllegalArgumentException("complete Target reader snapshot exceeds finite byte bound");return encoded;
     }
+    /** Existing migration data generation remains a separate reader prerequisite for this activation. */
+    public void requireMigrationRootDataReaders(TargetMigrationRoot root){
+        final var rootTuple=root.rootIssuerAuthorization()==null?ProtocolTuple.targetMigrationActivate():ProtocolTuple.targetMigrationActivateRootIssuer();
+        for(var reader:readers){final var declaration=reader.declaration();
+            if(!declaration.supports(rootTuple))throw new IllegalStateException("eligible reader lacks the actual migration Root generation");
+            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.extendedRootAuthorization()&&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive())
+                &&value.base().equals(descriptor.base())&&value.workerSourceCommit().equals(descriptor.workerSourceCommit())&&value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())
+                &&Arrays.equals(value.kafkaSdkJar(),descriptor.kafkaSdkJar())&&Arrays.equals(value.pulsarSdkJar(),descriptor.pulsarSdkJar()));
+            if(!known)throw new IllegalStateException("eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");
+        }
+    }
     public void requireMembership(List<String> completeEligibleWorkerIds){
         final var expected=new ArrayList<>(completeEligibleWorkerIds);expected.sort(String::compareTo);
         if(!expected.equals(readers.stream().map(r->r.declaration().workerId()).toList()))

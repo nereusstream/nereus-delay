@@ -23,7 +23,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 public final class KafkaClientArtifactTargetMigrationControlWriter implements TargetMigrationControlWriter, TargetOwnedBackendGroup {
     private final Object gate = new Object();
     private final Object construction = new Object();
-    private final TargetMigrationProcessDriver.Opening opening;
+    private final TargetMigrationSourceOpening opening;
     private final KafkaClientArtifactOwnedSystemWriter.Settings settings;
     private final SourceAssignment assignment;
     private final LocalBrokerMtlsResolver.SourceReceipt credential;
@@ -39,7 +39,7 @@ public final class KafkaClientArtifactTargetMigrationControlWriter implements Ta
     private KafkaProducer.ConstructionCleanupFailure partial;
     private KafkaClientArtifactShardLogMutationAppender appender;
     private OwnedCheckpointIo<Boolean> cleanup;
-    private TargetMigrationProcessDriver.AppendPermit activePermit;
+    private TargetMigrationAppendPermit activePermit;
     private TargetMigrationControlMutationFactory.Prepared activeControl;
     private List<Object> registrations;
     private Throwable failure;
@@ -47,7 +47,7 @@ public final class KafkaClientArtifactTargetMigrationControlWriter implements Ta
     private boolean sdkTerminated;
     private int activeAppends;
 
-    private KafkaClientArtifactTargetMigrationControlWriter(TargetMigrationProcessDriver.Opening opening,
+    private KafkaClientArtifactTargetMigrationControlWriter(TargetMigrationSourceOpening opening,
             KafkaClientArtifactOwnedSystemWriter.Settings settings, LocalBrokerMtlsResolver.SourceReceipt credential,
             Supplier<TrustedUtcIntervalEvidence> time, TargetDestinationSdkBudget.Client allocation,
             SystemWriterAppendBudget.Writer writer, WorkClassExecutionRegistry classes,
@@ -60,7 +60,7 @@ public final class KafkaClientArtifactTargetMigrationControlWriter implements Ta
     /** Invoked synchronously by the original prepare hook already running on graph.io; never submits and waits on that pool. */
     public static KafkaClientArtifactTargetMigrationControlWriter open(KafkaClientArtifactOwnedSystemWriter.Settings settings,
             Map<String, Object> operational, byte[] sdkJar, TargetWorkerRuntimeConfig configuration,
-            TargetMigrationProcessDriver.Opening opening, LocalBrokerMtlsResolver.SourceReceipt credential,
+            TargetMigrationSourceOpening opening, LocalBrokerMtlsResolver.SourceReceipt credential,
             Supplier<TrustedUtcIntervalEvidence> time,
             TargetDestinationSdkBudget pool, CapacityVector cost, WorkClassExecutionRegistry classes,
             SharedRocksDbResources resources) {
@@ -174,14 +174,14 @@ public final class KafkaClientArtifactTargetMigrationControlWriter implements Ta
         opening.requireCurrent();
     }
 
-    @Override public void requireBinding(TargetMigrationProcessDriver.Opening actual) {
+    @Override public void requireBinding(TargetMigrationSourceOpening actual) {
         if (opening != actual) throw new IllegalArgumentException("migration CONTROL writer belongs to another original input opening");
     }
     @Override public TargetOwnedBackendGroup backend() { return this; }
     @Override public TargetScopeExposureSource.CopyContract copyContract() { return copyContract; }
 
     private void requireAppend() {
-        final TargetMigrationProcessDriver.AppendPermit permit;
+        final TargetMigrationAppendPermit permit;
         final TargetMigrationControlMutationFactory.Prepared exact;
         synchronized (gate) {
             if (!ready || frozen || activeAppends != 1 || activePermit == null) {
@@ -197,7 +197,7 @@ public final class KafkaClientArtifactTargetMigrationControlWriter implements Ta
     }
 
     @Override public ShardLogMutationAppender.AppendOutcome append(TargetMigrationControlMutationFactory.Prepared exact,
-            TargetMigrationProcessDriver.AppendPermit permit) {
+            TargetMigrationAppendPermit permit) {
         Objects.requireNonNull(exact); Objects.requireNonNull(permit);
         if (exact.mutation().type() != SystemMutationType.APPLY_SHARD_CONTROL
                 || !assignment.shardId().equals(exact.mutation().shardId())

@@ -408,6 +408,60 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
     }
 
+    public record MigrationObject(CheckpointResource resource, byte[] bytes) {
+        public MigrationObject { Objects.requireNonNull(resource); bytes = Bytes.copy(Objects.requireNonNull(bytes)); }
+        @Override public byte[] bytes() { return Bytes.copy(bytes); }
+    }
+
+    /** Fixed immutable lookup only. A 404 is provider data, never authority to resign an already exposed Source frame. */
+    public synchronized java.util.Optional<MigrationObject> lookupMigrationObject(byte[] lineage, byte[] checkpoint,
+            String fixedName, int maximumBytes) {
+        requireMigrationLength(0, maximumBytes); final String key = migrationKey(lineage, checkpoint, fixedName);
+        requireMigrationKeyBound(key); requireCredentialGate(); final var ownership = beginProviderOperation();
+        try {
+            final RemoteBytes observed;
+            try { observed = getBytes(key, maximumBytes); }
+            catch (RemoteObjectMissing missing) { ownership.complete(); return java.util.Optional.empty(); }
+            final byte[] bytes = observed.bytes(); final byte[] digest = sha256(bytes);
+            final String version = observed.version("sha256-" + Bytes.hex(digest));
+            final var resource = migrationResource(lineage, checkpoint, key, version, bytes.length, digest);
+            final var exact = getBytes(key, maximumBytes, decodeProviderVersion(resource.immutableVersion()));
+            if (!Arrays.equals(bytes, exact.bytes()) || !version.equals(exact.version("sha256-" + Bytes.hex(digest))))
+                throw new IllegalStateException("fixed prepared custody changed its exact immutable version/content");
+            ownership.complete(); return java.util.Optional.of(new MigrationObject(resource, bytes));
+        } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
+    }
+
+    /** Exact fixed migration artifact only; callers must already hold its original retire/delete contract. */
+    public synchronized CheckpointDeleteResult deleteMigrationObject(CheckpointResource resource) {
+        validateMigrationResource(resource, Math.max(1, resource.manifestLength())); requireCredentialGate();
+        final var ownership = beginProviderOperation();
+        try {
+            final String key = decodeText(resource.objectKey(), "migration artifact key");
+            final String version = decodeProviderVersion(resource.immutableVersion());
+            final var response = send("GET", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(), Map.of(), version,
+                    HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() == 404) {
+                closeQuietly(response.body());
+                final var evidence = responseEvidence("GET", key, 404, version, sha256(new byte[0]), response);
+                final var result = new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
+                        requireRequestIdHash(evidence, "exact migration artifact absence"), evidence.responseHash());
+                ownership.complete(); return result;
+            }
+            if (!isSuccess(response.statusCode())) { closeQuietly(response.body()); throw unexpectedStatus("GET", key, response.statusCode()); }
+            try (InputStream input = response.body()) {
+                final var actual = consume(input, null, resource.manifestLength(), resource.manifestLength());
+                if (actual.length() != resource.manifestLength() || !Arrays.equals(actual.checksum(), resource.manifestSha256())
+                        || !version.equals(responseVersionOrFallback(response, "sha256-" + Bytes.hex(resource.manifestSha256()), "GET", key)))
+                    throw new IllegalStateException("migration artifact no longer has its exact original immutable identity");
+            } catch (IOException failure) { throw new IllegalStateException("cannot read original migration artifact", failure); }
+            final var deleted = deleteObject(key, version);
+            final var result = new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                    deleted.requestIdHash(), deleted.responseHash());
+            ownership.complete(); return result;
+        } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
+    }
+
     private void verifyMigrationObjectInternal(CheckpointResource resource, long maximumBytes) {
         validateMigrationResource(resource, maximumBytes);
         final String key = decodeText(resource.objectKey(), "migration object key");

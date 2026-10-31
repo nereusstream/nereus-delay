@@ -96,6 +96,15 @@ public final class TargetExpireGenerationStore {
             final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
             final TargetExpireGenerationVerifier.Authority authority) {
+        return prepareFirst(budget, mutation, source, authority, null);
+    }
+
+    public Prepared prepareFirst(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetExpireGenerationVerifier.Authority authority,
+            final com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
         TargetSourcePosition.requireBounded(source);
@@ -107,11 +116,13 @@ public final class TargetExpireGenerationStore {
         final var result = new SystemMutationResult[1];
         final var terminalized = new boolean[1];
         final var digest = Bytes.sha256(mutation.canonicalEnvelope());
-        final var accounting = new TargetSourceAccounting(
+        final var plainAccounting = new TargetSourceAccounting(
                 scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
+        final var accounting = legacyPrefix == null ? plainAccounting : plainAccounting.withLegacyPrefix(legacyPrefix);
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
+                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
                     if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
                         throw new IllegalStateException(
                                 "first Target expiry needs an established strictly earlier source frontier");
@@ -144,7 +155,7 @@ public final class TargetExpireGenerationStore {
                         messageTransitions = List.of();
                         orderTransitions = List.of();
                     } else {
-                        final Transition transition = expire(reader, decision.body(), stamp);
+                        final Transition transition = expire(reader, decision.body(), stamp, legacyPrefix);
                         terminalized[0] = transition.changed();
                         outcome = SystemMutationResult.from(
                                 mutation, ApplyStatus.APPLIED, transition.resultCode(), source.canonicalBytes());
@@ -210,7 +221,8 @@ public final class TargetExpireGenerationStore {
     private Transition expire(
             final TargetStoreBackend.Reader reader,
             final TargetExpireGenerationBody body,
-            final TargetQuotaMutation stamp) {
+            final TargetQuotaMutation stamp,
+            final com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final byte[] messageKey = TargetKeyCodec.message(body.messageId());
         final byte[] raw = reader.get(ColumnFamily.ID, messageKey);
         if (raw == null) {
@@ -311,7 +323,11 @@ public final class TargetExpireGenerationStore {
         if (reader.get(ColumnFamily.TERMINAL, terminal.key()) != null) {
             throw new IllegalStateException("live expiring generation already has terminal history");
         }
-        final var retained = payloadOwner.retain(stamp, (prior, next, floor) -> {
+        final boolean retainPayload = payloadOwner.summaryQualified()
+                ? TargetPayloadObligationSource.canRetain(reader, after, payloadOwner, payloadOwner.unresolvedCount())
+                : legacyPrefix != null && legacyPrefix.noUnresolvedAfter(reader, payloadOwner, List.of())
+                    && legacyPrefix.noLegacyCustodyAfter(reader, payloadOwner, List.of());
+        final var retained = !retainPayload ? payloadOwner : payloadOwner.retain(stamp, (prior, next, floor) -> {
             if (floor != null
                     || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
                     || !next.mutation().equals(stamp)
@@ -322,7 +338,7 @@ public final class TargetExpireGenerationStore {
             next.requireMessagePayload(after);
         });
         final var edits = new ArrayList<TargetStoreBackend.Edit>();
-        edits.add(reader.replace(
+        if (retained != payloadOwner) edits.add(reader.replace(
                 ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
         edits.add(reader.replace(
                 ColumnFamily.TERMINAL,

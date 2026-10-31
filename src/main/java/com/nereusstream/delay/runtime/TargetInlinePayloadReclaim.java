@@ -70,9 +70,8 @@ public final class TargetInlinePayloadReclaim {
         if(!Arrays.equals(body.payloadFacts().canonicalBytes(),facts.freeze(dependencies,body).canonicalBytes()))
             throw new IllegalStateException("retained inline capsule differs from original Native first/POSITION history");
         body.payloadFacts().requireFor(body);
-        final var budgets=budgets(dependencies);
         for(var original:body.payloadFacts().retained())requireRetainedIdentity(original.message(),facts.retained().get(original.message()),
-                original.input().appliedAt(),id->Objects.requireNonNull(budgets.get(Bytes.hex(id)),"retained Source original Attempt"));
+                original.input().appliedAt(),id->Objects.requireNonNull(dependencies.admission(id),"retained Source original Attempt").attempt(),id->settledGuard(dependencies,id));
     }
     public static void requireRecordedSourceFacts(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetResourceReclaimBody body,TargetQuotaMutation frontier){
@@ -82,7 +81,7 @@ public final class TargetInlinePayloadReclaim {
         if(SystemMutationResult.decode(fence.typedPayload()).stableCode()!=StableCode.OK)throw new IllegalStateException("original closure TimeFence was not APPLIED OK");
         for(var original:body.payloadFacts().retained()){
             final var entry=facts.retained().get(original.message());first(view,overlay,entry,original.input().appliedAt(),frontier);
-            requireRetainedIdentity(original.message(),entry,original.input().appliedAt(),id->budget(view,overlay,id,body.shard()));
+            requireRetainedIdentity(original.message(),entry,original.input().appliedAt(),id->budget(view,overlay,id,body.shard()),id->settledGuard(view,overlay,id,frontier));
         }
     }
     private static Map<String,TargetQuotaAttemptBudget> budgets(TargetCheckpointDependencies dependencies){
@@ -97,7 +96,7 @@ public final class TargetInlinePayloadReclaim {
     }
     /** An Outcome names an Attempt; its immutable Native locator must identify this selected Message. */
     private static void requireRetainedIdentity(DelayMessageId message,com.nereusstream.delay.ownership.SourceReplayEntry entry,
-            TargetQuotaMutation stamp,java.util.function.Function<byte[],TargetQuotaAttemptBudget> budgets){
+            TargetQuotaMutation stamp,java.util.function.Function<byte[],TargetQuotaAttemptBudget> budgets,java.util.function.Function<DelayMessageId,TargetMigrationCustodyGuard> guards){
         if(entry instanceof com.nereusstream.delay.ownership.SourceReplayRecord command){
             if(command.command().type()!=CommandType.CANCEL||!command.command().delayMessageId().equals(message))
                 throw new IllegalStateException("original Command is not this INLINE Message's retention transition");return;
@@ -105,6 +104,13 @@ public final class TargetInlinePayloadReclaim {
         final var mutation=((com.nereusstream.delay.ownership.SourceReplayMutation)entry).mutation();
         if(mutation.type()==SystemMutationType.EXPIRE_GENERATION){
             if(!TargetExpireGenerationBody.decode(mutation.canonicalBody()).messageId().equals(message))throw new IllegalStateException("retained expiry changed Message");return;
+        }
+        if(mutation.type()==SystemMutationType.APPLY_SHARD_CONTROL&&TargetMigrationControlBody.isControl(mutation)){
+            final var body=TargetMigrationControlBody.decode(mutation.canonicalBody());body.requireInput(mutation);
+            if(!(body.request() instanceof TargetMigrationSettlementRequest request)||!request.messageId().equals(message))throw new IllegalStateException("retained migration Control is not this Message's exact settlement");
+            final var guard=guards.apply(message);
+            if(!guard.settled()||!guard.messageId().equals(message)||!guard.settledAt().equals(stamp)||guard.kind()!=request.guardKind()
+                    ||!Arrays.equals(guard.settlement().canonicalEnvelope(),mutation.canonicalEnvelope()))throw new IllegalStateException("payload retention lost actual same-Source custody settlement");return;
         }
         final var outcome=switch(mutation.type()){
             case PUBLISH_OUTCOME->PublishOutcomeBody.decode(mutation.canonicalBody());
@@ -115,6 +121,25 @@ public final class TargetInlinePayloadReclaim {
         if(!budget.locator().messageId().equals(message)||budget.resolvedAt()==null||!budget.resolvedAt().equals(stamp)
                 ||budget.phase()==TargetQuotaAttemptBudget.Phase.ADMITTED||budget.phase()==TargetQuotaAttemptBudget.Phase.UNKNOWN)
             throw new IllegalStateException("retained Outcome differs from selected Message's definitive Attempt");
+    }
+    private static TargetMigrationCustodyGuard settledGuard(TargetCheckpointDependencies d,DelayMessageId id){
+        final var guard=Objects.requireNonNull(d.migrationGuard(id),"retained settlement has no actual Native67");
+        TargetMigrationStore.requireGuard(Objects.requireNonNull(d.migrationRoot()).plan(),guard);
+        if(!guard.settled())throw new IllegalStateException("retained payload still has unsettled legacy custody");
+        final byte[] key=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},guard.settlement().systemMutationId());
+        final var first=Objects.requireNonNull(d.resultRecord(key),"actual settlement first");d.requireSystemPosition(first);requireSettlementFirst(guard,first);return guard;
+    }
+    private static TargetMigrationCustodyGuard settledGuard(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,DelayMessageId id,TargetQuotaMutation frontier){
+        final byte[] key=TargetMigrationCustodyGuard.keyFor(id);final var guard=TargetMigrationCustodyGuard.decode(TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(ColumnFamily.META,key,overlay),"actual settled custody"),TargetMigrationCustodyGuard.VALUE_TYPE).payload());
+        if(!guard.settled())throw new IllegalStateException("retained payload still has unsettled legacy custody");
+        final var root=TargetMigrationStore.requireActivated(view,overlay,guard.owner().scope().shardScope(),guard.owner().recoveryLineage(),frontier);TargetMigrationStore.requireGuard(root.plan(),guard);
+        final var actual=first(view,overlay,new com.nereusstream.delay.ownership.SourceReplayMutation(guard.settlement(),guard.settledAt().source(),null,null),guard.settledAt(),frontier);
+        requireSettlementFirst(guard,actual);return guard;
+    }
+    private static void requireSettlementFirst(TargetMigrationCustodyGuard guard,TargetResultRecord first){
+        if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.appliedFirst()||!first.mutation().equals(guard.settledAt())
+                ||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(guard.settlement(),ApplyStatus.APPLIED,StableCode.OK,guard.settledAt().source().canonicalBytes()).encode()))
+            throw new IllegalStateException("retained payload requires the original APPLIED/OK migration settlement first/POS");
     }
     /** Policy bytes come from this same fully authenticated companion, at every actual retained binding use. */
     public static List<Policy> policies(TargetCheckpointDependencies dependencies,TargetCheckpointSemanticSnapshot snapshot,
@@ -190,7 +215,7 @@ public final class TargetInlinePayloadReclaim {
             final var retainedFirst=d.requireRetentionDecision(expected);expected.mutation().requireCoveredByFloor(floor);
             expected.mutation().requireAtOrBefore(fenceFirst.mutation());
             final var retainedInput=Objects.requireNonNull(facts.retained().get(expected.messageId()),"original RETAINED Source input");
-            requireRetainedIdentity(expected.messageId(),retainedInput,expected.mutation(),id->Objects.requireNonNull(retainedBudgets.get(Bytes.hex(id)),"retained Source original Attempt"));
+            requireRetainedIdentity(expected.messageId(),retainedInput,expected.mutation(),id->Objects.requireNonNull(retainedBudgets.get(Bytes.hex(id)),"retained Source original Attempt"),id->settledGuard(d,id));
             if(!Arrays.equals(retainedInput.position().canonicalBytes(),expected.mutation().source().canonicalBytes()))
                 throw new IllegalStateException("retained Source input changed original canonical persistence timestamp");
             if(retainedInput instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation){
@@ -245,6 +270,145 @@ public final class TargetInlinePayloadReclaim {
         }
         current.run();return release;
     }
+
+    /** Original complete terminal-payload predicate, advanced over this exact ledger's already read indexes. */
+    public static final class RetirementCursor {
+        private final TargetRetirementLedgerCursor ledger;
+        private final TargetCheckpointDependencies d;
+        private final TargetResourceReclaimBody body;
+        private final List<Policy> policies;
+        private final SourceFacts facts;
+        private final boolean allowReleased;
+        private final Set<DelayMessageId> selected;
+        private final List<? extends TargetResourceReclaimBody.RetainedPayload> operations;
+        private final Map<DelayMessageId,Map<String,Policy>> supplied=new HashMap<>();
+        private final RecoveryFloorRef floor;
+        private final TargetTimeFenceBody fenceBody;
+        private TargetResultRecord fenceFirst;
+        private TargetQuotaMutation release;
+        private Boolean released;
+        private int phase,index,messageIndex;
+        private Iterator<TargetTerminalGenerationRecord> terminals;
+        private Iterator<TargetCheckpointDependencies.RetryUse> uses;
+        private Iterator<TargetCheckpointDependencies.Admission> admissions;
+        public RetirementCursor(TargetRetirementLedgerCursor ledger,TargetResourceReclaimBody body,List<Policy> policies,SourceFacts facts,boolean allowReleased){
+            this.ledger=Objects.requireNonNull(ledger);d=ledger.dependenciesForClosure();this.body=Objects.requireNonNull(body);
+            this.policies=Objects.requireNonNull(policies);this.facts=Objects.requireNonNull(facts);this.allowReleased=allowReleased;
+            selected=ids(body);operations=body.payloadOperations();floor=body.floor();fenceBody=TargetTimeFenceBody.decode(facts.fence().mutation().canonicalBody());
+        }
+        public boolean advance(int maximumRows,Runnable current,java.util.function.LongConsumer retained,java.util.function.LongConsumer copied){
+            int used=0;
+            while(used<maximumRows){
+                switch(phase){
+                    case 0->{
+                        final var root=d.root();
+                        if(!root.metadata().shardId().equals(body.shard())||!Arrays.equals(root.root().tenantScope(),body.scope().tenantScope())||!Arrays.equals(root.root().recoveryLineage(),body.lineage()))throw new IllegalArgumentException("inline closure changed original Source scope");
+                        fenceFirst=d.requireTimeFence(facts.fence());fenceFirst.mutation().requireCoveredByFloor(floor);
+                        if(body.selfContainedPayloadRelease()&&!Arrays.equals(body.payloadFacts().canonicalBytes(),facts.freeze(d,body).canonicalBytes()))throw new IllegalStateException("inline Source capsule changed actual original first/POSITION facts");
+                        if(d.ingressFence().closedThroughEpochMs()<fenceBody.closeThrough())throw unavailable("Native Source has not applied the original closure fence");
+                        if(facts.retained().size()!=selected.size()||!facts.retained().keySet().equals(selected))throw new IllegalArgumentException("inline retained Source facts changed Message group");
+                        phase=1;
+                    }
+                    case 1->{
+                        if(index>=policies.size()){phase=2;index=0;continue;}
+                        final var policy=policies.get(index++);if(!selected.contains(policy.message()))throw new IllegalArgumentException("unrelated inline policy");
+                        final byte[] bytes=policy.use().canonicalBytes();copied.accept(bytes.length);final String key=Bytes.hex(bytes);retained.accept(2L*key.length());
+                        if(supplied.computeIfAbsent(policy.message(),ignored->new HashMap<>()).putIfAbsent(key,policy)!=null)throw new IllegalArgumentException("duplicate inline policy use");
+                    }
+                    case 2->{
+                        if(messageIndex>=operations.size()){phase=3;index=0;continue;}
+                        final var operation=operations.get(messageIndex);
+                        if(terminals==null)terminals=ledger.terminals(operation.expected().messageId()).iterator();
+                        if(!terminals.hasNext()){terminals=null;messageIndex++;continue;}
+                        final var terminal=terminals.next();terminal.mutation().requireCoveredByFloor(floor);
+                        if(!terminal.runtime().attemptObligations().isEmpty())throw unavailable("historical inline generation still owns an Attempt");
+                        terminal.requireOwner(operation.expected());
+                        if(Integer.compareUnsigned(terminal.locator().generation(),operation.locator().generation())>0)throw new IllegalStateException("inline history has a future generation");
+                    }
+                    case 3->{
+                        if(index>=operations.size()){phase=5;messageIndex=0;continue;}
+                        requireOperation(operations.get(index));
+                        final var needed=ledger.retryUses(operations.get(index).expected().messageId());
+                        final var actual=supplied.get(operations.get(index).expected().messageId());
+                        if(needed.isEmpty()||actual==null||actual.size()!=needed.size())throw unavailable("inline policy history is incomplete");
+                        uses=needed.iterator();phase=4;
+                    }
+                    case 4->{
+                        if(!uses.hasNext()){index++;phase=3;continue;}
+                        final var operation=operations.get(index);final var use=uses.next();
+                        final byte[] bytes=use.canonicalBytes();copied.accept(bytes.length);
+                        final var policy=Objects.requireNonNull(supplied.get(operation.expected().messageId()).get(Bytes.hex(bytes)),"original inline policy use");
+                        policy.terminal().requirePrimaryReleasePolicy(policy.retry());
+                        if(fenceBody.closeThrough()<policy.terminal().retentionDeadline(operation.expected().mutation()))throw unavailable("authenticated Source time/fence has not closed inline retention");
+                    }
+                    case 5->{
+                        if(messageIndex>=operations.size()){phase=6;return true;}
+                        if(admissions==null)admissions=ledger.messageAdmissions(operations.get(messageIndex).expected().messageId()).iterator();
+                        if(!admissions.hasNext()){admissions=null;messageIndex++;continue;}
+                        final var admission=admissions.next();final var budget=admission.attempt();
+                        if(budget.phase()==TargetQuotaAttemptBudget.Phase.ADMITTED||budget.phase()==TargetQuotaAttemptBudget.Phase.UNKNOWN||budget.resolvedAt()==null)throw unavailable("inline payload still has an unresolved writer");
+                        budget.resolvedAt().requireCoveredByFloor(floor);admission.first().mutation().requireCoveredByFloor(floor);
+                        final var outcome=Objects.requireNonNull(ledger.resultAt(budget.resolvedAt()),"inline writer definitive Source first");
+                        if(!outcome.mutation().equals(budget.resolvedAt())||!outcome.appliedFirst())throw new IllegalStateException("inline writer changed definitive Source resolution");
+                        d.requireSystemPosition(admission.first());d.requireSystemPosition(outcome);
+                        final long deadline=Math.max(SystemMutationResult.decode(admission.first().typedPayload()).retryUntilEpochMs(),SystemMutationResult.decode(outcome.typedPayload()).retryUntilEpochMs());
+                        if(fenceBody.closeThrough()<deadline)throw unavailable("Source fence has not closed original writer retry windows");
+                    }
+                    default->{return true;}
+                }
+                used++;current.run();
+            }
+            return phase==6;
+        }
+        private void requireOperation(TargetResourceReclaimBody.RetainedPayload inline){
+            final var expected=inline.expected();final var actual=Objects.requireNonNull(d.payloadOwner(expected.messageId()),"inline owner missing from complete fold");
+            final boolean isReleased=actual.phase()==TargetQuotaPayloadOwner.Phase.RELEASED;
+            if(released!=null&&released!=isReleased)throw new IllegalStateException("inline group is only partially released");
+            released=isReleased;
+            if(isReleased){
+                if(!allowReleased)throw unavailable("inline Native first already has released state");
+                actual.requireReleasedFrom(expected,floor);
+                if(d.messageState(expected.messageId())!=null)throw new IllegalStateException("released inline image retains its primary");
+                if(release!=null&&!release.equals(actual.mutation()))throw new IllegalStateException("inline group has different Source decisions");
+                release=actual.mutation();
+            }else{
+                if(!Arrays.equals(actual.canonicalBytes(),expected.canonicalBytes()))throw unavailable("inline owner changed after selection");
+                final var message=Objects.requireNonNull(d.messageState(expected.messageId()),"inline primary missing from full fold");
+                if(!message.locator().equals(inline.locator())||message.stateVersion()!=inline.stateVersion()
+                        ||!Arrays.equals(message.primaryDigest(),inline.primaryDigest())||!message.runtime().terminal()
+                        ||!message.runtime().attemptObligations().isEmpty())throw unavailable("inline primary is not the exact closed terminal value");
+            }
+            final var retainedFirst=d.requireRetentionDecision(expected);expected.mutation().requireCoveredByFloor(floor);
+            expected.mutation().requireAtOrBefore(fenceFirst.mutation());
+            final var retainedInput=Objects.requireNonNull(facts.retained().get(expected.messageId()),"original RETAINED Source input");
+            requireRetainedIdentity(expected.messageId(),retainedInput,expected.mutation(),id->Objects.requireNonNull(d.admission(id),"retained Source original Attempt").attempt(),id->settledGuard(d,id));
+            if(!Arrays.equals(retainedInput.position().canonicalBytes(),expected.mutation().source().canonicalBytes()))
+                throw new IllegalStateException("retained Source input changed original canonical persistence timestamp");
+            if(retainedInput instanceof com.nereusstream.delay.ownership.SourceReplayMutation mutation){
+                if(retainedFirst.kind()!=TargetResultRecord.Kind.SYSTEM)throw new IllegalStateException("retained input kind differs from original Source first");
+                final var retainedResult=SystemMutationResult.decode(retainedFirst.typedPayload());
+                if(!Arrays.equals(retainedFirst.typedPayload(),SystemMutationResult.from(mutation.mutation(),ApplyStatus.APPLIED,retainedResult.stableCode(),mutation.position().canonicalBytes()).encode())
+                        ||!Arrays.equals(expected.mutation().mutationDigest(),Bytes.sha256(mutation.mutation().canonicalEnvelope())))
+                    throw new IllegalStateException("retained Source mutation differs from original APPLIED first");
+            }else{
+                final var command=((com.nereusstream.delay.ownership.SourceReplayRecord)retainedInput).command();
+                if(retainedFirst.kind()!=TargetResultRecord.Kind.COMMAND||!command.delayMessageId().equals(expected.messageId())
+                        ||!Arrays.equals(retainedFirst.logicalId(),command.commandId().bytes())
+                        ||!Arrays.equals(CommandDedupeRecord.decode(retainedFirst.typedPayload()).commandHash(),command.commandHash())
+                        ||!Arrays.equals(expected.mutation().mutationDigest(),command.canonicalFrameDigest()))
+                    throw new IllegalStateException("retained Source Command differs from original APPLIED first");
+            }
+            final var terminal=ledger.terminal(TargetTerminalGenerationRecord.key(inline.locator()));
+            terminal.requireOwner(expected);
+            if(terminal.stateVersion()!=inline.stateVersion()||!Arrays.equals(Bytes.sha256(terminal.canonicalBytes()),inline.terminalDigest()))
+                throw unavailable("inline terminal metadata changed after selection");
+            if(!isReleased&&!Arrays.equals(terminal.runtime().canonicalBytes(),d.messageState(expected.messageId()).runtime().canonicalBytes()))
+                throw new IllegalStateException("terminal metadata differs from current primary runtime");
+
+        }
+        public TargetQuotaMutation result(){if(phase!=6)throw new IllegalStateException("inline complete closure is still preparing");return release;}
+    }
+
     private static Set<DelayMessageId> ids(TargetResourceReclaimBody body){
         if(!body.inlinePayloadRelease()&&!body.objectPayloadReclaim())throw new IllegalArgumentException("inline operation group required");
         final var ids=new HashSet<DelayMessageId>();
@@ -272,7 +436,7 @@ public final class TargetInlinePayloadReclaim {
             current.run();final var inline=operation;final var owner=inline.expected();
             final var original=Objects.requireNonNull(facts.retained().get(owner.messageId()),"original retained Source");
             first(reader,original,owner.mutation());
-            requireRetainedIdentity(owner.messageId(),original,owner.mutation(),id->budget(reader,List.of(),id,body.shard()));
+            requireRetainedIdentity(owner.messageId(),original,owner.mutation(),id->budget(reader,List.of(),id,body.shard()),id->settledGuard(reader,List.of(),id,reader.aggregate().mutation()));
             final byte[] primary=reader.get(ColumnFamily.ID,TargetKeyCodec.message(owner.messageId()));
             final var message=TargetMessageRecord.decodeForStore(TargetKeyCodec.message(owner.messageId()),TargetValueEnvelope.decode(primary,TargetMessageRecord.VALUE_TYPE).payload(),body.shard());
             owner.requireMessagePayload(message);

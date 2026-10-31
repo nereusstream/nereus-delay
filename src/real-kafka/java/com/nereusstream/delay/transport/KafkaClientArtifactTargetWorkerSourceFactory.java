@@ -252,6 +252,8 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         private byte[] recoverySdkJar;
         private com.nereusstream.delay.ownership.TargetDestinationSdkBudget recoveryBudget;
         private TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
+        private KafkaClientArtifactRecoverySourceCursor migrationHistoryReader;
+        private com.nereusstream.delay.ownership.TargetWorkerRecoverySource payloadSummaryReader;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 KafkaClientArtifactOwnedSourceBackend owner, TargetWorkerShardRuntime.Maintenance maintenance,
                 com.nereusstream.delay.protocol.OwnerIdentity identity,
@@ -670,12 +672,29 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     final var ready = recoveryInputs.ready();
                     if (ready.isEmpty()) return java.util.Optional.empty();
                     final var inputs = ready.orElseThrow();
-                    final var reader = KafkaClientArtifactRecoverySourceCursor.openForStartup(startup, recoveryOperational,
+                    if (migrationHistoryReader != null) {
+                        if (startup.advanceMigrationHistory(migrationHistoryReader)) migrationHistoryReader = null;
+                        return java.util.Optional.empty();
+                    }
+                    if (startup.migrationHistoryRequired()) {
+                        migrationHistoryReader = KafkaClientArtifactRecoverySourceCursor.openForStartup(startup, recoveryOperational,
+                                recoverySdkJar, inputs.credential(), recoveryReader.pollTimeout(), inputs.maximumFrameBytes(),
+                                time, inputs::requireSourceCurrent, recoveryBudget, recoveryReader.allocationId(),
+                                recoveryReader.maximumConnections(), recoveryReader.cost());
+                        return java.util.Optional.empty();
+                    }
+                    if (payloadSummaryReader == null) payloadSummaryReader = KafkaClientArtifactRecoverySourceCursor.openForStartup(startup, recoveryOperational,
                             recoverySdkJar, inputs.credential(), recoveryReader.pollTimeout(), inputs.maximumFrameBytes(),
                             time, inputs::requireSourceCurrent, recoveryBudget, recoveryReader.allocationId(),
                             recoveryReader.maximumConnections(), recoveryReader.cost());
-                    startup.startRecovery(reader, identity, inputs.journal(), inputs::requireSourceCurrent,
+                    final var preparedReader = startup.payloadSummaryRecoverySource(payloadSummaryReader);
+                    if (preparedReader.isEmpty()) {
+                        if (startup.payloadSummaryCaptureReaderClosed(payloadSummaryReader)) payloadSummaryReader = null;
+                        return java.util.Optional.empty();
+                    }
+                    startup.startRecovery(preparedReader.orElseThrow(), identity, inputs.journal(), inputs::requireSourceCurrent,
                             inputs.journal() == null ? null : inputs::requireJournalCurrent);
+                    payloadSummaryReader = null;
                 }
                 if (startup.kafkaRecoveryPending()) startup.runRecoveryTurn();
                 if (!startup.activationReady()) return java.util.Optional.empty();

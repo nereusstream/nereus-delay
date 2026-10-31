@@ -1,6 +1,7 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -478,6 +479,12 @@ public final class TargetPublishAdmissionStore {
     public Prepared prepareFirst(final BoundedReadBudget budget,final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,final TargetPublishAdmissionVerifier.Authority authority,
             final TargetSloObservationSamples.Authority samples){
+        return prepareFirst(budget, mutation, source, authority, samples, null);
+    }
+
+    public Prepared prepareFirst(final BoundedReadBudget budget, final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source, final TargetPublishAdmissionVerifier.Authority authority,
+            final TargetSloObservationSamples.Authority samples, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
         Objects.requireNonNull(samples,"original Admission sample authority");
@@ -496,7 +503,7 @@ public final class TargetPublishAdmissionStore {
                 Bytes.sha256(mutation.canonicalEnvelope()),
                 maximumCounters,
                 maximumTargets,
-                maximumDomains);
+                maximumDomains).withLegacyPrefix(legacyPrefix);
         final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
                 (reader, business) -> {
                     final var sample=TargetSloObservationSamples.admission(reader,scope,lineage,mutation,
@@ -515,6 +522,7 @@ public final class TargetPublishAdmissionStore {
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
+                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
                     requireFirstPosition(reader, source);
                     final var stamp = stamp(reader, source, mutation);
                     final var decision = reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
@@ -527,7 +535,7 @@ public final class TargetPublishAdmissionStore {
                     final var extra = new ArrayList<TargetStoreBackend.Edit>();
                     if (rejection == null) {
                         try {
-                            final var projection = admission(reader, decision, mutation, source, stamp);
+                            final var projection = admission(reader, decision, mutation, source, stamp, legacyPrefix);
                             transitions = List.of(new TargetMessageStore.Transition(
                                     projection.before(), projection.after()));
                             orders = projection.order() == null ? List.of() : List.of(projection.order());
@@ -677,7 +685,7 @@ public final class TargetPublishAdmissionStore {
             final TargetPublishAdmissionVerifier.Decision decision,
             final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
-            final TargetQuotaMutation stamp) {
+            final TargetQuotaMutation stamp, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final var body = decision.body();
         final var current = currentClaim(reader, body);
         final var before = current.message();
@@ -771,6 +779,20 @@ public final class TargetPublishAdmissionStore {
             final var artifacts = decision.authorization().materialization().externalEvidence(body, source);
             receiptEdits.addAll(TargetExternalEvidenceStore.adopt(reader, scope, lineage, mapping, attemptBudget, artifacts));
         }
+        final var payloadOwner = TargetPayloadObligationSource.owner(reader, scope, lineage, locator.messageId());
+        payloadOwner.requireMessagePayload(before);
+        final TargetQuotaPayloadOwner nextOwner;
+        if (payloadOwner.summaryQualified()) {
+            nextOwner = payloadOwner.admitAttempt(attemptBudget, stamp, (prior, next, floor) -> {
+                if (prior != payloadOwner || floor != null || !next.summaryMutation().equals(stamp)) {
+                    throw new IllegalStateException("Admission summary changed its original payload owner/Source");
+                }
+            });
+        } else {
+            Objects.requireNonNull(legacyPrefix, "unqualified payload Admission requires its original finite v1 prefix permit")
+                    .requireCurrent(reader, mutation, source);
+            nextOwner = null;
+        }
         final var obligation = body.obligation();
         final var admitted = claim.admitted(before, obligation, body.attemptNo());
         final TargetStoreBackend.Edit claimEdit = reader.replace(
@@ -787,6 +809,8 @@ public final class TargetPublishAdmissionStore {
                 attemptBudget.canonicalBytes());
         final List<TargetMessageStore.OrderTransition> order = strictOrder(reader, before, admitted);
         receiptEdits.addAll(List.of(claimEdit, chargeEdit, budgetEdit));
+        if (nextOwner != null) receiptEdits.add(reader.replace(ColumnFamily.META, nextOwner.key(),
+                TargetQuotaPayloadOwner.VALUE_TYPE, nextOwner.canonicalBytes()));
         return new AdmissionProjection(
                 before,
                 admitted,

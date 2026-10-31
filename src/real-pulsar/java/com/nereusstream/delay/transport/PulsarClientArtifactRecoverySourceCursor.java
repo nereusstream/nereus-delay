@@ -60,7 +60,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final SourceProof independentReaderProof;
     private final PulsarSourcePosition positionedReaderCut;
     private final com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
-    private com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening migrationOpening;
+    private com.nereusstream.delay.ownership.TargetMigrationSourceOpening migrationOpening;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
@@ -109,7 +109,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
                 throw new IllegalArgumentException("recovery reader exceeds its actual Source frame envelope");
             }
-            if (!(startup.auditedRecoveryCut() instanceof PulsarSourcePosition position)) {
+            if (!(startup.recoveryReaderCut() instanceof PulsarSourcePosition position)) {
                 throw new IllegalArgumentException("audited recovery Store lacks its P1 Source cut");
             }
             final var cursor = openVerified0(group, resource, credential, Optional.of(position), receiveTimeout,
@@ -166,7 +166,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
 
     /** Real no-ACK reader under the original migration hold, with its own post-seek native proof. */
     static PulsarClientArtifactRecoverySourceCursor openForMigration(
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            com.nereusstream.delay.ownership.TargetMigrationSourceOpening opening,
             PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
             LocalBrokerMtlsResolver.SourceReceipt credential, PulsarSourcePosition actualCut,
             Duration timeout, int maximumFrameBytes, Supplier<TrustedUtcIntervalEvidence> time) {
@@ -187,7 +187,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
             Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment,
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarSourcePosition actualCut,
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening migration) {
+            com.nereusstream.delay.ownership.TargetMigrationSourceOpening migration) {
         final long timeoutMs = Objects.requireNonNull(receiveTimeout, "receiveTimeout").toMillis();
         if (timeoutMs < 1 || timeoutMs > 60_000 || maximumFrameBytes < 1 || maximumFrameBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Source recovery settings must be finite");
@@ -687,6 +687,9 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                     consumer.close();
                 }
                 closed = true;
+                current = null;
+                buffered = null;
+                lastDeliveredEntry = null;
             } catch (PulsarClientException failure) {
                 throw new IllegalStateException("Pulsar guarded recovery close failed", failure);
             } catch (InterruptedException failure) {
@@ -729,7 +732,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     }
 
     GuardedConsumer<byte[]> migrationConsumer(
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            com.nereusstream.delay.ownership.TargetMigrationSourceOpening opening,
             PulsarClientArtifactOwnedBackendGroup group, LocalBrokerMtlsResolver.SourceReceipt credential) {
         if (migrationOpening != opening || backend != group || verifiedCredential == null
                 || !verifiedCredential.sameMaterial(credential) || independentReaderProof == null

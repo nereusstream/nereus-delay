@@ -2,6 +2,12 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.runtime.TargetQuotaCapacitySnapshot;
 import com.nereusstream.delay.runtime.TargetScopeFeeAuthority;
+import com.nereusstream.delay.runtime.TargetSloWriterOrigin;
+import com.nereusstream.delay.runtime.TargetRetirementPreparation;
+import com.nereusstream.delay.runtime.TargetMigrationArchivePreparation;
+import com.nereusstream.delay.scheduler.WorkClass;
+import com.nereusstream.delay.scheduler.WorkClassTask;
+import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -19,7 +25,7 @@ public final class TargetSourceAuthorityPreparation {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
     }
-    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION, SCOPE_FEES, MIGRATION }
+    public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION, SCOPE_FEES, MIGRATION, PAYLOAD_SUMMARY }
 
     /** Trusted deployment content/history providers; metadata declares parser coverage, never authorization. */
     public interface Loader {
@@ -28,6 +34,10 @@ public final class TargetSourceAuthorityPreparation {
         default Held load(SourceReplayEntry entry,Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
         default Held load(SourceReplayEntry entry,Family family,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source,
                 TargetSourceApplyRuntime.ReclaimRead reclaim){return load(entry,family,guard,source);}
+        default Held loadWriterPrelude(SourceReplayEntry entry,TargetSloWriterOrigin.PreparationRequired request,Runnable guard,
+                TargetSourceApplyRuntime.ConfirmationRead source,TargetSourceApplyRuntime.ReclaimRead reclaim){
+            throw new InputUnavailable("original fee-only writer preparation capability unavailable");
+        }
     }
 
     /** Immutable original author/key/role/scope/history data, already acquired outside Store locks. */
@@ -35,6 +45,16 @@ public final class TargetSourceAuthorityPreparation {
         SourceReplayEntry entry();
         Object control();
         long retainedBytes();
+        default boolean preparationReady() { return true; }
+        /** One actual bounded cursor turn on the original owned I/O; no control is consumable before it returns true. */
+        default boolean advancePreparation() { return true; }
+        default void invalidateRetirement(TargetRetirementPreparation.ViewChanged changed) { throw changed; }
+        default TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request) {
+            throw new InputUnavailable("original paid writer history/retention subloan unavailable");
+        }
+        default TargetSourceAuthorityLoader.ArchiveTailInputs archiveTailInputs(TargetMigrationArchivePreparation.TailPreparationRequired request) {
+            throw new InputUnavailable("original archive receiver preparation inputs unavailable");
+        }
         default TargetScopeFeeAuthority scopeFees() { return TargetScopeFeeAuthority.UNAVAILABLE; }
         /** Keeps this fee-only read hold alive through the original physical Source commit. */
         default TargetStoreBackend.CommitAuthority protectScopeFees(TargetStoreBackend.CommitAuthority physical) {
@@ -53,8 +73,22 @@ public final class TargetSourceAuthorityPreparation {
     private SourceReplayEntry entry;
     private Family family;
     private OwnedCheckpointIo<Held> opening;
+    private volatile OwnedCheckpointIo<Boolean> advancing;
+    private WorkClassTask queuedPreparation;
+    private WorkClassExecutionRegistry preparationClasses;
+    private long preparationTurns;
     private OwnedCheckpointIo<Boolean> closing;
     private Held held;
+    private boolean prepared;
+    private boolean writerPreludeMode, restartingAfterPrelude;
+    private volatile TargetSloWriterOrigin.PreparationRequired writerRequest;
+    private volatile TargetSloWriterOrigin.Preparation writerCursor;
+    private volatile TargetSloWriterOrigin.Protection writerProtection;
+    private volatile boolean writerComplete;
+    private volatile TargetSloWriterOrigin.PreparationRequired preparedWriter;
+    private volatile TargetMigrationArchivePreparation.TailPreparationRequired tailRequest, preparedTailRequest;
+    private volatile TargetMigrationArchivePreparation.PreparedTail archiveTail;
+    private volatile OwnedCheckpointIo<com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover> archiveTakeoverRead;
     private Runnable localOwnerAndSource;
     private TargetSourceApplyRuntime originalSource;
     private LongSupplier originalSourceClock;
@@ -153,23 +187,32 @@ public final class TargetSourceAuthorityPreparation {
         if (stopping) throw new IllegalStateException("Source authority preparation stopped");
         if (entry != null && entry != expected) throw new IllegalStateException("Source authority look-ahead changed");
         if (entry == null) { entry = expected; family = expectedFamily; started = nanos.getAsLong(); }
+        if(restartingAfterPrelude){
+            if(!closeHeld())return false;
+            opening=null;closing=null;advancing=null;held=null;prepared=false;
+            writerPreludeMode=false;restartingAfterPrelude=false;
+        }
         if (family != expectedFamily || closing != null) throw new IllegalStateException("Source authority family is changed or closing");
+        final long admittedElapsed = nanos.getAsLong() - started;
+        if (admittedElapsed < 0 || admittedElapsed >= timeoutNanos) {
+            requestStop(); throw new IllegalStateException("Source preparation exceeded its original finite deadline");
+        }
         if (opening == null) {
             final long elapsed=nanos.getAsLong()-started;
             if(elapsed<0||elapsed>=timeoutNanos){requestStop();throw new IllegalStateException("Source input admission exceeded its original finite deadline");}
             opening = OwnedCheckpointIo.submitResource(guard -> {
                 final var source=originalSource==null?null:originalSource.confirmationRead(expected,originalSourceClock);
                 final var reclaim=originalSource==null?null:originalSource.reclaimRead(expected,originalSourceClock);
-                final var loaded = Objects.requireNonNull(loader.load(expected, expectedFamily, guard,source,reclaim), "original content snapshot");
+                if(writerPreludeMode)Objects.requireNonNull(originalSource).requireWriterPrelude(expected,
+                        Objects.requireNonNull(writerRequest),originalSourceClock);
+                final var loaded = Objects.requireNonNull(writerPreludeMode
+                        ?loader.loadWriterPrelude(expected,Objects.requireNonNull(writerRequest),guard,source,reclaim)
+                        :loader.load(expected, expectedFamily, guard,source,reclaim), "original content snapshot");
                 try {
                     guard.run(); loaded.requireCurrent();
                     if (!SourceApplyCoordinator.sameEntry(expected, loaded.entry()) || loaded.retainedBytes() < 0
-                            || loaded.retainedBytes() > maximumBytes || familyOf(loaded.control()) != expectedFamily) {
+                            || loaded.retainedBytes() > maximumBytes) {
                         throw new IllegalStateException("Source content snapshot changes its frame/family or exceeds its byte bound");
-                    }
-                    if (loaded.control() instanceof TargetSourceApplyRuntime.GrantControl grant
-                            && !(grant.authority().capacity() instanceof TargetQuotaCapacitySnapshot.Verified)) {
-                        throw new IllegalStateException("configured Source grant requires the concrete protected capacity verifier");
                     }
                     loaded.requireCurrent(); guard.run(); return loaded;
                 } catch (RuntimeException | Error failure) { release(loaded, failure); throw failure; }
@@ -183,20 +226,178 @@ public final class TargetSourceAuthorityPreparation {
             return false;
         }
         if (opening.receipt().isCompletedExceptionally()) {
+            final var requested=writerRequired(CheckpointInputFuture.ownedFailure(opening.receipt()));
+            if(requested!=null){
+                opening.retryCleanup();if(!opening.ioExited())return false;
+                if(writerPreludeMode)throw new InputUnavailable("fee-only writer prelude cannot acquire independent original history/payment material");
+                writerRequest=requested;writerPreludeMode=true;opening=null;return false;
+            }
             if(CheckpointInputFuture.ownedFailure(opening.receipt()) instanceof InputUnavailable&&opening.ioExited()){
                 opening=null;return false;
             }
             opening.receipt().join();
         }
         if (!opening.ioExited()) return false;
-        held = opening.completedValue().orElseGet(() -> opening.receipt().join());
+        if (held == null) held = opening.completedValue().orElseGet(() -> opening.receipt().join());
         held.requireCurrent(); localOwnerAndSource.run();
+        if (!prepared && advancing == null && writerRequest == null && tailRequest == null && held.preparationReady()) prepared = true;
+        if (!prepared) {
+            if(queuedPreparation!=null){
+                final var state=preparationClasses.state(queuedPreparation);
+                if(state.isPresent()){
+                    if(state.orElseThrow()==WorkClassExecutionRegistry.ExecutionState.FAILED)
+                        throw new IllegalStateException("original Source preparation WorkClass action failed");
+                    return false;
+                }
+                queuedPreparation=null;
+            }
+            if (advancing == null) {
+                try {
+                    final var original = held;
+                    final long retained=Math.addExact(original.retainedBytes(),tailRequest==null?0:tailRequest.retainedBytes());
+                    if(retained>maximumBytes)throw new InputUnavailable("prospective archive Source batch exceeds its actual retained input reservation");
+                    preparationClasses=Objects.requireNonNull(originalSource,"original Source preparation scheduler").preparationClasses();
+                    final var task=new WorkClassTask(WorkClass.SOURCE_APPLY,"source-input/"+
+                            com.nereusstream.delay.protocol.Bytes.hex(com.nereusstream.delay.protocol.Bytes.sha256(expected.position().canonicalBytes()))+
+                            '/'+Math.incrementExact(preparationTurns),originalSource.preparationTaskBytes(expected,retained));
+                    preparationTurns=Math.incrementExact(preparationTurns);
+                    preparationClasses.submit(task,()->{
+                        try { advancing=OwnedCheckpointIo.submit(guard -> {
+                        guard.run(); original.requireCurrent();
+                        final var requestedTail=tailRequest;
+                        if(requestedTail!=null){
+                            final var actual=Objects.requireNonNull(original.archiveTailInputs(requestedTail));
+                            final var material=requestedTail.material(actual.opening(),expected);
+                            guard.run();original.requireCurrent();
+                            final var received=actual.receiver().receive(material);
+                            archiveTail=requestedTail.received(material,received);archiveTail.requireCurrent();
+                            preparedTailRequest=requestedTail;tailRequest=null;
+                        }
+                        final var requestedWriter = writerRequest;
+                        if (requestedWriter != null) {
+                            if (writerCursor == null) {
+                                writerProtection = Objects.requireNonNull(original.detachWriterOrigin(requestedWriter),
+                                        "independent original writer subloan");
+                                writerCursor = Objects.requireNonNull(originalSource, "original Source for writer preparation")
+                                        .beginWriterPreparation(expected, requestedWriter, writerProtection, originalSourceClock);
+                                writerComplete=false;
+                            }
+                            if(!writerComplete){writerComplete=writerCursor.advance();return false;}
+                            writerCursor.install();
+                            // The actual kernel owns the independent loan after install, beyond this entry's lifetime.
+                            writerCursor = null; writerProtection = null; writerComplete=false; preparedWriter = requestedWriter; writerRequest = null;
+                        }
+                        final boolean ready = original.advancePreparation();
+                        if (original.retainedBytes() < 0 || original.retainedBytes() > maximumBytes)
+                            throw new IllegalStateException("Source preparation exceeded its original retained input window");
+                        original.requireCurrent(); guard.run(); return ready;
+                        }, localOwnerAndSource, executor); }
+                        catch(RejectedExecutionException full){if(executor.isShutdown())throw full;}
+                    });
+                    queuedPreparation=task;
+                    return false;
+                } catch (RejectedExecutionException full) {
+                    if (executor.isShutdown()) throw full;
+                    return false;
+                }
+            }
+            if (!advancing.receipt().isDone() || !advancing.ioExited()) {
+                final long elapsed = nanos.getAsLong() - started;
+                if (elapsed < 0 || elapsed >= timeoutNanos) {
+                    requestStop(); throw new IllegalStateException("Source preparation exceeded its original finite deadline");
+                }
+                return false;
+            }
+            if(CheckpointInputFuture.ownedFailure(advancing.receipt()) instanceof TargetRetirementPreparation.ViewChanged changed){
+                held.invalidateRetirement(changed);advancing=null;return false;
+            }
+            if(CheckpointInputFuture.ownedFailure(advancing.receipt()) instanceof TargetSloWriterOrigin.PreparationRequired requested){
+                writerRequest=requested;advancing=null;return false;
+            }
+            prepared = advancing.receipt().join(); advancing = null;
+            if (!prepared) return false;
+        }
+        if(writerPreludeMode){restartingAfterPrelude=true;return false;}
+        if (familyOf(held.control()) != expectedFamily)
+            throw new IllegalStateException("prepared Source control changed its original family");
+        if (held.control() instanceof TargetSourceApplyRuntime.GrantControl grant
+                && !(grant.authority().capacity() instanceof TargetQuotaCapacitySnapshot.Verified))
+            throw new IllegalStateException("configured Source grant requires the concrete protected capacity verifier");
         return true;
+    }
+    private static TargetSloWriterOrigin.PreparationRequired writerRequired(Throwable failure){
+        for(var current=failure;current!=null;current=current.getCause())
+            if(current instanceof TargetSloWriterOrigin.PreparationRequired requested)return requested;
+        return null;
+    }
+
+    synchronized boolean prepareWriter(SourceReplayEntry expected, Family fallback,
+            TargetSloWriterOrigin.PreparationRequired request) {
+        if (entry != null && entry != expected) throw new IllegalStateException("writer preparation changed its original Source entry");
+        if (preparedWriter != null&&preparedWriter.origin()==request.origin()
+                &&java.util.Arrays.equals(preparedWriter.selected().canonicalBytes(),request.selected().canonicalBytes()))
+            return prepare(expected, family == null ? fallback : family);
+        if (writerRequest != null && writerRequest != request
+                && !java.util.Arrays.equals(writerRequest.selected().canonicalBytes(), request.selected().canonicalBytes()))
+            throw new IllegalStateException("Source already retains another writer prefix request");
+        writerRequest = Objects.requireNonNull(request); prepared = false;
+        return prepare(expected, family == null ? fallback : family);
+    }
+    synchronized void invalidateRetirement(SourceReplayEntry expected,TargetRetirementPreparation.ViewChanged changed){
+        if(entry!=expected||held==null)throw new IllegalStateException("retirement invalidation changed its original Source hold",changed);
+        held.invalidateRetirement(changed);prepared=false;
+    }
+    synchronized boolean prepareArchiveTail(SourceReplayEntry expected,Family fallback,
+            TargetMigrationArchivePreparation.TailPreparationRequired request){
+        if(entry!=null&&entry!=expected)throw new IllegalStateException("archive tail changed its actual Source entry");
+        if(preparedTailRequest==request)return prepare(expected,family==null?fallback:family);
+        if(tailRequest!=null&&tailRequest!=request)throw new IllegalStateException("another actual prospective Source batch is retained");
+        tailRequest=Objects.requireNonNull(request);prepared=false;
+        return prepare(expected,family==null?fallback:family);
+    }
+    synchronized TargetMigrationArchivePreparation.PreparedTail archiveTail(SourceReplayEntry expected){
+        if(archiveTail==null)return null;
+        if(entry!=expected)throw new IllegalStateException("archive tail changed its original Source entry");
+        if(!prepared)return null;
+        archiveTail.requireCurrent();return archiveTail;
+    }
+    synchronized com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover committedArchive(
+            SourceReplayEntry expected,com.nereusstream.delay.protocol.TargetMigrationArchiveRequest request,LongSupplier clock){
+        if(entry!=expected||held==null||!prepared||stopping)throw new IllegalStateException("archive activation lost its original committed Source hold");
+        held.requireCurrent();localOwnerAndSource.run();
+        if(queuedPreparation!=null){
+            final var state=preparationClasses.state(queuedPreparation);
+            if(state.isPresent()){
+                if(state.orElseThrow()==WorkClassExecutionRegistry.ExecutionState.FAILED)
+                    throw new IllegalStateException("original archive activation WorkClass action failed");
+                return null;
+            }
+            queuedPreparation=null;
+        }
+        if(archiveTakeoverRead==null){
+            preparationClasses=Objects.requireNonNull(originalSource).preparationClasses();
+            final var original=held;
+            final var task=new WorkClassTask(WorkClass.SOURCE_APPLY,"source-archive-takeover/"+
+                    com.nereusstream.delay.protocol.Bytes.hex(request.migrationId())+'/'+Math.incrementExact(preparationTurns),
+                    originalSource.preparationTaskBytes(expected,original.retainedBytes()));
+            preparationTurns=Math.incrementExact(preparationTurns);
+            preparationClasses.submit(task,()->{
+                try{archiveTakeoverRead=OwnedCheckpointIo.submit(guard->{
+                    original.requireCurrent();guard.run();
+                    final var actual=originalSource.readCommittedArchiveTakeover(expected,request,clock);
+                    original.requireCurrent();guard.run();return actual;
+                },localOwnerAndSource,executor);}
+                catch(RejectedExecutionException full){if(executor.isShutdown())throw full;}
+            });
+            queuedPreparation=task;return null;
+        }
+        if(!archiveTakeoverRead.receipt().isDone()||!archiveTakeoverRead.ioExited())return null;
+        return archiveTakeoverRead.receipt().join();
     }
 
     /** No I/O: used by the existing verifier while preparing and committing the exact original Source frame. */
     private synchronized <T> T require(SourceReplayEntry expected, Class<T> type) {
-        if (entry == null || held == null) throw new Required();
+        if (entry == null || held == null || !prepared) throw new Required();
         if (stopping || entry != expected || closing != null || !type.isInstance(held.control())) {
             throw new IllegalStateException("Source content does not belong to this original queued action");
         }
@@ -204,9 +405,13 @@ public final class TargetSourceAuthorityPreparation {
         return type.cast(held.control());
     }
 
+    synchronized TargetSourceApplyRuntime.PayloadSummaryControl payloadSummary(SourceReplayMutation expected) {
+        return require(expected, TargetSourceApplyRuntime.PayloadSummaryControl.class);
+    }
+
     /** A normal typed hold already owns its fees; an unprepared replay acquires payment material only. */
     private synchronized TargetScopeFeeAuthority requireScopeFees(SourceReplayMutation expected) {
-        if (entry == null || held == null) throw new Required(Family.SCOPE_FEES);
+        if (entry == null || held == null || !prepared) throw new Required(Family.SCOPE_FEES);
         if (stopping || entry != expected || closing != null) {
             throw new IllegalStateException("Scope fee hold does not belong to this original Source action");
         }
@@ -224,7 +429,12 @@ public final class TargetSourceAuthorityPreparation {
         if (entry == null) return true;
         if (entry != expected) throw new IllegalStateException("Source authority completion changes its entry");
         if (!closeHeld()) return false;
-        entry = null; family = null; opening = null; closing = null; held = null;
+        entry = null; family = null; opening = null; advancing = null; closing = null; held = null; prepared = false;
+        writerRequest = null;
+        preparedWriter = null;
+        writerPreludeMode=false;restartingAfterPrelude=false;
+        tailRequest=null;preparedTailRequest=null;archiveTail=null;
+        archiveTakeoverRead=null;
         return true;
     }
 
@@ -233,19 +443,23 @@ public final class TargetSourceAuthorityPreparation {
         if(entry==null)return true;
         if(entry!=expected)throw new IllegalStateException("Source authority refresh changes its original entry");
         if(!closeHeld())return false;
-        family=Objects.requireNonNull(expectedFamily);opening=null;closing=null;held=null;
+        family=Objects.requireNonNull(expectedFamily);opening=null;advancing=null;closing=null;held=null;prepared=false;
         return true;
     }
 
     public synchronized void requestStop() {
         stopping = true;
         if (opening != null) opening.requestStop();
+        if (advancing != null) advancing.requestStop();
+        if (archiveTakeoverRead != null) archiveTakeoverRead.requestStop();
         closeHeld();
         retryRequestedNativeReadCleanup();
     }
 
     public synchronized void retryCleanup() {
         if (opening != null) opening.retryCleanup();
+        if (advancing != null) advancing.retryCleanup();
+        if (archiveTakeoverRead != null) archiveTakeoverRead.retryCleanup();
         if (closing != null) closing.retryCleanup();
         if (stopping) closeHeld();
         retryRequestedNativeReadCleanup();
@@ -254,12 +468,18 @@ public final class TargetSourceAuthorityPreparation {
     public synchronized boolean ioExited() {
         for (var loan : nativeReadLoans) if (!loan.nativeReadIoExited()) return false;
         if (opening != null && !opening.ioExited()) return false;
+        if (advancing != null && !advancing.ioExited()) return false;
+        if (archiveTakeoverRead != null && !archiveTakeoverRead.ioExited()) return false;
         return opening == null || opening.completedValue().isEmpty() || closeConfirmed();
     }
 
     public synchronized Throwable pendingIoFailure() {
         final var failure = closing == null ? null : CheckpointInputFuture.ownedFailure(closing.receipt());
         if (failure != null) return failure;
+        final var preparationFailure = advancing == null ? null : CheckpointInputFuture.ownedFailure(advancing.receipt());
+        if (preparationFailure != null) return preparationFailure;
+        final var archiveFailure=archiveTakeoverRead==null?null:CheckpointInputFuture.ownedFailure(archiveTakeoverRead.receipt());
+        if(archiveFailure!=null)return archiveFailure;
         final var openingFailure = opening == null ? null : CheckpointInputFuture.ownedFailure(opening.receipt());
         if (openingFailure != null) return openingFailure;
         for (var loan : nativeReadLoans) {
@@ -274,6 +494,26 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     private boolean closeHeld() {
+        if(queuedPreparation!=null){
+            if(!preparationClasses.withdrawQueued(queuedPreparation)
+                    &&!preparationClasses.discardFailed(queuedPreparation)
+                    &&preparationClasses.state(queuedPreparation).isPresent())return false;
+            queuedPreparation=null;
+        }
+        if (advancing != null && !advancing.ioExited()) return false;
+        if (archiveTakeoverRead != null && !archiveTakeoverRead.ioExited()) return false;
+        final var cursor = writerCursor;
+        if (cursor != null) {
+            cursor.requestStop();
+            if (!cursor.exited()) return false;
+            writerCursor = null;
+        }
+        final var protection = writerProtection;
+        if (protection != null) {
+            protection.requestRelease();
+            if (!protection.released()) return false;
+            writerProtection = null;
+        }
         if (opening == null || !opening.ioExited()) return opening == null;
         final var original = opening.completedValue().orElse(null);
         if (original == null) return true;
@@ -331,6 +571,7 @@ public final class TargetSourceAuthorityPreparation {
         if(control instanceof TargetSourceApplyRuntime.ScopeObligationControl)return Family.SCOPE_OBLIGATION;
         if(control instanceof TargetSourceApplyRuntime.ScopeFeeControl)return Family.SCOPE_FEES;
         if(control instanceof TargetSourceApplyRuntime.MigrationControl)return Family.MIGRATION;
+        if(control instanceof TargetSourceApplyRuntime.PayloadSummaryControl)return Family.PAYLOAD_SUMMARY;
         throw new IllegalArgumentException("unsupported Source content snapshot");
     }
 

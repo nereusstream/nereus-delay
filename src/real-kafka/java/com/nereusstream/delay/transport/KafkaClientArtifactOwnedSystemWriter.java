@@ -53,6 +53,9 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
     private boolean ready, frozen, sdkTerminated, cleanupStarting, exposureCleanupStarting;
     private int activeAppends;
     private Throwable failure;
+    private TargetScopeExposureSource.CopyContract payloadSummaryCopies;
+    private TargetPayloadSummaryInitializationAppendPermit payloadSummaryPermit;
+    private SystemMutation payloadSummaryInput, lastPayloadSummaryInput;
 
     private KafkaClientArtifactOwnedSystemWriter(Settings settings, TargetWorkerShardRuntime worker,
             LocalBrokerMtlsResolver.SourceReceipt credential, TargetDestinationSdkBudget.Client allocation,
@@ -122,6 +125,7 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         try { writer = writers.registerWriter(assignment.shardId()); }
         catch (RuntimeException | Error failed) { allocation.releaseUnstarted(); throw failed; }
         final var backend = new KafkaClientArtifactOwnedSystemWriter(settings, worker, credential, allocation, writer, classes, resources, io);
+        backend.payloadSummaryCopies = copyContract;
         try {
             worker.registerSystemWriterBackend(settings.allocationId(), backend, pool, clock);
             backend.opening = OwnedCheckpointIo.submit(guard -> {
@@ -174,11 +178,17 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
     private Throwable openingFailure() { return CheckpointInputFuture.ownedFailure(opening.receipt()); }
     private void requireAppend() {
         final SourceTransportCredentialUse use; final Object current;
+        final TargetPayloadSummaryInitializationAppendPermit summary;
+        final SystemMutation exactSummary;
         synchronized (gate) {
             if (!ready || frozen || host == null) throw new IllegalStateException("Source producer is unbound or frozen");
             use = credentialUse; current = producer;
+            summary = payloadSummaryPermit; exactSummary = payloadSummaryInput;
         }
-        try { use.require(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, current); }
+        try {
+            use.require(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, current);
+            if (summary != null) summary.beforeSdk(this, exactSummary, payloadSummaryCopies);
+        }
         catch (RuntimeException | Error failed) {
             remember(failed);
             try { host.quarantineOwnedBackends(); }
@@ -187,13 +197,44 @@ public final class KafkaClientArtifactOwnedSystemWriter implements OwnedSourceSy
         }
     }
     @Override public AppendOutcome append(SystemMutation mutation) {
+        if (TargetPayloadSummaryInitializationBody.isControl(mutation))
+            throw new IllegalArgumentException("summary initialization requires its independent typed PLATFORM_OPERATOR SDK permit");
         final KafkaClientArtifactShardLogMutationAppender current;
         synchronized (gate) {
-            if (!ready || frozen || host == null) return AppendOutcome.definitelyNotPersisted();
+            if (!ready || frozen || host == null || payloadSummaryPermit != null) return AppendOutcome.definitelyNotPersisted();
             activeAppends++; current = appender;
         }
         try { return current.append(mutation); }
         finally { synchronized (gate) { activeAppends--; } cleanupProgress(); }
+    }
+    @Override public TargetScopeExposureSource.CopyContract payloadSummaryCopyContract() {
+        synchronized (gate) {
+            if (!ready || frozen || host == null) throw new IllegalStateException("original Source producer is not live");
+            return payloadSummaryCopies;
+        }
+    }
+    @Override public boolean payloadSummaryOperationsExited() {
+        synchronized (gate) {
+            if (activeAppends != 0) return false;
+            if (lastPayloadSummaryInput != null && appender != null && !appender.nativeOperationsExited(lastPayloadSummaryInput)) return false;
+            lastPayloadSummaryInput = null; return true;
+        }
+    }
+    @Override public AppendOutcome appendPayloadSummary(SystemMutation input, TargetPayloadSummaryInitializationAppendPermit permit) {
+        Objects.requireNonNull(permit); TargetPayloadSummaryInitializationBody.decode(input.canonicalBody()).requireInput(input);
+        if (!TargetPayloadSummaryInitializationBody.isControl(input) || !worker.shardId().equals(input.shardId()))
+            throw new IllegalArgumentException("summary initialization changed its actual Source Worker/purpose");
+        final KafkaClientArtifactShardLogMutationAppender current;
+        synchronized (gate) {
+            if (!ready || frozen || host == null) return AppendOutcome.definitelyNotPersisted();
+            if (activeAppends != 0 || payloadSummaryPermit != null
+                    || lastPayloadSummaryInput != null && !appender.nativeOperationsExited(lastPayloadSummaryInput))
+                throw new IllegalStateException("original Source native handoff is still owned");
+            activeAppends = 1; payloadSummaryPermit = permit; payloadSummaryInput = input;
+            lastPayloadSummaryInput = input; current = appender;
+        }
+        try { return current.append(input); }
+        finally { synchronized (gate) { activeAppends = 0; payloadSummaryPermit = null; payloadSummaryInput = null; } cleanupProgress(); }
     }
     @Override public void requireWorkerGraph(WorkClassExecutionRegistry expected, SharedRocksDbResources shared) {
         if (classes != expected || resources != shared) throw new IllegalArgumentException("Source producer belongs to another Worker graph");

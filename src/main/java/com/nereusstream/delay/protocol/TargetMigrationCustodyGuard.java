@@ -12,7 +12,7 @@ public record TargetMigrationCustodyGuard(byte[] migrationId, byte[] planDigest,
     public static final int VALUE_TYPE = 67;
     public static final int MAX_CANONICAL_BYTES = TargetMigrationRecordReference.MAX_CANONICAL_BYTES
             + TargetQuotaIncarnation.MAX_CANONICAL_BYTES + TargetQuotaUsage.MAX_CAPACITY_VECTOR_BYTES
-            + TargetMigrationControlBody.MAX_INPUT_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 256;
+            + TargetMigrationControlBody.LEGACY_MAX_INPUT_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 256;
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-migration-custody-guard-v1\0");
     public enum Kind {
         GENERATION(1), IDENTITY(2);

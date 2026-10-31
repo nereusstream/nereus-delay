@@ -39,6 +39,60 @@ public final class TargetNativeRetainedReclaim {
         return requireClosed(d,TargetResourceReclaimBody.decode(input.canonicalBody()),input,allowApplied,current);
     }
     public static void requireDraftClosed(TargetCheckpointDependencies d,TargetResourceReclaimBody body,Runnable current){requireClosed(d,body,null,false,current);}
+    /** Same predicates over this repository's fully read retirement collector, using its already folded exact indexes. */
+    public static TargetQuotaMutation requirePreparedClosed(TargetRetirementLedgerCursor ledger,TargetResourceReclaimBody body,
+            SystemMutation input,boolean allowApplied,Runnable current){
+        final var d=ledger.dependenciesForClosure();
+        if(body.incarnationReclaim())return TargetIncarnationReclaim.requirePreparedClosed(ledger,body,input,allowApplied,current);
+        final var facts=Objects.requireNonNull(body.nativeFacts());facts.requireFor(body);
+        if(!body.nativeRetainedReclaim()||!d.root().metadata().shardId().equals(body.shard())
+                ||!Arrays.equals(d.root().root().tenantScope(),body.scope().tenantScope())||!Arrays.equals(d.root().root().recoveryLineage(),body.lineage()))throw new IllegalArgumentException("Native reclaim changed original Source scope");
+        final var first=d.requireTimeFence(fence(facts));
+        if(!first.mutation().equals(facts.fence().appliedAt())||d.ingressFence().closedThroughEpochMs()<closeThrough(body))throw new IllegalStateException("Native reclaim lost original APPLIED closure TimeFence");
+        final var candidate=input==null?null:d.sourceHistory(input.systemMutationId());
+        final var history=candidate!=null&&Arrays.equals(candidate.input().canonicalEnvelope(),input.canonicalEnvelope())?candidate:null;
+        final var decision=history==null?null:d.resultRecord(systemKey(input.systemMutationId()));final boolean applied=decision!=null&&decision.appliedFirst();
+        if(applied&&!allowApplied)throw new IllegalStateException("fresh Native preparation already has an APPLIED first");
+        final var at=applied?history.decidedAt():null;
+        for(var operation:body.operations()){
+            current.run();
+            if(operation instanceof TargetResourceReclaimBody.RetainedRecordDelete leaf){
+                // The physical complete ledger has an exact sample-reference index in its original Native view.
+                ledger.requireUnreferenced(leaf.expected().key());retainedWindow(body,leaf.expected());
+                final var actual=d.resultRecord(leaf.expected().key());
+                if(applied){if(actual!=null)throw new IllegalStateException("APPLIED Native leaf deletion retains its exact row");}
+                else if(actual==null||!Arrays.equals(actual.canonicalBytes(),leaf.expected().canonicalBytes()))throw new IllegalStateException("Native leaf changed after selection");
+                if(leaf.expected().kind()==TargetResultRecord.Kind.RESULT||leaf.expected().kind()==TargetResultRecord.Kind.POSITION_COMMAND)
+                    requireOriginalFirst(leaf.expected(),Objects.requireNonNull(d.resultRecord(firstKey(leaf.expected().logicalId())),"query deletion original COMMAND first"));
+                if(leaf.expected().kind().position()&&d.root().source().compareTo(leaf.expected().mutation().source())<=0)throw new IllegalStateException("current Source frontier POSITION is not a reclaimable leaf");
+            }else if(operation instanceof TargetResourceReclaimBody.RetainedAllocationRelease allocation){
+                final var actual=Objects.requireNonNull(d.admission(allocation.expected().publishAttemptId()),"retained allocation Budget").attempt();
+                if(!applied&&!Arrays.equals(actual.canonicalBytes(),allocation.expected().canonicalBytes()))throw new IllegalStateException("retained allocation changed after selection");
+                if(applied&&!Arrays.equals(actual.canonicalBytes(),Objects.requireNonNull(ledger.projectedBudget(actual.publishAttemptId()),"complete retained allocation chain").canonicalBytes()))throw new IllegalStateException("APPLIED retained allocation lost its exact Source successor");
+                requirePreparedWriterClosed(ledger,allocation.expected(),body,current);
+                for(var receipt:allocation.confirmations()){
+                    current.run();final var retained=Objects.requireNonNull(d.evidenceConfirmation(receipt.key()),"actual confirmed owned-object deletion");
+                    if(!Arrays.equals(retained.canonicalBytes(),receipt.canonicalBytes()))throw new IllegalStateException("allocation settlement replaced actual confirmation");
+                    if(receipt.body().resource().provenance() instanceof TargetExternalEvidenceObjectResource.Anchor anchor){
+                        requireAnchorOrigin(anchor,ledger.mapping(anchor.mappingId()),allocation.expected());
+                    }
+                    final var original=Objects.requireNonNull(d.resultRecord(systemKey(receipt.confirmation().systemMutationId())),"owned-object deletion first");
+                    if(!original.appliedFirst()||!original.mutation().equals(receipt.appliedAt()))throw new IllegalStateException("allocation lacks actual APPLIED deletion");
+                    d.requireSystemPosition(original);
+                    final var settled=ledger.settlement(allocation.expected().publishAttemptId(),TargetResourceReclaimBody.RetainedAllocationRelease.shareIdentity(receipt));
+                    if(settled!=null&&(at==null||!settled.equals(at)))throw new IllegalStateException("owned-object share was already settled by an earlier APPLIED Native reclaim");
+                }
+            }else throw new IllegalArgumentException("Native reclaim group has a foreign operation");
+        }
+        current.run();return at;
+    }
+    private static void requirePreparedWriterClosed(TargetRetirementLedgerCursor ledger,TargetQuotaAttemptBudget budget,TargetResourceReclaimBody body,Runnable current){
+        final var d=ledger.dependenciesForClosure();final var admission=Objects.requireNonNull(d.admission(budget.publishAttemptId()),"original retained admission");
+        budget.resolvedAt().requireCoveredByFloor(body.floor());d.requireSystemPosition(admission.first());
+        final var outcome=Objects.requireNonNull(ledger.resultAt(budget.resolvedAt()),"retained allocation definitive Source resolution");
+        if(!outcome.appliedFirst())throw new IllegalStateException("retained allocation lost definitive Source resolution");d.requireSystemPosition(outcome);
+        if(closeThrough(body)<Math.max(SystemMutationResult.decode(admission.first().typedPayload()).retryUntilEpochMs(),SystemMutationResult.decode(outcome.typedPayload()).retryUntilEpochMs()))throw new IllegalStateException("original writer retry windows have not closed");current.run();
+    }
     private static TargetQuotaMutation requireClosed(TargetCheckpointDependencies d,TargetResourceReclaimBody body,SystemMutation input,boolean allowApplied,Runnable current){
         if(body.incarnationReclaim())return TargetIncarnationReclaim.requireClosed(d,body,input,allowApplied,current);
         final var facts=Objects.requireNonNull(body.nativeFacts());facts.requireFor(body);

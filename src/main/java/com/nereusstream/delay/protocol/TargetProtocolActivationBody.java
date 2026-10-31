@@ -5,6 +5,7 @@ import java.util.Objects;
 
 /** Bootstrap Control marker at APPLY_SHARD_CONTROL/kind1, without requiring the tuple it activates. */
 public record TargetProtocolActivationBody(ShardId shard,long retryUntil,ControlRef controlRef,TargetProtocolActivatePayload payload) {
+    public static final int V1_MAX_BYTES=TargetProtocolActivatePayload.V1_MAX_BYTES+256;
     public static final int MAX_BYTES=TargetProtocolActivatePayload.MAX_BYTES+256;
     private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-protocol-activation-control\0");
     public TargetProtocolActivationBody {

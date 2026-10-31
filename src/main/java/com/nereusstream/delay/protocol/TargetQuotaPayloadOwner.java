@@ -1,15 +1,19 @@
 package com.nereusstream.delay.protocol;
 
 import com.nereusstream.delay.runtime.TargetMessageRecord;
+import com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap;
 import com.nereusstream.delay.store.TargetKeyCodec;
+import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.Objects;
 
 /** One frozen payload accounting owner per Message identity, independent of generation and attempt budgets. */
 public final class TargetQuotaPayloadOwner {
     public static final int VERSION = 1;
+    public static final int SUMMARY_VERSION = 2;
     public static final int VALUE_TYPE = 32;
-    public static final int MAX_CANONICAL_BYTES = 2
+    /** Frozen schema-1 ceiling; expanding the reader must not reprice an existing allocation. */
+    public static final int V1_MAX_CANONICAL_BYTES = 2
             + 43
             + 3
             + TargetQuotaIdentity.MAX_CANONICAL_BYTES
@@ -28,6 +32,9 @@ public final class TargetQuotaPayloadOwner {
             + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + 19
             + 2 * 35;
+    public static final int MAX_CANONICAL_BYTES = V1_MAX_CANONICAL_BYTES
+            + 11 + 5 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 3 + 35
+            + 12 + 5 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-payload-owner\0");
 
     public enum Kind {
@@ -60,6 +67,32 @@ public final class TargetQuotaPayloadOwner {
         }
     }
 
+    /** The original initialization path is retained after every later Source delta. */
+    public enum SummaryOrigin {
+        FRESH(1),
+        IMPORTED(2),
+        BOOTSTRAP(3);
+
+        private final int wire;
+
+        SummaryOrigin(final int wire) {
+            this.wire = wire;
+        }
+
+        public int wireValue() {
+            return wire;
+        }
+
+        private static SummaryOrigin decode(final long wire) {
+            return switch ((int) wire) {
+                case 1 -> FRESH;
+                case 2 -> IMPORTED;
+                case 3 -> BOOTSTRAP;
+                default -> throw new IllegalArgumentException("unknown payload summary initialization origin");
+            };
+        }
+    }
+
     /**
      * Verifies the exact accepted source body and actual before/after business ledger, grants and protection.
      * For release this includes all remaining attempts/writers, latest reference sources, catalog ancestry,
@@ -87,6 +120,13 @@ public final class TargetQuotaPayloadOwner {
     private final TargetQuotaMutation mutation;
     private final byte[] recoveryLineage;
     private final byte[] releaseFloorDigest;
+    private final int schemaVersion;
+    private final long unresolvedCount;
+    private final TargetQuotaMutation initializationSource;
+    private final SummaryOrigin summaryOrigin;
+    private final byte[] summaryOriginDigest;
+    private final long summaryRevision;
+    private final TargetQuotaMutation summaryMutation;
     private final byte[] digest;
 
     private TargetQuotaPayloadOwner(
@@ -106,6 +146,35 @@ public final class TargetQuotaPayloadOwner {
             final TargetQuotaMutation mutation,
             final byte[] recoveryLineage,
             final byte[] releaseFloorDigest) {
+        this(messageId, owner, tenantScope, accounting, bindingDigest, kind, length, payloadSha256,
+                reservationId, objectStoreProfileHash, committed, phase, revision, mutation, recoveryLineage,
+                releaseFloorDigest, VERSION, -1, null, null, null, 0, null);
+    }
+
+    private TargetQuotaPayloadOwner(
+            final DelayMessageId messageId,
+            final TargetQuotaIdentity owner,
+            final byte[] tenantScope,
+            final TargetQuotaAccounting accounting,
+            final byte[] bindingDigest,
+            final Kind kind,
+            final long length,
+            final byte[] payloadSha256,
+            final byte[] reservationId,
+            final byte[] objectStoreProfileHash,
+            final PayloadReference committed,
+            final Phase phase,
+            final long revision,
+            final TargetQuotaMutation mutation,
+            final byte[] recoveryLineage,
+            final byte[] releaseFloorDigest,
+            final int schemaVersion,
+            final long unresolvedCount,
+            final TargetQuotaMutation initializationSource,
+            final SummaryOrigin summaryOrigin,
+            final byte[] summaryOriginDigest,
+            final long summaryRevision,
+            final TargetQuotaMutation summaryMutation) {
         this.messageId = Objects.requireNonNull(messageId, "messageId");
         this.owner = Objects.requireNonNull(owner, "owner");
         this.tenantScope = TargetCompatibilityCodec.assigned(tenantScope, 32, "tenantRoutingScope");
@@ -168,7 +237,33 @@ public final class TargetQuotaPayloadOwner {
         this.objectStoreProfileHash = objectStoreProfileHash == null ? null : Bytes.copy(objectStoreProfileHash);
         this.committed = committed;
         this.revision = revision;
-        digest = Bytes.sha256(DIGEST_DOMAIN, fields());
+        this.schemaVersion = schemaVersion;
+        this.unresolvedCount = unresolvedCount;
+        this.initializationSource = initializationSource;
+        this.summaryOrigin = summaryOrigin;
+        this.summaryRevision = summaryRevision;
+        this.summaryMutation = summaryMutation;
+        if (schemaVersion == VERSION) {
+            if (unresolvedCount != -1 || initializationSource != null || summaryOrigin != null || summaryOriginDigest != null
+                    || summaryRevision != 0 || summaryMutation != null) {
+                throw new IllegalArgumentException("schema-1 payload owner cannot carry a qualified summary");
+            }
+            this.summaryOriginDigest = null;
+        } else if (schemaVersion == SUMMARY_VERSION) {
+            if (unresolvedCount < 0 || initializationSource == null || summaryOrigin == null || summaryMutation == null
+                    || summaryRevision == 0 || Long.compareUnsigned(summaryRevision, summaryMutation.sequence()) > 0
+                    || !messageId.routingId().shardId().equals(summaryMutation.source().shardId())
+                    || ((phase == Phase.RETAINED || phase == Phase.RELEASED) && unresolvedCount != 0)) {
+                throw new IllegalArgumentException("invalid qualified payload obligation summary");
+            }
+            initializationSource.requireSourceApplied();
+            summaryMutation.requireSourceApplied();
+            initializationSource.requireAtOrBefore(summaryMutation);
+            this.summaryOriginDigest = TargetCompatibilityCodec.assigned(summaryOriginDigest, 32, "summaryOriginDigest");
+        } else {
+            throw new IllegalArgumentException("unknown payload owner version");
+        }
+        digest = Bytes.sha256(DIGEST_DOMAIN, digestFields());
     }
 
     /** Caller first authenticates the binding and resolves the Message/Command allocation against the Store. */
@@ -412,6 +507,64 @@ public final class TargetQuotaPayloadOwner {
         return phase;
     }
 
+    public int schemaVersion() {
+        return schemaVersion;
+    }
+
+    public boolean summaryQualified() {
+        return schemaVersion == SUMMARY_VERSION;
+    }
+
+    public void requireQualifiedSummary() {
+        if (!summaryQualified()) {
+            throw new IllegalStateException("payload owner requires its original complete obligation-summary initialization");
+        }
+    }
+
+    public long unresolvedCount() {
+        requireQualifiedSummary();
+        return unresolvedCount;
+    }
+
+    public TargetQuotaMutation initializationSource() {
+        requireQualifiedSummary();
+        return initializationSource;
+    }
+
+    public SummaryOrigin summaryOrigin() {
+        requireQualifiedSummary();
+        return summaryOrigin;
+    }
+
+    public byte[] summaryOriginDigest() {
+        requireQualifiedSummary();
+        return Bytes.copy(summaryOriginDigest);
+    }
+
+    public long summaryRevision() {
+        requireQualifiedSummary();
+        return summaryRevision;
+    }
+
+    public TargetQuotaMutation summaryMutation() {
+        requireQualifiedSummary();
+        return summaryMutation;
+    }
+
+    public void requireSameSummaryOrigin(final TargetQuotaPayloadOwner other) {
+        Objects.requireNonNull(other, "payloadOwner");
+        if (schemaVersion != other.schemaVersion
+                || !Objects.equals(initializationSource, other.initializationSource)
+                || summaryOrigin != other.summaryOrigin
+                || !Arrays.equals(summaryOriginDigest, other.summaryOriginDigest)) {
+            throw new IllegalStateException("payload owner changed its original obligation-summary qualification");
+        }
+    }
+
+    public ProtocolTuple requiredTuple() {
+        return summaryQualified() ? ProtocolTuple.targetPayloadObligationSummary() : ProtocolTuple.currentSystemMutation();
+    }
+
     public long revision() {
         return revision;
     }
@@ -446,6 +599,96 @@ public final class TargetQuotaPayloadOwner {
         return accounting.recordCharge(TargetQuotaAccounting.RecordClass.STATE, key().length, canonicalBytes().length);
     }
 
+    /** Only the complete protected fold/fresh-birth verifier can mint this initialization qualification. */
+    public TargetQuotaPayloadOwner initializeSummary(
+            final TargetPayloadObligationSummaryBootstrap.Qualification qualification,
+            final TargetQuotaMutation stamp,
+            final TransitionAuthority authority) {
+        if (summaryQualified()) {
+            throw new IllegalStateException("payload obligation summary is already initialized");
+        }
+        Objects.requireNonNull(qualification, "summaryQualification").requireOwner(this);
+        Objects.requireNonNull(stamp, "initializationSource").requireSourceApplied();
+        if (!stamp.equals(qualification.initializedAt())
+                || qualification.birth() != (qualification.origin() != SummaryOrigin.BOOTSTRAP)) {
+            throw new IllegalStateException("payload summary changed its qualified initialization Source/origin");
+        }
+        if (qualification.birth()) {
+            if (revision != 1 || !mutation.equals(stamp)) {
+                throw new IllegalStateException("payload summary birth must share the original owner allocation batch");
+            }
+        } else {
+            stamp.requireAfter(mutation);
+        }
+        if (qualification.origin() == SummaryOrigin.FRESH && qualification.unresolvedCount() != 0) {
+            throw new IllegalStateException("fresh payload birth cannot contain a previous attempt obligation");
+        }
+        final var next = new TargetQuotaPayloadOwner(messageId, owner, tenantScope, accounting, bindingDigest,
+                kind, length, payloadSha256, reservationId, objectStoreProfileHash, committed, phase,
+                revision, mutation, recoveryLineage, releaseFloorDigest, SUMMARY_VERSION,
+                qualification.unresolvedCount(), stamp, qualification.origin(), qualification.originDigest(), 1, stamp);
+        Objects.requireNonNull(authority, "transitionAuthority").requireAuthorized(this, next, null);
+        return next;
+    }
+
+    /** Source Native validation must independently prove a genuinely first APPLIED Admission in this batch. */
+    public TargetQuotaPayloadOwner admitAttempt(
+            final TargetQuotaAttemptBudget admitted,
+            final TargetQuotaMutation stamp,
+            final TransitionAuthority authority) {
+        requireQualifiedSummary();
+        requireAttemptIdentity(admitted);
+        if (phase != Phase.ACTIVE || admitted.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                || admitted.resolvedAt() != null || !admitted.mutation().equals(stamp)) {
+            throw new IllegalStateException("payload summary increment requires the original first Admission budget");
+        }
+        final long nextCount = Math.addExact(unresolvedCount, 1);
+        return transition(phase, committed, stamp, null, authority, nextCount, true);
+    }
+
+    /** One definitive Source resolution and optional RETAINED phase share one final owner successor. */
+    public TargetQuotaPayloadOwner resolveAttempt(
+            final TargetQuotaAttemptBudget before,
+            final TargetQuotaAttemptBudget resolved,
+            final boolean retain,
+            final TargetQuotaMutation stamp,
+            final TransitionAuthority authority) {
+        requireQualifiedSummary();
+        requireAttemptIdentity(before);
+        requireAttemptIdentity(resolved);
+        if (phase != Phase.ACTIVE || before.resolvedAt() != null
+                || resolved.phase() != TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR
+                || !stamp.equals(resolved.resolvedAt()) || !stamp.equals(resolved.mutation())
+                || !Arrays.equals(before.locator().canonicalBytes(), resolved.locator().canonicalBytes())
+                || !Arrays.equals(before.publishAttemptId(), resolved.publishAttemptId())
+                || !Arrays.equals(before.admissionDigest(), resolved.admissionDigest())
+                || before.executionBytes() != resolved.executionBytes()
+                || !before.commitment().equals(resolved.commitment())
+                || TargetQuotaMutation.increment(before.revision()) != resolved.revision()) {
+            throw new IllegalStateException("payload summary decrement changed its original unresolved attempt identity");
+        }
+        stamp.requireAfter(before.mutation());
+        if (unresolvedCount == 0) {
+            throw new IllegalStateException("payload obligation summary underflow");
+        }
+        final long nextCount = Math.subtractExact(unresolvedCount, 1);
+        if (retain && nextCount != 0) {
+            throw new IllegalStateException("payload with unresolved attempts cannot become retained");
+        }
+        return transition(retain ? Phase.RETAINED : phase, committed, stamp, null, authority, nextCount, true);
+    }
+
+    private void requireAttemptIdentity(final TargetQuotaAttemptBudget budget) {
+        Objects.requireNonNull(budget, "attemptBudget");
+        if (!messageId.equals(budget.locator().messageId()) || !owner.equals(budget.primaryIdentity())
+                || !Arrays.equals(bindingDigest, budget.locator().scheduleBindingDigest())
+                || !Arrays.equals(tenantScope, budget.tenantScope())
+                || !Arrays.equals(recoveryLineage, budget.recoveryLineage())
+                || !accounting.equals(budget.accounting())) {
+            throw new IllegalStateException("payload obligation summary crossed its frozen owner/binding/tenant/lineage");
+        }
+    }
+
     public TargetQuotaPayloadOwner commit(
             final PayloadReference payload, final TargetQuotaMutation stamp, final TransitionAuthority authority) {
         if (phase != Phase.RESERVED) {
@@ -477,6 +720,9 @@ public final class TargetQuotaPayloadOwner {
         stamp.requireAfter(mutation);
         TargetSourcePosition.requireBounded(floor.appliedSourcePosition());
         mutation.requireCoveredByFloor(floor);
+        if (summaryQualified()) {
+            summaryMutation.requireCoveredByFloor(floor);
+        }
         if (!Arrays.equals(recoveryLineage, floor.recoveryLineageId())
                 || floor.appliedSourcePosition().compareTo(stamp.source()) >= 0
                 || Long.compareUnsigned(floor.includedMutationSequence(), stamp.sequence()) >= 0) {
@@ -491,15 +737,36 @@ public final class TargetQuotaPayloadOwner {
             final TargetQuotaMutation stamp,
             final RecoveryFloorRef floor,
             final TransitionAuthority authority) {
+        return transition(nextPhase, payload, stamp, floor, authority, unresolvedCount, false);
+    }
+
+    private TargetQuotaPayloadOwner transition(
+            final Phase nextPhase,
+            final PayloadReference payload,
+            final TargetQuotaMutation stamp,
+            final RecoveryFloorRef floor,
+            final TransitionAuthority authority,
+            final long nextUnresolvedCount,
+            final boolean updateSummary) {
         if (stamp.reservationExpiry() || stamp.reservationClosure()) {
             if (phase != Phase.RESERVED || nextPhase != Phase.RETAINED || payload != null || floor != null) {
                 throw new IllegalStateException(
                         "local reservation terminalization cannot replay, commit or release payload");
             }
             stamp.requireStoreSuccessorOf(mutation);
+            if (summaryQualified()) {
+                stamp.requireStoreSuccessorOf(summaryMutation);
+            }
         } else {
             stamp.requireAfter(mutation);
+            if (summaryQualified()) {
+                stamp.requireAfter(summaryMutation);
+            }
         }
+        if (updateSummary) {
+            stamp.requireSourceApplied();
+        }
+        final boolean businessChanged = nextPhase != phase || !Objects.equals(payload, committed);
         final var next = new TargetQuotaPayloadOwner(
                 messageId,
                 owner,
@@ -513,10 +780,13 @@ public final class TargetQuotaPayloadOwner {
                 objectStoreProfileHash,
                 payload,
                 nextPhase,
-                TargetQuotaMutation.increment(revision),
-                stamp,
+                businessChanged ? TargetQuotaMutation.increment(revision) : revision,
+                businessChanged ? stamp : mutation,
                 recoveryLineage,
-                floor == null ? null : floor.floorDigest());
+                floor == null ? null : floor.floorDigest(),
+                schemaVersion, nextUnresolvedCount, initializationSource, summaryOrigin, summaryOriginDigest,
+                updateSummary ? TargetQuotaMutation.increment(summaryRevision) : summaryRevision,
+                updateSummary ? stamp : summaryMutation);
         Objects.requireNonNull(authority, "transitionAuthority").requireAuthorized(this, next, floor);
         return next;
     }
@@ -534,7 +804,22 @@ public final class TargetQuotaPayloadOwner {
                 expected.accounting,expected.bindingDigest,expected.kind,expected.length,expected.payloadSha256,
                 expected.reservationId,expected.objectStoreProfileHash,expected.committed,Phase.RELEASED,
                 TargetQuotaMutation.increment(expected.revision),mutation,expected.recoveryLineage,floor.floorDigest());
-        if(!Arrays.equals(canonicalBytes(),projected.canonicalBytes()))throw new IllegalStateException("released payload changed frozen owner/value");
+        if(!Arrays.equals(businessCanonicalBytes(),projected.canonicalBytes()))throw new IllegalStateException("released payload changed frozen owner/value");
+        if(expected.summaryQualified()){
+            requireSameSummaryOrigin(expected);
+            if(unresolvedCount!=0||summaryRevision!=expected.summaryRevision||!summaryMutation.equals(expected.summaryMutation))
+                throw new IllegalStateException("payload release changed its original obligation summary");
+            expected.summaryMutation.requireCoveredByFloor(floor);
+        }
+    }
+
+    private byte[] businessCanonicalBytes() {
+        if (!summaryQualified()) {
+            return canonicalBytes();
+        }
+        return new TargetQuotaPayloadOwner(messageId, owner, tenantScope, accounting, bindingDigest, kind,
+                length, payloadSha256, reservationId, objectStoreProfileHash, committed, phase, revision,
+                mutation, recoveryLineage, releaseFloorDigest).canonicalBytes();
     }
 
     /** Rebinds decoded owner data to the full retained first Schedule/Prepare, not just its digest. */
@@ -593,7 +878,7 @@ public final class TargetQuotaPayloadOwner {
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, VERSION);
+            CanonicalProtobuf.uint32(out, 1, schemaVersion);
             CanonicalProtobuf.bytes(out, 2, messageId.bytes());
             CanonicalProtobuf.bytes(out, 3, owner.canonicalBytes());
             CanonicalProtobuf.bytes(out, 4, tenantScope);
@@ -621,30 +906,52 @@ public final class TargetQuotaPayloadOwner {
         });
     }
 
+    private void writeSummary(final ByteArrayOutputStream out) {
+        if (summaryQualified()) {
+            CanonicalProtobuf.uint64(out, 19, unresolvedCount);
+            CanonicalProtobuf.bytes(out, 20, initializationSource.canonicalBytes());
+            CanonicalProtobuf.uint32(out, 21, summaryOrigin.wireValue());
+            CanonicalProtobuf.bytes(out, 22, summaryOriginDigest);
+            CanonicalProtobuf.uint64Bits(out, 23, summaryRevision);
+            CanonicalProtobuf.bytes(out, 24, summaryMutation.canonicalBytes());
+        }
+    }
+
+    private byte[] digestFields() {
+        if (!summaryQualified()) {
+            return fields();
+        }
+        return CanonicalProtobuf.message(out -> {
+            out.writeBytes(fields());
+            writeSummary(out);
+        });
+    }
+
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
             out.writeBytes(fields());
             CanonicalProtobuf.bytes(out, 18, digest);
+            writeSummary(out);
         });
     }
 
     public static TargetQuotaPayloadOwner decode(final byte[] encoded) {
         final var fields =
-                TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 18, false, "Target payload owner");
-        final byte[][] bytes = new byte[19][];
-        final long[] numbers = new long[19];
-        final boolean[] present = new boolean[19];
+                TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 24, false, "Target payload owner");
+        final byte[][] bytes = new byte[25][];
+        final long[] numbers = new long[25];
+        final boolean[] present = new boolean[25];
         for (var field : fields) {
             final int n = field.number();
-            if (n < 1 || n > 18 || present[n]) {
+            if (n < 1 || n > 24 || present[n]) {
                 throw new IllegalArgumentException("invalid payload owner fields");
             }
             present[n] = true;
-            if (n == 1 || n == 7 || n == 13) {
+            if (n == 1 || n == 7 || n == 13 || n == 21) {
                 numbers[n] = QueryCodecSupport.uint32(field, n);
-            } else if (n == 8) {
+            } else if (n == 8 || n == 19) {
                 numbers[n] = QueryCodecSupport.uint(field, n);
-            } else if (n == 14) {
+            } else if (n == 14 || n == 23) {
                 numbers[n] = QueryCodecSupport.uint64Bits(field, n);
             } else {
                 bytes[n] = QueryCodecSupport.bytes(field, n);
@@ -655,8 +962,17 @@ public final class TargetQuotaPayloadOwner {
                 throw new IllegalArgumentException("missing payload owner field");
             }
         }
-        if (numbers[1] != VERSION) {
+        final boolean qualified = numbers[1] == SUMMARY_VERSION;
+        if (numbers[1] != VERSION && !qualified) {
             throw new IllegalArgumentException("unknown payload owner version");
+        }
+        if (!qualified && encoded.length > V1_MAX_CANONICAL_BYTES) {
+            throw new IllegalArgumentException("schema-1 payload owner exceeds its frozen byte bound");
+        }
+        for (int n : new int[] {19, 20, 21, 22, 23, 24}) {
+            if (present[n] != qualified) {
+                throw new IllegalArgumentException("payload owner version and qualified summary fields disagree");
+            }
         }
         final Kind decodedKind =
                 switch ((int) numbers[7]) {
@@ -688,7 +1004,14 @@ public final class TargetQuotaPayloadOwner {
                 numbers[14],
                 TargetQuotaMutation.decode(bytes[15]),
                 bytes[16],
-                bytes[17]);
+                bytes[17],
+                (int) numbers[1],
+                qualified ? numbers[19] : -1,
+                qualified ? TargetQuotaMutation.decode(bytes[20]) : null,
+                qualified ? SummaryOrigin.decode(numbers[21]) : null,
+                bytes[22],
+                qualified ? numbers[23] : 0,
+                qualified ? TargetQuotaMutation.decode(bytes[24]) : null);
         if (!Arrays.equals(value.digest, bytes[18])) {
             throw new IllegalArgumentException("payload owner digest mismatch");
         }

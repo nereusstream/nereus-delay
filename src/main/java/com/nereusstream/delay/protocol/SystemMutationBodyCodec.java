@@ -19,8 +19,16 @@ public final class SystemMutationBodyCodec {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
         if (type == SystemMutationType.APPLY_SHARD_CONTROL && fields.size() > 4 && fields.get(4).number() == 11
+                && fields.get(4).unsignedValue() == TargetPayloadSummaryInitializationRequest.CONTROL_KIND) {
+            TargetPayloadSummaryInitializationBody.decode(canonicalBody);
+            return;
+        }
+        if (type == SystemMutationType.APPLY_SHARD_CONTROL && fields.size() > 4 && fields.get(4).number() == 11
                 && (fields.get(4).unsignedValue() == TargetMigrationActivateRequest.CONTROL_KIND
-                        || fields.get(4).unsignedValue() == TargetMigrationSettlementRequest.CONTROL_KIND)) {
+                        || fields.get(4).unsignedValue() == TargetMigrationSettlementRequest.CONTROL_KIND
+                        || fields.get(4).unsignedValue() == TargetMigrationRetirementIntentRequest.CONTROL_KIND
+                        || fields.get(4).unsignedValue() == TargetMigrationRetirementConfirmRequest.CONTROL_KIND
+                        || fields.get(4).unsignedValue() == TargetMigrationArchiveRequest.CONTROL_KIND)) {
             TargetMigrationControlBody.decode(canonicalBody);
             return;
         }

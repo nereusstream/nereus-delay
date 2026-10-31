@@ -288,6 +288,186 @@ public final class TargetResultLedgerAudit {
         return summary;
     }
 
+
+    /** Incremental form of the same result predicates for the original protected retirement flight. */
+    public static final class RetirementCursor {
+        private final TargetQuotaScope scope;
+        private final byte[] expectedLineage;
+        private final long sourceSequence;
+        private final SourcePosition frontier;
+        private final Limits limits;
+        private final java.util.List<Stored> resultRows;
+        private final TargetMigrationRoot migration;
+        private final Map<String, TargetResultRecord> records = new LinkedHashMap<String, TargetResultRecord>();
+        private final Map<TargetQuotaIdentity, TargetQuotaIncarnation> owners = new LinkedHashMap<TargetQuotaIdentity, TargetQuotaIncarnation>();
+        private final TreeMap<Long, TargetQuotaMutation> stamps = new TreeMap<Long, TargetQuotaMutation>(Long::compareUnsigned);
+        private final Map<Long, String> events = new LinkedHashMap<Long, String>();
+        private final java.util.Set<Long> standaloneSequences = new java.util.HashSet<Long>();
+        private final java.util.Set<Long> logicalSequences = new java.util.HashSet<Long>();
+        private final Map<TargetQuotaIdentity, CapacityVector> contributions = new LinkedHashMap<TargetQuotaIdentity, CapacityVector>();
+        private CapacityVector total = CapacityVector.empty();
+        private long bytes = 0;
+
+        private int phase,index;
+        private java.util.Iterator<TargetQuotaMutation> stampRows;
+        private java.util.Iterator<TargetResultRecord> referenceRows;
+        private TargetQuotaMutation earlier;
+        public RetirementCursor(TargetQuotaScope scope,byte[] lineage,long sequence,SourcePosition frontier,Limits limits,
+                java.util.List<Stored> rows,TargetMigrationRoot migration){
+            this.scope=Objects.requireNonNull(scope);expectedLineage=Bytes.copy(lineage);sourceSequence=sequence;
+            this.frontier=TargetSourcePosition.requireBounded(frontier);this.limits=Objects.requireNonNull(limits);resultRows=Objects.requireNonNull(rows);this.migration=migration;
+            Bytes.requireLength(lineage,16,"result retirement lineage");
+            if(scope.target()!=null||sequence==0||Arrays.equals(lineage,new byte[16])||!scope.shard().equals(frontier.shardId()))
+                throw new IllegalArgumentException("invalid result recovery scope/lineage/frontier");
+        }
+        public boolean advance(DescriptorLookup lookup,int maximumRows,Runnable current){
+            Objects.requireNonNull(lookup);Objects.requireNonNull(current);int used=0;
+            while(used<maximumRows){
+                if(phase==0){
+                    if(migration!=null){
+                        final var storedMigration=Objects.requireNonNull(lookup.get(TargetMigrationRoot.keyFor(scope.shard())),"actual migration result baseline");
+                        bytes=consume(bytes,storedMigration,limits);
+                        if(storedMigration.type()!=TargetMigrationRoot.VALUE_TYPE||!migration.plan().scope().equals(scope)
+                                ||!Arrays.equals(migration.plan().newLineage(),expectedLineage)||!Arrays.equals(migration.key(),storedMigration.key())
+                                ||!Arrays.equals(migration.canonicalBytes(),storedMigration.payload()))throw new IllegalStateException("migration result baseline changed exact scope/key/lineage");
+                    }
+                    phase=1;
+                }else if(phase==1){
+                    if(index>=resultRows.size()){phase=2;stampRows=stamps.values().iterator();continue;}
+                    accept(resultRows.get(index),lookup);index++;
+                }else if(phase==2){
+                    if(!stampRows.hasNext()){phase=3;referenceRows=records.values().iterator();continue;}
+                    final var stamp=stampRows.next();if(earlier!=null)earlier.requireAtOrBefore(stamp);earlier=stamp;
+                }else if(phase==3){
+                    if(!referenceRows.hasNext()){phase=4;return true;}
+                    final var record=referenceRows.next();
+                    if(record.kind().referencesFirst()){
+                        final byte[] key=Bytes.concat(new byte[]{(byte)(record.kind()==TargetResultRecord.Kind.POSITION_SYSTEM?TargetKeyCodec.RESULT_SYSTEM_TAG:TargetKeyCodec.RESULT_COMMAND_TAG),TargetKeyCodec.KEY_FORMAT},record.logicalId());
+                        record.requireFirst(records.get(Bytes.hex(key)));
+                    }
+                }else return true;
+                used++;current.run();
+            }
+            return phase==4;
+        }
+        private void accept(Stored stored,DescriptorLookup lookup){
+            lookup=prepareRowReads(stored,lookup);
+            if (migration != null && !migration.activated())
+                throw new IllegalStateException("prepared migration cannot fabricate ordinary Target results");
+            if (records.size() == limits.maximumResults()) {
+                throw new IllegalStateException("result recovery record budget exhausted");
+            }
+            Objects.requireNonNull(stored, "resultRow");
+            bytes = consume(bytes, stored, limits);
+            final var record = TargetResultRecord.decode(stored.payload);
+            record.requireStored(stored.key, stored.type, stored.payload);
+            if (!scope.shard().equals(record.primaryIdentity().shard())
+                    || !Arrays.equals(scope.tenantScope(), record.tenantScope())
+                    || !Arrays.equals(expectedLineage, record.recoveryLineage())) {
+                throw new IllegalStateException("result recovery crossed tenant/Shard/lineage");
+            }
+            record.mutation().requireAtOrBefore(sourceSequence, frontier);
+            final var priorStamp = stamps.putIfAbsent(record.mutation().sequence(), record.mutation());
+            if (priorStamp != null && !priorStamp.equals(record.mutation())) {
+                throw new IllegalStateException("one source sequence has conflicting result stamps");
+            }
+            final long sequence = record.mutation().sequence();
+            if (record.kind() == TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED) {
+                standaloneSequences.add(sequence);
+                if (logicalSequences.contains(sequence)) {
+                    throw new IllegalStateException("standalone expiry has logical results at the same source");
+                }
+            } else if (!record.kind().position()) {
+                logicalSequences.add(sequence);
+                if (standaloneSequences.contains(sequence)) {
+                    throw new IllegalStateException("logical result contradicts standalone expiry at the same source");
+                }
+            }
+            final String key = HexFormat.of().formatHex(stored.key);
+            if (records.putIfAbsent(key, record) != null) {
+                throw new IllegalStateException("duplicate physical result key in recovery snapshot");
+            }
+            final String event = (record.kind() == TargetResultRecord.Kind.SYSTEM
+                                    || record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM
+                            ? "S:"
+                            : "C:")
+                    + HexFormat.of().formatHex(record.logicalId());
+            final var priorEvent = events.putIfAbsent(record.mutation().sequence(), event);
+            if (priorEvent != null && !priorEvent.equals(event)) {
+                throw new IllegalStateException("source position belongs to more than one logical event");
+            }
+            var descriptor = owners.get(record.primaryIdentity());
+            if (descriptor == null) {
+                if (owners.size() == limits.maximumOwners()) {
+                    throw new IllegalStateException("result recovery owner budget exhausted");
+                }
+                final byte[] descriptorKey = descriptorKey(record.primaryIdentity());
+                final var storedOwner = lookup.get(Bytes.copy(descriptorKey));
+                if (storedOwner == null) {
+                    throw new IllegalStateException("missing result owner");
+                }
+                bytes = consume(bytes, storedOwner, limits);
+                if (storedOwner.type != TargetQuotaIncarnation.VALUE_TYPE
+                        || !Arrays.equals(storedOwner.key, descriptorKey)) {
+                    throw new IllegalStateException("result descriptor point read returned another key/type");
+                }
+                descriptor = TargetQuotaIncarnation.decode(storedOwner.payload);
+                if (!Arrays.equals(descriptor.key(), descriptorKey)) {
+                    throw new IllegalStateException("result owner key and canonical descriptor disagree");
+                }
+                descriptor.latestMutation().requireAtOrBefore(sourceSequence, frontier);
+                for (var ownerStamp : java.util.List.of(descriptor.allocation(), descriptor.latestMutation())) {
+                    TargetQuotaMutation comparison = ownerStamp;
+                    if (migration != null && descriptor.identity().kind() == TargetQuotaIdentity.Kind.TARGET
+                            && ownerStamp.equals(migration.plan().baseline())) {
+                        final byte[] originKey = TargetMigrationOrigin.keyFor(ColumnFamily.META, Bytes.sha256(descriptorKey));
+                        final var storedOrigin = Objects.requireNonNull(lookup.get(originKey), "original imported Target allocation");
+                        bytes = consume(bytes, storedOrigin, limits);
+                        if (storedOrigin.type() != TargetMigrationOrigin.VALUE_TYPE || !Arrays.equals(storedOrigin.key(), originKey))
+                            throw new IllegalStateException("imported result owner has no exact Native origin");
+                        final var origin = TargetMigrationOrigin.decode(storedOrigin.payload()); origin.requirePlan(migration.plan());
+                        if (!origin.owner().identity().equals(descriptor.identity())
+                                || !origin.owner().allocation().equals(descriptor.allocation())
+                                || !origin.owner().accounting().equals(descriptor.accounting()))
+                            throw new IllegalStateException("imported result owner changed original C allocation");
+                        origin.requireRow(ColumnFamily.META, descriptorKey,
+                                TargetValueEnvelope.encode(TargetQuotaIncarnation.VALUE_TYPE, origin.owner().canonicalBytes()));
+                        comparison = TargetMigrationRoot.baselineFor(migration.plan());
+                    }
+                    final var same = stamps.putIfAbsent(comparison.sequence(), comparison);
+                    if (same != null && !same.equals(comparison)) {
+                        throw new IllegalStateException("result owner and ledger contradict the same source mutation");
+                    }
+                }
+                owners.put(record.primaryIdentity(), descriptor);
+            }
+            record.requireOwner(descriptor);
+            final var charge = record.recordCharge();
+            contributions.merge(record.primaryIdentity(), charge, CapacityVector::add);
+            contributions.merge(record.tenantIdentity(), charge, CapacityVector::add);
+            total = total.add(charge);
+
+        }
+        private DescriptorLookup prepareRowReads(Stored stored,DescriptorLookup actual){
+            final var record=TargetResultRecord.decode(stored.payload());
+            final var selected=new java.util.HashMap<String,Stored>();
+            if(!owners.containsKey(record.primaryIdentity())){
+                final byte[] key=descriptorKey(record.primaryIdentity());
+                final var descriptor=Objects.requireNonNull(actual.get(key),"missing result owner");selected.put(Bytes.hex(key),descriptor);
+                final var owner=TargetQuotaIncarnation.decode(descriptor.payload());
+                if(migration!=null&&owner.identity().kind()==TargetQuotaIdentity.Kind.TARGET
+                        &&(owner.allocation().equals(migration.plan().baseline())||owner.latestMutation().equals(migration.plan().baseline()))){
+                    final byte[] originKey=TargetMigrationOrigin.keyFor(ColumnFamily.META,Bytes.sha256(key));
+                    selected.put(Bytes.hex(originKey),Objects.requireNonNull(actual.get(originKey),"original imported Target allocation"));
+                }
+            }
+            return key->Objects.requireNonNull(selected.get(Bytes.hex(key)),"unprepared retirement result dependency");
+        }
+        public int resultRecords(){requireComplete();return records.size();}
+        public Map<TargetQuotaIdentity,CapacityVector> contributions(){requireComplete();return java.util.Collections.unmodifiableMap(contributions);}
+        private void requireComplete(){if(phase!=4)throw new IllegalStateException("retirement result fold is incomplete");}
+    }
+
     private static long consume(final long used, final Stored stored, final Limits limits) {
         final long next =
                 Math.addExact(used, Math.addExact(12L, Math.addExact((long) stored.key.length, stored.payload.length)));

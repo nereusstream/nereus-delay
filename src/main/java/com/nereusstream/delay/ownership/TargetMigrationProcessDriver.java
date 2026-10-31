@@ -19,7 +19,7 @@ import java.util.function.LongSupplier;
 
 /** One fenced maintenance flight on the original Process I/O, WorkClass, Store and native resource graph. */
 public final class TargetMigrationProcessDriver {
-    public enum State { OPENING, MATERIAL, IMPORT, SEAL, SOURCE, REGISTER, APPEND, REPLAY, ADOPT, CLOSING, COMPLETE, FAILED }
+    public enum State { OPENING, MATERIAL, IMPORT, SEAL, SOURCE, REGISTER, APPEND, REPLAY, ADOPT, HISTORY, HISTORY_CLOSE, ARCHIVE, CLOSING, COMPLETE, FAILED }
 
     private final TargetWorkerProcessRuntime process;
     private final TargetWorkerProcessRuntime.Assembly graph;
@@ -84,6 +84,18 @@ public final class TargetMigrationProcessDriver {
     private SourcePosition minimumReplayCut;
     private boolean handoffReading;
     private TargetMigrationCompatibilityRuntime compatibility;
+    private boolean compatibilityRecovery;
+    private volatile TargetWorkerSourceStartup reopenedSource;
+    private TargetMigrationRoot recoveredRoot;
+    private SourcePosition recoveredTargetCut;
+    private TargetMigrationArchiveState archivePreview;
+    private com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover archiveTakeover;
+    private TargetMigrationArchiveHeld.Cursor archiveCursor;
+    private TargetMigrationArchiveHeld receivedArchive;
+    private TargetMigrationArchiveHeld.NativeCursor archiveNativeCursor;
+    private TargetMigrationArchiveHeld.RuntimeHold archiveHold;
+    private BoundedReadBudget archiveBudget;
+    private CheckpointInputFuture.Cleanup archiveRuntimeCleanup;
 
     TargetMigrationProcessDriver(TargetWorkerProcessRuntime process, TargetWorkerProcessRuntime.Assembly graph,
             TargetMigrationConfiguration configuration, TargetWorkerSourceStartup.Owner owner,
@@ -102,10 +114,58 @@ public final class TargetMigrationProcessDriver {
     public State state() { return state; }
     public TargetMigrationConfiguration configuration() { return configuration; }
     public Opening opening() { return opening; }
+    LongSupplier ownerClock() { return owner.clock(); }
+    boolean compatibilityRecovery() { return compatibilityRecovery; }
+    void recoverCompatibility() { compatibilityRecovery = true; }
+
+    /** Binds the actual opened/restored Native root before any original material or reader is acquired. */
+    void attachReopened(TargetWorkerSourceStartup source, ShardStore actual, TargetMigrationRoot root) {
+        if (reopenedSource != null) {
+            if (reopenedSource != source || target != actual || !Objects.equals(recoveredRoot, root))
+                throw new IllegalStateException("reopened compatibility owner changed its actual Native Store/root");
+            return;
+        }
+        if (!compatibilityRecovery || state != State.OPENING || reopenedSource != null && reopenedSource != source
+                || root == null || !root.activated() || !root.plan().scope().equals(configuration.scope())
+                || !Arrays.equals(root.plan().migrationId(), configuration.migrationId()))
+            throw new IllegalStateException("normal migration recovery requires its exact actual activated Native root");
+        TargetMigrationStore.requireIdentity(actual.metadata(), root.plan());
+        target = actual; recoveredRoot = root; plan = root.plan();
+        recoveredTargetCut = Objects.requireNonNull(actual.appliedShardLogPosition());
+        assignment = source.acceptedAssignment();
+        reopenedSource = source;
+    }
+
+    synchronized boolean prepareCompatibilityRecovery() {
+        if (!compatibilityRecovery || reopenedSource == null) throw new IllegalStateException("migration recovery lacks its opened Source Store");
+        advance(); return state == State.HISTORY && operation == null && queued == null || serviceAdmitted();
+    }
+
+    boolean historyRequired() { return compatibilityRecovery && !sourceHandoffComplete; }
+
+    SourcePosition recoveryReaderCut() {
+        if (!compatibilityRecovery || state != State.HISTORY || reader != null)
+            throw new IllegalStateException("original compatibility history reader is not ready to open");
+        inputs.requireReplayRetention(plan, recoveredTargetCut);
+        return plan.baseline().source();
+    }
+
+    /** The actual startup reader is retained by both original owners until native close, never borrowed as a DTO. */
+    synchronized boolean advanceHistory(TargetWorkerRecoverySource actual) {
+        if (!compatibilityRecovery) throw new IllegalStateException("not an original compatibility recovery");
+        if (reader == null) {
+            if (state != State.HISTORY) throw new IllegalStateException("history material is not ready");
+            actual.requireStartup(assignment, graph.config().maximumSourceFrameBytes(), graph.classes(), graph.resources());
+            actual.requireReaderBinding(assignment, plan.baseline().source());
+            reader = actual; readers.add(actual); readerCut = plan.baseline().source(); lastSeen = readerCut;
+            sourceSuccessor = actual.successorAfter(readerCut); sourceCursor = actual.replayCursor();
+        } else if (reader != actual) throw new IllegalStateException("history recovery changed its original reader");
+        advance(); return serviceAdmitted();
+    }
     public Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
     public boolean activationExposed() { return exposed || staged != null; }
     public synchronized Optional<SourcePosition> baseline() {
-        return inputs == null ? Optional.empty() : Optional.of(inputs.manifest().appliedShardLogPosition());
+        return inputs == null ? Optional.empty() : Optional.of(archivePreview == null ? inputs.manifest().appliedShardLogPosition() : plan.baseline().source());
     }
 
     /** Called by the configured K1/P1 factory path. A Provider cannot substitute a completed SDK DTO. */
@@ -125,6 +185,11 @@ public final class TargetMigrationProcessDriver {
     /** Schedules one bounded original task, then polls its actual I/O completion on later startup turns. */
     public synchronized State advance() {
         if (state == State.COMPLETE) {
+            if (operation != null) {
+                operation.retryCleanup();
+                if (operation.operationExited() && operation.ioExited()) { operation.receipt().join(); operation = null; }
+            }
+            if (queued != null && graph.classes().state(queued).isEmpty()) queued = null;
             if (cleanup != null && cleanup.operationExited() && cleanup.ioExited()) {
                 cleanup.receipt().join(); cleanup = null;
             }
@@ -147,6 +212,7 @@ public final class TargetMigrationProcessDriver {
                 if (graph.classes().state(queued).isPresent()) return state;
                 queued = null;
             }
+            if (compatibilityRecovery && state == State.HISTORY && reader == null) return state;
             if (state == State.SOURCE && transport == null && transportFactory == null) return state;
             final var task = new WorkClassTask(WorkClass.CHECKPOINT,
                     "migration-" + Bytes.hex(configuration.migrationId()) + '-' + Long.toUnsignedString(++turn),
@@ -172,13 +238,23 @@ public final class TargetMigrationProcessDriver {
         current.run();
         switch (state) {
             case OPENING -> openInputs(current);
-            case MATERIAL -> buildMaterial(current);
+            case MATERIAL -> { if (compatibilityRecovery) recoverMaterial(current); else buildMaterial(current); }
+            case ARCHIVE -> recoverArchive(current);
+            case HISTORY -> recoverHistory(current);
+            case HISTORY_CLOSE -> {
+                reader.close();
+                if (!reader.cleanupComplete()) return;
+                inputs.requireReplayRetention(plan, Objects.requireNonNull(minimumReplayCut));
+                compatibility = new TargetMigrationCompatibilityRuntime(process, this, graph, configuration, inputs,
+                        plan, bundle, material, legacyCopy, legacy, candidate.candidate(), nanos);
+                sourceHandoffComplete = true; state = State.COMPLETE;
+            }
             case IMPORT -> importBatch(current);
             case SEAL -> {
                 candidate = importer.seal(inputs.candidateSealer(), configuration.newReadBudget(nanos));
                 final var control = inputs.controlPreparation();
                 exact = control.factory().prepare(control.operationId(), new TargetMigrationActivateRequest(plan,
-                        candidate.candidate()), control.authenticated(), control.exactScope(),
+                        candidate.candidate(), inputs.rootIssuerAuthorization(plan)), control.authenticated(), control.exactScope(),
                         control.registrationRetryUntil(), control.sourceRetryUntil());
                 state = State.SOURCE;
             }
@@ -247,11 +323,15 @@ public final class TargetMigrationProcessDriver {
     }
 
     private void openInputs(Runnable current) {
-        assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
-        TargetWorkerSourceRuntimeFactory.requireScope(graph.oxia(), owner.tenant(), assignment, configuration.scope());
-        lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId(),
-                owner.ownerId(), owner.leaseDurationMs(), owner.clock());
+        if (!compatibilityRecovery) {
+            assignment = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId());
+            TargetWorkerSourceRuntimeFactory.requireScope(graph.oxia(), owner.tenant(), assignment, configuration.scope());
+            lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), owner.publication(), owner.workerId(),
+                    owner.ownerId(), owner.leaseDurationMs(), owner.clock());
+        }
         current.run();
+        if (compatibilityRecovery) archivePreview = com.nereusstream.delay.runtime.TargetMigrationArchiveStore.peekTakeover(
+                target, plan, configuration.newReadBudget(nanos));
         final var acquired = Objects.requireNonNull(provider.open(opening), "original migration input hold");
         synchronized (this) {
             if (inputs == null) { inputs = acquired; throw new IllegalStateException("migration Provider did not retain its actual hold before allocation"); }
@@ -259,11 +339,143 @@ public final class TargetMigrationProcessDriver {
         }
         inputs.requireCurrent();
         if (inputs.retainedBytes() > configuration.maximumRetainedBytes()) throw new IllegalStateException("migration hold exceeds its Process reservation");
+        if (archivePreview != null) { synchronizedThrough = recoveredTargetCut; state = State.MATERIAL; return; }
         final var manifest = inputs.manifest();
         if (manifest.storeFormatVersion() != 1 || !manifest.shardId().equals(configuration.scope().shard()))
             throw new IllegalArgumentException("migration requires its protected original legacy Manifest");
         assignment.activationBarrier().validatePosition(manifest.appliedShardLogPosition());
         synchronizedThrough = manifest.appliedShardLogPosition(); state = State.MATERIAL;
+    }
+
+    /** Revalidates the original C inventory against the already published fixed objects; writes no candidate or activation. */
+    private void recoverMaterial(Runnable current) {
+        if (!recoveredRoot.equals(readMigrationRoot())) throw new IllegalStateException("opened migration root changed during recovery");
+        if (archivePreview != null) {
+            final var attempt = Objects.requireNonNull(TargetMigrationStore.readAttemptNative(target, plan, configuration.newReadBudget(nanos)));
+            if (!Arrays.equals(attempt.input().canonicalEnvelope(), recoveredRoot.activation().canonicalEnvelope()))
+                throw new IllegalStateException("archive reopen changed original exact A/Native69");
+            importer = TargetMigrationImporter.resume(target, plan, inputs.importLimits(), inputs, configuration.newReadBudget(nanos));
+            candidate = importer.resumeSealed(attempt.candidate(), configuration.newReadBudget(nanos));
+            final var backend = TargetStoreBackend.forMigration(target, plan.scope(), importer.root().identity().accountingIncarnation(),
+                    plan.newLineage(), inputs.importLimits().writes(), candidate);
+            archiveTakeover = Objects.requireNonNull(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.readAppliedTakeover(
+                    backend, plan.scope(), plan.newLineage(), plan, configuration.newReadBudget(nanos), inputs.reads()), "actual Native72 takeover/first/POS");
+            if (!archiveTakeover.state().equals(archivePreview)) throw new IllegalStateException("preview differs from actual authenticated takeover");
+            archiveCursor = Objects.requireNonNull(inputs.archiveRecovery(opening, archiveTakeover));
+            archiveBudget = Objects.requireNonNull(inputs.archiveReads());
+            state = State.ARCHIVE; return;
+        }
+        final var view = LegacyCheckpointStateInventory.inspectComplete(configuration.legacyCheckpoint(),
+                configuration.scope().shard(), inputs.manifest(), inputs.physicalLimits(), inputs.inventoryLimits());
+        material = LegacyMigrationBundle.prepare(view, inputs, inputs.bundleLimits());
+        if (!"READY".equals(material.summary()) || !material.baseline().equals(plan.baseline())
+                || !Arrays.equals(view.inventory().physicalProof().metadata().storeIncarnation(), plan.oldStore())
+                || !Arrays.equals(view.inventory().physicalProof().metadata().dbIdentity(), plan.oldDbIdentity())
+                || !Arrays.equals(inputs.manifest().manifestSha256(), plan.oldManifest().resource().manifestSha256()))
+            throw new IllegalStateException("original checkpoint/material no longer matches durable migration C");
+        final var mapping = LegacyMigrationBundle.readCompanion(plan.mapping().resource(), LegacyMigrationBundle.Section.MAPPING,
+                material, inputs, inputs.bundleLimits(), inputs.immutableObjects());
+        final var custody = LegacyMigrationBundle.readCompanion(plan.custody().resource(), LegacyMigrationBundle.Section.CUSTODY,
+                material, inputs, inputs.bundleLimits(), inputs.immutableObjects());
+        final var conservation = LegacyMigrationBundle.readCompanion(plan.conservation().resource(), LegacyMigrationBundle.Section.CONSERVATION,
+                material, inputs, inputs.bundleLimits(), inputs.immutableObjects());
+        final List<byte[]> expectedMapping = new ArrayList<>();
+        for (var value : material.mappings()) expectedMapping.add(value.canonicalBytes());
+        final List<byte[]> expectedCustody = new ArrayList<>();
+        for (var value : material.view().entries()) expectedCustody.add(Bytes.concat(Bytes.u8(1), value.canonicalBytes()));
+        for (var value : material.dispositions()) expectedCustody.add(Bytes.concat(Bytes.u8(2), value.canonicalBytes()));
+        for (var value : material.entities()) expectedCustody.add(Bytes.concat(Bytes.u8(3), value.canonicalBytes()));
+        for (var value : material.externalRecords()) expectedCustody.add(Bytes.concat(Bytes.u8(4), value.canonicalBytes()));
+        final var mappingRecords = mapping.records(); final var custodyRecords = custody.records();
+        final var conservationRecords = conservation.records();
+        final var expectedConservation = List.of(Bytes.concat(material.baseline().canonicalBytes(),
+                inputs.manifest().manifestSha256(), material.conservation().canonicalBytes()));
+        long buffers = material.retainedBytes();
+        for (var records : List.of(mappingRecords, custodyRecords, conservationRecords))
+            for (var bytes : records) buffers = Math.addExact(buffers, Math.multiplyExact(2L, bytes.length));
+        for (var records : List.of(expectedMapping, expectedCustody, expectedConservation))
+            for (var bytes : records) buffers = Math.addExact(buffers, bytes.length);
+        if (buffers > configuration.maximumRetainedBytes() || buffers > inputs.retainedBytes())
+            throw new IllegalStateException("fixed original companions and their comparison buffers exceed the original charged flight");
+        requireRecords(mappingRecords, expectedMapping); requireRecords(custodyRecords, expectedCustody);
+        requireRecords(conservationRecords, expectedConservation);
+        bundle = new LegacyMigrationBundle.Sealed(material, mapping.companion(), custody.companion(), conservation.companion());
+        legacyCopy = ShardStore.openLegacyCheckpointReplayCopy(graph.config().store(), configuration.scope().shard(),
+                graph.resources(), configuration.legacyCheckpoint(), inputs.manifest(), inputs.physicalLimits());
+        legacy = inputs.legacyApplierFactory().open(legacyCopy.store());
+        if (!legacy.isBackedBy(legacyCopy.store())) throw new IllegalStateException("reopened old interpreter changed its actual shadow");
+        final var attempt = Objects.requireNonNull(TargetMigrationStore.readAttemptNative(target, plan,
+                configuration.newReadBudget(nanos)), "original durable activation attempt");
+        if (!Arrays.equals(attempt.input().canonicalEnvelope(), recoveredRoot.activation().canonicalEnvelope()))
+            throw new IllegalStateException("actual Native65/69 disagree about original A");
+        importer = TargetMigrationImporter.resume(target, plan, inputs.importLimits(), inputs, configuration.newReadBudget(nanos));
+        candidate = importer.resumeSealed(attempt.candidate(), configuration.newReadBudget(nanos));
+        exact = TargetMigrationControlMutationFactory.Prepared.restore(attempt.control(), attempt.input());
+        activated = TargetMigrationStore.resumeActivated(candidate, attempt.control(), attempt.input(),
+                recoveredRoot.activatedAt().source(), inputs.activationAuthority(), configuration.newReadBudget(nanos));
+        inputs.requireCompatibilityCurrent(plan, target.metadata()); inputs.requireReplayRetention(plan, recoveredTargetCut);
+        current.run(); state = State.HISTORY;
+    }
+    private void recoverArchive(Runnable current) {
+        if (receivedArchive == null) {
+            final var received = archiveCursor.advance(archiveBudget);
+            if (received.isEmpty()) return;
+            receivedArchive = received.orElseThrow();
+            archiveNativeCursor = receivedArchive.prepareNativeInputs(opening.archiveDependencies(), archiveBudget);
+            return;
+        }
+        if (!archiveNativeCursor.advance()) return;
+        opening.archiveDependencies(); // Recheck the same complete Native read view before publishing the receiver handoff.
+        compatibility = new TargetMigrationCompatibilityRuntime(process, this, graph, configuration, inputs,
+                plan, null, null, null, null, candidate.candidate(), nanos);
+        archiveHold = receivedArchive.acquireRuntime(archiveTakeover, compatibility.archiveRuntimeOpening());
+        compatibility.reopenArchive(target, importer, candidate, archiveTakeover, archiveHold);
+        archiveNativeCursor = null; receivedArchive = null;
+        current.run(); minimumReplayCut = recoveredTargetCut; sourceHandoffComplete = true; state = State.COMPLETE;
+    }
+
+    private static void requireRecords(List<byte[]> actual, List<byte[]> expected) {
+        if (actual.size() != expected.size()) throw new IllegalStateException("fixed migration companion changed its complete original records");
+        for (int index = 0; index < actual.size(); index++) if (!Arrays.equals(actual.get(index), expected.get(index)))
+            throw new IllegalStateException("fixed migration companion differs from protected original C material");
+    }
+
+    /** Rebuilds only the old shadow. Persisted Native68 or actual first/POS determines each historical owner. */
+    private void recoverHistory(Runnable current) {
+        if (reader == null) return;
+        if (!captured) { reader.captureReplayTail(); captured = true; }
+        if (!sourceCursor.hasNext()) {
+            final var through = reader.capturedTailReadThrough();
+            if (through.isEmpty()) return;
+            minimumReplayCut = through.orElseThrow();
+            if (!Arrays.equals(minimumReplayCut.canonicalBytes(), lastSeen.canonicalBytes())
+                    || !Arrays.equals(legacyCopy.store().appliedShardLogPosition().canonicalBytes(), recoveredTargetCut.canonicalBytes())
+                    || legacyCopy.store().shardMutationSequence() != target.shardMutationSequence())
+                throw new SourceReplayGapException("original C history did not reconstruct the actual opened Native frontier");
+            inputs.requireReplayRetention(plan, minimumReplayCut); state = State.HISTORY_CLOSE; return;
+        }
+        final var entry = sourceCursor.next();
+        reader.requireReaderEntry(entry, assignment, readerCut); sourceSuccessor.validate(lastSeen, entry.position());
+        lastSeen = entry.position();
+        if (entry.position().compareTo(recoveredTargetCut) > 0) return;
+        if (inputs.classifySource(entry, plan) == TargetMigrationInputs.SourceDomain.UNKNOWN)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("historical original writer/producer domain is unknown");
+        final boolean prefix = target.readWithBudget(configuration.newReadBudget(nanos), () -> target.get(ColumnFamily.META,
+                TargetMigrationPrefixRecord.keyFor(plan.migrationId(), TargetQuotaMutation.increment(legacyCopy.store().shardMutationSequence()))) != null).value();
+        if (prefix) {
+            // The old domain was the actual owner of this Source occurrence, even if the entity converted later.
+            switch (entry) {
+                case SourceReplayRecord command -> legacy.apply(command.command(), entry.position());
+                case SourceReplayMutation mutation -> legacy.applySystemMutation(mutation.mutation(), entry.position(), inputs.legacySystemVerificationKey());
+            }
+            if (!importer.replayPersistedPrefix(candidate, entry, legacyCopy.store(), configuration.newReadBudget(nanos)))
+                throw new IllegalStateException("historical old-domain Source lacks its exact durable Native68");
+        } else {
+            final var proof = com.nereusstream.delay.runtime.TargetMigrationTargetApplied.read(legacyCopy, target, plan, entry,
+                    configuration.newReadBudget(nanos), () -> inputs.requireCompatibilityCurrent(plan, target.metadata()));
+            legacy.applyMigrationTargetPosition(proof);
+        }
+        current.run();
     }
 
     private void buildMaterial(Runnable current) {
@@ -467,6 +679,17 @@ public final class TargetMigrationProcessDriver {
     }
 
     private void requireCurrent() {
+        if (compatibilityRecovery) {
+            process.requireMigrationRecoveryAdmission(this, reopenedSource, target);
+            if (stopping || firstFailure != null) throw new IllegalStateException("original compatibility recovery stopped");
+            reopenedSource.requireCurrent();
+            if (inputs != null) {
+                if (archivePreview == null) inputs.requireCompatibilityCurrent(plan, target.metadata());
+                else if (archiveTakeover == null) inputs.requireCurrent();
+                else inputs.requireArchiveCurrent(plan, target.metadata(), archiveTakeover);
+            }
+            return;
+        }
         process.requireMigrationAdmission(this);
         if (stopping || firstFailure != null) throw new IllegalStateException("original migration maintenance owner stopped");
         if (lease != null) {
@@ -486,6 +709,16 @@ public final class TargetMigrationProcessDriver {
 
     /** No Registry, Owner RPC, Store read or allocation is permitted from an SDK handoff lock. */
     private void requireLocalCurrent() {
+        if (compatibilityRecovery) {
+            process.requireMigrationRecoveryAdmission(this, reopenedSource, target);
+            reopenedSource.requireMigrationLocalCurrent();
+            if (stopping || firstFailure != null) throw new IllegalStateException("original compatibility recovery stopped");
+            if (inputs != null) {
+                if (archiveTakeover == null) inputs.requireLocalCurrent();
+                else inputs.requireArchiveLocalCurrent(plan, target.metadata(), archiveTakeover);
+            }
+            return;
+        }
         process.requireMigrationAdmission(this);
         final var actualLease = lease;
         if (stopping || firstFailure != null || actualLease == null || !actualLease.validAt(owner.clock().getAsLong())
@@ -575,12 +808,21 @@ public final class TargetMigrationProcessDriver {
             compatibility.requestStop();
             if (!compatibility.ioExited()) return false;
         }
+        if (stopping && archiveRuntimeCleanup != null) {
+            final var actual = (TargetMigrationArchiveHeld.RuntimeHold) archiveRuntimeCleanup;
+            actual.close(); actual.retryCleanup();
+            if (!actual.ioExited() || !actual.cleanupComplete()) return false;
+        }
+        if (stopping && archiveCursor != null) {
+            archiveCursor.close(); archiveCursor.retryCleanup();
+            if (!archiveCursor.cleanupComplete()) return false;
+        }
         if (adoption != null) {
             adoption.requestStop(); adoption.close(); adoption.retryCleanup();
             if (!adoption.ioExited() || !adoption.cleanupComplete()) return false;
         }
-        if (target != null && !target.isClosed()) target.close();
-        if (target != null && !target.isClosed()) return false;
+        if (!compatibilityRecovery && target != null && !target.isClosed()) target.close();
+        if (!compatibilityRecovery && target != null && !target.isClosed()) return false;
         if (lease != null && !leaseReleased) {
             final var actual = graph.oxia().providers().leases().current(lease.shardId());
             if (actual.isPresent() && actual.orElseThrow().sameIdentity(lease)
@@ -606,12 +848,42 @@ public final class TargetMigrationProcessDriver {
     }
 
     public synchronized boolean serviceAdmitted() {
-        return sourceHandoffComplete && adopted != null && firstFailure == null && !stopping
+        return sourceHandoffComplete && (compatibilityRecovery || adopted != null) && firstFailure == null && !stopping
+                && (operation == null || operation.operationExited() && operation.ioExited()) && queued == null
                 && (cleanup == null || cleanup.operationExited() && cleanup.ioExited());
+    }
+    public TargetMigrationCompatibilityRuntime.ArchiveOpening openArchiveHold(TargetMigrationMaintenance.Opening actual,
+            com.nereusstream.delay.runtime.TargetMigrationRetirementStore.AppliedIntent intention,
+            com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.Limits limits, BoundedReadBudget cumulative) {
+        return compatibility().archiveOpening(actual, intention, limits, cumulative);
+    }
+    public boolean exitAfterArchiveTakeover(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover actual,
+            TargetSourceApplyRuntime runtime) {
+        return compatibility().exitAfterArchiveTakeover(actual, runtime);
+    }
+    public boolean archiveTakeoverActive(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover actual,
+            TargetSourceApplyRuntime runtime) {
+        return compatibility().archiveTakeoverActive(actual, runtime);
+    }
+    synchronized void archiveActivated(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover actual) {
+        if (!actual.migration().plan().equals(plan)
+                || archiveTakeover != null && !archiveTakeover.takeoverAt().equals(actual.takeoverAt()))
+            throw new IllegalStateException("archive runtime changed its actual same-plan takeover");
+        archiveTakeover = actual;
+    }
+    void retainArchiveRuntimeCleanup(CheckpointInputFuture.Cleanup actual) {
+        synchronized (this) {
+            if (!(actual instanceof TargetMigrationArchiveHeld.RuntimeHold))
+                throw new IllegalArgumentException("archive runtime cleanup must be the actual acquired new-owner child loan");
+            if (archiveRuntimeCleanup != null && archiveRuntimeCleanup != actual)
+                throw new IllegalStateException("original archive runtime acquisition cannot be replaced");
+            archiveRuntimeCleanup = Objects.requireNonNull(actual);
+        }
     }
     synchronized TargetMigrationCompatibilityRuntime compatibility() {
         if (!serviceAdmitted() || compatibility == null) throw new IllegalStateException("original migration compatibility custody is unavailable");
-        inputs.requireReplayRetention(plan, Objects.requireNonNull(minimumReplayCut));
+        if (archiveTakeover == null) inputs.requireReplayRetention(plan, Objects.requireNonNull(minimumReplayCut));
+        else inputs.requireArchiveCurrent(plan, target.metadata(), archiveTakeover);
         return compatibility;
     }
     synchronized SourcePosition requiredReplayCut() {
@@ -633,16 +905,27 @@ public final class TargetMigrationProcessDriver {
     }
 
     /** Narrow original SDK acquisition capability; the Process retains it before any Provider/SDK call. */
-    public static final class Opening {
+    public static final class Opening implements TargetMigrationSourceOpening {
         private final TargetMigrationProcessDriver driver;
         private Opening(TargetMigrationProcessDriver driver) { this.driver = driver; }
         public TargetWorkerProcessRuntime.Assembly graph() { return driver.graph; }
         public TargetMigrationConfiguration configuration() { return driver.configuration; }
+        public long maximumRetainedInputBytes() { return driver.configuration.maximumRetainedBytes(); }
+        public boolean compatibilityRecovery() { return driver.compatibilityRecovery; }
+        public TargetMigrationRoot recoveredRoot() { return Objects.requireNonNull(driver.recoveredRoot, "actual reopened Native65"); }
+        /** Resource preview only; actual first/POS/reader36 and receiver audit are checked before service. */
+        public TargetMigrationArchiveState archivePreview() { return driver.archivePreview; }
+        public TargetCheckpointDependencies archiveDependencies() {
+            if (!driver.compatibilityRecovery || driver.archivePreview == null)
+                throw new IllegalStateException("only the actual post-T recovery owns Native archive dependencies");
+            return driver.reopenedSource.archiveRecoveryAudit(driver).dependencies();
+        }
         public void requireCurrent() { driver.requireCurrent(); }
         public void requireLocalCurrent() { driver.requireLocalCurrent(); }
         public SourceAssignment assignment() { return Objects.requireNonNull(driver.assignment, "accepted maintenance Source"); }
         public SourceAssignment acceptedAssignment() { return assignment(); }
-        public OwnerLease ownerLease() { return Objects.requireNonNull(driver.lease, "actual maintenance lease"); }
+        public OwnerLease ownerLease() { return driver.compatibilityRecovery ? driver.reopenedSource.ownerLease()
+                : Objects.requireNonNull(driver.lease, "actual maintenance lease"); }
         public OwnerIdentity ownerIdentity() { return Objects.requireNonNull(driver.identity, "actual signed Source identity"); }
         public SourcePosition baseline() { return driver.baseline().orElseThrow(); }
         public TargetDestinationSdkBudget sdkBudget() { return driver.sdk; }
@@ -684,6 +967,7 @@ public final class TargetMigrationProcessDriver {
         }
         public void retainControlWriter(TargetMigrationControlWriter actual) {
             synchronized (driver) {
+                if (driver.compatibilityRecovery) throw new IllegalStateException("normal compatibility recovery cannot open an ACTIVATE writer");
                 requireCurrent(); Objects.requireNonNull(actual).requireBinding(this);
                 if (!driver.backends.contains(actual.backend()) || driver.writer != null && driver.writer != actual)
                     throw new IllegalStateException("migration changed its retained original CONTROL producer");
@@ -713,7 +997,7 @@ public final class TargetMigrationProcessDriver {
     }
 
     /** Reusable only for this original exact append call; it records SDK exposure before native handoff. */
-    public static final class AppendPermit {
+    public static final class AppendPermit implements TargetMigrationAppendPermit {
         private final TargetMigrationProcessDriver driver;
         private final TargetMigrationControlWriter writer;
         private final TargetMigrationControlMutationFactory.Prepared exact;

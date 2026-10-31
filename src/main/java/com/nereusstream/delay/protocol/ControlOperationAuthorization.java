@@ -53,6 +53,8 @@ public final class ControlOperationAuthorization {
             case GRANT_TARGET_MEMBERSHIP,
                     ACTIVATE_TARGET_MIGRATION,
                     SETTLE_TARGET_MIGRATION_CUSTODY,
+                    RETIRE_TARGET_MIGRATION,
+                    CONFIRM_TARGET_MIGRATION_RETIRED,
                     ALLOCATE_SCOPE_CONTROL_OBLIGATION,
                     ALLOCATE_PARENT_CONTROL_CREDIT,
                     REGISTER_TARGET_SLO_WRITER_EPOCH,
@@ -77,6 +79,8 @@ public final class ControlOperationAuthorization {
             case REPLAY_DEAD_LETTER -> new ControlRole[] {ControlRole.DEAD_LETTER_OPERATOR};
             case RESOLVE_UNCERTAIN -> resolveRoles(prepared.request());
             case DRAIN_SHARD,
+                    MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE,
+                    INITIALIZE_TARGET_PAYLOAD_SUMMARY,
                     ACTIVATE_TARGET_PROTOCOL,
                     FENCE_SHARD_FOR_MAINTENANCE,
                     FORCE_CHECKPOINT,

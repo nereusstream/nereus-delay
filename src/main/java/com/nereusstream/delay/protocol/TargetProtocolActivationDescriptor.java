@@ -14,6 +14,16 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     public TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte[] reset,byte[] schema,String worker,String kafka,byte[] kafkaJar,byte[] pulsarJar){
         this(base,reset,schema,worker,kafka,kafkaJar,pulsarJar,5);
     }
+    public boolean extendedRootAuthorization(){return schemaVersion==15||schemaVersion==16||schemaVersion==17||schemaVersion==18||schemaVersion==19||schemaVersion==20;}
+    public boolean supportsMigrationObjectPayloadReclaim(){return schemaVersion==15;}
+    public boolean supportsMigrationUncommittedObjectReclaim(){return schemaVersion==16;}
+    public boolean supportsMigrationRetirementIntent(){return schemaVersion==17;}
+    public boolean supportsMigrationRetirementConfirmation(){return schemaVersion==18;}
+    public boolean supportsPayloadObligationSummary(){return schemaVersion==19;}
+    public boolean supportsMigrationLogicalFirstArchive(){return schemaVersion==20;}
+    /** Explicit decoder matrix; these are reader formats, not grants for another tuple. */
+    public int nativeMaximum(){return supportsMigrationLogicalFirstArchive()?72:extendedRootAuthorization()?71:schemaVersion>=10?TARGET_NATIVE_MAX:schemaVersion==1?53:schemaVersion==2?54:55;}
+    public int checkpointSchema(){return extendedRootAuthorization()?16:schemaVersion>=14?16:schemaVersion>=13?15:schemaVersion>=12?14:schemaVersion>=11?13:schemaVersion>=10?12:schemaVersion>=9?11:schemaVersion>=8?10:schemaVersion>=7?9:schemaVersion>=6?8:schemaVersion>=5?7:6;}
     public boolean supportsSourceHistoryRecords(){return schemaVersion>=2;}
     public boolean supportsAcceptedHistoryTip(){return schemaVersion>=3;}
     public boolean supportsCapacityOwnerStaging(){return schemaVersion>=4;}
@@ -30,7 +40,7 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     /** Descriptor10 admits the exact committed OBJECT intent/confirmation contract. */
     public boolean supportsObjectPayloadReclaim(){return schemaVersion>=10;}
     public TargetProtocolActivationDescriptor {
-        if(schemaVersion<1||schemaVersion>14)throw new IllegalArgumentException("unsupported Target descriptor schema");
+        if(schemaVersion<1||schemaVersion>20)throw new IllegalArgumentException("unsupported Target descriptor schema");
         Objects.requireNonNull(base);
         baseResetManifest=TargetCompatibilityCodec.assigned(baseResetManifest,32,"original base reset manifest");
         targetSchemaHash=TargetCompatibilityCodec.assigned(targetSchemaHash,32,"independent Target schema hash");
@@ -43,8 +53,14 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     @Override public byte[] targetSchemaHash(){return Bytes.copy(targetSchemaHash);}
     @Override public byte[] kafkaSdkJar(){return Bytes.copy(kafkaSdkJar);}
     @Override public byte[] pulsarSdkJar(){return Bytes.copy(pulsarSdkJar);}
-    public ProtocolTuple tuple(){return supportsDuplicatePositionReclaim()?ProtocolTuple.targetDuplicatePositionReclaim():supportsIncarnationReclaim()?ProtocolTuple.targetIncarnationReclaim():supportsAnchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():supportsUncommittedObjectPayloadReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():supportsObjectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():supportsNativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():supportsSelfContainedInlinePayloadReclaim()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():supportsInlinePayloadReclaim()?ProtocolTuple.targetInlinePayloadReclaim():supportsResourceReclaim()?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
-    private static byte[] versions(int version){return CanonicalProtobuf.message(out->{
+    public ProtocolTuple tuple(){return switch(schemaVersion){
+        case 15 -> ProtocolTuple.targetMigrationObjectPayloadReclaim();case 16 -> ProtocolTuple.targetMigrationUncommittedObjectReclaim();
+        case 17 -> ProtocolTuple.targetMigrationRetireIntent();case 18 -> ProtocolTuple.targetMigrationRetireConfirm();case 19 -> ProtocolTuple.targetPayloadObligationSummary();case 20 -> ProtocolTuple.targetMigrationLogicalFirstArchive();
+        default -> legacyTuple();};}
+    private ProtocolTuple legacyTuple(){return supportsDuplicatePositionReclaim()?ProtocolTuple.targetDuplicatePositionReclaim():supportsIncarnationReclaim()?ProtocolTuple.targetIncarnationReclaim():supportsAnchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():supportsUncommittedObjectPayloadReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():supportsObjectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():supportsNativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():supportsSelfContainedInlinePayloadReclaim()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():supportsInlinePayloadReclaim()?ProtocolTuple.targetInlinePayloadReclaim():supportsResourceReclaim()?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
+    private static byte[] versions(int version){
+        if(version>=15&&version<=20)return extendedVersions(version);
+        return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version>=10?TARGET_NATIVE_MAX:version==1?53:version==2?54:55);
         CanonicalProtobuf.uint32(out,3,version>=14?16:version>=13?15:version>=12?14:version>=11?13:version>=10?12:version>=9?11:version>=8?10:version>=7?9:version>=6?8:version>=5?7:6);CanonicalProtobuf.uint32(out,4,version>=14?17:version>=13?16:version>=12?15:version>=11?14:version>=10?13:version>=9?12:version>=8?11:version>=7?10:version>=6?9:8);
         CanonicalProtobuf.uint32(out,5,1);CanonicalProtobuf.uint32(out,6,1);
@@ -68,6 +84,33 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         if(version>=13)CanonicalProtobuf.uint32(out,39,1);
         if(version>=14)CanonicalProtobuf.uint32(out,40,6);
     });}
+    private static byte[] extendedVersions(int version){return CanonicalProtobuf.message(out->{
+        // A separate closed matrix avoids silently inheriting future descriptor privileges.
+        CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version==20?72:71);CanonicalProtobuf.uint32(out,3,16);
+        CanonicalProtobuf.uint32(out,4,version==15?18:version==16?19:17);
+        CanonicalProtobuf.uint32(out,5,1);CanonicalProtobuf.uint32(out,6,1);CanonicalProtobuf.uint32(out,7,1);CanonicalProtobuf.uint32(out,8,1);
+        CanonicalProtobuf.uint32(out,9,3);CanonicalProtobuf.uint32(out,10,1);CanonicalProtobuf.uint32(out,11,28);
+        CanonicalProtobuf.uint32(out,12,1);CanonicalProtobuf.uint32(out,13,2);CanonicalProtobuf.uint32(out,14,1);CanonicalProtobuf.uint32(out,15,1);
+        CanonicalProtobuf.uint32(out,16,12);CanonicalProtobuf.uint32(out,17,1);CanonicalProtobuf.uint32(out,18,1);CanonicalProtobuf.uint32(out,19,2);
+        CanonicalProtobuf.uint32(out,20,1);CanonicalProtobuf.uint32(out,21,1);CanonicalProtobuf.uint32(out,22,3);CanonicalProtobuf.uint32(out,23,1);
+        CanonicalProtobuf.uint32(out,24,TerminalPolicySemantic.SCHEMA_VERSION);CanonicalProtobuf.uint32(out,25,2);CanonicalProtobuf.uint32(out,26,1);
+        CanonicalProtobuf.uint32(out,27,TargetInlinePayloadSourceFacts.SCHEMA_VERSION);CanonicalProtobuf.uint32(out,28,TargetNativeReclaimFacts.SCHEMA_VERSION);
+        CanonicalProtobuf.uint32(out,29,TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES);CanonicalProtobuf.uint32(out,30,4);
+        CanonicalProtobuf.uint32(out,31,TargetResourceReclaimBody.MAX_OBJECT_INTENT_BYTES);CanonicalProtobuf.uint32(out,32,2);
+        CanonicalProtobuf.uint32(out,33,2);CanonicalProtobuf.uint32(out,34,2);CanonicalProtobuf.uint32(out,35,TargetUncommittedObjectClosure.SCHEMA_VERSION);
+        CanonicalProtobuf.uint32(out,36,TargetUncommittedObjectClosure.MAX_VERSIONS);CanonicalProtobuf.uint32(out,37,TargetUncommittedObjectClosure.MAX_BYTES);
+        CanonicalProtobuf.uint32(out,38,2);CanonicalProtobuf.uint32(out,39,1);CanonicalProtobuf.uint32(out,40,6);
+        CanonicalProtobuf.uint32(out,41,version-14); // one exact new reader purpose, never another permission
+        CanonicalProtobuf.uint32(out,42,2); // activation payload and retained record
+        CanonicalProtobuf.uint32(out,43,1); // signed Root tuple authorization
+        CanonicalProtobuf.uint32(out,44,65);CanonicalProtobuf.uint32(out,45,version==20?72:71); // bounded migration Native interval
+        CanonicalProtobuf.uint32(out,46,2); // PayloadOwner summary reader schema
+        if(version==20){
+            CanonicalProtobuf.uint32(out,47,1); // Native72 logical-first archive
+            CanonicalProtobuf.uint32(out,48,2); // Native71 archive head/history
+            CanonicalProtobuf.uint32(out,49,1); // COPY_BATCH / TAKEOVER request
+        }
+    });}
     private byte[] fields(){return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,schemaVersion);CanonicalProtobuf.bytes(out,2,base.canonicalBytes());CanonicalProtobuf.bytes(out,3,base.setDigest());
         CanonicalProtobuf.bytes(out,4,baseResetManifest);CanonicalProtobuf.bytes(out,5,tuple().canonicalBytes());
@@ -86,7 +129,7 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,12,false,"Target activation descriptor");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7,8,9,10,11,12},"Target activation descriptor");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if((version<1||version>14)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
+        if((version<1||version>20)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
             throw new IllegalArgumentException("unsupported Target activation descriptor/version combination");
         final var descriptor=new TargetProtocolActivationDescriptor(ArtifactGenerationSet.decode(QueryCodecSupport.bytes(f.get(1),2)),
                 QueryCodecSupport.fixed(f.get(3),4,32),QueryCodecSupport.fixed(f.get(5),6,32),

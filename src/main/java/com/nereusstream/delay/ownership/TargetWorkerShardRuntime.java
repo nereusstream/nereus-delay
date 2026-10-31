@@ -728,46 +728,177 @@ public final class TargetWorkerShardRuntime
         }
         return Objects.requireNonNull(signer).prepare(source,images,recoveryReads,nativeReads,time,retryUntil,maximumInputBytes,originalHeld);
     }
-    /** Provider I/O uses the original bounded maintenance executor, after both real image and live Native closure. */
+    /** The former single-action entry cannot provide the original whole-flight preparation loan. */
     public com.nereusstream.delay.adapter.PayloadObjectDelete.Observation deletePendingObjectPayload(
             com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
             com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,
             java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
             BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
-        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))throw new IllegalStateException("OBJECT provider stage must run outside Worker/Source/Store monitors");
-        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
-        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();source=target.reclaimPreparationRead(java.util.List.of(candidate),clock);}
-        final var pending=candidate.objectIntent();
-        final long window=Math.addExact(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),
-                4L*(com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES+4096L)+TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES);
-        if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||window>maximumInputBytes)throw new IllegalStateException("OBJECT provider/signing stages exceed their original shared input reservation");
-        final Runnable current=()->{source.requireCurrent();originalHeld.run();};current.run();
-        final var recovery=source.catalog().capturePendingObjectProviderProtection(pending,images,recoveryReads,maximumInputBytes,current);
-        source.requirePendingObjectProvider(pending,recovery,nativeReads,current);recovery.requireCurrent(recoveryReads,current);current.run();
-        final var operation=pending.operation();
-        final var request=operation.nativeOrigin()==null?new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
-                operation.expected(),operation.proof(),pending.appliedAt()):new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
-                operation.expected(),recovery.objectAcceptance(),pending.appliedAt());
-        // Return the actual response directly: a post-DELETE guard failure must not erase the hot witness.
-        return Objects.requireNonNull(provider).deleteExact(request,current);
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("pending OBJECT provider operation requires its original protected multi-turn preparation");
     }
-    /** Same original owned maintenance I/O and actual pending-Floor qualification; no extra executor or provider authority. */
+    /** The actual maintenance caller uses beginPendingObjectPayload and retains its owned-I/O flight. */
     public com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation retirePendingUncommittedPayload(
             com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
             com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,
             java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
             BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
-        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))throw new IllegalStateException("uncommitted provider stage must run outside Worker/Source/Store monitors");
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("pending uncommitted provider operation requires its original protected multi-turn preparation");
+    }
+
+    /** Captures the actual pending intent and Catalog receipt on the original owned I/O action. */
+    PendingPayloadPreparation beginPendingObjectPayload(
+            com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
+            com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget recoveryReads,long maximumInputBytes,Runnable originalHeld,LongSupplier clock){
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))
+            throw new IllegalStateException("pending provider preparation must run outside Worker/Source/Store monitors");
+        Objects.requireNonNull(candidate);Objects.requireNonNull(provider);Objects.requireNonNull(recoveryReads);
+        Objects.requireNonNull(originalHeld);
         final TargetSourceApplyRuntime.ReclaimPreparationRead source;
-        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();source=target.reclaimPreparationRead(java.util.List.of(candidate),clock);}
-        final var pending=candidate.objectIntent();if(!pending.body().uncommittedObjectReclaim())throw new IllegalArgumentException("uncommitted pending intent required");
+        synchronized(this){
+            requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        }
+        source=target.reclaimPreparationRead(java.util.List.of(candidate),clock);
+        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();}
+        source.requireCurrent();
+        final var pending=candidate.objectIntent();
         final long window=Math.addExact(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.recoveryProtectionInputWindowBytes(images),
                 4L*(com.nereusstream.delay.protocol.TargetResourceReclaimBody.MAX_NATIVE_CANONICAL_BYTES+4096L)+TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES);
-        if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||window>maximumInputBytes)throw new IllegalStateException("complete uncommitted provider/signing window exceeds original reservation");
+        if(maximumInputBytes<1||maximumInputBytes==Long.MAX_VALUE||window>maximumInputBytes)
+            throw new IllegalStateException("pending provider/signing stages exceed their original shared input reservation");
         final Runnable current=()->{source.requireCurrent();originalHeld.run();};current.run();
+        final long beforeRows=recoveryReads.actualRecords(),beforeBytes=recoveryReads.actualBytes();
         final var recovery=source.catalog().capturePendingObjectProviderProtection(pending,images,recoveryReads,maximumInputBytes,current);
-        source.requirePendingObjectProvider(pending,recovery,nativeReads,current);recovery.requireCurrent(recoveryReads,current);current.run();
-        return Objects.requireNonNull(provider).retireUncommitted(pending,recovery,current);
+        return new PendingPayloadPreparation(this,source,candidate,pending,recovery,provider,originalHeld,
+                recoveryReads.actualRecords()-beforeRows,recoveryReads.actualBytes()-beforeBytes,maximumInputBytes);
+    }
+
+    /** Actual pending provider flight. Its original Held owns provider/Root resources until I/O exit. */
+    public static final class PendingPayloadPreparation implements AutoCloseable {
+        public record Result(com.nereusstream.delay.adapter.PayloadObjectDelete.Observation object,
+                com.nereusstream.delay.adapter.PayloadUncommittedDelete.Observation uncommitted){
+            public Result{if((object==null)==(uncommitted==null))throw new IllegalArgumentException("one actual provider observation required");}
+        }
+        private final TargetWorkerShardRuntime worker;
+        private final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        private final com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate;
+        private final com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending;
+        private final com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery;
+        private final com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider;
+        private final Runnable originalHeld,current;
+        private final long captureRows,captureBytes,recoveryRetained,maximumInputBytes;
+        private com.nereusstream.delay.runtime.TargetRetirementPreparation preparation;
+        private com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection;
+        private volatile Result observation;
+        private volatile long preparedRetained;
+        private boolean advancing,closed;
+
+        private PendingPayloadPreparation(TargetWorkerShardRuntime worker,TargetSourceApplyRuntime.ReclaimPreparationRead source,
+                com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate candidate,
+                com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord pending,
+                com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery,
+                com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore provider,Runnable originalHeld,
+                long captureRows,long captureBytes,long maximumInputBytes){
+            this.worker=worker;this.source=source;this.candidate=candidate;this.pending=pending;this.recovery=recovery;
+            this.provider=provider;this.originalHeld=originalHeld;this.captureRows=captureRows;this.captureBytes=captureBytes;
+            this.maximumInputBytes=maximumInputBytes;
+            recoveryRetained=recovery.retainedBytes();current=()->{
+                source.requireCurrent();this.originalHeld.run();
+                final var selected=protection;if(selected!=null)selected.requireCurrent();
+            };
+            if(captureRows<0||captureBytes<0)throw new IllegalStateException("pending provider capture budget regressed");
+            requireRetainedWindow();
+        }
+        public TargetSourceApplyRuntime.ReclaimPreparationRead source(){return source;}
+        public SystemMutation mutation(){return pending.intent();}
+        public long retainedBytes(){return Math.addExact(recoveryRetained,preparedRetained);}
+        /** A real response remains observable even if the enclosing OwnedIO's final guard fails. */
+        public Optional<Result> observation(){return Optional.ofNullable(observation);}
+
+        public void protect(com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection original){
+            requireOutsideMonitors();
+            synchronized(this){
+                if(closed||advancing||protection!=null)throw new IllegalStateException("pending provider protection is already selected or closed");
+                protection=Objects.requireNonNull(original);advancing=true;
+            }
+            try{
+                current.run();protection.requireCurrent();
+                // The Source mints this preparation only for its actual selected pending Native56.
+                final var selected=source.beginPendingProtection(pending,protection,recovery);
+                synchronized(this){preparation=selected;}
+                selected.debitReads(captureRows,captureBytes);updateRetained();
+            }finally{synchronized(this){advancing=false;}}
+        }
+
+        /** Adds actual writer dependency I/O to this same original reclaim flight, without granting authority. */
+        public void debitDependencyReads(long records,long bytes){
+            requireOutsideMonitors();
+            final com.nereusstream.delay.runtime.TargetRetirementPreparation selected;
+            synchronized(this){
+                if(closed||advancing||preparation==null)throw new IllegalStateException("pending provider preparation cannot accept dependency reads");
+                selected=preparation;advancing=true;
+            }
+            try{selected.debitReads(records,bytes);updateRetained();}
+            finally{synchronized(this){advancing=false;}}
+        }
+
+        /** One original OwnedIO turn; final Catalog rereads use this turn's real budget. */
+        public Optional<Result> advance(BoundedReadBudget nativeReads,int maxRows,BoundedReadBudget recoveryReads){
+            requireOutsideMonitors();Objects.requireNonNull(nativeReads);Objects.requireNonNull(recoveryReads);
+            if(maxRows<1||maxRows==Integer.MAX_VALUE)throw new IllegalArgumentException("finite pending provider page required");
+            synchronized(this){
+                if(closed||advancing||preparation==null)throw new IllegalStateException("pending provider preparation is unprotected, advancing or closed");
+                if(observation!=null)return Optional.of(observation);advancing=true;
+            }
+            try{
+                current.run();protection.requireCurrent();
+                if(!preparation.advance(nativeReads,maxRows)){updateRetained();return Optional.empty();}
+                // The actual Source point reader debits its own Native reads through this exact proof.
+                source.consumePendingProvider(pending,recovery,nativeReads,current,preparation.proof());
+                final long recoveryRows=recoveryReads.actualRecords(),recoveryBytes=recoveryReads.actualBytes();
+                try{
+                    recovery.requireCurrent(recoveryReads,current);current.run();protection.requireCurrent();
+                }finally{
+                    preparation.debitReads(recoveryReads.actualRecords()-recoveryRows,recoveryReads.actualBytes()-recoveryBytes);
+                }
+                updateRetained();
+                if(candidate.uncommittedObject()){
+                    observation=new Result(null,provider.retireUncommitted(pending,recovery,current));
+                }else{
+                    final var operation=pending.operation();
+                    final var request=operation.nativeOrigin()==null?new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
+                            operation.expected(),operation.proof(),pending.appliedAt()):new com.nereusstream.delay.adapter.PayloadObjectDelete.Request(
+                            operation.expected(),recovery.objectAcceptance(),pending.appliedAt());
+                    observation=new Result(provider.deleteExact(request,current),null);
+                }
+                // Never place a post-provider guard between the actual receipt and its retained owner.
+                return Optional.of(observation);
+            }catch(com.nereusstream.delay.runtime.TargetRetirementPreparation.ViewChanged changed){
+                preparation.invalidate();return Optional.empty();
+            }catch(com.nereusstream.delay.store.ReadIncompleteException incomplete){
+                current.run();protection.requireCurrent();return Optional.empty();
+            }finally{synchronized(this){advancing=false;}}
+        }
+        private void requireOutsideMonitors(){
+            if(Thread.holdsLock(worker)||Thread.holdsLock(worker.store)||Thread.holdsLock(worker.target))
+                throw new IllegalStateException("pending provider I/O must run outside Worker/Source/Store monitors");
+        }
+        private void updateRetained(){preparedRetained=preparation.retainedBytes();requireRetainedWindow();}
+        private void requireRetainedWindow(){
+            if(retainedBytes()>maximumInputBytes)
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("pending provider preparation exceeds its original shared input reservation");
+        }
+        @Override public void close(){
+            synchronized(this){
+                if(advancing)throw new IllegalStateException("pending provider I/O has not exited");
+                if(closed)return;advancing=true;
+            }
+            try{
+                if(preparation!=null)preparation.close();
+                synchronized(this){closed=true;}
+            }finally{synchronized(this){advancing=false;}}
+        }
     }
     /** The original caller reserves CONFIGURATION_WINDOW_BYTES plus the complete signing/authentication window. */
     public TargetResourceReclaimSigner.Prepared prepareConfiguredResourceReclaim(
@@ -788,6 +919,31 @@ public final class TargetWorkerShardRuntime
         try(var signer=TargetResourceReclaimSigner.loadConfigured(configuration,actualRoot,keyReads,held)){
             return signer.prepare(source,images,recoveryReads,nativeReads,time,retryUntil,
                     maximumInputBytes-TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES,held);
+        }
+    }
+    TargetResourceReclaimSigner.Draft beginConfiguredResourceReclaim(
+            java.util.List<com.nereusstream.delay.runtime.TargetResourceReclaimDiscovery.Candidate> candidates,
+            java.nio.file.Path configuration,byte[] actualRoot,
+            java.util.List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget keyReads,BoundedReadBudget recoveryReads,BoundedReadBudget nativeReads,java.util.function.Supplier<TrustedUtcIntervalEvidence> time,
+            long retryUntil,long maximumInputBytes,Runnable originalHeld,LongSupplier clock)throws java.io.IOException{
+        if(maximumInputBytes<=TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES||maximumInputBytes==Long.MAX_VALUE)
+            throw new IllegalArgumentException("Native signing configuration requires its original finite reserved input window");
+        if(Thread.holdsLock(this)||Thread.holdsLock(store)||Thread.holdsLock(target))
+            throw new IllegalStateException("Native signing/authentication must run outside original Worker/Source/Store monitors");
+        final TargetSourceApplyRuntime.ReclaimPreparationRead source;
+        synchronized(this){
+            requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();
+        }
+        source=target.reclaimPreparationRead(candidates,clock);
+        synchronized(this){requireNewTurnsAdmitted();resources.requireRuntimeBusinessAdmission();}
+        source.requireCurrent();
+        final Runnable held=()->{source.requireCurrent();originalHeld.run();};
+        final long keyRows=keyReads.actualRecords(),keyBytes=keyReads.actualBytes();
+        try(var signer=TargetResourceReclaimSigner.loadConfigured(configuration,actualRoot,keyReads,held)){
+            final var draft=signer.begin(source,images,recoveryReads,nativeReads,time,retryUntil,
+                    maximumInputBytes-TargetResourceReclaimSigner.CONFIGURATION_WINDOW_BYTES,held);
+            draft.acquisition(keyReads.actualRecords()-keyRows,keyReads.actualBytes()-keyBytes);return draft;
         }
     }
     public TargetEvidenceRetirementWorkClassExecutor.Submission submitResourceReclaim(TargetResourceReclaimSigner.Prepared prepared,

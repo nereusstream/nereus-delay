@@ -45,6 +45,15 @@ public final class TargetRecordAccounting {
 
         byte[] projected(ColumnFamily family, byte[] key, List<TargetStoreBackend.Edit> overlay);
 
+        /** Only the actual hot writer kernel can qualify a prefix; cold views always verify the complete chain. */
+        default TargetSloWriterOrigin.Context writerOriginContext() { return null; }
+
+        /** A privately minted complete retirement preparation is visible only inside its exact final plan. */
+        default TargetRetirementPreparation.Proof retirementProof() { return null; }
+
+        /** Private actual Source tail, available only during its original Source action. */
+        default TargetMigrationArchivePreparation.PreparedTail archiveTailProof() { return null; }
+
         /** Complete cold-path reference joins need a finite ordered range in the same selected view. */
         default com.nereusstream.delay.store.ShardStore.KeyValue first(ColumnFamily family, byte[] lower, byte[] upper,
                 List<TargetStoreBackend.Edit> overlay) {
@@ -801,6 +810,15 @@ public final class TargetRecordAccounting {
                 }
                 return null;
             }
+            case com.nereusstream.delay.protocol.TargetMigrationArchiveRow.VALUE_TYPE -> {
+                requireFamily(family, ColumnFamily.META);
+                result = TargetMigrationArchiveStore.nativeCharge(reader, overlay, scope, lineage, operation, key, payload, true);
+            }
+            case com.nereusstream.delay.protocol.TargetMigrationRetirementRecord.VALUE_TYPE -> {
+                result = com.nereusstream.delay.protocol.TargetMigrationArchiveState.isKey(key)
+                        ? TargetMigrationArchiveStore.nativeCharge(reader, overlay, scope, lineage, operation, key, payload, false)
+                        : TargetMigrationRetirementStore.nativeCharge(reader, overlay, scope, lineage, operation, family, key, payload);
+            }
             case com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE,
                     com.nereusstream.delay.protocol.TargetMigrationOrigin.VALUE_TYPE,
                     com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.VALUE_TYPE,
@@ -940,6 +958,8 @@ public final class TargetRecordAccounting {
     }
 
     private void requirePayloadOwner(final TargetQuotaIncarnation descriptor, final TargetQuotaPayloadOwner owner) {
+        if (owner.summaryQualified() && owner.summaryMutation() != null)
+            owner.summaryMutation().requireAtOrBefore(operation);
         if (descriptor.allocation().sequence() == owner.mutation().sequence()
                 && descriptor.allocation().localOrdinal() == owner.mutation().localOrdinal()
                 && !descriptor.allocation().equals(owner.mutation())) {

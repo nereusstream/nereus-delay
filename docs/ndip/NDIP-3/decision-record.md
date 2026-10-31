@@ -1876,3 +1876,273 @@ owner、quota totals、head/strict/control/授权范围。新增索引/复制期
 证据及独立 audit 关闭；READY 仅可申请迁移，不是 activation 或 reader 退休资格。
 这是后续代码的持久语义裁定，尚未实现新 migration wire/转换/激活，不授任何环境迁移、
 删除、保护解除或验收/生产权限；四包及全部29切片义务保持。
+
+## 2026-10-31：F2 逐项结算与旧恢复域 Source 退休
+
+主会话裁定两层推进。逐 ID caller 取得原 legacy 终态/raw/原 Source 因果和 noFuture
+资格，独立 Prepared 注册、耐久保管完整原帧，真实 Source 发送/同字节 UNKNOWN 重试，
+实际 apply 后核 first/POS/Native67。逻辑责任结清、保管材料退出与物理费用释放各依
+原证据，settlement 不自动允许删 checkpoint 或关闭全部 Inputs。
+
+整旧恢复域在新 Target 原 Source 上增加明确版本的 RETIRE 意向/完成确认；旧 Catalog
+只 adopt 同一 Source 事实的准入关闭/永久墓碑，不是第二个退出提交点。既有 Catalog
+publish/Floor/Pin、Target quota incarnation retire、逐 checkpoint delete/REAPING 均不
+具有整 legacy Store/lineage 注销语义。新事实沿原迁移 root 或有界子记录保存，不另建
+平行迁移 ledger；保既有 bytes，使用独立迁移管理 purpose、原签名/注册/first/POS/
+重放/计费和新 tuple。新增 Native/历史/Catalog 墓碑须真实预付管理份额，不改旧 F0/M0。
+
+意向绑定 migrationId/plan/实际 A、物理 Source、新旧 Store/DB/lineage、旧 Catalog
+namespace/root key、完整成员 cut/原版本出处、不可变精确资源清单及保管/关闭资格。
+清单必须区分以下 disposition，缺证据不得当无引用：
+
+- 新 Target 仍用的共享 Source/Registry/client/pool 保原 owner，不删 topic/partition、
+  不 reset Source、不关闭共享 client。原 Source 前缀回收仍须独立原 Floor/retention。
+- mapping、command/dedupe/terminal/custody、C→A 及后续 prefix、origin/accounting/
+  cold 依赖材料继续保护，或先完成真实有据的保管转移。
+- 可退出的旧专用 writer/reader/channel/local copy/独立 checkpoint/counter 域逐项
+  满足原退出、删除和费用条件；birth/retirement 墓碑及防复活历史继续保留。
+
+意向进入不可逆 RETIRING，只冻结新增责任，不声称完成。原旧 writer/publisher 恢复、
+Catalog publish/restore/candidate、新 Pin/reader/reference admission 都须封闭到确切旧
+域，已有 Pin/reader 排空。Catalog 实际 CAS 持久封门，迟到 CAS 由状态/版本拒绝；观察
+Pin=0/Floor 不足。共享 record/namespace 仅关闭旧 lineage/Store；成员变化不得静默扩大
+清单继续删除，须明确 Source 后继或冲突处理。
+
+保管转移先由新 owner 对 exact 内容/来源/原义务/retention/真实费用实际受保护接收，
+留可恢复持久记录；新正式 checkpoint/companion 必须独立完成 origin/cold/旧命令解释，
+不能只留 hash 或回指待删 Store。转移前旧 owner 不释放、不双退费，不重签旧 Admission/
+重发业务。共享 Inputs 采用明确 legacy 子 loan/分段交还，不能提前 close 共享 HTTP/
+Source/credential。原 owner 缺转移/独立 retention/关闭能力时该项保持 held/BLOCKED。
+
+冻结后复用原执行原语：逐合法旧组件 stop 并等真实 native/callback/I/O 退出；目录仅
+处理已核 exact Store 副本/文件身份；checkpoint/payload 仅按匹配原 retire→delete 或
+REAPING→实际确认。REAPING 仅针对原 PENDING_UPLOAD，不能代替 published 删除合同。
+published Manifest 停作 candidate 不等于 header/ancestry/对象可删；新 Origin/Pin 仍需
+材料须保留或转移，缺原删除权威继续占费。
+
+确认绑定原意向、Catalog RETIRING 真实屏障 receipt、逐资源 terminal/transfer receipts
+和完整 coverage。只有每项实际退出/删除或受保护转移、共享项明确 owner，且完整
+noFuture/Pin/query/reader/retention/Source 历史/费用闭合才可申请；仍留旧 owner 且被
+依赖的未转移责任只能 RETIRING。实际 Source Native 批写 first/POS/终态并按 exact 原
+owner/dimension 只释放一次实际份额，不与逐 ID 双退款；Catalog adopt 同确认并保墓碑。
+
+崩溃按同意向/资源/请求恢复，丢响应保 UNKNOWN/持有；Catalog 缺键、ACK、SDK 退出、
+本地 done 不证明永久退出。RETIRING 后只补原流程，不重开旧域；仍有 legacy bytes 的
+业务需求时由新 Native 和受保护材料继续原解释/去重，不能当新发送。正常移交后的逐
+ID/全域维护须实际接原 WorkClass/Owned I/O，不只在 Host final 才退出，不新建线程。
+此为实现授权，不授权任何环境删除、迁移或保护解除；缺原 owner 能力仍明确保留。
+
+## 2026-10-31：PayloadOwner v2 全代次未决义务汇总
+
+主会话裁定使用现有 Native32 TargetQuotaPayloadOwner 明确 v2，消除正常 Outcome 为
+判断 RETAINED 而遍历全部 TERMINAL generation 的 H 扫描；不另建通用汇总/索引服务。
+汇总是 exact payload-owner（MessageId、原 owner/binding/payload、tenant/lineage）全部
+合法代次实际未结 attempt obligation 数及初始化资格，不是 Admission 累计数、Budget
+行数或当前 runtime 长度。当前 Message/terminal 镜像同一义务只计一次，必须与原
+Budget/Source 因果相符。checked 运算拒绝 underflow/overflow/身份冲突，不降原上限。
+
+唯一增减由原 Source 业务 Native 批驱动：真正首次 APPLIED Admission 建未决 Budget/
+runtime 时 +1；首次 definitive Outcome/Resolution 确实消解原未决身份时 -1；UNKNOWN、
+重复 first/physical POS、已 resolved/stale/rejected/replay 均不变。覆盖四发送模式、历史
+代次和所有允许的旧/新 wire/兼容写者。reschedule/cancel/terminal 投影搬迁不改总数。
+count、Budget/runtime/terminal、first/POS、Source/quota/accounting 同批；若同时转
+RETAINED，只生成一个同时含新 count/phase 的最终 owner successor，不相互覆盖。
+更新/初始化只走原 Source 验证，不开放任意 setCount；ACK/callback/local cleanup 不改数。
+
+count0 只替代“无跨代未决 attempt”，不替代当前业务状态、reservation/writer/legacy
+责任及原 retain/release 权限。历史代次最后一笔结清也须按真实 current Message 和本次
+overlay 后全代 count 触发应有 RETAINED，不能只在 !historical 处理而永久 ACTIVE。
+当前仍 SCHEDULED/有其它责任时不得误 retain，更不自动 RELEASED 或退物理费用。
+
+v1 bytes/decode 保持，缺 summary 是未资格而非 0。fresh owner 仅原真正首创、同批证明
+无旧义务时初始化 qualified0。import 从完整旧 inventory/retained guard 独立 fold 取得
+资格，不以 safe 子集/原 payer DTO 推0；legacy 未入 Target Budget 的义务继续受原 custody/
+noFuture，不以 Native count0 证明不存在。旧 Target 存量由原受保护 cold/维护 bootstrap
+分批完整审计，再按同 cut/Owner/Source 与显式版本升级原子装资格；cut/数据改变重核，
+未完成继续未资格，不在每个 Outcome 扫 H、不将暂留 ACTIVE 记完成回收。
+
+checkpoint/cold/import 独立从当前/历史 runtime、真实 Admission/Budget/首次结算及原
+Source 重算并比对，无遗漏/重复/缺依赖。全量扫描可在原有界恢复/维护分批流程，不回到
+正常 Source apply。无完整资格的旧 owner 阻断对应新能力，不伪造 hot-path receipt。
+
+v2 更新/初始化须明确 reader/Registry/required tuple，旧 writer 不能绕 count 改 runtime。
+新增字段、State 费用和实际 codec/read/write/copy 上界同步；原账/旧格式 ceiling 不按
+当前 codec 重价，升级字节须真实付费。本 summary 仅关闭 H，一律不记全 Source family/
+JVM envelope 完成。裁定只授权本轮源码/必要编译，无新增测试或环境动作。
+
+## 2026-10-31：新增 tuple 的实际 reader 激活与 summary 初始化
+
+主会话批准 CONTROL39 INITIALIZE_TARGET_PAYLOAD_SUMMARY / Source control kind38 /
+tuple34，权限同 ACTIVATE_TARGET_PROTOCOL 的 PLATFORM_OPERATOR，加原 exact SHARD/
+tenant/Store/lineage/root proof 和独立升级 purpose；普通 SERVICE 或迁移权限不能替代。
+请求绑实际 v1 owner key/digest、完整受保护 audit cut/sequence、exact fold artifact、
+原来源与 count；实际资格来自私有完整审计，不来自请求数字。view/cut/owner 改变按
+STALE/失效；成功同原 Source 批写 v2/first/POS/真实 State 差额。UNKNOWN 保原请求材料。
+
+显式新增 ProtocolActivationDescriptor15→tuple30（迁移 OBJECT）、16→31（迁移
+uncommitted）、17→32（退休意向）、18→33（退休确认）、19→34（summary 初始化）。
+仍用原 ACTIVATE_TARGET_PROTOCOL、独立 CONTROL、完整 eligible readers、活跃 session、
+精确 binary/SDK/schema、Registry 和实际 Source first/POS/Native activation。旧1–14
+canonical、默认/广告保持；旧 versions 使用的全局 TARGET_NATIVE_MAX=56 不可改高，
+新版按各自明确 codec/schema 矩阵表达 Native65–71/Native32v2 等真实需求，不以
+version≥15 宣称所有未来能力。本裁定不授权实际能力发布或 Source 激活。
+
+既有 Root 的 ACTIVATE_TARGET_PROTOCOL 新 payload/record 版本须携带原 Root 控制
+快照权威签发的有界授权扩展，精确绑 immutable initial snapshot digest、原 grant/
+Source/envelope、Root/scope/lineage 和本 descriptor/tuple。由原受信 snapshot issuer
+或完整历史合法继任者签发；Worker/Source signer、外带公钥不能成为新 trust pin。
+只增本次 tuple/base 所需权限，不覆盖原 Profiles/其它语义、不改 META10，不把1..34
+全塞入原32 tuple cap。Source 核原授权/reader/Root 材料后持久完整扩展/出处/first/POS
+并计费；v1 保原 whitelist，cold 按历史 Source 核验，不用今日 reader 倒证过去。
+缺真实签名权威不激活。迁移 Root 无 META10 的等价原 issuer 锚点另按真实 A 根溯源，
+不得伪造普通 initial grant。
+
+Native32v2 的数据 reader 资格与 op39 操作资格分开：fresh 先实际激活 tuple34，再普通
+首次创建 v2；migration 候选在原 A 的 eligible-reader/required-generation 中明确 v2
+导入能力，以完整 fold/实际 import-root 授权，不要求不存在的 pre-A Target 激活34，
+不伪 op39 first；post-A v1 升级仍需本 Root 实际34激活和独立升级权。全部旧/新 wire
+在 v2 存储上更新汇总，旧不支持 writer/reader 不得混入该 generation。
+
+迁移 OBJECT requiredTuple30/31 需各自实际 reader activation，authorizationTuple 仍是
+原13/14真实 SERVICE grant 与 exact resource/scope/lineage/Source 历史，再叠 A/完整
+原材料；A 不自动当新 activation。F2 32/33 同样需新 reader activation和原独立迁移
+管理权；reader 能力与业务权限互不替代。
+
+## 2026-10-31：原全历史验证的受保护多 turn 准备
+
+writer O(e) 与 reclaim/evidence/unused/incarnation O(R) 沿原准备/恢复资格处理，不新增
+另一持久 summary、降 cap 或通用证明服务。完整 writer 链初始核验按原 cold/维护分批，
+绑实际 Store/DB/Root/accounting、tenant/lineage、Source cut、Owner/session、完整 writer
+identity、exact REGISTER/Control/first/POS/付款历史。不得用开过 Store、epoch 高水位或
+当前 Scope.maximumWriterEpochs 代替跨 Scope 原链，也不复制整条链作不收费常驻 map。
+
+hot 仍核 current row、稳定 REGISTER/ref、真实前驱、当前 CLOSE/Fence/deadline/Owner。
+前驱允许在后继 REGISTER 后关闭，故只复用稳定 REGISTER 前缀，不缓存旧 closed 状态。
+新 REGISTER/CLOSE 在原 Source plan 按已证前驱归纳，成功 commit 后才更新本地资格；
+overlay 候选只属原 plan。相关 Source/localGC/import/restore 纳入更新/失效；UNKNOWN、
+reopen/install/Root/lineage/Owner变化或依赖移除撤资格并恢复，不相关写不强迫全链重扫。
+hot verifier、Applied 和 RecordAccounting 共用该内核；SDK guard 只消费本地 loan，不在
+SDK 锁内 Store/RPC/readOpen。cold/checkpoint 继续独立验证，不能拿热 cache 代替。
+
+全 inventory/fold 在 exact 原请求的受保护 WorkClass/Owned I/O 中分批推进，私有结果
+须实际完整读取原谓词覆盖的域，保范围/页接续/EOF/coverage、ReadView/cut、Root/Owner/
+Source、exact input/前值以及引用/付款/retention/历史保护。Source 只在同 view/cut/前值/
+保护仍成立时消费；相关写用原准备 admission hold 或失效重核，不跨 I/O 持 monitor、
+不拼不同 view 页面。requiresInputs/preprobe 只做有界必要探查，不先全扫；只替换准备
+确切覆盖的谓词，保全部其它授权/目标/overlay/delta，避免相同全 fold 重复执行。
+每 turn 有界不等于总成本消失：原容量/合同须覆盖累计 rows/bytes/copy/heap/持有时间，
+不得每页重开无限预算或绕原 Source 累计窗口。全准备最大合法界缺真实出处时服务资格
+仍 OPEN，不因最后 Native 步 O(1) 宣称完整 envelope；不展开新开放式审计/协议。
+
+## 2026-10-31：受限 legacy-v1 Source 恢复前缀
+
+为避免旧未 apply O 挡在后续 summary 初始化 U 前，采用明确有限旧前缀恢复，不新增
+格式/Control、不借未来 U、不跳 Source。private v1PrefixPermit 仅原受控升级/恢复入口
+在真实旧 writer 准入冻结、管理/Owner/Store/retention 保护及完整实际读取后铸造；绑定
+same Process/Store/Root/accounting/lineage/Owner/session、actual applied C、真实认证
+reader/barrier 捕获的有限 R、exact 事件/允许旧版本。空 poll/lastSeen/ACK/配置数字非 R；
+原 ordinary live 不凭此持续接新 v1，冻结不等于没有未来物理晚帧。
+
+连续实际处理(C,R]原 bytes/position/successor/first/POS/授权/计费，覆盖合法旧 Schedule/
+Prepare/Commit/Reschedule/Cancel/Admission/Outcome 等，不只后两类；v1 owner 保 v1，
+不提前写 v2/伪 U，不因此取得新 Claim/SDK SEND。原不可逆 attempt 恢复仍原独立契约。
+跨代 retain 用 exact 事件/原视图完整多 turn 准备，成功事件后按真实变化归纳更新私有
+资格或重取；UNKNOWN/未提交不先更新，重启按实际 Native/first 重新取得，不将 C 的
+集合沿用至 R、不重置累计预算、不在正常 Source 内重扫 H。
+
+正向顺序：冻结/取得旧前缀资格→实际 Source reader34激活 P→P 后实际稳定 cut 全 fold
+→签发/登记 U→Source 顺序实际 U。不得 fold R 后写 P 却挪用旧 view。已 v2 或遇实际 U
+按持久状态走 v2，不以 permit 强退 v1/跳控制。R 后/U 前有其它记录则停在该记录，沿
+同原权威取得新有限范围/重核，不永久延 live 尾；U 因并发/晚帧 STALE，仅确证原 U
+终态后才新 cut/新付费管理请求。U UNKNOWN 只保同字节。达 R 不证明 noFuture/授 v2；
+其它未升级 owner 不跟着当0，缺真实 freeze/完整历史/retention 保持受控未就绪。
+
+最后 legacy guard 结清时，在该真实 settlement Native 批核 current 可保留、qualified
+Native count0、本次 overlay 后全部 legacy/其它责任闭合及原 retain 权威，写一个最终
+owner successor。需完整历史则用同 view/cut 多 turn 资格，不重扫 H、不只看一个 guard。
+保实际 settlement 因果并加 cold/retention 明确历史分支，不伪成旧 PublishOutcome；不
+自动 RELEASED/退费。以上仍限源码/必要编译，无测试或环境动作。
+
+## 2026-10-31：迁移 A2 的原 Root issuer 与声明 v4
+
+新 protocol activation 的 RootAnchor 明确区分普通 META10/initial grant/Source 与迁移
+Native65/plan/new Store+DB+lineage/actual A/Prepared注册/first/POS/原独立管理 issuer/
+完整 authority-reader evidence。Root digest、今日 A signer、外带 key 不自成 trust pin。
+
+新迁移 ACTIVATE schema2 显式 RootIssuerAuthorization，绑定原 deployment/管理权威、
+migrationId/plan/Source scope/new Store+DB+lineage、issuer 身份/key version、允许该
+Root 申请协议扩展的 purpose 和原历史/合法继任依据，原管理 policy 真实正向覆盖。
+签名前不含未知 A 位置/最终 Native65 digest；实际 A2/full statement/受保护 exact refs
+进入 Native65、post-A companion 与 cold。A1 bytes/语义/冻结 ceiling 保持，新 A2 与
+issuer 最坏尺寸须新预付。A2 requiredTuple35（A1仍27），pre-A eligible readers 明确
+支持35和 Native32v2等所需格式，不要求 pre-A 不存在 Root 先激活35，不另加A2 descriptor。
+A2 不自动激活30..34。A1 只有原签发契约及持续完整历史本来正向证明 issuer 扩展权才
+可取得新资格；hash/单 A 签名不追认，无据旧 A 保原恢复、对新扩展 Unavailable。
+
+ProtocolCapabilityDeclaration 显式 v4：旧1–3 bytes/digest/签名/计数不变，v3仍4个
+descriptor；v4本次支持原4+新增六个15–20最多10个，去重/排序/字节按版本，tuple集合
+仍最多32（35/36是编号）。按实际 binary/schema/SDK 检查，不默认发布全部能力；新
+frame/声明元数据/管理与Native费用计入原真实 envelope，缺 issuer/reader 不启用。
+
+## 2026-10-31：Native72 逻辑 first archive 与 Source 接管
+
+主会话批准专用 Native72，精确替代 old shadow 逻辑 first/解释依赖，不硬改 Native66
+target-origin 或 Native68 physical-prefix 含义、不伪普通 Target first，不复制整个旧
+Store 成通用数据库。按原 dedupe namespace/logical key 直接点查，保冲突域，不加当前
+generation/Target/migrationId 拆同一命令身份、不遍历全部 migration；value 绑定原
+Store/Source域、exact原记录bytes/hash/result/tuple/来源、新 owner/费用。
+原 compact dedupe 无完整 command/first Source 时不得补造；明确用原 Manifest/key/raw
+compact bytes/C或prefix认证来源，C不冒原first。内容可 exact受保护ref，但不能只留hash
+后删原内容。所有仍用 shadow 的逻辑族/系统 first 都须替代，未覆盖状态继续 held。
+
+来源是原 C完整companion、受保护 shadow cut、真实后继prefix/Native66/68/70；原
+WorkClass/Owned I/O分批完整scan/fold校验range/page/conflict/count/bytes/owner/原结果，
+不 completedTransfer 回调。每批沿原 Source/Native计费/前值保护，逻辑first与物化Source
+stamp分开。copy期间新原first在同实际Source Native批维护archive/尾进度；oldshadow
+apply和新Native不是跨DB原子，按原prefix/replay收敛，不旧shadow覆盖新Target业务。
+
+原RETIRE intent下新增一个管理分支 COPY_BATCH/TAKEOVER：I→分批copy及tail coverage
+→实际 Source接管T→停旧bridge/真实退出shadow及legacy子loan→全资源终结后确认R。
+T先于R打破互等，T不是RETIRED、不退款/授删除权。TAKEOVER只写有界coverage/前值/
+真实newowner接受，bind exactI/plan/A/shadowcut、已实际覆盖T前frontier、archive根/
+range/count/bytes及持续新保护；数据准备/审计在原多turn，不一条Source灌库。
+
+使用CONTROL40、Sourcekind39、tuple36、Native72；原F2管理purpose/PLATFORM_OPERATOR/
+exact scope，非SERVICE。显式descriptor20对应36/Native72，沿原RootAnchor/eligible
+reader/actualSource激活；旧1–19 canonical/矩阵不改，声明v4上限10、tuple集合32不改、
+不自动广告；新增副本/Native/first/POS/声明/最大帧由原管理allocation支付，不重价旧C0。
+
+T后TARGET域也先按原身份查新archive，原sameID/hash冲突/decision保持；unknown domain/
+缺材料不默认TARGET。迟到expired/unallowed帧仅按原合同生实际应有拒绝first或physical-
+only，保原Native70 PHYSICAL_ONLY语义，不能全expiry虚构logicalfirst/重建可发送消息。
+合法Native-owned旧wire仍冻结mapping+新Native；正常Source/replay/REOPEN/PUBLISHED/
+cold全部从持久T选新域，不再为已退休域重建shadow。shared Inputs/HTTP/credential/
+Source不整关；原bridge/callback/reader/IO全退、newowner真实保护接收与全部族材料齐后
+才交还旧专用loan/DB。未覆盖/留旧owner责任保持RETIRING，R同时证T及原资源真实退出。
+archive/T的签名/first/POS/fullproof/接收/原身份墓碑进正式checkpoint和cold独立audit，
+原费用仅实放一次、不与逐ID双退；原SDK退出不消旧UNKNOWN/授共享Source删除权。
+此为确切替代所需投影和一个Source分支，无新增通用archive框架或环境动作/测试轮次。
+
+### Native72 接管的 closed-contract 资格
+
+主会话确认 T 的前提是新域能独立解释所有仍可能合法到达的记录，不为不满足该前提
+的部署新增通用 legacy 状态机。原完整 writer/producer/registration/控制域与真实 Source
+因果须证明旧 logical Source 新业务能力关闭，覆盖 Schedule/Prepare/Commit/Reschedule、
+旧控制、新 Lane/scope 重新开放等；不以 SDK 退出、当前库存、无 archive first、某个 R
+或新 Root active 代替。原 retryUntil/Fence 仅在原 scope/期限/实际 APPLIED 范围使用，
+没有原 deadline 不补 TTL。防重新开放须与 T/退休墓碑关联，不只临时 lease 冻结。
+
+noFuture 新业务还不够：查询、取消、终态观察、控制等路径须由确切 Native 事实、新
+owner 完整原材料或原合同真实关闭原因解释。任何仍依赖 oldshadow/DelayShard 的族
+阻断 T。Driver 原 Held 提供原材料/权限/持续保护，仓内 typed interpreter 按 exact
+frame/Source/immutable domain/实际条款求逐分支 decision；外部 stableCode/ready/done/
+noFuture=true 不替代证明。同 ID/hash 保原 first/冲突，真实 expiry 的 physical-only
+分类不被改成 logical first。
+
+未知 ID 的 LEGACY Schedule 若依原合同仍可合法建状态，则 T 不 ready，保旧 loan/原
+解释，不伪 UNAUTHORIZED/EXPIRED、不凭 absence 转 TARGET。继续该旧业务的部署可
+保旧域，或先按既有明确 Source 授权纳入可完整解释的新域后再 T；不得自动改 mapping/
+classifySource。真正已属 Target 且具原授权/固定 mapping 的旧编码仍正常 Native-owned
+兼容，不能按格式号泛拒。T 后若遇与资格矛盾的仍合法未覆盖帧，保原 frame/Source
+责任并停止该路径、原恢复 roll-forward，不伪拒绝、不重开已交还 shadow。缺真实资格
+保持 RETIRING/held，真实 closed-contract 必须能正向接管；不记所有环境清退完成。

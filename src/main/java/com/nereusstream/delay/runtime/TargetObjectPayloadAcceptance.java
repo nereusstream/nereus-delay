@@ -18,10 +18,13 @@ public final class TargetObjectPayloadAcceptance {
     public static void requireActual(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             TargetQuotaPayloadOwner expected,TargetObjectPayloadOrigin frozen,TargetQuotaMutation frontier){
         final var actual=collect((family,key,type)->TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"retained OBJECT acceptance dependency"),type).payload(),expected);
-        actual.acceptedFirst().mutation().requireAtOrBefore(frontier);requireSame(frozen,actual);
+        (actual.migrated()?frozen:actual).acceptedAt().requireAtOrBefore(frontier);
+        if(actual.migrated())TargetMigrationPayloadJoins.require((family,key,type)->TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay)),type).payload(),expected,actual.binding(),actual.reservation(),Objects.requireNonNull(frozen.migrationHistory()),frontier);
+        requireSame(frozen,actual);
     }
     public static void requireActual(TargetCheckpointDependencies d,TargetQuotaPayloadOwner expected,TargetObjectPayloadOrigin frozen){
         final var actual=collect((family,key,type)->{
+            if(type==TargetMigrationRoot.VALUE_TYPE||type==TargetMigrationOrigin.VALUE_TYPE||type==TargetMigrationPrefixRecord.VALUE_TYPE)return TargetMigrationPayloadJoins.checkpoint(d).get(family,key,type);
             if(family==ColumnFamily.META&&type==TargetQuotaIncarnation.VALUE_TYPE){
                 final var root=d.root().root();final byte[] rootKey=root.identity().key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
                 if(!Arrays.equals(key,rootKey))throw new IllegalStateException("OBJECT original POSITION changed actual Source root");return root.canonicalBytes();
@@ -34,7 +37,9 @@ public final class TargetObjectPayloadAcceptance {
             }
             throw new IllegalArgumentException("unsupported OBJECT acceptance dependency");
         },expected);
-        actual.acceptedFirst().mutation().requireAtOrBefore(d.root().aggregate().mutation());requireSame(frozen,actual);
+        (actual.migrated()?frozen:actual).acceptedAt().requireAtOrBefore(d.root().aggregate().mutation());
+        if(actual.migrated())TargetMigrationPayloadJoins.require(TargetMigrationPayloadJoins.checkpoint(d),expected,actual.binding(),actual.reservation(),Objects.requireNonNull(frozen.migrationHistory()),d.root().aggregate().mutation());
+        requireSame(frozen,actual);
     }
     private static TargetObjectPayloadOrigin collect(Read read,TargetQuotaPayloadOwner expected){
         final byte[] bindingKey=TargetKeyCodec.scheduleBinding(expected.initialBindingDigest());
@@ -47,6 +52,14 @@ public final class TargetObjectPayloadAcceptance {
             final var reservation=TargetReservationRecord.decode(encoded);
             if(!Arrays.equals(key,reservation.key())||!Arrays.equals(encoded,read.get(ColumnFamily.ID,reservation.lookupKey(),TargetReservationRecord.VALUE_TYPE)))
                 throw new IllegalStateException("original COMMITTED primary/lookup Native projections differ");
+            if(reservation.migrationOrigin()!=null){
+                final boolean baseline=reservation.mutation().equals(reservation.migrationOrigin().importedAt());
+                final var acceptedPosition=baseline?null:position(read,reservation.mutation());final var acceptedFirst=baseline?null:first(read,acceptedPosition.logicalId());
+                final var migrated=new TargetObjectPayloadOrigin(TargetObjectPayloadOrigin.Kind.MIGRATED_PREPARE_COMMIT,binding,acceptedFirst,acceptedPosition,reservation,null,null);
+                migrated.requireOwner(expected);TargetMigrationPayloadJoins.require(read::get,expected,binding,reservation,null,expected.mutation());
+                if(acceptedPosition!=null){requirePositionOwner(read,acceptedPosition,expected);requireCreation(acceptedFirst);}
+                return migrated;
+            }
             final var acceptedPosition=position(read,reservation.mutation());final var acceptedFirst=first(read,acceptedPosition.logicalId());
             final var prepareFirst=first(read,reservation.prepareCommandId().bytes());final var preparePosition=position(read,reservation.prepareAnchor());
             origin=new TargetObjectPayloadOrigin(TargetObjectPayloadOrigin.Kind.PREPARE_COMMIT,binding,acceptedFirst,acceptedPosition,reservation,prepareFirst,preparePosition);
@@ -56,6 +69,10 @@ public final class TargetObjectPayloadAcceptance {
                     ||prepare.result().generation()!=-1||prepare.result().stateVersion()!=0||prepare.result().messageStatus()!=null)
                 throw new IllegalStateException("Native acceptance changed original successful Prepare first");
         }else if(binding.commandType()==CommandType.SCHEDULE&&!binding.intent().hasInlinePayload()){
+            if(binding.imported()){
+                final var migrated=new TargetObjectPayloadOrigin(TargetObjectPayloadOrigin.Kind.MIGRATED_DIRECT_SCHEDULE,binding,null,null,null,null,null);
+                migrated.requireOwner(expected);TargetMigrationPayloadJoins.require(read::get,expected,binding,null,null,expected.mutation());return migrated;
+            }
             final byte[] posKey=Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},binding.bindingSource().canonicalBytes());
             final var acceptedPosition=TargetResultRecord.decode(read.get(ColumnFamily.DEDUPE,posKey,TargetResultRecord.VALUE_TYPE));
             acceptedPosition.requireStored(posKey,TargetResultRecord.VALUE_TYPE,acceptedPosition.canonicalBytes());
@@ -97,7 +114,11 @@ public final class TargetObjectPayloadAcceptance {
         final var position=TargetResultRecord.decode(read.get(ColumnFamily.DEDUPE,key,TargetResultRecord.VALUE_TYPE));position.requireStored(key,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());
         if(!position.mutation().equals(stamp))throw new IllegalStateException("OBJECT original POSITION changed accepted Source stamp");return position;
     }
+    private static void requireCreation(TargetResultRecord first){final var value=CommandDedupeRecord.decode(first.typedPayload());final var result=value.result();
+        if(result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.SCHEDULED||result.generation()!=0||result.stateVersion()!=1||result.messageStatus()!=MessageStatus.SCHEDULED)
+            throw new IllegalStateException("migrated OBJECT requires the actual first successful native Commit");requireResultSource(first,result);}
     private static void requireSame(TargetObjectPayloadOrigin expected,TargetObjectPayloadOrigin actual){
+        if(actual.migrated())actual=actual.withMigrationHistory(Objects.requireNonNull(expected.migrationHistory()));
         if(!Arrays.equals(Objects.requireNonNull(expected).canonicalBytes(),actual.canonicalBytes()))throw new IllegalStateException("OBJECT frozen native origin differs from actual retained records");
     }
 }

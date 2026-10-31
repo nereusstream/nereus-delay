@@ -131,13 +131,85 @@ public final class TargetWorkerServiceConfiguration {
         @Override public byte[] digest() { return Bytes.copy(digest); }
     }
 
+    public record MigrationMaintenance(Path file, com.nereusstream.delay.ownership.TargetMigrationMaintenanceConfiguration configuration,
+            Path sourceFile, Path writerFile, SourceConfiguration source, WriterConfiguration writer) {
+        public MigrationMaintenance { Objects.requireNonNull(file); Objects.requireNonNull(configuration);
+            Objects.requireNonNull(sourceFile); Objects.requireNonNull(writerFile); Objects.requireNonNull(source); Objects.requireNonNull(writer); }
+    }
+    public record PayloadSummaryInitialization(Path file,
+            com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance.Configuration configuration) {
+        public PayloadSummaryInitialization { Objects.requireNonNull(file); Objects.requireNonNull(configuration); }
+    }
+    public record PayloadSummaryPrefix(Path file, com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Limits limits) {
+        public PayloadSummaryPrefix { Objects.requireNonNull(file); Objects.requireNonNull(limits); }
+    }
+    public record WriterOrigin(Path file, com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits limits) {
+        public WriterOrigin { Objects.requireNonNull(file); Objects.requireNonNull(limits); }
+    }
+
     public record Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
             Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
             SourceConfiguration typedSource, WriterConfiguration typedWriter,
             TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
             List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
             Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
-            Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration) {
+            Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
+            Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility,
+            MigrationMaintenance migrationMaintenance, PayloadSummaryInitialization payloadSummaryInitialization,
+            PayloadSummaryPrefix payloadSummaryPrefix, WriterOrigin writerOrigin) {
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+                Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
+                Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility,
+                MigrationMaintenance migrationMaintenance, PayloadSummaryInitialization payloadSummaryInitialization,
+                PayloadSummaryPrefix payloadSummaryPrefix) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile, storePath,
+                    typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels, readResourcesFile,
+                    typedReadResources, sloServiceFile, typedSloService, migrationFile, typedMigration,
+                    migrationCompatibilityFile, typedMigrationCompatibility, migrationMaintenance, payloadSummaryInitialization, payloadSummaryPrefix, null);
+        }
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+                Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
+                Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility,
+                MigrationMaintenance migrationMaintenance) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile,
+                    storePath, typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels, readResourcesFile,
+                    typedReadResources, sloServiceFile, typedSloService, migrationFile, typedMigration,
+                    migrationCompatibilityFile, typedMigrationCompatibility, migrationMaintenance, null, null);
+        }
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+                Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
+                Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile,
+                    storePath, typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels, readResourcesFile,
+                    typedReadResources, sloServiceFile, typedSloService, migrationFile, typedMigration,
+                    migrationCompatibilityFile, typedMigrationCompatibility, null);
+        }
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+                Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile,
+                    storePath, typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels,
+                    readResourcesFile, typedReadResources, sloServiceFile, typedSloService, migrationFile, typedMigration, null, null);
+        }
         public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
                 Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
                 SourceConfiguration typedSource, WriterConfiguration typedWriter,
@@ -146,7 +218,7 @@ public final class TargetWorkerServiceConfiguration {
                 Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService) {
             this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile,
                     storePath, typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels,
-                    readResourcesFile, typedReadResources, sloServiceFile, typedSloService, null, null);
+                    readResourcesFile, typedReadResources, sloServiceFile, typedSloService, null, null, null, null);
         }
         public Source {
             Objects.requireNonNull(name); Objects.requireNonNull(scope); Objects.requireNonNull(mode); Objects.requireNonNull(transport);
@@ -160,6 +232,18 @@ public final class TargetWorkerServiceConfiguration {
             if ((mode == Mode.MIGRATION) != (migrationFile != null && typedMigration != null)
                     || typedMigration != null && !typedMigration.scope().equals(scope))
                 throw new IllegalArgumentException("migration mode requires its exact finite maintenance configuration");
+            if ((migrationCompatibilityFile == null) != (typedMigrationCompatibility == null)
+                    || typedMigrationCompatibility != null && (mode != Mode.REOPEN && mode != Mode.PUBLISHED_RECOVERY
+                        || !typedMigrationCompatibility.scope().equals(scope)))
+                throw new IllegalArgumentException("migration compatibility inputs belong only to normal reopen/published recovery");
+            if (migrationMaintenance != null && (!migrationMaintenance.configuration().migration().scope().equals(scope)
+                    || mode == Mode.FRESH || typedMigration == null && typedMigrationCompatibility == null))
+                throw new IllegalArgumentException("daily migration retirement requires its actual activated migration and protected compatibility root");
+            if (payloadSummaryInitialization != null && (!scope.equals(payloadSummaryInitialization.configuration().scope())
+                    || !Arrays.equals(lineage, payloadSummaryInitialization.configuration().lineage())))
+                throw new IllegalArgumentException("summary initialization changes its actual configured Source root");
+            if (payloadSummaryPrefix != null && mode == Mode.FRESH)
+                throw new IllegalArgumentException("legacy summary prefix belongs to original controlled recovery");
         }
         @Override public byte[] lineage() { return Bytes.copy(lineage); }
     }
@@ -293,7 +377,50 @@ public final class TargetWorkerServiceConfiguration {
                 if (!migration.scope().equals(scope)) throw new IllegalArgumentException("migration changes its configured Source scope");
                 retainedHeap = Math.addExact(retainedHeap, migration.maximumRetainedBytes());
             } else { migrationFile = null; migration = null; }
+            final var compatibilityFields = f.prefixed(key + "migrationCompatibility.", 1);
+            final Path compatibilityFile;
+            final com.nereusstream.delay.ownership.TargetMigrationConfiguration compatibility;
+            if (!compatibilityFields.isEmpty()) {
+                if (compatibilityFields.size() != 1 || !compatibilityFields.containsKey("file")
+                        || mode != Mode.REOPEN && mode != Mode.PUBLISHED_RECOVERY)
+                    throw new IllegalArgumentException("normal migration compatibility requires its one exact material configuration file");
+                compatibilityFile = files.add(resolve(base, compatibilityFields.get("file")), MAXIMUM_FILE_BYTES);
+                files.references(compatibilityFile, "migration.scopeFile");
+                compatibility = com.nereusstream.delay.ownership.TargetMigrationConfiguration.load(compatibilityFile);
+                if (!compatibility.scope().equals(scope)) throw new IllegalArgumentException("compatibility changes the actual Source scope");
+                retainedHeap = Math.addExact(retainedHeap, compatibility.maximumRetainedBytes());
+            } else { compatibilityFile = null; compatibility = null; }
+            final var summaryFields = f.prefixed(key + "payloadSummaryInitialization.", 1);
+            final PayloadSummaryInitialization summary;
+            if (summaryFields.isEmpty()) summary = null;
+            else {
+                if (!summaryFields.keySet().equals(Set.of("file"))) throw new IllegalArgumentException("summary initialization requires its one finite original configuration");
+                final var file = files.add(resolve(base, summaryFields.get("file")), MAXIMUM_FILE_BYTES);
+                files.references(file, "summary.scopeFile");
+                final var config = com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance.Configuration.load(file);
+                if (!scope.equals(config.scope()) || !Arrays.equals(lineage, config.lineage())) throw new IllegalArgumentException("summary initialization changes actual Source root");
+                summary = new PayloadSummaryInitialization(file, config); retainedHeap = Math.addExact(retainedHeap, config.maximumRetainedBytes());
+            }
+            final var prefixFields = f.prefixed(key + "payloadSummaryPrefix.", 1);
+            final PayloadSummaryPrefix prefix;
+            if (prefixFields.isEmpty()) prefix = null;
+            else {
+                if (!prefixFields.keySet().equals(Set.of("file")) || mode == Mode.FRESH)
+                    throw new IllegalArgumentException("legacy summary prefix requires one finite controlled recovery configuration");
+                final var file = files.add(resolve(base, prefixFields.get("file")), MAXIMUM_FILE_BYTES);
+                final var config = loadPayloadSummaryPrefix(file);
+                prefix = new PayloadSummaryPrefix(file, config); retainedHeap = Math.addExact(retainedHeap, config.maximumRetainedBytes());
+            }
             final Transport transport = Transport.valueOf(f.text(key + "transport"));
+            final var originFields = f.prefixed(key + "writerOrigin.", 1);
+            final WriterOrigin writerOrigin;
+            if (originFields.isEmpty()) writerOrigin = null;
+            else {
+                if (!originFields.keySet().equals(Set.of("file"))) throw new IllegalArgumentException("writer origin requires its one original finite preparation configuration");
+                final var file = files.add(resolve(base, originFields.get("file")), MAXIMUM_FILE_BYTES);
+                final var limits = loadWriterOrigin(file); writerOrigin = new WriterOrigin(file, limits);
+                retainedHeap = Math.addExact(retainedHeap, limits.maximumRetainedBytes());
+            }
             final Path sourceFile = files.add(resolve(base, f.text(key + "sourceFile")), MAXIMUM_FILE_BYTES);
             files.references(sourceFile, "source.authorizationFile", "source.signedRouteFile");
             final Path writerFile = files.add(resolve(base, f.text(key + "writerFile")), MAXIMUM_FILE_BYTES);
@@ -341,6 +468,48 @@ public final class TargetWorkerServiceConfiguration {
                 actualClients = Math.addExact(actualClients, 2);
             }
             requireSdkCost(source.cost()); requireSdkCost(writer.cost());
+            final var liveFields = f.prefixed(key + "migrationMaintenance.", 3);
+            final MigrationMaintenance live;
+            if (liveFields.isEmpty()) live = null;
+            else {
+                if (liveFields.size() != 3 || !liveFields.keySet().equals(Set.of("file", "sourceFile", "writerFile"))
+                        || migration == null && compatibility == null)
+                    throw new IllegalArgumentException("daily migration maintenance requires exact finite configuration and independent Source SDK files");
+                final Path liveFile = files.add(resolve(base, liveFields.get("file")), MAXIMUM_FILE_BYTES);
+                files.references(liveFile, "maintenance.migrationFile");
+                final Path originalFile = TargetWorkerRuntimeConfigLoader.loadFields(liveFile).absolutePath("maintenance.migrationFile");
+                files.references(originalFile, "migration.scopeFile");
+                final var liveConfiguration = com.nereusstream.delay.ownership.TargetMigrationMaintenanceConfiguration.load(liveFile);
+                final var originalMigration = migration == null ? compatibility : migration;
+                if (!liveConfiguration.migration().scope().equals(scope)
+                        || !Arrays.equals(liveConfiguration.migration().migrationId(), originalMigration.migrationId()))
+                    throw new IllegalArgumentException("daily maintenance changed original migration/Source identity");
+                final Path liveSourceFile = files.add(resolve(base, liveFields.get("sourceFile")), MAXIMUM_FILE_BYTES);
+                final Path liveWriterFile = files.add(resolve(base, liveFields.get("writerFile")), MAXIMUM_FILE_BYTES);
+                files.references(liveSourceFile, "source.authorizationFile", "source.signedRouteFile");
+                files.references(liveWriterFile, "writer.authorizationFile", "writer.signedRouteFile");
+                final SourceConfiguration liveSource;
+                final WriterConfiguration liveWriter;
+                final CapacityVector cost;
+                if (transport == Transport.KAFKA) {
+                    final var sdkSource = KafkaClientArtifactTargetWorkerSourceFactory.loadSourceDeployment(liveSourceFile, scope.shard());
+                    final var sdkWriter = KafkaClientArtifactTargetWorkerSourceFactory.loadSystemWriterConfiguration(liveWriterFile);
+                    liveSource = new KafkaSource(sdkSource); liveWriter = new KafkaWriter(sdkWriter);
+                    uniqueAllocation(allocationIds, sdkSource.source().recoveryReader().allocationId());
+                    uniqueAllocation(allocationIds, sdkWriter.settings().allocationId());
+                    cost = KafkaClientArtifactTargetMigrationFactory.migrationSdkCost(sdkSource.source(), sdkWriter);
+                } else {
+                    final var sdkSource = PulsarClientArtifactTargetWorkerSourceFactory.loadSourceDeployment(liveSourceFile);
+                    final var sdkWriter = PulsarClientArtifactTargetWorkerSourceFactory.loadSystemWriterConfiguration(liveWriterFile);
+                    liveSource = new PulsarSource(sdkSource); liveWriter = new PulsarWriter(sdkWriter);
+                    uniqueAllocation(allocationIds, sdkSource.source().settings().allocationId());
+                    uniqueAllocation(allocationIds, sdkWriter.allocationId());
+                    cost = PulsarClientArtifactTargetMigrationFactory.migrationSdkCost(sdkSource, sdkWriter, process.worker().maximumSourceFrameBytes());
+                }
+                requireSdkCost(cost); actualSdk = actualSdk.add(cost); actualClients = Math.addExact(actualClients, 2);
+                retainedHeap = Math.addExact(retainedHeap, liveConfiguration.maximumRetainedBytes());
+                live = new MigrationMaintenance(liveFile, liveConfiguration, liveSourceFile, liveWriterFile, liveSource, liveWriter);
+            }
             if (mode == Mode.MIGRATION) {
                 final CapacityVector maintenanceDemand;
                 if (source instanceof KafkaSource kafka && writer instanceof KafkaWriter kafkaWriter)
@@ -455,7 +624,7 @@ public final class TargetWorkerServiceConfiguration {
             }
             sources.add(new Source(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile,
                     inventoryFile, storePath, source, writer, checkpoint, inventory, channelList, readResourcesFile, readResources,
-                    sloServiceFile, sloService, migrationFile, migration));
+                    sloServiceFile, sloService, migrationFile, migration, compatibilityFile, compatibility, live, summary, prefix, writerOrigin));
         }
         f.requireComplete();
         files.requireUnchanged();
@@ -500,6 +669,25 @@ public final class TargetWorkerServiceConfiguration {
             }
         }
         return result;
+    }
+
+    private static com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Limits loadPayloadSummaryPrefix(Path file) throws IOException {
+        final var fields = TargetWorkerRuntimeConfigLoader.loadFields(file);
+        final var limits = new com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Limits(
+                fields.number("prefix.maximumRetainedBytes"),
+                fields.integer("prefix.maximumReadRecords"), fields.number("prefix.maximumReadBytes"),
+                fields.number("prefix.maximumElapsedNanos"), fields.integer("prefix.rowsPerTurn"), fields.number("prefix.taskBytes"),
+                new com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap.Limits(
+                        fields.integer("prefix.fold.maximumRecords"), fields.number("prefix.fold.maximumRetainedBytes")));
+        fields.requireComplete(); return limits;
+    }
+    private static com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits loadWriterOrigin(Path file) throws IOException {
+        final var fields = TargetWorkerRuntimeConfigLoader.loadFields(file);
+        final var limits = new com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits(
+                fields.integer("origin.maximumPrefixes"), fields.number("origin.maximumRetainedBytes"),
+                fields.number("origin.totalReadRecords"), fields.number("origin.totalReadBytes"), fields.number("origin.totalElapsedNanos"),
+                fields.integer("origin.turnReadRecords"), fields.number("origin.turnReadBytes"), fields.number("origin.turnElapsedNanos"));
+        fields.requireComplete(); return limits;
     }
 
     private static int boundedCount(int value, int maximum, String name) {

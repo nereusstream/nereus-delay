@@ -1263,6 +1263,10 @@ public final class TargetWorkerHostRuntime {
         }
         final var budget = runtimeConfig.sourceTurn();
         maintenanceLoop.configureSourceApplyTurn(() -> {
+            final TargetWorkerProcessRuntime process;
+            synchronized (TargetWorkerHostRuntime.this) { process = processRuntime; }
+            if (process != null) process.runNextMigrationMaintenanceTurn();
+            if (process != null) process.runNextPayloadSummaryMaintenanceTurn();
             final var selected = runNextSourceTurnIfPresent(budget, clock);
             if (selected.isEmpty()) { return; }
             final var result = selected.orElseThrow().result();
@@ -1274,6 +1278,13 @@ public final class TargetWorkerHostRuntime {
             }
         });
         sourceProcessingConfigured = true;
+    }
+
+    /** Pure local Host admission for its actual registered daily-maintenance Worker; never an assembly bypass. */
+    synchronized boolean migrationMaintenanceAdmitted(TargetWorkerShardRuntime actual) {
+        return serviceActivated && maintenanceStarted && !stopping && !backendQuarantined
+                && !withdrawn.contains(actual.shardId()) && !draining.contains(actual.shardId())
+                && shards.stream().anyMatch(shard -> shard == actual);
     }
 
     /** Enables the original configured Source, observer, checkpoint and Claim/publisher graph in one startup turn. */
@@ -1423,6 +1434,7 @@ public final class TargetWorkerHostRuntime {
             if (!schedule.settlePublishedValidationCleanup()) return false;
         }
         if (root == null) return true;
+        if (process != null && !process.closePayloadSummaryMaintenanceForHost(permit)) return false;
         if (process != null && !process.closeCheckpointCompositionsForHost(permit)) return false;
         if (process != null && !process.releaseRecoveryPinsForHost(permit)) return false;
         if (process != null && !process.closeReceiptManagementForHost(permit)) return false;
@@ -2051,6 +2063,11 @@ public final class TargetWorkerHostRuntime {
         SourceApplyCoordinator.TurnResult sourceTurn = null;
         try {
             requireNormalDrain();
+            final TargetWorkerProcessRuntime process;
+            synchronized (this) { process = processRuntime; }
+            if (process != null && shard instanceof TargetWorkerShardRuntime worker
+                    && !process.stopMigrationMaintenanceForWorker(worker))
+                return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null, null, null, null);
             final var schedule = checkpointSchedule;
             final boolean finalFlight;
             final Optional<WorkClassTask> checkpoint;
@@ -2601,6 +2618,11 @@ public final class TargetWorkerHostRuntime {
                     throw new IllegalStateException("fault exit requires actual Worker/Store ownership");
                 }
                 try {
+                    final TargetWorkerProcessRuntime process;
+                    synchronized (this) { process = processRuntime; }
+                    if (process != null && !process.stopMigrationMaintenanceForWorker(worker)) {
+                        result.add(new QuarantinedShardExit(shard.shardId(), null, null)); continue;
+                    }
                     final TargetOwnerDrainCoordinator.ReplayExit prior;
                     synchronized (this) { prior = faultExited.get(shard.shardId()); }
                     final var exited = prior != null ? prior : worker.exitQuarantinedForReplay(request, clock).orElse(null);

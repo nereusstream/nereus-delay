@@ -32,6 +32,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
     public TargetExternalEvidenceObjectResource resource(){return resource(input);}
     public ProtocolTuple requiredTuple(){return input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
             ?TargetResourceReclaimBody.decode(input.canonicalBody()).requiredTuple():ProtocolTuple.targetEvidenceRetirement();}
+    public ProtocolTuple authorizationTuple(){return input.type()==SystemMutationType.TARGET_RESOURCE_RECLAIM?TargetResourceReclaimBody.decode(input.canonicalBody()).authorizationTuple():requiredTuple();}
     public byte[] key(){return key(input.systemMutationId());}
     public static byte[] key(byte[] id){Bytes.requireLength(id,32,"retirement Source mutation ID");return Bytes.concat(new byte[]{TargetKeyCodec.RETIREMENT_SOURCE_HISTORY_TAG,TargetKeyCodec.KEY_FORMAT},id);}
     /** Local data consistency only. The original independent purpose pin is still required for authentication. */
@@ -40,10 +41,11 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final byte[] actor=input.authorIdentity();
         final var policy=proof.chain().getLast().intervals().stream().filter(i->decidedAt.source().compareTo(i.throughInclusive())<=0).findFirst().orElseThrow();
         return policy.grants().stream().filter(g->g.keyVersion()==input.signingKeyVersion()
-                &&g.action()==TargetRetirementAuthorizationHistory.Action.of(input.type())&&g.activation().tuple().equals(requiredTuple())
+                &&g.action()==TargetRetirementAuthorizationHistory.Action.of(input.type())&&g.activation().tuple().equals(authorizationTuple())
                 &&Arrays.equals(g.service().canonicalBytes(),actor)).findFirst();
     }
     private int schemaVersion(){return input.type()!=SystemMutationType.TARGET_RESOURCE_RECLAIM?1
+            :TargetResourceReclaimBody.decode(input.canonicalBody()).migrationPayloadReclaim()?TargetResourceReclaimBody.decode(input.canonicalBody()).uncommittedObjectReclaim()?12:11
             :TargetResourceReclaimBody.decode(input.canonicalBody()).duplicatePositionReclaim()?10
             :TargetResourceReclaimBody.decode(input.canonicalBody()).incarnationReclaim()?9
             :TargetResourceReclaimBody.decode(input.canonicalBody()).anchorAllocationReclaim()?8
@@ -65,7 +67,7 @@ public record TargetRetirementSourceHistoryRecord(SystemMutation input,TargetQuo
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,5,false,"retirement Source history record");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5},"retirement Source history record");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if(version<1||version>10)throw new IllegalArgumentException("unknown retirement Source history schema");
+        if(version<1||version>12)throw new IllegalArgumentException("unknown retirement Source history schema");
         final byte[] frame=QueryCodecSupport.bytes(f.get(1),2);if(frame.length>(version>=5?MAX_ENVELOPE_BYTES:LEGACY_MAX_ENVELOPE_BYTES))throw new IllegalArgumentException("retirement history frame exceeds bound");
         final var value=new TargetRetirementSourceHistoryRecord(SystemMutation.decodeEnvelope(frame),TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(2),3)),
                 TargetRetirementAuthorizationHistory.PublicProof.decode(QueryCodecSupport.bytes(f.get(3),4)));

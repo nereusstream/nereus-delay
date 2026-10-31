@@ -754,7 +754,7 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
     /** Only the migration root's exact Prepared registration can use this pre-Host CONTROL producer. */
     <T> T migrationControlSend(PulsarClientArtifactTargetMigrationControlWriter writer, Producer<?> producer,
             com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared exact,
-            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit permit, Supplier<T> send) {
+            com.nereusstream.delay.ownership.TargetMigrationAppendPermit permit, Supplier<T> send) {
         final var source = writer.requireNativeSendBinding(this, producer);
         permit.beforeSdk(writer, exact);
         synchronized (gate) {

@@ -16,7 +16,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
     private KafkaClientArtifactTargetMigrationFactory() {}
 
     /** Literal original Source deployment; the service Source client is never constructed here. */
-    public static Opening openConfigured(TargetMigrationProcessDriver.Opening original, Path sourceConfiguration,
+    public static Opening openConfigured(TargetMigrationSourceOpening original, Path sourceConfiguration,
             Path writerConfiguration, LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
             Supplier<TrustedUtcIntervalEvidence> time) throws IOException {
         final var source = KafkaClientArtifactTargetWorkerSourceFactory.loadSourceDeployment(
@@ -38,7 +38,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
     }
 
     /** Called in the root's existing owned preparation I/O, with no nested submit-and-wait. */
-    public static Opening openConfigured(TargetMigrationProcessDriver.Opening original,
+    public static Opening openConfigured(TargetMigrationSourceOpening original,
             KafkaClientArtifactTargetWorkerSourceFactory.SourceConfiguration source,
             KafkaClientArtifactTargetWorkerSourceFactory.SystemWriterConfiguration writer,
             LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust,
@@ -74,7 +74,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
     }
 
     public static final class Opening implements TargetMigrationTransport {
-        private final TargetMigrationProcessDriver.Opening original;
+        private final TargetMigrationSourceOpening original;
         private final KafkaClientArtifactTargetWorkerSourceFactory.SourceConfiguration source;
         private final LocalBrokerMtlsResolver.SourceReceipt credential;
         private final Supplier<TrustedUtcIntervalEvidence> time;
@@ -83,12 +83,12 @@ public final class KafkaClientArtifactTargetMigrationFactory {
         private boolean stopping;
         private Throwable failure;
         private final java.util.List<ReaderOwner> readers = new java.util.ArrayList<>();
-        private Opening(TargetMigrationProcessDriver.Opening original,
+        private Opening(TargetMigrationSourceOpening original,
                 KafkaClientArtifactTargetWorkerSourceFactory.SourceConfiguration source,
                 LocalBrokerMtlsResolver.SourceReceipt credential, Supplier<TrustedUtcIntervalEvidence> time) {
             this.original = original; this.source = source; this.credential = credential; this.time = time;
         }
-        @Override public void requireBinding(TargetMigrationProcessDriver.Opening expected) {
+        @Override public void requireBinding(TargetMigrationSourceOpening expected) {
             if (original != expected) throw new IllegalArgumentException("migration SDK transport changes its original owner");
         }
         @Override public boolean advance() {
@@ -150,7 +150,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
 
     /** Pre-registered ownership of the no-ACK consumer, including failed construction and same-handle cleanup. */
     private static final class ReaderOwner implements TargetOwnedBackendGroup {
-        private final TargetMigrationProcessDriver.Opening original;
+        private final TargetMigrationSourceOpening original;
         private final TargetWorkerProcessRuntime.Assembly graph;
         private final Object construction = new Object();
         private final CompletableFuture<Void> terminated = new CompletableFuture<>();
@@ -160,7 +160,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
         private volatile boolean openingExited, stopping;
         private OwnedCheckpointIo<Boolean> cleanup;
         private List<Object> registrations;
-        private ReaderOwner(TargetMigrationProcessDriver.Opening original) { this.original = original; this.graph = original.graph(); }
+        private ReaderOwner(TargetMigrationSourceOpening original) { this.original = original; this.graph = original.graph(); }
         @Override public void requireWorkerGraph(WorkClassExecutionRegistry classes, SharedRocksDbResources resources) {
             if (graph.classes() != classes || graph.resources() != resources) {
                 throw new IllegalArgumentException("migration reader changes its original process graph");

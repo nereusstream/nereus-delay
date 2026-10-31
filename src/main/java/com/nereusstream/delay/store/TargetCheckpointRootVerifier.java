@@ -386,8 +386,19 @@ public final class TargetCheckpointRootVerifier {
     /** Must authenticate every original semantic/control/input/evidence and keep all image/Source/pin rights held. */
     @FunctionalInterface
     public interface ImageAuthority {
+        /** Genuine original held material, not a callback asserting selected hashes are authorized. */
+        default TargetMigrationPayloadMaterials migrationPayloadMaterials(CheckpointManifest manifest,LedgerProof ledger,TargetCheckpointSemanticSnapshot snapshot){
+            throw new IllegalStateException("image lacks original protected complete migration payload material");
+        }
         void requireAuthenticated(CheckpointManifest manifest, LedgerProof ledger,
                 TargetCheckpointSemanticSnapshot snapshot);
+        /** Complete original protected image, Pin/Source history and management qualification for a v1 owner upgrade. */
+        default void requirePayloadSummaryInitializationAuthenticated(CheckpointManifest manifest,LedgerProof ledger,
+                TargetCheckpointSemanticSnapshot snapshot,
+                com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationRequest request,
+                com.nereusstream.delay.protocol.TargetQuotaMutation initializedAt){
+            throw new IllegalStateException("image lacks original protected payload-summary initialization material");
+        }
         default void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
             if(proof.dependencies().hasLifecycleInputs())throw new IllegalStateException("image authority lacks original Target lifecycle authentication");
         }
@@ -485,10 +496,41 @@ public final class TargetCheckpointRootVerifier {
     /** Preserves all existing image obligations and adds mandatory original g8 proof authentication. */
     public static ImageAuthority withLifecycleAuthority(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
             java.util.function.Supplier<BoundedReadBudget> budgets,TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
-        Objects.requireNonNull(original);Objects.requireNonNull(lifecycle);Objects.requireNonNull(budgets);Objects.requireNonNull(limits);Objects.requireNonNull(protection);
+        return withOriginalAuthorities(original,Objects.requireNonNull(lifecycle),null,null,budgets,limits,protection);
+    }
+    /** Joins the image's original full authority to its actual registered Control/material owner. */
+    public static ImageAuthority withOriginalControlAuthority(ImageAuthority original,
+            TargetCheckpointDependencies.ControlImageAuthority controls,java.util.function.Supplier<BoundedReadBudget> budgets,
+            TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
+        return withOriginalAuthorities(original,null,Objects.requireNonNull(controls),null,budgets,limits,protection);
+    }
+    /** Runs the actual full old-image fold under the original historical image/Pin/management loan. */
+    public static ImageAuthority withPayloadSummaryInitializationMaterials(ImageAuthority original,
+            TargetCheckpointSummaryInitializationMaterials materials,java.util.function.Supplier<BoundedReadBudget> budgets,
+            TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
+        return withOriginalAuthorities(original,null,null,Objects.requireNonNull(materials),budgets,limits,protection);
+    }
+    private static ImageAuthority withOriginalAuthorities(ImageAuthority original,TargetCheckpointLifecycleInputs.Authority lifecycle,
+            TargetCheckpointDependencies.ControlImageAuthority controls,TargetCheckpointSummaryInitializationMaterials summary,
+            java.util.function.Supplier<BoundedReadBudget> budgets,
+            TargetCheckpointSemanticSnapshot.Limits limits,Runnable protection){
+        Objects.requireNonNull(original);Objects.requireNonNull(budgets);Objects.requireNonNull(limits);Objects.requireNonNull(protection);
         return new ImageAuthority(){
-            public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireAuthenticated(manifest,proof,snapshot);}
+            public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+                original.requireAuthenticated(manifest,proof,snapshot);
+                if(controls!=null){
+                    proof.dependencies().requireControlImages(snapshot.controls(),limits.maximumBytes(),Objects.requireNonNull(budgets.get()),controls,protection);
+                    if(proof.dependencies().migrationRoot()!=null)controls.migrationPayloadMaterials(proof.dependencies()).requireComplete(proof.dependencies());
+                }
+            }
+            public void requirePayloadSummaryInitializationAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationRequest request,
+                    com.nereusstream.delay.protocol.TargetQuotaMutation at){
+                if(summary==null)original.requirePayloadSummaryInitializationAuthenticated(m,p,s,request,at);
+                else {protection.run();summary.requireAuthenticated(request,at);protection.run();}
+            }
             public void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
+                if(lifecycle==null){original.requireLifecycleAuthenticated(manifest,proof,snapshot);return;}
                 protection.run();snapshot.authenticateLifecycle(proof.dependencies(),limits,lifecycle,Objects.requireNonNull(budgets.get()),protection);protection.run();
             }
             public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
@@ -508,6 +550,9 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireObjectPayloadAcceptanceAuthenticated(m,p,s,b);}
             public com.nereusstream.delay.protocol.TargetUncommittedPayloadFacts uncommittedPayloadFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long maximum){return original.uncommittedPayloadFacts(m,p,s,b,maximum);}
+            public TargetMigrationPayloadMaterials migrationPayloadMaterials(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s){
+                return controls==null?original.migrationPayloadMaterials(m,p,s):controls.migrationPayloadMaterials(p.dependencies());
+            }
             public void requireUncommittedObjectFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireUncommittedObjectFactsAuthenticated(m,p,s,b);}
             public void requireUncommittedObjectIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
@@ -526,6 +571,9 @@ public final class TargetCheckpointRootVerifier {
         Objects.requireNonNull(original);Objects.requireNonNull(policies);Objects.requireNonNull(budgets);Objects.requireNonNull(limits);Objects.requireNonNull(protection);
         return new ImageAuthority(){
             public void requireAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireAuthenticated(manifest,proof,snapshot);}
+            public void requirePayloadSummaryInitializationAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
+                    com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationRequest request,
+                    com.nereusstream.delay.protocol.TargetQuotaMutation at){original.requirePayloadSummaryInitializationAuthenticated(m,p,s,request,at);}
             public void requireLifecycleAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){original.requireLifecycleAuthenticated(manifest,proof,snapshot);}
             public void requireTerminalPoliciesAuthenticated(CheckpointManifest manifest,LedgerProof proof,TargetCheckpointSemanticSnapshot snapshot){
                 protection.run();snapshot.authenticateTerminalPolicies(proof.dependencies(),limits,Objects.requireNonNull(budgets.get()),policies,protection);protection.run();
@@ -544,6 +592,7 @@ public final class TargetCheckpointRootVerifier {
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireObjectPayloadAcceptanceAuthenticated(m,p,s,b);}
             public com.nereusstream.delay.protocol.TargetUncommittedPayloadFacts uncommittedPayloadFacts(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b,long maximum){return original.uncommittedPayloadFacts(m,p,s,b,maximum);}
+            public TargetMigrationPayloadMaterials migrationPayloadMaterials(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s){return original.migrationPayloadMaterials(m,p,s);}
             public void requireUncommittedObjectFactsAuthenticated(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
                     com.nereusstream.delay.protocol.TargetResourceReclaimBody b){original.requireUncommittedObjectFactsAuthenticated(m,p,s,b);}
             public void requireUncommittedObjectIndependent(CheckpointManifest m,LedgerProof p,TargetCheckpointSemanticSnapshot s,
@@ -708,6 +757,12 @@ public final class TargetCheckpointRootVerifier {
         public void authenticate() {
             auditManifestImageAuthentication(image, manifest, physical, quota, ledger, semantic, authority, protection);
         }
+        /** Actual full physical, ledger and original public-history authentication under this image's own held rights. */
+        public TargetCheckpointDependencies payloadSummaryDependencies() {
+            requireCurrent();
+            final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
+            requireCurrent();return audited.ledger().dependencies();
+        }
 
         /** Bound decoded/canonical audit inputs before starting another complete authentication pass. */
         public long authenticationInputWindowBytes(){
@@ -720,6 +775,7 @@ public final class TargetCheckpointRootVerifier {
             final var operation=body.objectOperation();final var origin=operation.nativeOrigin();
             if(origin==null)return null;
             requireCurrent();
+            if(origin.migrated())authority.migrationPayloadMaterials(manifest,audited.ledger(),audited.snapshot()).requireActual(audited.ledger().dependencies(),origin.binding(),origin.reservation(),origin.migrationHistory());
             com.nereusstream.delay.runtime.TargetObjectPayloadAcceptance.requireActual(audited.ledger().dependencies(),operation.expected(),origin);
             if(origin.profile().profileKind()!=com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE
                     ||audited.snapshot().profiles().stream().noneMatch(value->value.ref().equals(origin.profile())))
@@ -729,6 +785,7 @@ public final class TargetCheckpointRootVerifier {
         }
         private void authenticateUncommittedFacts(ManifestCompanion audited,com.nereusstream.delay.protocol.TargetResourceReclaimBody body){
             final var selected=body.uncommittedOperation();final var facts=selected.facts();
+            if(facts.migrated())authority.migrationPayloadMaterials(manifest,audited.ledger(),audited.snapshot()).requireActual(audited.ledger().dependencies(),facts.binding(),facts.reservation(),facts.migrationHistory());
             com.nereusstream.delay.runtime.TargetUncommittedPayloadReclaim.requireFacts(audited.ledger().dependencies(),selected.expected(),facts);
             if(audited.snapshot().profiles().stream().noneMatch(value->value.ref().equals(facts.profile()))
                     ||audited.snapshot().retryPolicies().stream().noneMatch(value->Arrays.equals(value.canonicalBytes(),facts.retry().canonicalBytes()))
@@ -743,7 +800,8 @@ public final class TargetCheckpointRootVerifier {
                     ||!Arrays.equals(manifest.checkpointId(),draft.floor().checkpointId())||!Arrays.equals(manifest.manifestSha256(),draft.floor().manifestSha256()))
                 throw new IllegalArgumentException("uncommitted preparation requires actual current Floor and unfrozen original facts");
             requireCurrent();final var audited=authenticateManifestCompanion(image,manifest,physical,quota,ledger,semantic,authority,protection);
-            final var facts=Objects.requireNonNull(authority.uncommittedPayloadFacts(manifest,audited.ledger(),audited.snapshot(),draft,maximumBytes),"complete uncommitted original causal inputs");
+            var facts=Objects.requireNonNull(authority.uncommittedPayloadFacts(manifest,audited.ledger(),audited.snapshot(),draft,maximumBytes),"complete uncommitted original causal inputs");
+            if(facts.migrated()&&facts.migrationHistory()==null)facts=facts.withMigrationHistory(authority.migrationPayloadMaterials(manifest,audited.ledger(),audited.snapshot()).collect(audited.ledger().dependencies(),facts.binding(),facts.reservation()));
             final var body=draft.withUncommittedFacts(facts);
             if(body.canonicalBytes().length>maximumBytes)throw new IllegalStateException("complete uncommitted facts exceed original shared preparation window");
             if(audited.ledger().dependencies().payloadObjectIntent(selected.expected().messageId())!=null)throw new IllegalStateException("uncommitted reservation already has pending intent");
@@ -760,7 +818,9 @@ public final class TargetCheckpointRootVerifier {
             if(facts.retainedBytes()>maximumBytes)throw new IllegalStateException("original SourceFacts exceed reserved preparation window");
             final var policies=com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.policies(audited.ledger().dependencies(),audited.snapshot(),draft,this::requireCurrent);
             com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.requireClosed(audited.ledger().dependencies(),draft,policies,facts,false,this::requireCurrent);
-            final var body=draft.withSourceFacts(facts.freeze(audited.ledger().dependencies(),draft));
+            var body=draft.withSourceFacts(facts.freeze(audited.ledger().dependencies(),draft));
+            if(body.migrationPayloadReclaim()&&body.migrationPayloadHistory()==null){final var origin=body.objectOperation().nativeOrigin();
+                body=body.withMigrationPayloadHistory(authority.migrationPayloadMaterials(manifest,audited.ledger(),audited.snapshot()).collect(audited.ledger().dependencies(),origin.binding(),origin.reservation()));}
             if(body.canonicalBytes().length>maximumBytes)throw new IllegalStateException("complete self-contained request exceeds original preparation window");
             if(body.objectPayloadReclaim()){
                 if(audited.ledger().dependencies().payloadObjectIntent(body.objectOperation().expected().messageId())!=null)throw new IllegalStateException("OBJECT already has a pending intent");
@@ -1145,6 +1205,16 @@ public final class TargetCheckpointRootVerifier {
         protection.run();
         authority.requireAuthenticated(manifest, verified.ledger(), verified.snapshot());
         protection.run();
+        for(var input:verified.snapshot().controls()) if(com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.isControl(input.image())){
+            final var first=Objects.requireNonNull(verified.ledger().dependencies().resultRecord(Bytes.concat(
+                    new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},
+                    input.image().systemMutationId())),"original payload summary initialization first");
+            if(first.appliedFirst()){
+                authority.requirePayloadSummaryInitializationAuthenticated(manifest,verified.ledger(),verified.snapshot(),
+                        com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody.decode(input.image().canonicalBody()).request(),first.mutation());
+                protection.run();
+            }
+        }
         authority.requireLifecycleAuthenticated(manifest,verified.ledger(),verified.snapshot());
         protection.run();
         authority.requireTerminalPoliciesAuthenticated(manifest,verified.ledger(),verified.snapshot());
@@ -1160,7 +1230,7 @@ public final class TargetCheckpointRootVerifier {
         final var proof = validateImage(image, manifest.shardId(), physicalLimits, manifest,
                 Objects.requireNonNull(quotaLimits, "quotaLimits"),
                 Objects.requireNonNull(ledgerLimits, "ledgerLimits"), null);
-        if (proof.dependencies().controls().stream().noneMatch(control -> control.family() == ColumnFamily.META
+        if (proof.dependencies().migrationRoot()==null && proof.dependencies().controls().stream().noneMatch(control -> control.family() == ColumnFamily.META
                 && Arrays.equals(control.key(), KeyCodec.metaFixed(10)))) {
             throw new IllegalArgumentException("Target Manifest requires its initial reader/control snapshot");
         }

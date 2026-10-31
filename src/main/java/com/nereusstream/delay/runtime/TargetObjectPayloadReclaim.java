@@ -49,6 +49,48 @@ public final class TargetObjectPayloadReclaim {
         current.run();return applied?first.mutation():null;
     }
 
+    /** Caller must first complete Inline.RetirementCursor for this exact ledger and input. */
+    public static TargetQuotaMutation requirePreparedClosed(TargetRetirementLedgerCursor ledger,SystemMutation input,
+            boolean allowApplied,Runnable current){
+        final var d=Objects.requireNonNull(ledger).dependenciesForClosure();
+        final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
+        if(!body.objectPayloadReclaim())throw new IllegalArgumentException("OBJECT lifecycle body required");
+        if(body.uncommittedObjectReclaim())return TargetUncommittedPayloadReclaim.requirePreparedClosed(ledger,input,allowApplied,current);
+        TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,body);
+        if(body.objectOperation().nativeOrigin()!=null)TargetObjectPayloadAcceptance.requireActual(d,body.objectOperation().expected(),body.objectOperation().nativeOrigin());
+        final var first=d.resultRecord(systemKey(input));final boolean applied=first!=null&&first.appliedFirst();
+        if(applied){
+            if(!allowApplied)throw new IllegalStateException("OBJECT stage already has a Source decision");
+            requirePreparedFirst(d,input,first.mutation());
+        }
+        final var owner=Objects.requireNonNull(d.payloadOwner(body.objectOperation().expected().messageId()),"OBJECT owner");
+        if(owner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
+            if(!applied)throw new IllegalStateException("OBJECT changed to released before this Source decision");
+            final var release=Objects.requireNonNull(ledger.resultAt(owner.mutation()),"OBJECT release Source first");
+            if(release.kind()!=TargetResultRecord.Kind.SYSTEM||!release.appliedFirst()||!release.mutation().equals(owner.mutation()))
+                throw new IllegalStateException("OBJECT release changed actual Source first");
+            final var history=Objects.requireNonNull(d.sourceHistory(release.logicalId()),"OBJECT release Source history");
+            if(!history.decidedAt().equals(owner.mutation()))throw new IllegalStateException("OBJECT release changed actual Source history");
+            final var closure=TargetResourceReclaimBody.decode(history.input().canonicalBody());
+            if(!(closure.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm confirmation))
+                throw new IllegalStateException("OBJECT owner released without a dedicated confirmation");
+            requireSameIntent(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm selected?selected.intent()
+                    :new TargetPayloadObjectRetiringRecord(input,first.mutation()),confirmation.intent());
+            requirePreparedFirst(d,history.input(),history.decidedAt());
+            TargetInlinePayloadReclaim.requireRecordedSourceFacts(d,closure);
+        }
+        final var pending=d.payloadObjectIntent(body.objectOperation().expected().messageId());
+        if(owner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
+            if(pending!=null)throw new IllegalStateException("released OBJECT retains its pending intent");
+        }else if(body.operations().getFirst() instanceof TargetResourceReclaimBody.ObjectPayloadConfirm confirmation){
+            requireSameIntent(confirmation.intent(),Objects.requireNonNull(pending,"OBJECT confirmation lost pending intent"));
+            requirePreparedFirst(d,pending.intent(),pending.appliedAt());
+        }else if(applied){
+            requireSameIntent(new TargetPayloadObjectRetiringRecord(input,first.mutation()),Objects.requireNonNull(pending,"APPLIED OBJECT intent missing"));
+        }else if(pending!=null)throw new IllegalStateException("OBJECT already has a different retirement intent");
+        current.run();return applied?first.mutation():null;
+    }
+
     public static void requireCurrent(TargetStoreBackend.Reader reader,SystemMutation input,
             List<TargetInlinePayloadReclaim.Policy> policies,Runnable current){
         final var body=TargetResourceReclaimBody.decode(input.canonicalBody());
@@ -130,7 +172,7 @@ public final class TargetObjectPayloadReclaim {
             throw new IllegalStateException("OBJECT release lost actual Source POSITION");
         final byte[] key=TargetRetirementSourceHistoryRecord.key(position.logicalId());
         final var history=TargetRetirementSourceHistoryRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetRetirementSourceHistoryRecord.VALUE_TYPE),scope,lineage);
-        if(!history.decidedAt().equals(owner.mutation())||!history.requiredTuple().equals(ProtocolTuple.targetObjectPayloadReclaim()))
+        if(!history.decidedAt().equals(owner.mutation())||!history.authorizationTuple().equals(ProtocolTuple.targetObjectPayloadReclaim()))
             throw new IllegalStateException("OBJECT release changed exact Native history");
         requireFirst(view,overlay,history.input(),history.decidedAt(),frontier);return history;
     }
@@ -162,6 +204,14 @@ public final class TargetObjectPayloadReclaim {
             throw new IllegalStateException("OBJECT input differs from APPLIED/OK Source first");d.requireSystemPosition(first);
         final var history=d.sourceHistories().stream().filter(h->h.decidedAt().equals(stamp)).findFirst().orElseThrow();
         if(!Arrays.equals(history.input().canonicalEnvelope(),input.canonicalEnvelope()))throw new IllegalStateException("OBJECT input differs from retained exact history");
+    }
+    private static void requirePreparedFirst(TargetCheckpointDependencies d,SystemMutation input,TargetQuotaMutation stamp){
+        final var first=Objects.requireNonNull(d.resultRecord(systemKey(input)),"OBJECT actual Source first");
+        if(!first.mutation().equals(stamp)||!Arrays.equals(first.typedPayload(),SystemMutationResult.from(input,ApplyStatus.APPLIED,StableCode.OK,stamp.source().canonicalBytes()).encode()))
+            throw new IllegalStateException("OBJECT input differs from APPLIED/OK Source first");d.requireSystemPosition(first);
+        final var history=Objects.requireNonNull(d.sourceHistory(input.systemMutationId()),"OBJECT retained exact Source history");
+        if(!history.decidedAt().equals(stamp)||!Arrays.equals(history.input().canonicalEnvelope(),input.canonicalEnvelope()))
+            throw new IllegalStateException("OBJECT input differs from retained exact history");
     }
     private static void requireFirst(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
             SystemMutation input,TargetQuotaMutation stamp,TargetQuotaMutation frontier){

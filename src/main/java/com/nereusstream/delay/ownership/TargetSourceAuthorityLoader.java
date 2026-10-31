@@ -25,6 +25,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}
         default HeldInputs load(SourceReplayEntry entry,TargetSourceAuthorityPreparation.Family family,Runnable guard,
                 TargetSourceApplyRuntime.ConfirmationRead source,TargetSourceApplyRuntime.ReclaimRead reclaim){return load(entry,family,guard,source);}
+        default HeldInputs loadWriterPrelude(SourceReplayEntry entry,TargetSloWriterOrigin.PreparationRequired request,Runnable guard,
+                TargetSourceApplyRuntime.ConfirmationRead source,TargetSourceApplyRuntime.ReclaimRead reclaim){
+            return load(entry,TargetSourceAuthorityPreparation.Family.SCOPE_FEES,guard,source,reclaim);
+        }
     }
 
     public interface HeldInputs extends AutoCloseable {
@@ -37,6 +41,23 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
          * requireCurrent keeps these protections valid through the same Source commit.
          */
         default TargetScopeFeeAuthority scopeFees() { return TargetScopeFeeAuthority.UNAVAILABLE; }
+        /** The actual whole-flight Root/Owner/Source/Pin/history/payment admission, never a limit inferred from this frame. */
+        default TargetRetirementPreparation.Protection retirementPreparationProtection(TargetSourceApplyRuntime.ReclaimRead source) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original retirement cumulative admission/retention contract unavailable");
+        }
+        /** Transfers a separately paid original Root/Owner/history/payment/retention loan to the actual writer kernel.
+         * Closing this entry must not close the transferred loan; requestRelease/released retain actual cleanup debt. */
+        default TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original independent writer history/retention subloan unavailable");
+        }
+        /** Materializes the original historical approval only after the actual complete same-view Native proof exists. */
+        default TargetEvidenceRetirementStore.ConfirmationApproval confirmationAfterPreparation(PendingConfirmation input,
+                TargetSourceApplyRuntime.ConfirmationRead source,TargetRetirementPreparation.Proof prepared) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original historical confirmation approval material unavailable");
+        }
+        default ArchiveTailInputs archiveTailInputs(TargetMigrationArchivePreparation.TailPreparationRequired request) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original archive opening/paid receiver loan unavailable");
+        }
         /**
          * Local held checks only. RECLAIM must retain the original Source/Worker/Store and complete
          * Catalog/Floor/Pin/image/future-reader admission protections through the Native commit.
@@ -96,15 +117,46 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation, ScopeFees, Migration {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, PendingConfirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation, ScopeFees, Migration, PayloadSummary {}
+    public record ArchiveTailInputs(TargetMigrationArchivePreparation.Held opening,
+            com.nereusstream.delay.store.TargetMigrationArchiveCustody receiver) {
+        public ArchiveTailInputs { Objects.requireNonNull(opening);Objects.requireNonNull(receiver); }
+    }
+    public record PayloadSummary(PreparedControlOperation prepared, TargetPayloadSummaryInitializationStore.Authority authority,
+            TargetStoreBackend.CommitAuthority commit) implements Inputs {
+        public PayloadSummary { Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(commit); }
+    }
     public record Migration(PreparedControlOperation prepared,
             com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
             com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
             com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
-            TargetStoreBackend.CommitAuthority commit) implements Inputs {
+            TargetStoreBackend.CommitAuthority commit,
+            com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs retirement,
+            TargetSourceApplyRuntime.MigrationArchiveInputs archive) implements Inputs {
         public Migration {
-            Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(settlement);
+            Objects.requireNonNull(prepared); Objects.requireNonNull(authority);
             Objects.requireNonNull(importLimits); Objects.requireNonNull(commit);
+            if (prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest
+                    || prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest)
+                Objects.requireNonNull(retirement, "actual original old-domain retirement protections");
+            else if(prepared.request().branch() instanceof com.nereusstream.delay.protocol.TargetMigrationArchiveRequest)
+                Objects.requireNonNull(archive,"actual original archive copy/takeover materials");
+            else Objects.requireNonNull(settlement);
+        }
+        public Migration(PreparedControlOperation prepared,
+                com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
+                com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
+                com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
+                TargetStoreBackend.CommitAuthority commit,
+                com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs retirement) {
+            this(prepared,authority,settlement,importLimits,commit,retirement,null);
+        }
+        public Migration(PreparedControlOperation prepared,
+                com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
+                com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
+                com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
+                TargetStoreBackend.CommitAuthority commit) {
+            this(prepared, authority, settlement, importLimits, commit, null, null);
         }
     }
     /** Payment of this exact Source occurrence only; it grants no current business role or write authority. */
@@ -156,6 +208,20 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             TargetEvidenceRetirementStore.SourceHistory history) implements Inputs {
         public Confirmation{Objects.requireNonNull(scope);Objects.requireNonNull(history);if(scope.target()!=null)throw new IllegalArgumentException("confirmation requires original Source scope");}
     }
+    /** Captured original history/hold without a prematurely read Native intent or ready approval. */
+    public static final class PendingConfirmation implements Inputs {
+        private final TargetQuotaScope scope;
+        private final TargetEvidenceRetirementStore.SourceHistory history;
+        private PendingConfirmation(TargetQuotaScope scope,TargetEvidenceRetirementStore.SourceHistory history) {
+            this.scope=Objects.requireNonNull(scope);this.history=Objects.requireNonNull(history);
+            if(scope.target()!=null)throw new IllegalArgumentException("historical confirmation requires original Source scope");
+        }
+        public TargetQuotaScope scope(){return scope;}
+        public TargetEvidenceRetirementStore.SourceHistory history(){return history;}
+    }
+    public static PendingConfirmation pendingHistoricalConfirmation(TargetQuotaScope scope,TargetEvidenceRetirementStore.SourceHistory history) {
+        return new PendingConfirmation(scope,history);
+    }
 
     /** The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through commit. */
     public record Reclaim(TargetQuotaScope scope,TargetResourceReclaimStore.SourceHistory history,
@@ -185,6 +251,27 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     @Override public Set<TargetSourceAuthorityPreparation.Family> families() {
         return Set.copyOf(EnumSet.allOf(TargetSourceAuthorityPreparation.Family.class));
     }
+    @Override public TargetSourceAuthorityPreparation.Held loadWriterPrelude(SourceReplayEntry entry,
+            TargetSloWriterOrigin.PreparationRequired request,Runnable guard,TargetSourceApplyRuntime.ConfirmationRead source,
+            TargetSourceApplyRuntime.ReclaimRead reclaim){
+        final var prelude=new WriterPrelude(entry);
+        try{
+            guard.run();
+            final var original=Objects.requireNonNull(provider.loadWriterPrelude(entry,request,guard,source,reclaim),"original fee-only writer hold");
+            prelude.original=new Held(entry,original);
+            if(!SourceApplyCoordinator.sameEntry(entry,original.entry())||!(original.inputs() instanceof ScopeFees)
+                    ||original.retainedBytes()<0||original.retainedBytes()>maximumBytes)
+                throw new IllegalStateException("writer prelude changed its exact fee-only Source input or reservation");
+            original.requireCurrent();guard.run();return prelude;
+        }catch(RuntimeException|Error failure){
+            if(failure instanceof CheckpointInputFuture.Cleanup cleanup)prelude.pending=cleanup;
+            try{prelude.close();}catch(RuntimeException|Error cleanup){
+                final var retained=new TargetSourceAuthorityPreparation.CleanupFailure(prelude,failure);
+                if(cleanup!=failure)retained.addSuppressed(cleanup);throw retained;
+            }
+            throw failure;
+        }
+    }
 
     @Override public TargetSourceAuthorityPreparation.Held load(SourceReplayEntry entry,
             TargetSourceAuthorityPreparation.Family family, Runnable guard) {
@@ -209,7 +296,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             final Inputs inputs = Objects.requireNonNull(original.inputs(), "typed original content");
             if (family(inputs) != family) throw new IllegalStateException("original Source content family differs");
             held.scopeFees = scopeFeeHold(inputs instanceof ScopeFees fees ? fees.fees() : original.scopeFees(), held);
-            held.control = collect(entry, inputs, held, guard,reclaim);
+            held.control = collect(entry, inputs, held, guard,source,reclaim);
             original.requireCurrent(); guard.run();
             if (held.bytes > maximumBytes) throw new IllegalStateException("complete content snapshot exceeds byte bound");
             return held;
@@ -225,7 +312,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
     }
 
-    private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard,TargetSourceApplyRuntime.ReclaimRead reclaim) {
+    private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard,
+            TargetSourceApplyRuntime.ConfirmationRead confirmation,TargetSourceApplyRuntime.ReclaimRead reclaim) {
         var commit = held.commit(originalCommit);
         return switch (inputs) {
             case Migration value -> {
@@ -251,7 +339,8 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                         (prior, request, actualSource) -> {
                             held.requireCurrent(); requireSource(entry, actualSource.source());
                             value.settlement().requireAuthorized(prior, request, actualSource); retained.run(); held.requireCurrent();
-                        }, value.importLimits(), held.commit(value.commit()));
+                        }, value.importLimits(), held.commit(value.commit()), retirementHold(value.retirement(), held, original),
+                        archiveHold(value.archive(),value.prepared(),held,original));
             }
             case Command value -> {
                 yield new TargetSourceApplyRuntime.CommandControl(value.policy(),value.cancellations(),value.reservations(),value.schedules(),value.payloadProofs(),sampleHold(value.samples(),held),commit);
@@ -261,8 +350,27 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case Admission value -> new TargetSourceApplyRuntime.AdmissionControl(value.authority(),sampleHold(value.samples(),held),commit);
             case Outcome value -> new TargetSourceApplyRuntime.OutcomeControl(value.authority(), commit);
             case ScopeFees value -> new TargetSourceApplyRuntime.ScopeFeeControl(held.scopeFees());
-            case Retirement value -> retirement(entry, value, held, commit, guard);
-            case Confirmation value -> confirmation(entry,value,held,commit,guard);
+            case PayloadSummary value -> {
+                final var original = (SourceReplayMutation) entry;
+                final var a = value.authority();
+                final var frozen = freeze(value.prepared(), entry, a.registrations(),
+                        version -> a.keys().resolve(version, entry.position()), held, guard);
+                yield new TargetSourceApplyRuntime.PayloadSummaryControl(value.prepared(),
+                        new TargetPayloadSummaryInitializationStore.Authority(frozen,
+                                (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(),
+                                (prepared, input, source, request) -> {
+                                    held.requireCurrent(); requireSource(entry, source);
+                                    if (!Arrays.equals(prepared.canonicalBytes(), value.prepared().canonicalBytes())
+                                            || !Arrays.equals(input.canonicalEnvelope(), original.mutation().canonicalEnvelope()))
+                                        throw new IllegalStateException("summary hold changed its original Prepared/Source frame");
+                                    final var fold = Objects.requireNonNull(a.inputs().requireActual(prepared, input, source, request));
+                                    fold.requireRequest(request); held.requireCurrent(); return fold;
+                                }), held.commit(value.commit()));
+            }
+            case Retirement value -> retirement(entry, value, held, commit, guard,reclaim);
+            case Confirmation value -> confirmation(entry,value,held,commit,guard,reclaim);
+            case PendingConfirmation value -> confirmation(entry,new Confirmation(value.scope(),null,value.history()),held,
+                    commit,guard,reclaim,value,confirmation);
             case Reclaim value -> reclaim(entry,value,held,commit,guard,reclaim);
             case Activation value -> {
                 final var original=(SourceReplayMutation)entry;final var body=TargetProtocolActivationBody.decode(original.mutation().canonicalBody());
@@ -273,7 +381,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 if(held.bytes>maximumBytes)throw new IllegalStateException("complete Target activation inputs exceed Source snapshot bound");
                 final var retained=new TargetProtocolActivationStore.Inputs(captured.readers(),captured.reset(),captured.resetIssuer(),()->{
                     held.requireCurrent();captured.current().run();held.requireCurrent();
-                });
+                },captured.rootEvidence(),captured.rootIssuer());
                 final var authority=new TargetProtocolActivationStore.Authority(frozen,(v,s)->frozen.key(v,s),a.actor(),a.scopeProof(),(prepared,marker,source,actual)->{
                     held.requireCurrent();requireSource(entry,source);
                     if(!Arrays.equals(prepared.canonicalBytes(),value.prepared().canonicalBytes())||!marker.equals(original.mutation())
@@ -430,6 +538,57 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         };
     }
 
+    /** The provider has already acquired all external Catalog/reader/resource/management materials on owned I/O.
+     * These methods consume only its immutable local snapshot and retain that same acquisition through commit. */
+    private static com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs retirementHold(
+            com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs original, Held held,
+            SourceReplayMutation entry) {
+        if (original == null) return null;
+        return new com.nereusstream.delay.runtime.TargetMigrationRetirementStore.OriginalInputs() {
+            private void requireInput(SystemMutation input, SourcePosition source) {
+                held.requireCurrent(); requireSource(entry, source);
+                if (!Arrays.equals(input.canonicalEnvelope(), entry.mutation().canonicalEnvelope()))
+                    throw new IllegalStateException("retirement content hold changed its exact actual Source frame");
+            }
+            public void requireIntent(com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                    com.nereusstream.delay.protocol.TargetMigrationRetirementIntentRequest intent,
+                    SystemMutation input, SourcePosition source) {
+                requireInput(input, source); original.requireIntent(root, intent, input, source); requireCurrent();
+            }
+            public void requireConfirmation(com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                    com.nereusstream.delay.protocol.TargetMigrationRetirementRecord prior,
+                    com.nereusstream.delay.protocol.TargetMigrationRetirementConfirmRequest request,
+                    SystemMutation input, SourcePosition source) {
+                requireInput(input, source); original.requireConfirmation(root, prior, request, input, source); requireCurrent();
+            }
+            public void requireManagementPayment(com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                    PreparedControlOperation control, SystemMutation input, SourcePosition source,
+                    com.nereusstream.delay.protocol.TargetMigrationRetirementRecord next) {
+                requireInput(input, source); original.requireManagementPayment(root, control, input, source, next); requireCurrent();
+            }
+            public void requireCurrent() { held.requireCurrent(); original.requireCurrent(); held.requireCurrent(); }
+        };
+    }
+
+    private static TargetSourceApplyRuntime.MigrationArchiveInputs archiveHold(TargetSourceApplyRuntime.MigrationArchiveInputs archive,
+            PreparedControlOperation prepared,Held held,SourceReplayMutation entry){
+        if(archive==null)return null;
+        final var original=archive.original();
+        return new TargetSourceApplyRuntime.MigrationArchiveInputs(archive.copy(),archive.takeover(),archive.received(),
+                new TargetMigrationArchiveStore.OriginalInputs(){
+                    public void requireManagementPayment(TargetMigrationRoot root,TargetMigrationRetirementRecord retirement,
+                            TargetMigrationArchiveState prior,TargetMigrationArchiveState next,java.util.List<TargetMigrationArchiveRow> rows,
+                            PreparedControlOperation control,SystemMutation input,SourcePosition source){
+                        requireCurrent();requireSource(entry,source);
+                        if(!Arrays.equals(prepared.canonicalBytes(),control.canonicalBytes())
+                                ||!Arrays.equals(entry.mutation().canonicalEnvelope(),input.canonicalEnvelope()))
+                            throw new IllegalStateException("archive payment changed its original exact CONTROL/Source frame");
+                        original.requireManagementPayment(root,retirement,prior,next,rows,control,input,source);requireCurrent();
+                    }
+                    public void requireCurrent(){held.requireCurrent();original.requireCurrent();held.requireCurrent();}
+                });
+    }
+
     private static TargetSloObservationSamples.Authority sampleHold(TargetSloObservationSamples.Authority original,Held held){
         return new TargetSloObservationSamples.Authority(){
             public void requireSample(TargetSloObservationGeneration generation,TargetSloObservationSample sample,long bytes){
@@ -466,6 +625,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     private static TargetSourceAuthorityPreparation.Family family(Inputs inputs) {
         return switch (inputs) {
             case Migration ignored -> TargetSourceAuthorityPreparation.Family.MIGRATION;
+            case PayloadSummary ignored -> TargetSourceAuthorityPreparation.Family.PAYLOAD_SUMMARY;
             case Command ignored -> TargetSourceAuthorityPreparation.Family.COMMAND;
             case Grant ignored -> TargetSourceAuthorityPreparation.Family.GRANT;
             case Fence ignored -> TargetSourceAuthorityPreparation.Family.FENCE;
@@ -484,6 +644,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             case ScopeFees ignored -> TargetSourceAuthorityPreparation.Family.SCOPE_FEES;
             case Retirement ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Confirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
+            case PendingConfirmation ignored -> TargetSourceAuthorityPreparation.Family.RETIREMENT;
             case Reclaim ignored -> TargetSourceAuthorityPreparation.Family.RECLAIM;
             case Activation ignored -> TargetSourceAuthorityPreparation.Family.ACTIVATION;
         };
@@ -541,9 +702,13 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             final long bytes=protection.retainedBytes();
             if(bytes<0||bytes>maximumBytes-held.bytes)throw new IllegalStateException("reclaim protections exceed complete Source input byte bound");
             held.bytes=Math.addExact(held.bytes,bytes);
+            beginRetirement(held, source);
+            held.retirement.recovery(source.catalog(),protection.recoveryProtection());
+            held.retirement.debitReads(protection.acquisitionRows(),protection.acquisitionBytes());
         }
         if(held.bytes>maximumBytes)throw new IllegalStateException("reclaim history exceeds complete Source input byte bound");
         return new TargetSourceApplyRuntime.ReclaimControl(new TargetResourceReclaimStore.Authority(){
+            public TargetRetirementPreparation.Proof preparation(){return held.retirementProof();}
             private void requireEntry(TargetQuotaScope scope,SystemMutation actual,SourcePosition source){
                 held.requireCurrent();requireSource(entry,source);
                 if(!input.scope().equals(scope)||!Arrays.equals(held.digest,Bytes.sha256(actual.canonicalEnvelope())))
@@ -564,14 +729,14 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     }
 
     private TargetSourceApplyRuntime.RetirementControl retirement(SourceReplayEntry entry, Retirement input,
-            Held held, TargetStoreBackend.CommitAuthority commit, Runnable guard) {
+            Held held, TargetStoreBackend.CommitAuthority commit, Runnable guard,TargetSourceApplyRuntime.ReclaimRead source) {
         if (!(entry instanceof SourceReplayMutation original) || original.mutation().type() != SystemMutationType.RESOURCE_RETIRE_INTENT)
             throw new IllegalArgumentException("retirement snapshot changed its original Source operation");
         final var mutation = original.mutation();
         final var body = TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
         input.scope().requireRoute(body.shard(), body.resource().tenantScope());
         final var originalHistory=Objects.requireNonNull(input.history(),"complete original retirement Source proof/pin");
-        originalHistory.select(body.resource(),mutation,entry.position());held.requireCurrent();guard.run();
+        final var selectedGrant=originalHistory.select(body.resource(),mutation,entry.position()).orElse(null);held.requireCurrent();guard.run();
         final var pin=originalHistory.pin();
         final long historyBytes=Math.addExact(originalHistory.proof().canonicalBytes().length,
                 Math.addExact(pin.authority().canonicalBytes().length,pin.key().getEncoded().length+256L));
@@ -604,7 +769,9 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             },approved.activatedTuple(),approved.historyGrant());
         }
         held.requireCurrent(); guard.run();
+        if(frozen!=null&&selectedGrant!=null&&mutation.verifySignature(selectedGrant.writerKey()))beginRetirement(held,source);
         return new TargetSourceApplyRuntime.RetirementControl(new TargetEvidenceRetirementStore.Authority(){
+            public TargetRetirementPreparation.Proof preparation(){return held.retirementProof();}
             private void requireEntry(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
                 held.requireCurrent();requireSource(entry,source);
                 if(!scope.equals(input.scope())||!Arrays.equals(actor.canonicalBytes(),mutation.authorIdentity())
@@ -621,12 +788,17 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     }
 
     private TargetSourceApplyRuntime.RetirementControl confirmation(SourceReplayEntry entry,Confirmation input,
-            Held held,TargetStoreBackend.CommitAuthority commit,Runnable guard){
+            Held held,TargetStoreBackend.CommitAuthority commit,Runnable guard,TargetSourceApplyRuntime.ReclaimRead source){
+        return confirmation(entry,input,held,commit,guard,source,null,null);
+    }
+    private TargetSourceApplyRuntime.RetirementControl confirmation(SourceReplayEntry entry,Confirmation input,
+            Held held,TargetStoreBackend.CommitAuthority commit,Runnable guard,TargetSourceApplyRuntime.ReclaimRead source,
+            PendingConfirmation pending,TargetSourceApplyRuntime.ConfirmationRead confirmation){
         if(!(entry instanceof SourceReplayMutation original)||original.mutation().type()!=SystemMutationType.RESOURCE_DELETE_CONFIRMED)
             throw new IllegalArgumentException("confirmation snapshot changed its original Source operation");
         final var mutation=original.mutation();final var body=TargetEvidenceDeleteConfirmedBody.decode(mutation.canonicalBody());
         input.scope().requireRoute(body.shard(),body.resource().tenantScope());
-        final var prior=Objects.requireNonNull(input.history());prior.select(body.resource(),mutation,entry.position());
+        final var prior=Objects.requireNonNull(input.history());final var selectedGrant=prior.select(body.resource(),mutation,entry.position()).orElse(null);
         held.requireCurrent();guard.run();final var pin=prior.pin();
         held.bytes=Math.addExact(held.bytes,Math.addExact(prior.proof().canonicalBytes().length,
                 Math.addExact(pin.authority().canonicalBytes().length,pin.key().getEncoded().length+256L)));
@@ -635,25 +807,25 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 pin.authority(),pin.keyVersion(),pin.key(),pin.baselineDigest(),pin.root(),pin.namespace()),()->{
             held.requireCurrent();prior.current().run();held.requireCurrent();
         });
-        final var approved=input.approval();final TargetEvidenceRetirementStore.ConfirmationApproval frozen;
-        if(approved==null)frozen=null;
-        else{
-            approved.current().run();held.requireCurrent();guard.run();
-            final var observed=approved.observation();final var historical=approved.historical();final byte[] encoded=approved.writerKey().getEncoded();
-            if(encoded==null||encoded.length!=44)throw new IllegalStateException("confirmation writer requires original Ed25519 key");
-            final long upper=Math.addExact(observed!=null?observed.retainedBytes():historical.retainedBytes(),encoded.length);
-            if(upper>maximumBytes-held.bytes)throw new IllegalStateException("complete confirmation receipt exceeds reserved Source inputs");
-            approved.requireSource(mutation,entry.position());approved.requireConfirmation(body);
-            if(historical!=null)historical.requireEntry(original);final PublicKey key;
-            try{key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));}
-            catch(java.security.GeneralSecurityException invalid){throw new IllegalStateException("invalid original confirmation Source key",invalid);}
-            held.bytes=Math.addExact(held.bytes,upper);
-            frozen=new TargetEvidenceRetirementStore.ConfirmationApproval(key,observed,historical,()->{
-                held.requireCurrent();approved.current().run();held.requireCurrent();
-            },approved.activatedTuple(),approved.historyGrant());
-        }
+        final var frozen=new TargetEvidenceRetirementStore.ConfirmationApproval[]{freezeConfirmation(input.approval(),original,held,guard)};
         held.requireCurrent();guard.run();
+        if(selectedGrant!=null&&mutation.verifySignature(selectedGrant.writerKey())&&(frozen[0]!=null||pending!=null)){
+            beginRetirement(held,source);
+            if(pending!=null){
+                if(confirmation==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original historical confirmation Native reader unavailable");
+                held.finishRetirement=()->{
+                    final var prepared=Objects.requireNonNull(held.retirementProof());
+                    prepared.requireInput(mutation,entry.position());prepared.requireCurrent();held.requireCurrent();
+                    final var approved=held.original.confirmationAfterPreparation(pending,confirmation,prepared);
+                    held.requireCurrent();prepared.requireCurrent();
+                    if(approved!=null&&approved.historical()==null)
+                        throw new IllegalStateException("pending historical confirmation returned a different hot observation path");
+                    frozen[0]=freezeConfirmation(approved,original,held,guard);
+                };
+            }
+        }
         return new TargetSourceApplyRuntime.RetirementControl(new TargetEvidenceRetirementStore.Authority(){
+            public TargetRetirementPreparation.Proof preparation(){return held.retirementProof();}
             private void requireEntry(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
                 held.requireCurrent();requireSource(entry,source);
                 if(!scope.equals(input.scope())||!Arrays.equals(actor.canonicalBytes(),mutation.authorIdentity())
@@ -664,12 +836,46 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 throw new IllegalArgumentException("confirmation snapshot cannot approve a retirement intent");
             }
             public TargetEvidenceRetirementStore.ConfirmationApproval resolveConfirmation(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
-                requireEntry(scope,actor,actual,source);if(frozen!=null)frozen.current().run();return frozen;
+                requireEntry(scope,actor,actual,source);if(frozen[0]!=null)frozen[0].current().run();return frozen[0];
             }
             public TargetEvidenceRetirementStore.SourceHistory history(TargetQuotaScope scope,AuthorIdentity actor,SystemMutation actual,SourcePosition source){
                 requireEntry(scope,actor,actual,source);history.current().run();return history;
             }
         },commit);
+    }
+
+    private TargetEvidenceRetirementStore.ConfirmationApproval freezeConfirmation(
+            TargetEvidenceRetirementStore.ConfirmationApproval approved,SourceReplayMutation original,Held held,Runnable guard){
+        if(approved==null)return null;
+        approved.current().run();held.requireCurrent();guard.run();
+        final var observed=approved.observation();final var historical=approved.historical();final byte[] encoded=approved.writerKey().getEncoded();
+        if(encoded==null||encoded.length!=44)throw new IllegalStateException("confirmation writer requires original Ed25519 key");
+        final long upper=Math.addExact(observed!=null?observed.retainedBytes():historical.retainedBytes(),encoded.length);
+        if(upper>maximumBytes-held.retainedBytes())throw new IllegalStateException("complete confirmation receipt exceeds reserved Source inputs");
+        approved.requireSource(original.mutation(),original.position());
+        approved.requireConfirmation(TargetEvidenceDeleteConfirmedBody.decode(original.mutation().canonicalBody()));
+        if(historical!=null)historical.requireEntry(original);final PublicKey key;
+        try{key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));}
+        catch(java.security.GeneralSecurityException invalid){throw new IllegalStateException("invalid original confirmation Source key",invalid);}
+        held.bytes=Math.addExact(held.bytes,upper);
+        return new TargetEvidenceRetirementStore.ConfirmationApproval(key,observed,historical,()->{
+            held.requireCurrent();approved.current().run();held.requireCurrent();
+        },approved.activatedTuple(),approved.historyGrant());
+    }
+
+    private void beginRetirement(Held held,TargetSourceApplyRuntime.ReclaimRead source) {
+        if(source==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original selected retirement Source/Store context unavailable");
+        final var original=Objects.requireNonNull(held.original.retirementPreparationProtection(source),"actual whole-flight retirement admission");
+        original.requireCurrent();held.requireCurrent();
+        held.retirementSource=source;
+        held.retirement=source.beginPreparation(new TargetRetirementPreparation.Protection(){
+            public TargetRetirementPreparation.Capacity capacity(){return original.capacity();}
+            public void requireCurrent(){held.requireCurrent();original.requireCurrent();held.requireCurrent();}
+            public void requireBinding(com.nereusstream.delay.store.StoreMetadata metadata,TargetQuotaIncarnation root,
+                    TargetQuotaMutation cut,SystemMutation input,SourcePosition at){
+                held.requireCurrent();original.requireBinding(metadata,root,cut,input,at);held.requireCurrent();
+            }
+        });
     }
 
     @FunctionalInterface private interface Keys { PublicKey resolve(long version); }
@@ -758,6 +964,35 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
     }
 
+    /** Deliberately has no Native business control or fee-plan authority. */
+    private static final class WriterPrelude implements TargetSourceAuthorityPreparation.Held {
+        private final SourceReplayEntry entry;
+        private Held original;
+        private CheckpointInputFuture.Cleanup pending;
+        private boolean closed;
+        private WriterPrelude(SourceReplayEntry entry){this.entry=entry;}
+        public SourceReplayEntry entry(){return entry;}
+        public Object control(){throw new TargetSourceAuthorityPreparation.InputUnavailable("writer prelude cannot authorize a Source Native plan");}
+        public long retainedBytes(){return original==null?0:original.retainedBytes();}
+        public boolean preparationReady(){return false;}
+        public void requireCurrent(){
+            if(closed||original==null)throw new IllegalStateException("original writer prelude is not held");
+            original.requireCurrent();
+        }
+        public TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request){
+            requireCurrent();return original.detachWriterOrigin(request);
+        }
+        public void close(){
+            if(closed)return;
+            if(pending!=null&&!pending.cleanupComplete()){
+                final var retry=pending.retryCleanup();
+                if(!retry.isDone()||!pending.cleanupComplete())
+                    throw new IllegalStateException("original partial writer prelude cleanup has not exited");
+            }
+            if(original!=null)original.close();closed=true;
+        }
+    }
+
     private static final class Held implements TargetSourceAuthorityPreparation.Held {
         private final SourceReplayEntry entry;
         private final HeldInputs original;
@@ -767,6 +1002,11 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         private CheckpointInputFuture.Cleanup pendingCapacityCleanup;
         private TargetScopeFeeAuthority scopeFees=TargetScopeFeeAuthority.UNAVAILABLE;
         private TargetSloControlScopeAuthority.MemberHold scopedControl;
+        private TargetRetirementPreparation retirement;
+        private TargetRetirementPreparation.Proof retirementProof;
+        private TargetSourceApplyRuntime.ReclaimRead retirementSource;
+        private boolean retirementClosed;
+        private Runnable finishRetirement;
         private boolean scopedControlClosed;
         private long bytes;
         private int commits;
@@ -778,7 +1018,36 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
         @Override public SourceReplayEntry entry() { return entry; }
         @Override public Object control() { return control; }
-        @Override public long retainedBytes() { return bytes; }
+        @Override public long retainedBytes() { return Math.addExact(bytes,retirement==null?0:retirement.retainedBytes()); }
+        @Override public TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request) {
+            requireCurrent();
+            final var independent=Objects.requireNonNull(original.detachWriterOrigin(request),"transferred original writer subloan");
+            independent.requireCurrent();requireCurrent();return independent;
+        }
+        @Override public ArchiveTailInputs archiveTailInputs(TargetMigrationArchivePreparation.TailPreparationRequired request) {
+            requireCurrent();final var actual=Objects.requireNonNull(original.archiveTailInputs(request),"actual protected archive receiver inputs");
+            actual.opening().requireCurrent();requireCurrent();return actual;
+        }
+        @Override public boolean preparationReady() { return (retirement==null||retirementProof!=null)&&finishRetirement==null; }
+        @Override public void invalidateRetirement(TargetRetirementPreparation.ViewChanged changed) {
+            requireCurrent();if(retirement==null)throw changed;
+            retirement.invalidate();retirementProof=null;
+        }
+        @Override public boolean advancePreparation() {
+            requireCurrent();
+            if(retirement!=null&&retirementProof==null){
+                if(!retirementSource.advancePreparation(retirement))return false;
+                retirementProof=retirement.proof();
+            }
+            if(finishRetirement!=null){finishRetirement.run();finishRetirement=null;}
+            requireCurrent();return true;
+        }
+        private TargetRetirementPreparation.Proof retirementProof() {
+            requireCurrent();
+            if(retirement!=null&&retirementProof==null)throw new TargetSourceAuthorityPreparation.Required();
+            if(retirementProof!=null)retirementProof.requireCurrent();
+            return retirementProof;
+        }
         @Override public TargetScopeFeeAuthority scopeFees() { requireCurrent(); return scopeFees; }
         @Override public TargetStoreBackend.CommitAuthority protectScopeFees(TargetStoreBackend.CommitAuthority physical) {
             return commit(physical);
@@ -815,6 +1084,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         }
         @Override public synchronized void close() {
             if (commits != 0) throw new IllegalStateException("original content still protects a commit");
+            if(retirement!=null&&!retirementClosed){retirement.close();retirementClosed=true;}
             if(scopedControl!=null&&!scopedControlClosed){scopedControl.close();scopedControlClosed=true;}
             Throwable failure = null;
             if (!capacityClosed) {

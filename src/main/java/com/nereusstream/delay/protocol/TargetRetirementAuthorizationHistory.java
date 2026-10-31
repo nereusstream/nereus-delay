@@ -309,7 +309,7 @@ public final class TargetRetirementAuthorizationHistory {
             final var covered=interval(body.scope(),body.lineage(),body.deploymentRoot(),body.namespace(),source);
             final byte[] actor=Objects.requireNonNull(service).canonicalBytes();
             for(var grant:covered.grants)if(grant.keyVersion==version&&grant.action==Action.RESOURCE_RECLAIM
-                    &&grant.activation().tuple().equals(body.requiredTuple())&&Arrays.equals(grant.service.canonicalBytes(),actor))return Optional.of(grant);
+                    &&grant.activation().tuple().equals(body.authorizationTuple())&&Arrays.equals(grant.service.canonicalBytes(),actor))return Optional.of(grant);
             return Optional.empty();
         }
         private Optional<Grant> select(Interval covered,AuthorIdentity service,int version,Action action){
