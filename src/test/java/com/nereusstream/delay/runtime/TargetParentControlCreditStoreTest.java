@@ -265,7 +265,7 @@ class TargetParentControlCreditStoreTest {
     private Parent parent(TargetProtocolStoreTestFixture fixture, TargetParentControlCreditVerifier.View view,
             TargetQuotaGrant expected, int operation) {
         final long[] values = new long[CapacityDimension.COUNT];
-        values[CapacityDimension.PENDING_PAYLOAD_BYTES.ordinal()] = 32;
+        values[CapacityDimension.CONTROL_RESERVE_BYTES.ordinal()] = 32;
         final var funded = new CapacityVector(values);
         final var definition = new TargetParentControlCredit.Definition(view.actualRoot(), expected,
                 new CapacityGrant(CapacityGrantKind.NON_OUTCOME_CONTROL, bytes(32, 0xc1), 1, funded),
