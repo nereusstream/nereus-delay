@@ -5,6 +5,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
+import io.oxia.client.api.NotificationSubscription;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -46,6 +47,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private byte[] challenge;
     private Version sessionVersion;
     private byte[] sessionIdentity;
+    private volatile long sessionGeneration;
     private boolean started;
     private boolean closed;
     private boolean closeCompleted;
@@ -415,6 +417,72 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     }
 
     @Override
+    public NotificationSubscription notificationsReady(final Consumer<Notification> consumer) {
+        final OxiaRouteRecordClient original;
+        final long generation;
+        synchronized (this) {
+            requireSession();
+            original = notificationDelegate;
+            generation = sessionGeneration;
+        }
+        final NotificationSubscription nativeWatch = original.notificationsReady(consumer);
+        final NotificationSubscription bound = new NotificationSubscription() {
+            @Override
+            public java.util.concurrent.CompletableFuture<Void> ready() {
+                return nativeWatch.ready();
+            }
+
+            @Override
+            public java.util.concurrent.CompletableFuture<Void> invalidated() {
+                return nativeWatch.invalidated();
+            }
+
+            @Override
+            public java.util.concurrent.CompletableFuture<Void> termination() {
+                return nativeWatch.termination();
+            }
+
+            @Override
+            public Duration requestTimeout() {
+                return nativeWatch.requestTimeout();
+            }
+
+            @Override
+            public void requireCurrent() {
+                nativeWatch.requireCurrent();
+                if (sessionGeneration != generation) {
+                    throw new SessionFenceException("Route notification belongs to a previous authority session");
+                }
+            }
+
+            @Override
+            public void close() {
+                nativeWatch.close();
+            }
+        };
+        try {
+            requireSession();
+            if (sessionGeneration != generation) {
+                throw new SessionFenceException("Route authority changed during notification opening");
+            }
+            return bound;
+        } catch (RuntimeException | Error failure) {
+            try {
+                nativeWatch.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
+    }
+
+    @Override
+    public void requireNotificationCurrent(NotificationSubscription subscription) {
+        requireSession();
+        subscription.requireCurrent();
+    }
+
+    @Override
     public synchronized PutResult put(final String key, final byte[] value, final Set<PutOption> options)
             throws UnexpectedVersionIdException, KeyAlreadyExistsException {
         requireSession();
@@ -442,6 +510,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     return;
                 }
                 closed = true;
+                sessionGeneration++;
                 started = false;
                 sessionVersion = null;
                 sessionIdentity = null;
@@ -516,6 +585,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     }
 
     private void clearSession() {
+        sessionGeneration++;
         started = false;
         sessionVersion = null;
         sessionIdentity = null;
@@ -709,6 +779,11 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         @Override
         public void notifications(final Consumer<Notification> consumer) {
             delegate.notifications(consumer);
+        }
+
+        @Override
+        public NotificationSubscription notificationsReady(final Consumer<Notification> consumer) {
+            return delegate.notificationsReady(consumer);
         }
 
         @Override

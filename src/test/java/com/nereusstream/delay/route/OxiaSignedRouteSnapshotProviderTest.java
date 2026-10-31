@@ -26,6 +26,7 @@ import com.nereusstream.delay.semantic.RouteSelectionHint;
 import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
+import io.oxia.client.api.NotificationSubscription;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
@@ -34,6 +35,7 @@ import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -43,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -102,7 +105,6 @@ class OxiaSignedRouteSnapshotProviderTest {
             provider.start().toCompletableFuture().join();
             assertEquals(RouteCacheHealth.HEALTHY, provider.health());
             assertEquals(1, provider.publishedRevision());
-            assertEquals(1, replacementNotificationClient.notificationRegistrationCount());
         } finally {
             provider.close();
         }
@@ -137,7 +139,6 @@ class OxiaSignedRouteSnapshotProviderTest {
             provider.refresh().toCompletableFuture().join();
             assertEquals(RouteCacheHealth.HEALTHY, provider.health());
             assertEquals(2, provider.publishedRevision());
-            assertEquals(1, notificationClient.notificationRegistrationCount());
         } finally {
             provider.close();
         }
@@ -370,6 +371,183 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void aFreshWatchBecomesReadyWithoutWritesAndThenObservesTheFirstRoute() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        try {
+            provider.start().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.UNAVAILABLE, provider.health());
+            publisher.publish(
+                    hint(), snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1), 0);
+            assertEquals(1, provider.publishedRevision());
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void aPublicationBetweenWatchReadinessAndSnapshotIsIncluded() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        final var active = snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1);
+        client.afterNextReadiness = () -> publisher.publish(hint(), active, 0);
+        try {
+            provider.start().toCompletableFuture().join();
+            assertEquals(1, provider.publishedRevision());
+            assertArrayEquals(
+                    active.canonicalBytes(),
+                    provider.activeForNewSchedule(tenant(), hint()).canonicalBytes());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void aPublicationDuringSnapshotKeepsItsDirtyNotification() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        final var incarnation = new RouteIncarnation(bytes(16, 30));
+        publisher.publish(hint(), snapshot(keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1), 0);
+        client.afterNextHeadGet =
+                () -> publisher.publish(hint(), snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2), 1);
+        try {
+            provider.start().toCompletableFuture().join();
+            assertEquals(2, provider.publishedRevision());
+            assertEquals(
+                    RouteLifecycle.RETIRED,
+                    provider.exact(incarnation, tenant()).lifecycle());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void anInvalidatedQuietWatchCannotKeepTheCacheHealthy() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        publisher.publish(
+                hint(), snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1), 0);
+        try {
+            provider.start().toCompletableFuture().join();
+            client.subscription.invalidated.completeExceptionally(new IllegalStateException("stream disconnected"));
+            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+            assertThrows(IllegalStateException.class, () -> provider.activeForNewSchedule(tenant(), hint()));
+            provider.refresh().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(1, provider.publishedRevision());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void oldSnapshotAndCallbacksCannotReplaceANewerWatchGeneration() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        final var incarnation = new RouteIncarnation(bytes(16, 30));
+        publisher.publish(hint(), snapshot(keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1), 0);
+        final var oldCallback = new java.util.concurrent.atomic.AtomicReference<Consumer<Notification>>();
+        client.afterNextHeadGet = () -> {
+            oldCallback.set(client.watchers.getFirst());
+            publisher.publish(hint(), snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2), 1);
+            provider.refresh().toCompletableFuture().join();
+        };
+        try {
+            assertThrows(
+                    RuntimeException.class,
+                    () -> provider.start().toCompletableFuture().join());
+            client.seed("/nereus/route/head", new byte[] {0});
+            oldCallback.get().accept(new Notification.KeyModified("/nereus/route/head", 3));
+            assertEquals(2, provider.publishedRevision());
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(
+                    RouteLifecycle.RETIRED,
+                    provider.exact(incarnation, tenant()).lifecycle());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void anErrorBeforeTheFirstBatchDoesNotMakeAWatchReady() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        client.afterNextNotifications(() -> {
+            final var failure = new IllegalStateException("stream failed before its first batch");
+            client.subscription.ready.completeExceptionally(failure);
+            client.subscription.invalidated.completeExceptionally(failure);
+        });
+        try {
+            assertThrows(
+                    RuntimeException.class,
+                    () -> provider.start().toCompletableFuture().join());
+            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+            assertEquals(0, provider.publishedRevision());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
+    void aFreshWatchWaitsForTheOriginalStreamToActuallyExit() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var publisher = new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
+        publisher.publish(
+                hint(), snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1), 0);
+        client.holdNextTermination = true;
+        provider.start().toCompletableFuture().join();
+        final var original = client.subscription;
+        try {
+            assertThrows(
+                    RuntimeException.class,
+                    () -> provider.refresh().toCompletableFuture().join());
+            assertEquals(1, client.notificationRegistrationCount());
+            assertEquals(RouteCacheHealth.UNAVAILABLE, provider.health());
+            original.terminated.complete(null);
+            provider.refresh().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(1, provider.publishedRevision());
+        } finally {
+            original.terminated.complete(null);
+            provider.close();
+        }
+    }
+
+    @Test
+    void closeCanCancelAnOpeningWatchWithoutHoldingTheCacheMonitor() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final var provider = new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        final var registered = new java.util.concurrent.CountDownLatch(1);
+        client.holdNextReadiness = true;
+        client.afterNextNotifications(registered::countDown);
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            final var opening = executor.submit(provider::start);
+            org.junit.jupiter.api.Assertions.assertTrue(registered.await(5, TimeUnit.SECONDS));
+            assertEquals(RouteCacheHealth.UNAVAILABLE, provider.health());
+            provider.close();
+            assertThrows(
+                    RuntimeException.class,
+                    () -> opening.get(5, TimeUnit.SECONDS).toCompletableFuture().join());
+            assertEquals(RouteCacheHealth.CLOSED, provider.health());
+        }
+    }
+
+    @Test
     void missingHeadEventFailsClosedAndRefreshCanRecoverAfterRepair() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final FakeRouteClient client = new FakeRouteClient();
@@ -535,11 +713,23 @@ class OxiaSignedRouteSnapshotProviderTest {
         private int closeCalls;
         private int failNextCloseCalls;
         private Runnable afterNextClose;
+        private Runnable afterNextHeadGet;
+        private Runnable afterNextReadiness;
+        private boolean holdNextReadiness;
+        private boolean holdNextTermination;
+        private FakeSubscription subscription;
 
         @Override
         public GetResult get(final String key) {
             final Stored stored = records.get(key);
-            return stored == null ? null : new GetResult(key, Bytes.copy(stored.value()), stored.version());
+            final GetResult result =
+                    stored == null ? null : new GetResult(key, Bytes.copy(stored.value()), stored.version());
+            if (key.endsWith("/head") && afterNextHeadGet != null) {
+                final Runnable callback = afterNextHeadGet;
+                afterNextHeadGet = null;
+                callback.run();
+            }
+            return result;
         }
 
         @Override
@@ -571,6 +761,72 @@ class OxiaSignedRouteSnapshotProviderTest {
                 final Runnable callback = afterNextNotifications;
                 afterNextNotifications = null;
                 callback.run();
+            }
+        }
+
+        @Override
+        public NotificationSubscription notificationsReady(final Consumer<Notification> consumer) {
+            if (subscription != null && !subscription.terminated.isDone())
+                throw new IllegalStateException("original fake watch stream has not exited");
+            final var opened = new FakeSubscription(consumer, holdNextTermination);
+            subscription = opened;
+            final boolean hold = holdNextReadiness;
+            holdNextReadiness = false;
+            holdNextTermination = false;
+            notifications(consumer);
+            if (!hold) opened.ready.complete(null);
+            if (afterNextReadiness != null) {
+                final Runnable callback = afterNextReadiness;
+                afterNextReadiness = null;
+                callback.run();
+            }
+            return opened;
+        }
+
+        private final class FakeSubscription implements NotificationSubscription {
+            private final Consumer<Notification> consumer;
+            private final CompletableFuture<Void> ready = new CompletableFuture<>();
+            private final CompletableFuture<Void> invalidated = new CompletableFuture<>();
+            private final CompletableFuture<Void> terminated = new CompletableFuture<>();
+            private final boolean holdTermination;
+
+            private FakeSubscription(Consumer<Notification> consumer, boolean holdTermination) {
+                this.consumer = consumer;
+                this.holdTermination = holdTermination;
+            }
+
+            @Override
+            public CompletableFuture<Void> ready() {
+                return ready.copy();
+            }
+
+            @Override
+            public CompletableFuture<Void> invalidated() {
+                return invalidated.copy();
+            }
+
+            @Override
+            public CompletableFuture<Void> termination() {
+                return terminated.copy();
+            }
+
+            @Override
+            public Duration requestTimeout() {
+                return Duration.ofSeconds(2);
+            }
+
+            @Override
+            public void requireCurrent() {
+                if (!ready.isDone() || ready.isCompletedExceptionally() || invalidated.isDone())
+                    throw new IllegalStateException("fake notification stream is not current");
+            }
+
+            @Override
+            public void close() {
+                invalidated.complete(null);
+                ready.completeExceptionally(new IllegalStateException("fake watch closed before readiness"));
+                watchers.remove(consumer);
+                if (!holdTermination) terminated.complete(null);
             }
         }
 
@@ -668,6 +924,11 @@ class OxiaSignedRouteSnapshotProviderTest {
                 final Runnable callback = afterNextClose;
                 afterNextClose = null;
                 callback.run();
+            }
+            if (subscription != null) {
+                subscription.close();
+                if (!subscription.terminated.isDone())
+                    throw new IllegalStateException("original fake watch stream cleanup remains pending");
             }
             records.clear();
             ephemeralKeys.clear();

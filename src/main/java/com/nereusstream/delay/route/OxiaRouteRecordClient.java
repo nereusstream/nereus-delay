@@ -3,6 +3,7 @@ package com.nereusstream.delay.route;
 import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
+import io.oxia.client.api.NotificationSubscription;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -32,6 +33,16 @@ interface OxiaRouteRecordClient extends AutoCloseable {
     CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
 
     void notifications(Consumer<Notification> consumer);
+
+    /** Fresh stream readiness comes from actual server batches, never local callback registration. */
+    default NotificationSubscription notificationsReady(Consumer<Notification> consumer) {
+        throw new IllegalStateException("Route client has no original notification readiness capability");
+    }
+
+    /** Outside cache locks: session-backed clients also recheck the exact original authority. */
+    default void requireNotificationCurrent(NotificationSubscription subscription) {
+        subscription.requireCurrent();
+    }
 
     PutResult put(String key, byte[] value, Set<PutOption> options)
             throws UnexpectedVersionIdException, KeyAlreadyExistsException;

@@ -19,7 +19,7 @@ rootProject.name = 'nereus-delay'
 def oxiaLock = new Properties()
 file('src/main/resources/META-INF/nereus-delay-oxia-client-lifecycle.properties').withInputStream { oxiaLock.load(it) }
 def oxiaSource = file(providers.gradleProperty('oxiaClientSourceDir')
-        .getOrElse('../oxia-client-java-worktrees/nereus-delay-client-cleanup-v1'))
+        .getOrElse('../oxia-client-java-worktrees/nereus-delay-notification-readiness'))
 if (!oxiaSource.isDirectory()) {
     throw new GradleException('locked Oxia source missing; set -PoxiaClientSourceDir to the controlled SDK checkout')
 }
