@@ -1752,6 +1752,10 @@ public final class TargetRecordAccounting {
             result = envelopeTemporary(
                     result, envelopeComparison(envelopeAccountingCanonical(), envelopeAccountingCanonical()));
             result = envelopeTemporary(result, envelopeRepeat(envelopeMutationAtOrBefore(), 3, false));
+            if (kind == 3) {
+                // Fresh payload summary also joins POSITION_COMMAND to its same-batch applied first.
+                result = envelopeTemporary(result, envelopeMutationAtOrBefore());
+            }
             selected = envelopeChoice(selected, result);
         }
         return selected;

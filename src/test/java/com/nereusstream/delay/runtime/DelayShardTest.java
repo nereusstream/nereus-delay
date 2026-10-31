@@ -10191,6 +10191,7 @@ class DelayShardTest {
     @Test
     void terminalSummaryRetainsASecondOpenObligationAndReopensSafely() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("terminal-obligation-summary"));
+        final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000, 2, 1);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 26);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("terminal-summary-lane"));
         final PreparedCommand schedule = PreparedCommand.schedule(
@@ -10207,7 +10208,7 @@ class DelayShardTest {
         TerminalGenerationRecord summary;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard shard = new DelayShard(store, shardConfig);
             assertEquals(
                     StableCode.SCHEDULED,
                     shard.apply(schedule, schedulePosition).stableCode());
@@ -10292,7 +10293,7 @@ class DelayShardTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard reopened = new DelayShard(store, shardConfig);
             assertEquals(
                     summary.openObligations(),
                     reopened.getTerminalGeneration(schedule.delayMessageId(), 0).openObligations());

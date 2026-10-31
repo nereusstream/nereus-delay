@@ -448,7 +448,8 @@ public final class TargetPayloadObligationSummaryBootstrap {
                 || reader.get(ColumnFamily.ID, TargetKeyCodec.message(owner.messageId())) != null) {
             throw new IllegalStateException("summary fresh birth is not an absent exact payload identity");
         }
-        boolean first = false, position = false, actualBinding = false;
+        TargetResultRecord first = null, position = null;
+        boolean actualBinding = false;
         for (var edit : edits) {
             if (edit.after() == null) {
                 continue;
@@ -474,20 +475,19 @@ public final class TargetPayloadObligationSummaryBootstrap {
                     .equals(owner.messageId().routingId().shardId())) {
                 continue;
             }
-            final var command =
-                    CommandDedupeRecord.decode(result.typedPayload()).result();
-            if (command.applyStatus() != ApplyStatus.APPLIED) {
-                continue;
-            }
             if (result.kind() == TargetResultRecord.Kind.COMMAND) {
-                first = true;
+                if (result.appliedFirst()) {
+                    first = result;
+                }
             } else {
-                position = true;
+                // POSITION carries the logical ID; its outcome belongs to the exact first record.
+                position = result;
             }
         }
-        if (!first || !position || !actualBinding) {
+        if (first == null || position == null || !actualBinding) {
             throw new IllegalStateException("fresh summary lacks its same-batch binding/first/POS birth");
         }
+        position.requireFirst(first);
     }
 
     private static byte[] freshDigest(

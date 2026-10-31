@@ -206,9 +206,12 @@ class TargetCommandReplayStoreTest {
             final SourceRecordConsumer consumer = () -> java.util.Optional.ofNullable(queue.poll());
             final var loop = new WorkerSourceApplyLoop(consumer, workClasses(), runtime);
             final long beforeReplay = store.latestSequenceNumber();
+            final var firstReplay = apply(loop, queue, command, source);
             assertEquals(
-                    original,
-                    apply(loop, queue, command, source).appliedOutcome().commandResult());
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    firstReplay.status(),
+                    () -> String.valueOf(firstReplay.failure()));
+            assertEquals(original, firstReplay.appliedOutcome().commandResult());
             assertEquals(beforeReplay, store.latestSequenceNumber());
             final var aggregateKey = TargetQuotaAggregate.genesis(
                             scope.shard(), owner.identity().accountingIncarnation())

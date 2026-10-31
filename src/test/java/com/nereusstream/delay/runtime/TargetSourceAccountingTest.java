@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.CapacityDimension;
@@ -214,24 +215,33 @@ class TargetSourceAccountingTest {
                     new TargetStoreBackend.WriteLimits(64, 1 << 20));
             final var next =
                     new TargetSourceAccounting(scope, shard.recoveryLineage(), budgetSource, admissionDigest, 16, 4, 1);
-            backend.commit(
-                    backend.prepare(
-                            budget(),
-                            reader -> next.assemble(
-                                    reader,
-                                    List.of(reader.replace(
-                                            ColumnFamily.META,
-                                            attemptBudget.key(),
-                                            TargetQuotaAttemptBudget.VALUE_TYPE,
-                                            attemptBudget.canonicalBytes())))),
-                    (a, b, c) -> guard());
+            final long before = store.latestSequenceNumber();
+            final byte[] aggregateKey = TargetQuotaAggregate.genesis(
+                            scope.shard(), shard.identity().accountingIncarnation())
+                    .key();
+            final byte[] beforeAggregate = store.get(ColumnFamily.META, aggregateKey);
+            // A pending Budget must join its actual Message/Terminal and admission in the same Source batch.
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> backend.prepare(
+                                    budget(),
+                                    reader -> next.assemble(
+                                            reader,
+                                            List.of(reader.replace(
+                                                    ColumnFamily.META,
+                                                    attemptBudget.key(),
+                                                    TargetQuotaAttemptBudget.VALUE_TYPE,
+                                                    attemptBudget.canonicalBytes())))))
+                    .getMessage()
+                    .contains("Budget pending transition lacks its actual runtime/terminal change"));
+            assertEquals(before, store.latestSequenceNumber());
+            assertEquals(2, store.shardMutationSequence());
+            assertArrayEquals(priorSource.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(beforeAggregate, store.get(ColumnFamily.META, aggregateKey));
+            assertNull(store.get(ColumnFamily.META, attemptBudget.key()));
         }
-        assertTrue(assertThrows(
-                        IllegalStateException.class,
-                        () -> TargetCheckpointRootVerifier.auditIndependentLedger(
-                                physicalDb, scope.shard(), physicalLimits, quotaLimits, ledgerLimits))
-                .getMessage()
-                .contains("open quota budget lacks its attempt reference"));
+        TargetCheckpointRootVerifier.auditIndependentLedger(
+                physicalDb, scope.shard(), physicalLimits, quotaLimits, ledgerLimits);
     }
 
     private static TargetQuotaCounter counter(final ShardStore store, final byte[] key) {
