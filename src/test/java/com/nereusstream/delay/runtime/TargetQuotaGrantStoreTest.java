@@ -239,7 +239,7 @@ class TargetQuotaGrantStoreTest {
             final var acquiring = leases.acquire(firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
                     .orElseThrow();
             try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
-                    var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                    var store = ShardStore.createTarget(config, scope.shard(), resources)) {
                 final var initialized = TargetStoreBootstrap.commit(
                         TargetStoreBootstrap.prepare(
                                 store,
