@@ -291,3 +291,36 @@ B3 验收只覆盖原设计冻结范围，B7 接受、A2/A3、C–F 必做实现
 最终 ownership gate 和实际 Source Admission/Outcome 单 flight 已连接原 Host driver/drain；
 详见 07 的“Target BASELINE 实际 SDK 与 Source 单 flight”。本批三个相关 compile 通过，
 全部测试继续后置；K2、完整启动 provider/resource 及跨进程恢复仍未完成，不提升验收权威。
+
+## 6. Parent Control credit 的独立协议接点
+
+Parent 读者扩展保留原 Source Control/历史权威边界；完整字段登记见
+[Protocol Registry 的 Parent 扩展](../../PROTOCOL-REGISTRY.md#parent-control-credit-reader-extension)。
+它不改变本文 Native policy 的 NV24/25、签名、scope 或 Claim/Admission 契约。
+
+| 对象 | 本次明确登记及旧代边界 |
+| --- | --- |
+| descriptor22 | 仅既有 tuple23、Native63 schema1；独立 matrix 的 field58=2 声明 Root issuer policy2 codec |
+| checkpoint | Parent-only 使用 lifecycle1/companion6；与高阶 lifecycle 共存仍按真实输入选 companion6–16 |
+| Declaration schema6 | `parentControlCreditTarget` 最多12个显式 descriptor：原1–14最多4个、扩展15–22最多8个；32 tuple及1MiB上限不变 |
+| 旧 Declaration | schema3仍4个原descriptor；schema4仍10=4+6、最高20；schema5仍11=4+7、最高21；全部拒绝22，旧bytes/digest/接受集合不变 |
+| RootIssuerAuthorization2 | field1/13严格为2/2；显式非空子集13、14、23、30–34、36、37，最多10项/26 fields；专用 factory 必须显式含23 |
+
+policy2 使用 Registry 登记的独立v2 digest/signature域，完整 fields1–15 进入 digest，
+原独立 management issuer 按本版本签名域签名；错 schema/purpose、跨域签名或未来版本
+均拒绝，不回退旧域。policy1 继续使用1/1、原v1域、旧9项集合/cap9/25 fields；旧构造及
+`signed` 保持policy1并拒绝23。完整原 plan/Source/Store/lineage/issuer/history 绑定及1MiB
+history/原总bytes上限不变，已落 A1/旧policy不自动升级，也不补授原先没有的23。
+
+新 A2 若嵌 policy2，原 owned-I/O/authenticate 必须取得 `plan.readerEvidence` 对应的完整
+pre-A ReaderSet，核对 object ref/version/length/hash、exact plan/Source/Store/lineage、全部
+eligible revisions/sessions 和真实 binary/SDK 锁，并用同一 held Runnable 重核至 commit。
+所有读者同时具备 Declaration6+descriptor22/policy2 codec，以及同 base/source commits/
+SDK JAR 锁下独立 descriptor15–21 的迁移数据 matrix；tuple35列表或Parent Native63
+不能替代 Native32v2/迁移读者证据。缺材料保持 unavailable，旧已落 A 不重写。
+
+Parent 仍须走原 Root 签名授权及真实 Native53 activation2+APPLIED first/POS：normal Root
+保留实际 META10/initial grant/原 issuer，migration Root 保留实际 A/plan/root/原policy2 grant。
+fund 严格晚于该23激活 Source；不借37同批例外。descriptor1–21、默认14/Native56广告、
+Parent请求和Native63原bytes保持；22不授 child24–26、SLO、回收或迁移44–50 matrix。
+以上登记不构成真实 Owner/完整 Source 资格、迁退或集中验证完成结论。

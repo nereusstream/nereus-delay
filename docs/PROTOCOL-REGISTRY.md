@@ -6706,7 +6706,8 @@ RootIssuerAuthorization1 fields1 version1,2 original deployment authority32,3 or
 authority digest32,4 migrationId32,5 exact pre-A plan digest32,6 Shard/tenant scope,7 original physical
 Source at C,8 new Store16,9 new DB32,10 new lineage16,11 original issuer identity32,12 issuer key
 version,13 purpose1 (this Root may request these exact reader extensions), repeated14 permitted
-tuples (a sorted subset of13,14,30–34,36; at most8),15 complete bounded original authority/succession
+tuples (originally a sorted subset of13,14,30–34,36; at most8 before the explicit37 extension below),
+15 complete bounded original authority/succession
 history,16 digest32,17 independent management signature64. Domains are
 `nereus-delay-migration-root-issuer-authorization-v1` and
 `nereus-delay-migration-root-issuer-authorization-signature-v1`, each plus NUL. The statement is
@@ -6838,3 +6839,59 @@ for that exact P's own tail and must authenticate P independently; a tail cannot
 not relax another business operation's prior-Source ordering, publish a capability before atomic
 commit, replace the management purpose, skip an earlier queued frame or upgrade an old image by
 format inference. Failure/UNKNOWN keeps the original continuous hold and recovery responsibility.
+
+### Parent Control credit reader extension
+
+Descriptor22 selects only the existing tuple `(1,1,SYSTEM_MUTATION,1,23)` and Native63 schema1.
+It retains the descriptor's twelve outer fields and digest domain, with a separate closed matrix:
+
+| Matrix field | Frozen value and reader meaning |
+|---|---|
+| 1 / 2 / 3 | Store2 / Native maximum63 / checkpoint companion6 |
+| 7 / 8 | Native53 activation record2 / activation payload2 |
+| 9 / 10 / 11 / 15 | capability declaration6 / reader set1 / activation operation28 / PublicEvidence1 |
+| 41 / 43 | exact reader purpose8 / signed Root tuple authorization1 |
+| 51 / 52 / 53 / 54 | Parent credit1 / initial Root snapshot1 / Native33 incarnation1 / Native30 grant activation1 |
+| 55 / 56 / 57 | Native35 first/POS result1 / Native31 aggregate1 / quota usage/vector accounting1 |
+| 58 | migration Root issuer policy2 reader |
+
+This purpose uses lifecycle1 and companion6; coexisting higher lifecycle inputs still select their
+actual companion6–16. It neither lowers their required format nor inherits reclamation, SLO,
+child tuples24–26 or the migration matrix fields44–50/Native32v2. Descriptor1–21 matrices, bytes
+and digests remain fixed, as do default constructor5, default descriptor14 advertisements and
+`TARGET_NATIVE_MAX=56`. Parent request and Native63 schema1 bytes remain unchanged.
+
+`ProtocolCapabilityDeclaration.parentControlCreditTarget` explicitly selects schema6. It admits at
+most12 selected descriptors: four original versions1–14 plus eight extensions15–22. The shared32
+tuple cap and1MiB declaration ceiling remain unchanged. Schema3 retains four original slots;
+schema4 retains ten/four-plus-six through20; schema5 retains eleven/four-plus-seven through21.
+Those generations reject22, and schema6 rejects future descriptor purposes. Schemas1–5 retain
+their exact previous bytes, digests, counts and accepted purposes; no factory adds undeclared tuples.
+
+RootIssuerAuthorization2 keeps fields2–12/14–17 above, but explicitly pairs field1 schema2 with
+field13 purpose2. Repeated14 is a caller-selected nonempty subset of13,14,23,30–34,36,37, at most10
+tuples and26 total fields. `signedParentControlCredit` requires an explicit23 grant. Its digest
+domain is `nereus-delay-migration-root-issuer-authorization-v2` and its Ed25519 signature domain is
+`nereus-delay-migration-root-issuer-authorization-signature-v2`, each followed by NUL; the digest
+covers all preceding fields1–15 and the signature covers that digest with its version's domain.
+Schema/purpose mismatches and future versions are rejected without trying another signature domain.
+The original independent management issuer, complete history,1MiB history cap and total byte ceiling
+remain mandatory. Policy1 retains pair(1,1), its original domains, old nine-purpose set/cap9 and25-field
+ceiling, and rejects23. Existing constructors and `signed` still select policy1.
+
+A new A2 embedding policy2 additionally requires the actual pre-A complete ReaderSet object from
+`plan.readerEvidence`. The same original owned-I/O/authentication hold verifies its exact object
+reference/version/length/hash, plan/Source/Store/lineage, eligible revisions/sessions and binary/SDK
+locks through commit. Every eligible reader must declare schema6 and exact descriptor22/matrix58=2,
+and independently retain a descriptor15–21 migration-data matrix under the same base, worker/Kafka
+source commits and SDK JAR locks. Tuple35 or Parent's Native maximum63 alone cannot supply that
+migration/Native32v2 evidence. `OriginalInputs.parentControlCreditReaders` defaults to unavailable;
+`withRootIssuerPolicy` preserves this original held input. An already applied A1 or policy1 is never
+rewritten or reinterpreted as policy2, and an original policy without23 gains no Parent permission.
+
+Parent activation reuses the signed Root tuple authorization and Native53 record2 path above:
+normal Root joins the actual immutable META10/initial grant and original issuer; migration Root
+joins actual A/plan/root and its original policy2 grant. Both retain exact descriptor/base/23/scope/
+lineage and complete reader evidence. Funding requires that activation's actual APPLIED first/POS
+at a strictly prior Source point; reader37's same-P archive exception does not apply. These codec
+registrations establish no production Source qualification, migration retirement or complete-validation claim.
