@@ -21,6 +21,7 @@ public final class ProtocolCapabilityDeclaration {
     public static final int TARGET_VERSION = 3;
     public static final int EXTENDED_TARGET_VERSION = 4;
     public static final int FULL_SOURCE_ARCHIVE_TARGET_VERSION = 5;
+    public static final int PARENT_CONTROL_CREDIT_TARGET_VERSION = 6;
     public static final int DIGEST_LENGTH = 32;
     private static final int MAX_TUPLES = 32;
     private static final int MAX_CANONICAL_BYTES = 1 << 20;
@@ -110,7 +111,13 @@ public final class ProtocolCapabilityDeclaration {
         return new ProtocolCapabilityDeclaration(FULL_SOURCE_ARCHIVE_TARGET_VERSION,workerId,workerIdentity,tuples,artifacts,descriptors,epoch,session,null);
     }
 
-    private static boolean targetVersion(int version){return version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION;}
+    /** Four original plus eight explicit extensions; only this declaration generation admits Parent credit readers. */
+    public static ProtocolCapabilityDeclaration parentControlCreditTarget(String workerId,byte[] workerIdentity,List<ProtocolTuple> tuples,
+            List<ArtifactGenerationSet> artifacts,List<TargetProtocolActivationDescriptor> descriptors,long epoch,byte[] session){
+        return new ProtocolCapabilityDeclaration(PARENT_CONTROL_CREDIT_TARGET_VERSION,workerId,workerIdentity,tuples,artifacts,descriptors,epoch,session,null);
+    }
+
+    private static boolean targetVersion(int version){return version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION||version==PARENT_CONTROL_CREDIT_TARGET_VERSION;}
 
     private ProtocolCapabilityDeclaration(
             final int version,
@@ -134,16 +141,16 @@ public final class ProtocolCapabilityDeclaration {
         final var targets=new ArrayList<>(Objects.requireNonNull(targetDescriptors));
         final var targetOrder=canonicalOrder(targets,TargetProtocolActivationDescriptor::canonicalBytes);
         for(int i=0;i<targets.size();i++)targets.set(i,targetOrder.get(i).value);
-        if(targetVersion(version)?(targets.isEmpty()||targets.size()>(version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?11:version==EXTENDED_TARGET_VERSION?10:4)):!targets.isEmpty())
+        if(targetVersion(version)?(targets.isEmpty()||targets.size()>(version==PARENT_CONTROL_CREDIT_TARGET_VERSION?12:version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?11:version==EXTENDED_TARGET_VERSION?10:4)):!targets.isEmpty())
             throw new IllegalArgumentException("Target declaration requires an explicit finite version3 descriptor set");
-        if(version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION){
+        if(version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION||version==PARENT_CONTROL_CREDIT_TARGET_VERSION){
             final long original=targets.stream().filter(value->!value.extendedRootAuthorization()).count();
-            if(original>4||targets.size()-original>(version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?7:6))throw new IllegalArgumentException("Target declaration exceeds its version's original/extended descriptor slots");
+            if(original>4||targets.size()-original>(version==PARENT_CONTROL_CREDIT_TARGET_VERSION?8:version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?7:6))throw new IllegalArgumentException("Target declaration exceeds its version's original/extended descriptor slots");
         }
         for(int i=0;i<targets.size();i++){
             final var target=targets.get(i);
-            if(version==TARGET_VERSION&&target.extendedRootAuthorization())throw new IllegalArgumentException("new descriptor requires explicit version4 reader declaration");
-            if(version==EXTENDED_TARGET_VERSION&&target.supportsMigrationFullSourceArchive())throw new IllegalArgumentException("complete Source archive descriptor requires explicit version5 reader declaration");
+            final int maximumPurpose=version==TARGET_VERSION?14:version==EXTENDED_TARGET_VERSION?20:version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?21:22;
+            if(target.schemaVersion()>maximumPurpose)throw new IllegalArgumentException("Target descriptor requires its explicit reader declaration generation");
             if(!this.artifactGenerationSets.contains(target.base())||!this.supportedTuples.contains(target.tuple())
                     ||i>0&&Arrays.equals(targetOrder.get(i).key(TargetProtocolActivationDescriptor::canonicalBytes),
                         targetOrder.get(i-1).key(TargetProtocolActivationDescriptor::canonicalBytes)))throw new IllegalArgumentException("Target declaration lost exact base/tuple or duplicated descriptor");

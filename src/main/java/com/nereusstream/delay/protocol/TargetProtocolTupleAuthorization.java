@@ -58,6 +58,9 @@ public record TargetProtocolTupleAuthorization(TargetQuotaIdentity root,byte[] i
             throw new IllegalArgumentException("Root issuer extension changed exact original META10/grant/Source/envelope");
     }
     public void requireMigration(TargetMigrationRoot original,TargetProtocolActivationDescriptor descriptor){requireDescriptor(descriptor);
+        if(descriptor.supportsParentControlCredit()&&(original.rootIssuerAuthorization()==null
+                ||original.rootIssuerAuthorization().schemaVersion()!=2))
+            throw new IllegalArgumentException("Parent reader extension requires its original signed migration Root issuer policy");
         if(original.rootIssuerAuthorization()!=null)original.rootIssuerAuthorization().requireExtension(this);
         if(!migrated()||!original.activated()||!root.equals(original.owner().identity())||!scope.equals(original.plan().scope())||!Arrays.equals(lineage,original.plan().newLineage())
                 ||!Arrays.equals(migrationRootDigest,original.digest())||!Arrays.equals(migrationPlanDigest,original.plan().digest())||!migrationActivation.equals(original.activatedAt())

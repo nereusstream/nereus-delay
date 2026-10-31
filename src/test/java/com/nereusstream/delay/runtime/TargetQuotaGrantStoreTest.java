@@ -500,38 +500,21 @@ class TargetQuotaGrantStoreTest {
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void signedFirstGrantCommitsAllocationResultAndPositionWhileExternalFailureMakesNoWrite(boolean withSnapshot)
             throws Exception {
-        final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
-        final var request = template.request();
-        final var origin = (KafkaSourcePosition) template.mutation().source();
-        final var earlier = source(origin, origin.offset() - 1, origin.brokerLogAppendTimeEpochMs() - 1);
-        final byte[] lineage = bytes(16, 0xcc);
-        final var scope = request.next().scope().shardScope();
-        final var grant = request.next();
-        final long[] rootResources = grant.limit().resources().amounts();
-        Arrays.fill(rootResources, 0, 15, 1L << 30);
-        Arrays.fill(rootResources, 50, 55, 1L << 30);
-        final var rootLimit = new TargetQuotaUsage(new CapacityVector(rootResources), 64, 64, 64, 64);
-        final var rootRequest = new TargetQuotaGrantControlRequest(
-                new TargetQuotaGrant(
-                        scope,
-                        bytes(32, 0x71),
-                        1,
-                        grant.accounting(),
-                        rootLimit,
-                        grant.tenantPolicyVersion(),
-                        grant.tenantPolicyHash()),
-                null,
-                null);
-        final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final var snapshotKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final var actor = new ControlAuthorizationContext(
-                bytes(32, 0xa1), ControlRoleSet.of(ControlRole.PLATFORM_OPERATOR), bytes(32, 0xa2));
-        final var operation = signed(request, bytes(32, 0x72), actor, keys);
-        final var registrations = new InMemoryControlTargetRegistrationAuthority();
-        registrations.register(operation.control());
-        final var rootOperation = signed(rootRequest, bytes(32, 0x70), actor, keys);
-        registrations.register(rootOperation.control());
-        final var rootAuthority = authority(registrations, keys, actor, earlier, rootRequest, (a, b, c, d) -> {});
+        final var fixture = new TargetProtocolStoreTestFixture();
+        final var template = fixture.template;
+        final var request = fixture.request;
+        final var origin = fixture.origin;
+        final var earlier = fixture.earlier;
+        final byte[] lineage = fixture.lineage;
+        final var scope = fixture.scope;
+        final var rootRequest = fixture.rootRequest;
+        final var keys = fixture.keys;
+        final var snapshotKeys = fixture.snapshotKeys;
+        final var actor = fixture.actor;
+        final var operation = fixture.operation;
+        final var registrations = fixture.registrations;
+        final var rootOperation = fixture.rootOperation;
+        final var rootAuthority = fixture.rootAuthority;
         final var config = ShardStoreConfig.defaults(root);
         final var controlImages = new java.util.ArrayList<
                 com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
@@ -614,9 +597,7 @@ class TargetQuotaGrantStoreTest {
                             (a, b, c) -> {}));
             assertEquals(withOrphan, store.latestSequenceNumber());
             store.write(batch -> batch.delete(ColumnFamily.META, orphanKey));
-            final var snapshot = TargetControlSnapshotInput.signed(scope, lineage, rootRequest.next().digest(),
-                    earlier, Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
-                    List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, snapshotKeys.getPrivate());
+            final var snapshot = fixture.snapshot();
             final long beforeSnapshotFailure = store.latestSequenceNumber();
             if (withSnapshot) {
                 assertThrows(IllegalArgumentException.class, () -> TargetStoreBootstrap.prepareWithControlSnapshot(
@@ -4181,18 +4162,7 @@ class TargetQuotaGrantStoreTest {
             KafkaSourcePosition source,
             TargetQuotaGrantControlRequest request,
             TargetQuotaGrantControlVerifier.CapacityAuthority capacity) {
-        return new TargetQuotaGrantControlVerifier.Authority(
-                registrations,
-                (version, position) -> version == 1 ? keys.getPublic() : null,
-                (scope, position) -> {
-                    scope.requireRoute(source.shardId(), request.next().scope().tenantScope());
-                    if (!source.sameSourceIdentity(position)) {
-                        throw new IllegalStateException("foreign source");
-                    }
-                },
-                capacity,
-                actor,
-                prepared -> true);
+        return TargetProtocolStoreTestFixture.authority(registrations, keys, actor, source, request, capacity);
     }
 
     private record Signed(PreparedControlOperation control, SystemMutation mutation) {}
@@ -4293,38 +4263,8 @@ class TargetQuotaGrantStoreTest {
 
     private static Signed signed(
             TargetQuotaGrantControlRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys) {
-        final var ref = new ControlRef(
-                operation,
-                PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
-                0);
-        final var body = new TargetQuotaGrantControlBody(request.next().scope().shard(), 500, ref, request);
-        final var mutation = SystemMutation.signed(
-                body.shard(),
-                SystemMutationType.APPLY_SHARD_CONTROL,
-                body.retryUntil(),
-                body.logicalIdentity(),
-                body.canonicalBytes(),
-                AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
-                        .canonicalBytes(),
-                1,
-                keys.getPrivate());
-        final var target = new ControlTargetRef(
-                0,
-                ControlTargetKind.SHARD,
-                new ShardSubject(body.shard()),
-                mutation.systemMutationId(),
-                mutation.mutationHash());
-        final var control = PreparedControlOperation.prepare(
-                operation,
-                request.operationKind(),
-                new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
-                request.operationRequest(),
-                List.of(target),
-                1,
-                400,
-                1,
-                keys.getPrivate());
-        return new Signed(control, mutation);
+        final var prepared = TargetProtocolStoreTestFixture.signed(request, operation, actor, keys);
+        return new Signed(prepared.control(), prepared.mutation());
     }
 
     private static byte[] systemKey(SystemMutation mutation) {
@@ -4332,27 +4272,15 @@ class TargetQuotaGrantStoreTest {
     }
 
     private static KafkaSourcePosition source(KafkaSourcePosition from, long offset, long time) {
-        return new KafkaSourcePosition(
-                from.shardId(),
-                from.authenticatedClusterId(),
-                from.nativeTopicUuid(),
-                offset,
-                from.leaderEpoch(),
-                time);
+        return TargetProtocolStoreTestFixture.source(from, offset, time);
     }
 
     private static BoundedReadBudget budget() {
-        return new BoundedReadBudget(2048, 32L << 20, 60_000_000_000L, System::nanoTime);
+        return TargetProtocolStoreTestFixture.budget();
     }
 
     private static TargetStoreBackend.CommitGuard guard() {
-        return new TargetStoreBackend.CommitGuard() {
-            @Override
-            public void requireCurrent() {}
-
-            @Override
-            public void close() {}
-        };
+        return TargetProtocolStoreTestFixture.guard();
     }
 
     private static void awaitOxiaRestartGate() throws Exception {

@@ -42,11 +42,26 @@ public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descrip
     /** Existing migration data generation remains a separate reader prerequisite for this activation. */
     public void requireMigrationRootDataReaders(TargetMigrationRoot root){
         final var rootTuple=root.rootIssuerAuthorization()==null?ProtocolTuple.targetMigrationActivate():ProtocolTuple.targetMigrationActivateRootIssuer();
+        requireMigrationRootDataReaders(rootTuple,root.rootIssuerAuthorization()!=null&&root.rootIssuerAuthorization().schemaVersion()==2);
+    }
+    /** Pre-A policy2 is decoded only by explicit Parent readers, alongside the actual migration data matrix. */
+    public void requireMigrationRootIssuerReaders(){
+        if(!descriptor.supportsParentControlCredit())throw new IllegalStateException("pre-A policy2 requires its exact Parent reader descriptor");
+        requireMigrationRootDataReaders(ProtocolTuple.targetMigrationActivateRootIssuer(),true);
+    }
+    private boolean sameReaderLocks(TargetProtocolActivationDescriptor value){
+        return value.base().equals(descriptor.base())&&value.workerSourceCommit().equals(descriptor.workerSourceCommit())
+                &&value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())&&Arrays.equals(value.kafkaSdkJar(),descriptor.kafkaSdkJar())
+                &&Arrays.equals(value.pulsarSdkJar(),descriptor.pulsarSdkJar());
+    }
+    private void requireMigrationRootDataReaders(ProtocolTuple rootTuple,boolean issuerV2){
         for(var reader:readers){final var declaration=reader.declaration();
             if(!declaration.supports(rootTuple))throw new IllegalStateException("eligible reader lacks the actual migration Root generation");
-            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.extendedRootAuthorization()&&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive()||value.supportsMigrationFullSourceArchive())
-                &&value.base().equals(descriptor.base())&&value.workerSourceCommit().equals(descriptor.workerSourceCommit())&&value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())
-                &&Arrays.equals(value.kafkaSdkJar(),descriptor.kafkaSdkJar())&&Arrays.equals(value.pulsarSdkJar(),descriptor.pulsarSdkJar()));
+            if(issuerV2&&(declaration.version()!=ProtocolCapabilityDeclaration.PARENT_CONTROL_CREDIT_TARGET_VERSION
+                    ||declaration.targetDescriptors().stream().noneMatch(value->value.supportsParentControlCredit()&&sameReaderLocks(value))))
+                throw new IllegalStateException("eligible reader lacks the explicit policy2 codec under the actual binary/SDK locks");
+            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.schemaVersion()>=15&&value.schemaVersion()<=21
+                &&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive()||value.supportsMigrationFullSourceArchive())&&sameReaderLocks(value));
             if(!known)throw new IllegalStateException("eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");
         }
     }

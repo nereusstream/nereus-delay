@@ -26,6 +26,16 @@ public final class TargetMigrationStore {
                 PreparedControlOperation prepared,SystemMutation exactInput,SourcePosition actualSource){
             throw new IllegalStateException("A2 lacks its original independent management Root-issuer policy");
         }
+        /**
+         * Reads the complete immutable plan.readerEvidence object through the original owned I/O acquisition.
+         * The same authenticate hold must authenticate its exact object identity/version, plan/Source/Store/lineage,
+         * complete eligible revisions/sessions and actual binary/SDK locks, and retain every pin through commit.
+         * Returning a caller-created reader DTO or an unprotected current membership is insufficient.
+         */
+        default TargetProtocolReaderSet parentControlCreditReaders(TargetMigrationRootIssuerAuthorization statement,
+                TargetMigrationPlan plan,PreparedControlOperation prepared,SystemMutation exactInput,SourcePosition actualSource){
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("policy2 lacks its original authenticated pre-A reader object and held membership");
+        }
         Runnable authenticate(PreparedControlOperation prepared, SystemMutation input, SourcePosition source,
                 TargetMigrationRequest request);
     }
@@ -36,7 +46,8 @@ public final class TargetMigrationStore {
     public static OriginalInputs withRootIssuerPolicy(OriginalInputs original,RootIssuerPolicy policy){
         Objects.requireNonNull(original);Objects.requireNonNull(policy);
         return new OriginalInputs(){public Runnable authenticate(PreparedControlOperation control,SystemMutation input,SourcePosition source,TargetMigrationRequest request){return original.authenticate(control,input,source,request);}
-            public PublicKey originalRootIssuer(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,PreparedControlOperation prepared,SystemMutation input,SourcePosition source){return policy.authenticate(statement,plan,prepared,input,source);}};
+            public PublicKey originalRootIssuer(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,PreparedControlOperation prepared,SystemMutation input,SourcePosition source){return policy.authenticate(statement,plan,prepared,input,source);}
+            public TargetProtocolReaderSet parentControlCreditReaders(TargetMigrationRootIssuerAuthorization statement,TargetMigrationPlan plan,PreparedControlOperation prepared,SystemMutation input,SourcePosition source){return original.parentControlCreditReaders(statement,plan,prepared,input,source);}};
     }
     public record Authority(ControlTargetRegistrationAuthority registrations, Keys keys,
             ControlAuthorizationContext actor, ControlOperationAuthorization.TargetScopeProof scopeProof,
@@ -649,6 +660,11 @@ public final class TargetMigrationStore {
             final var statement=activation.rootIssuerAuthorization();statement.requirePlan(activation.plan());
             final var issuer=authority.inputs().originalRootIssuer(statement,activation.plan(),control,input,source);current.run();
             if(issuer==null||!statement.verifySignature(issuer))throw new IllegalStateException("A2 Root issuer statement lacks original independent policy/signature/pin");
+            if(statement.schemaVersion()==2){
+                final var readers=Objects.requireNonNull(authority.inputs().parentControlCreditReaders(statement,activation.plan(),control,input,source),"original policy2 eligible readers");
+                activation.plan().readerEvidence().requireContent(readers.canonicalBytes());
+                readers.requireMigrationRootIssuerReaders();current.run();
+            }
         }
         return current;
     }

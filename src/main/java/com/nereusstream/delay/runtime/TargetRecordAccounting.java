@@ -3823,7 +3823,7 @@ public final class TargetRecordAccounting {
     }
     private static EnvelopeMaterial envelopeMigrationIssuerFields(){
         var fields=envelopeDrop(envelopeScopeCanonical(),envelopeSourceCanonical());
-        fields=envelopeDrop(fields,envelopeRepeat(envelopeTupleCanonical(),9,false));
+        fields=envelopeDrop(fields,envelopeRepeat(envelopeTupleCanonical(),10,false));
         return envelopeWritten(fields,com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization.MAX_BYTES-102L);
     }
     private static EnvelopeMaterial envelopeMigrationIssuerCanonical(){
@@ -3838,18 +3838,19 @@ public final class TargetRecordAccounting {
         args=envelopeHold(args,envelopeRepeat(envelopeArray(16),2,true));
         args=envelopeHold(args,envelopeNested(TargetQuotaScope.MAX_CANONICAL_BYTES,envelopeScopeDecode()));
         args=envelopeHold(args,envelopeNested(com.nereusstream.delay.protocol.TargetSourcePosition.MAX_CANONICAL_BYTES,envelopeSourceDecode()));
-        args=envelopeHold(args,envelopeRepeat(envelopeNested(26,envelopeTupleDecode()),9,true));
+        args=envelopeHold(args,envelopeRepeat(envelopeNested(26,envelopeTupleDecode()),10,true));
         args=envelopeHold(args,envelopeArray(com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization.MAX_HISTORY_BYTES));
         args=envelopeHold(args,envelopeArray(64));
         var ctor=envelopeHold(envelopeRepeat(envelopeAssigned(32),6,true),envelopeRepeat(envelopeAssigned(16),2,true));
         ctor=envelopeTemporary(ctor,envelopeSourceBounded());
-        ctor=envelopeTemporary(ctor,envelopeRepeat(envelopeTupleCanonical(),9,false));
+        ctor=envelopeTemporary(ctor,envelopeRepeat(envelopeTupleCanonical(),10,false));
         ctor=envelopeHold(ctor,envelopeArray(com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization.MAX_HISTORY_BYTES));
         ctor=envelopeHold(ctor,envelopeArray(64));
         ctor=envelopeTemporary(ctor,envelopeMigrationDigestCheck(envelopeMigrationIssuerFields(),
                 "nereus-delay-migration-root-issuer-authorization-v1\0"));
-        return envelopeMigrationDecoded(n,com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization.MAX_HISTORY_BYTES,25,
+        final var decoded=envelopeMigrationDecoded(n,com.nereusstream.delay.protocol.TargetMigrationRootIssuerAuthorization.MAX_HISTORY_BYTES,26,
                 args,ctor,envelopeMigrationIssuerCanonical());
+        return envelopeTemporary(decoded,envelopeProtoRead(2,2,1,1)); // exact schema prefix chooses the bounded v1/v2 field cap
     }
     private static EnvelopeMaterial envelopeMigrationOriginFields(){
         var fields=envelopeDrop(envelopeMutationCanonical(false),envelopeMigrationRecordCanonical());
@@ -4292,6 +4293,9 @@ public final class TargetRecordAccounting {
                 final var digest=envelopeHash(envelopeMigrationIssuerFields(),"nereus-delay-migration-root-issuer-authorization-v1\0".length());
                 final var signature=envelopeConcat(envelopeHold(envelopeArray("nereus-delay-migration-root-issuer-authorization-signature-v1\0".length()),digest));
                 work=envelopeTemporary(work,signature);
+                // Policy2 requires the complete pre-A ReaderSet object, in addition to its independently held authority.
+                work=envelopeTemporary(work,envelopeMigrationSha(envelopeActivationReadersCanonical()));
+                work=envelopeTemporary(work,envelopeRepeat(envelopeArrays(128,4),2L*64*12,false));
             }
         }
         return envelopeReturn(work,0);
@@ -4925,7 +4929,7 @@ public final class TargetRecordAccounting {
         var fields=envelopeRepeat(envelopeActivationArtifactCanonical(),count,false);
         fields=envelopeDrop(fields,envelopeArrays(32*count,count)); // base.setDigest accessor
         fields=envelopeDrop(fields,envelopeRepeat(envelopeTupleCanonical(),count,false));
-        // Descriptor1..21: at most 50 uint32 version-matrix fields, two-byte tags and <=5-byte values.
+        // Descriptor1..22: at most 50 uint32 version-matrix fields, two-byte tags and <=5-byte values.
         fields=envelopeDrop(fields,envelopeArrays(350*count,count));
         fields=envelopeDrop(fields,envelopeArrays(80*count,2*count)); // two exact 40-byte source commits
         return envelopeActivationBatchWritten(fields,budget,count);
@@ -4965,7 +4969,7 @@ public final class TargetRecordAccounting {
         fields=envelopeDrop(fields,envelopeRepeat(envelopeTupleCanonical(),32*count,false));
         return envelopeActivationBatchWritten(fields,budget,count);
     }
-    private static long envelopeActivationDescriptorSlots(int version){return version==5?11:version==4?10:version==3?4:0;}
+    private static long envelopeActivationDescriptorSlots(int version){return version==6?12:version==5?11:version==4?10:version==3?4:0;}
     private static EnvelopeMaterial envelopeActivationCapabilityFields(int version,long count,long budget){
         var fields=envelopeActivationCapabilitySix(count,budget);
         if(version!=1)fields=envelopeDrop(fields,envelopeRepeat(envelopeActivationArtifactCanonical(),32*count,false));
@@ -4982,7 +4986,7 @@ public final class TargetRecordAccounting {
     }
     private static EnvelopeMaterial envelopeActivationCapabilityCanonical(long count,long budget){
         var graph=envelopeActivationCapabilityCanonical(1,count,budget);
-        for(int version=2;version<=5;version++)graph=envelopeChoice(graph,envelopeActivationCapabilityCanonical(version,count,budget));
+        for(int version=2;version<=6;version++)graph=envelopeChoice(graph,envelopeActivationCapabilityCanonical(version,count,budget));
         return graph;
     }
     private static EnvelopeMaterial envelopeActivationCapabilityDecode(int version,long count,long budget){
@@ -5011,7 +5015,7 @@ public final class TargetRecordAccounting {
     }
     private static EnvelopeMaterial envelopeActivationCapabilityDecode(long count,long budget){
         var graph=envelopeActivationCapabilityDecode(1,count,budget);
-        for(int version=2;version<=5;version++)graph=envelopeChoice(graph,envelopeActivationCapabilityDecode(version,count,budget));
+        for(int version=2;version<=6;version++)graph=envelopeChoice(graph,envelopeActivationCapabilityDecode(version,count,budget));
         return graph;
     }
     private static EnvelopeMaterial envelopeActivationReadersFields(){
@@ -5035,8 +5039,8 @@ public final class TargetRecordAccounting {
         final long kept=readers.held-budget;
         readers=envelopeReturn(readers,kept);
         var constructor=envelopeReturn(envelopeActivationCapabilityCanonical(n,budget),0); // finite-size preflight
-        // supports(descriptor) scans at most eleven descriptors; each equals canonicalizes both operands.
-        constructor=envelopeTemporary(constructor,envelopeRepeat(envelopeComparison(envelopeActivationDescriptorCanonical(),envelopeActivationDescriptorCanonical()),11*n,false));
+        // supports(descriptor) scans at most twelve descriptors; each equals canonicalizes both operands.
+        constructor=envelopeTemporary(constructor,envelopeRepeat(envelopeComparison(envelopeActivationDescriptorCanonical(),envelopeActivationDescriptorCanonical()),12*n,false));
         frame=envelopeHold(frame,envelopeCall(readers,constructor,kept));
         frame=envelopeTemporary(frame,envelopeComparison(envelopeArray(32),envelopeActivationReadersDigest()));
         frame=envelopeTemporary(frame,envelopeActivationReadersCanonical());return envelopeReturn(frame,kept);
@@ -5412,9 +5416,9 @@ public final class TargetRecordAccounting {
         work=envelopeTemporary(work,envelopeComparison(envelopeSourceCanonical(),envelopeSourceCanonical()));
         work=envelopeTemporary(work,envelopeActivationAuthorizationVerify());
         if(migrated){
-            // requireMigrationRootDataReaders scans <=64 declarations and <=11 descriptor candidates;
+            // requireMigrationRootDataReaders scans <=64 declarations and <=12 descriptor candidates;
             // equality of bases/tuples/commits is allocation-free; the four SDK hash accessors copy32 each.
-            work=envelopeTemporary(work,envelopeRepeat(envelopeArrays(128,4),64L*11,false));
+            work=envelopeTemporary(work,envelopeRepeat(envelopeArrays(128,4),2L*64*12,false));
         }
         return envelopeReturn(work,0);
     }

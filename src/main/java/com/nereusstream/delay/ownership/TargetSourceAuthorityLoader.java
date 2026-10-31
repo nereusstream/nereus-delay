@@ -329,16 +329,66 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
                 final var retained = Objects.requireNonNull(a.inputs().authenticate(value.prepared(), original.mutation(),
                         entry.position(), body.request()), "original migration settlement protections");
                 retained.run(); held.requireCurrent(); guard.run();
-                final var captured = new com.nereusstream.delay.runtime.TargetMigrationStore.Authority(frozen,
-                        (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(),
-                        (prepared, input, source, request) -> {
+                final TargetMigrationStore.OriginalInputs local = (prepared, input, source, request) -> {
                             held.requireCurrent(); requireSource(entry, source);
                             if (!Arrays.equals(prepared.canonicalBytes(), value.prepared().canonicalBytes())
                                     || !Arrays.equals(input.canonicalEnvelope(), original.mutation().canonicalEnvelope())
                                     || !Arrays.equals(request.canonicalBytes(), body.request().canonicalBytes()))
                                 throw new IllegalStateException("migration Source hold changed its original exact CONTROL input");
                             retained.run(); held.requireCurrent(); return () -> { held.requireCurrent(); retained.run(); };
-                        });
+                        };
+                TargetMigrationStore.OriginalInputs capturedInputs = local;
+                if (body.request() instanceof TargetMigrationActivateRequest activation
+                        && activation.rootIssuerAuthorization() != null
+                        && activation.rootIssuerAuthorization().schemaVersion() == 2) {
+                    final var statement = activation.rootIssuerAuthorization();
+                    final var policyIssuer = Objects.requireNonNull(a.inputs().originalRootIssuer(statement,
+                            activation.plan(), value.prepared(), original.mutation(), entry.position()),
+                            "original policy2 management issuer");
+                    final var readers = Objects.requireNonNull(a.inputs().parentControlCreditReaders(statement,
+                            activation.plan(), value.prepared(), original.mutation(), entry.position()),
+                            "original complete policy2 reader object");
+                    final byte[] readerBytes = readers.canonicalBytes();
+                    activation.plan().readerEvidence().requireContent(readerBytes);
+                    readers.requireMigrationRootIssuerReaders();
+                    if (!statement.verifySignature(policyIssuer)) {
+                        throw new IllegalStateException("policy2 changed its original independent management signature");
+                    }
+                    final byte[] policyDigest = statement.digest(), planDigest = activation.plan().digest();
+                    held.bytes = Math.addExact(held.bytes,
+                            Math.addExact(readerBytes.length, policyIssuer.getEncoded().length + 64L));
+                    if (held.bytes > maximumBytes) {
+                        throw new IllegalStateException("original policy2 readers exceed the Source input reservation");
+                    }
+                    retained.run(); held.requireCurrent(); guard.run();
+                    capturedInputs = new TargetMigrationStore.OriginalInputs() {
+                        public Runnable authenticate(PreparedControlOperation prepared, SystemMutation input,
+                                SourcePosition source, TargetMigrationRequest request) {
+                            return local.authenticate(prepared, input, source, request);
+                        }
+                        private void requirePolicy(TargetMigrationRootIssuerAuthorization actual,
+                                TargetMigrationPlan plan, PreparedControlOperation prepared,
+                                SystemMutation input, SourcePosition source) {
+                            local.authenticate(prepared, input, source, activation).run();
+                            if (!Arrays.equals(actual.digest(), policyDigest)
+                                    || !Arrays.equals(plan.digest(), planDigest)) {
+                                throw new IllegalStateException("captured policy2 readers changed exact original A/plan");
+                            }
+                        }
+                        public PublicKey originalRootIssuer(TargetMigrationRootIssuerAuthorization actual,
+                                TargetMigrationPlan plan, PreparedControlOperation prepared,
+                                SystemMutation input, SourcePosition source) {
+                            requirePolicy(actual, plan, prepared, input, source); return policyIssuer;
+                        }
+                        public TargetProtocolReaderSet parentControlCreditReaders(
+                                TargetMigrationRootIssuerAuthorization actual, TargetMigrationPlan plan,
+                                PreparedControlOperation prepared, SystemMutation input, SourcePosition source) {
+                            requirePolicy(actual, plan, prepared, input, source); return readers;
+                        }
+                    };
+                }
+                final var captured = new TargetMigrationStore.Authority(frozen,
+                        (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(), capturedInputs);
                 yield new TargetSourceApplyRuntime.MigrationControl(value.prepared(), captured,
                         (prior, request, actualSource) -> {
                             held.requireCurrent(); requireSource(entry, actualSource.source());

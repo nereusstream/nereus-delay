@@ -14,7 +14,8 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     public TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte[] reset,byte[] schema,String worker,String kafka,byte[] kafkaJar,byte[] pulsarJar){
         this(base,reset,schema,worker,kafka,kafkaJar,pulsarJar,5);
     }
-    public boolean extendedRootAuthorization(){return schemaVersion==15||schemaVersion==16||schemaVersion==17||schemaVersion==18||schemaVersion==19||schemaVersion==20||schemaVersion==21;}
+    public boolean extendedRootAuthorization(){return schemaVersion==15||schemaVersion==16||schemaVersion==17||schemaVersion==18||schemaVersion==19||schemaVersion==20||schemaVersion==21||schemaVersion==22;}
+    public boolean supportsParentControlCredit(){return schemaVersion==22;}
     public boolean supportsMigrationObjectPayloadReclaim(){return schemaVersion==15;}
     public boolean supportsMigrationUncommittedObjectReclaim(){return schemaVersion==16;}
     public boolean supportsMigrationRetirementIntent(){return schemaVersion==17;}
@@ -27,25 +28,25 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     /** Archive-format representation boundary; actual frozen Source bytes and service reservation are separate. */
     public int maximumMigrationArchiveSourceFrameBytes(){return supportsMigrationFullSourceArchive()?TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES:supportsMigrationLogicalFirstArchive()?32<<20:0;}
     /** Explicit decoder matrix; these are reader formats, not grants for another tuple. */
-    public int nativeMaximum(){return supportsMigrationLogicalFirstArchive()||supportsMigrationFullSourceArchive()?72:extendedRootAuthorization()?71:schemaVersion>=10?TARGET_NATIVE_MAX:schemaVersion==1?53:schemaVersion==2?54:55;}
-    public int checkpointSchema(){return extendedRootAuthorization()?16:schemaVersion>=14?16:schemaVersion>=13?15:schemaVersion>=12?14:schemaVersion>=11?13:schemaVersion>=10?12:schemaVersion>=9?11:schemaVersion>=8?10:schemaVersion>=7?9:schemaVersion>=6?8:schemaVersion>=5?7:6;}
-    public boolean supportsSourceHistoryRecords(){return schemaVersion>=2;}
-    public boolean supportsAcceptedHistoryTip(){return schemaVersion>=3;}
-    public boolean supportsCapacityOwnerStaging(){return schemaVersion>=4;}
-    public boolean supportsRetainedMarkerConfirmation(){return schemaVersion>=5;}
-    public boolean supportsResourceReclaim(){return schemaVersion>=6;}
-    public boolean supportsInlinePayloadReclaim(){return schemaVersion>=7;}
-    public boolean supportsSelfContainedInlinePayloadReclaim(){return schemaVersion>=8;}
-    public boolean supportsDuplicatePositionReclaim(){return schemaVersion>=14;}
-    public boolean supportsIncarnationReclaim(){return schemaVersion>=13;}
-    public boolean supportsAnchorAllocationReclaim(){return schemaVersion>=12;}
-    public boolean supportsNativeRetainedReclaim(){return schemaVersion>=9;}
+    public int nativeMaximum(){return supportsParentControlCredit()?63:supportsMigrationLogicalFirstArchive()||supportsMigrationFullSourceArchive()?72:extendedRootAuthorization()?71:schemaVersion>=10?TARGET_NATIVE_MAX:schemaVersion==1?53:schemaVersion==2?54:55;}
+    public int checkpointSchema(){return supportsParentControlCredit()?6:extendedRootAuthorization()?16:schemaVersion>=14?16:schemaVersion>=13?15:schemaVersion>=12?14:schemaVersion>=11?13:schemaVersion>=10?12:schemaVersion>=9?11:schemaVersion>=8?10:schemaVersion>=7?9:schemaVersion>=6?8:schemaVersion>=5?7:6;}
+    public boolean supportsSourceHistoryRecords(){return schemaVersion<=21&&schemaVersion>=2;}
+    public boolean supportsAcceptedHistoryTip(){return schemaVersion<=21&&schemaVersion>=3;}
+    public boolean supportsCapacityOwnerStaging(){return schemaVersion<=21&&schemaVersion>=4;}
+    public boolean supportsRetainedMarkerConfirmation(){return schemaVersion<=21&&schemaVersion>=5;}
+    public boolean supportsResourceReclaim(){return schemaVersion<=21&&schemaVersion>=6;}
+    public boolean supportsInlinePayloadReclaim(){return schemaVersion<=21&&schemaVersion>=7;}
+    public boolean supportsSelfContainedInlinePayloadReclaim(){return schemaVersion<=21&&schemaVersion>=8;}
+    public boolean supportsDuplicatePositionReclaim(){return schemaVersion<=21&&schemaVersion>=14;}
+    public boolean supportsIncarnationReclaim(){return schemaVersion<=21&&schemaVersion>=13;}
+    public boolean supportsAnchorAllocationReclaim(){return schemaVersion<=21&&schemaVersion>=12;}
+    public boolean supportsNativeRetainedReclaim(){return schemaVersion<=21&&schemaVersion>=9;}
     /** Descriptor11 separately admits original uncommitted reservation upload closure/terminal history. */
-    public boolean supportsUncommittedObjectPayloadReclaim(){return schemaVersion>=11;}
+    public boolean supportsUncommittedObjectPayloadReclaim(){return schemaVersion<=21&&schemaVersion>=11;}
     /** Descriptor10 admits the exact committed OBJECT intent/confirmation contract. */
-    public boolean supportsObjectPayloadReclaim(){return schemaVersion>=10;}
+    public boolean supportsObjectPayloadReclaim(){return schemaVersion<=21&&schemaVersion>=10;}
     public TargetProtocolActivationDescriptor {
-        if(schemaVersion<1||schemaVersion>21)throw new IllegalArgumentException("unsupported Target descriptor schema");
+        if(schemaVersion<1||schemaVersion>22)throw new IllegalArgumentException("unsupported Target descriptor schema");
         Objects.requireNonNull(base);
         baseResetManifest=TargetCompatibilityCodec.assigned(baseResetManifest,32,"original base reset manifest");
         targetSchemaHash=TargetCompatibilityCodec.assigned(targetSchemaHash,32,"independent Target schema hash");
@@ -60,10 +61,11 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
     @Override public byte[] pulsarSdkJar(){return Bytes.copy(pulsarSdkJar);}
     public ProtocolTuple tuple(){return switch(schemaVersion){
         case 15 -> ProtocolTuple.targetMigrationObjectPayloadReclaim();case 16 -> ProtocolTuple.targetMigrationUncommittedObjectReclaim();
-        case 17 -> ProtocolTuple.targetMigrationRetireIntent();case 18 -> ProtocolTuple.targetMigrationRetireConfirm();case 19 -> ProtocolTuple.targetPayloadObligationSummary();case 20 -> ProtocolTuple.targetMigrationLogicalFirstArchive();case 21 -> ProtocolTuple.targetMigrationFullSourceArchive();
+        case 17 -> ProtocolTuple.targetMigrationRetireIntent();case 18 -> ProtocolTuple.targetMigrationRetireConfirm();case 19 -> ProtocolTuple.targetPayloadObligationSummary();case 20 -> ProtocolTuple.targetMigrationLogicalFirstArchive();case 21 -> ProtocolTuple.targetMigrationFullSourceArchive();case 22 -> ProtocolTuple.targetParentControlCredit();
         default -> legacyTuple();};}
     private ProtocolTuple legacyTuple(){return supportsDuplicatePositionReclaim()?ProtocolTuple.targetDuplicatePositionReclaim():supportsIncarnationReclaim()?ProtocolTuple.targetIncarnationReclaim():supportsAnchorAllocationReclaim()?ProtocolTuple.targetAnchorAllocationReclaim():supportsUncommittedObjectPayloadReclaim()?ProtocolTuple.targetUncommittedObjectReclaim():supportsObjectPayloadReclaim()?ProtocolTuple.targetObjectPayloadReclaim():supportsNativeRetainedReclaim()?ProtocolTuple.targetNativeRetainedReclaim():supportsSelfContainedInlinePayloadReclaim()?ProtocolTuple.targetSelfContainedInlinePayloadReclaim():supportsInlinePayloadReclaim()?ProtocolTuple.targetInlinePayloadReclaim():supportsResourceReclaim()?ProtocolTuple.targetResourceReclaim():ProtocolTuple.targetEvidenceRetirement();}
     private static byte[] versions(int version){
+        if(version==22)return parentControlCreditVersions();
         if(version>=15&&version<=21)return extendedVersions(version);
         return CanonicalProtobuf.message(out->{
         CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,version>=10?TARGET_NATIVE_MAX:version==1?53:version==2?54:55);
@@ -88,6 +90,21 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         if(version>=12)CanonicalProtobuf.uint32(out,38,2);
         if(version>=13)CanonicalProtobuf.uint32(out,39,1);
         if(version>=14)CanonicalProtobuf.uint32(out,40,6);
+    });}
+    private static byte[] parentControlCreditVersions(){return CanonicalProtobuf.message(out->{
+        // The Parent reader purpose has no migration or reclamation permission.
+        CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.uint32(out,2,63);CanonicalProtobuf.uint32(out,3,6);
+        CanonicalProtobuf.uint32(out,7,2);CanonicalProtobuf.uint32(out,8,2);CanonicalProtobuf.uint32(out,9,6);
+        CanonicalProtobuf.uint32(out,10,1);CanonicalProtobuf.uint32(out,11,28);CanonicalProtobuf.uint32(out,15,1);
+        CanonicalProtobuf.uint32(out,41,8);CanonicalProtobuf.uint32(out,43,1);
+        CanonicalProtobuf.uint32(out,51,1); // Native63 Parent credit
+        CanonicalProtobuf.uint32(out,52,1); // immutable initial Root snapshot
+        CanonicalProtobuf.uint32(out,53,1); // Native33 quota incarnation
+        CanonicalProtobuf.uint32(out,54,1); // Native30 applied quota grant
+        CanonicalProtobuf.uint32(out,55,1); // Native35 first/POS result
+        CanonicalProtobuf.uint32(out,56,1); // Native31 aggregate
+        CanonicalProtobuf.uint32(out,57,1); // quota usage/vector accounting
+        CanonicalProtobuf.uint32(out,58,2); // explicit pre-A Root issuer policy reader
     });}
     private static byte[] extendedVersions(int version){return CanonicalProtobuf.message(out->{
         // A separate closed matrix avoids silently inheriting future descriptor privileges.
@@ -140,7 +157,7 @@ public record TargetProtocolActivationDescriptor(ArtifactGenerationSet base,byte
         final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,12,false,"Target activation descriptor");
         QueryCodecSupport.requireNumbers(f,new int[]{1,2,3,4,5,6,7,8,9,10,11,12},"Target activation descriptor");
         final int version=QueryCodecSupport.uint32(f.get(0),1);
-        if((version<1||version>21)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
+        if((version<1||version>22)||!Arrays.equals(QueryCodecSupport.bytes(f.get(6),7),versions(version)))
             throw new IllegalArgumentException("unsupported Target activation descriptor/version combination");
         final var descriptor=new TargetProtocolActivationDescriptor(ArtifactGenerationSet.decode(QueryCodecSupport.bytes(f.get(1),2)),
                 QueryCodecSupport.fixed(f.get(3),4,32),QueryCodecSupport.fixed(f.get(5),6,32),
