@@ -306,7 +306,8 @@ Parent 读者扩展保留原 Source Control/历史权威边界；完整字段登
 | 旧 Declaration | schema3仍4个原descriptor；schema4仍10=4+6、最高20；schema5仍11=4+7、最高21；全部拒绝22，旧bytes/digest/接受集合不变 |
 | RootIssuerAuthorization2 | field1/13严格为2/2；显式非空子集13、14、23、30–34、36、37，最多10项/26 fields；专用 factory 必须显式含23 |
 
-policy2 使用 Registry 登记的独立v2 digest/signature域，完整 fields1–15 进入 digest，
+`TargetMigrationRootIssuerAuthorization` 的 policy2 使用 Registry 登记的独立v2
+digest/signature域，完整 fields1–15 进入 digest，
 原独立 management issuer 按本版本签名域签名；错 schema/purpose、跨域签名或未来版本
 均拒绝，不回退旧域。policy1 继续使用1/1、原v1域、旧9项集合/cap9/25 fields；旧构造及
 `signed` 保持policy1并拒绝23。完整原 plan/Source/Store/lineage/issuer/history 绑定及1MiB

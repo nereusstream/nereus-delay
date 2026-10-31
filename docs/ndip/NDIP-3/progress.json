@@ -2347,8 +2347,9 @@
   ],
   "executionPolicy": {
     "implementationFirst": true,
-    "validationPhase": "CENTRAL_VALIDATION_IN_PROGRESS",
-    "validationSourceCommit": "0894c4135cc2491a2251ccfe97f1643e91d228cc",
+    "validationPhase": "CENTRAL_VALIDATION_INCOMPLETE",
+    "validationBaselineCommit": "0894c4135cc2491a2251ccfe97f1643e91d228cc",
+    "validationSourceCommit": "e1a71140048a3a17f45d19f24e73b091cea59d68",
     "requestedValidationModel": "gpt-6.1-sol",
     "requestedValidationReasoningEffort": "xhigh",
     "requestedImplementationModel": "gpt-6.1-sol",
