@@ -1253,10 +1253,7 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                         throw new IllegalArgumentException("held historical recovery images exceed original input window");
                     final var admission=acquireEvidenceAdmission();
                     synchronized(this){held.coldAdmission=admission;}
-                    final var historical=catalog.authenticateHistoricalConfirmation(source,history.sourceHistory(),admission,images,
-                            registryBudget,nativeBudget,recoveryBudget,()->{current.run();held.requireLoadingCurrent();});
-                    synchronized(this){held.install(historical);held.bytes=Math.addExact(bytes,Math.addExact(historical.retainedBytes(),44L));}
-                    if(held.bytes>maximumBytes)throw new IllegalStateException("actual historical confirmation inputs exceed Source bound");
+                    synchronized(this){held.prepareHistorical(source,cold,catalogReads,images,maximumBytes);}
                     held.requireCurrent();current.run();return held;
                 }catch(RuntimeException|Error failure){
                     failed(failure);synchronized(this){held.reading=false;}
@@ -1270,15 +1267,28 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             private final RetirementHistoryInput history;
             private final PayloadPreparation payload;
             private long bytes;
-            private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Confirmation input;
+            private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs input;
             private final com.nereusstream.delay.protocol.TargetQuotaScope scope;
             private OxiaSyncTargetKafkaReceiptProtectionCatalog.HistoricalConfirmation historical;
             private TargetEvidenceObjectLifecycleAuthority.AdmissionProtection coldAdmission;
-            private boolean reading=true,closing,closed;
+            private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.PendingConfirmation pending;
+            private com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead confirmationSource;
+            private ColdConfirmationInputs cold;
+            private Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads;
+            private List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images;
+            private long maximumBytes;
+            private boolean reading=true,authenticating,closing,closed;
             private ConfirmationSourceInputs(Opening root,com.nereusstream.delay.ownership.SourceReplayMutation entry,
                     com.nereusstream.delay.protocol.TargetQuotaScope scope,RetirementHistoryInput history,PayloadPreparation payload,long bytes){
                 this.root=root;this.entry=entry;this.history=history;this.payload=payload;this.bytes=bytes;this.scope=scope;
                 if(payload!=null||history.grant().filter(value->entry.mutation().verifySignature(value.writerKey())).isEmpty())install(null);
+            }
+            private void prepareHistorical(com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source,
+                    ColdConfirmationInputs cold,Supplier<com.nereusstream.delay.store.BoundedReadBudget> catalogReads,
+                    List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,long maximumBytes){
+                confirmationSource=source;this.cold=cold;this.catalogReads=catalogReads;this.images=images;this.maximumBytes=maximumBytes;
+                pending=com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.pendingHistoricalConfirmation(scope,history.sourceHistory());
+                input=pending;reading=false;
             }
             private void install(OxiaSyncTargetKafkaReceiptProtectionCatalog.HistoricalConfirmation historical){
                 this.historical=historical;
@@ -1293,17 +1303,45 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             public com.nereusstream.delay.ownership.SourceReplayEntry entry(){return entry;}
             public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Inputs inputs(){return input;}
             public long retainedBytes(){return bytes;}
+            @Override public com.nereusstream.delay.runtime.TargetEvidenceRetirementStore.ConfirmationApproval confirmationAfterPreparation(
+                    com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.PendingConfirmation selected,
+                    com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source,
+                    com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof prepared){
+                requireCurrent();prepared.requireInput(entry.mutation(),entry.position());prepared.requireCurrent();
+                synchronized(root){
+                    if(selected!=pending||source!=confirmationSource)throw new IllegalArgumentException("historical confirmation changed its original Source hold");
+                    if(historical!=null)return ((com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Confirmation)input).approval();
+                    if(authenticating)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("original historical confirmation I/O remains owned");
+                    authenticating=true;
+                }
+                try{
+                    final var actual=root.catalog.authenticateHistoricalConfirmation(source,history.sourceHistory(),coldAdmission,images,
+                            Objects.requireNonNull(catalogReads.get()),Objects.requireNonNull(cold.nativeReads().get()),
+                            Objects.requireNonNull(cold.recoveryReads().get()),this::requireCurrent,prepared);
+                    synchronized(root){
+                        historical=actual;bytes=Math.addExact(bytes,Math.addExact(actual.retainedBytes(),44L));
+                        install(actual);
+                    }
+                    if(bytes>maximumBytes)throw new IllegalStateException("actual historical confirmation inputs exceed Source bound");
+                    requireCurrent();prepared.requireCurrent();
+                    return ((com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Confirmation)input).approval();
+                }catch(com.nereusstream.delay.runtime.TargetRetirementPreparation.ViewChanged
+                        |com.nereusstream.delay.store.ReadIncompleteException retryable){throw retryable;}
+                catch(RuntimeException|Error failure){root.failed(failure);throw failure;}
+                finally{synchronized(root){authenticating=false;}}
+            }
             /** Immutable observation/history and actual local loan state only; no Worker/Registry/provider RPC at commit. */
             private void requireLoadingCurrent(){synchronized(root){
                 if(closed||closing||root.confirmationSourceInputs!=this)throw new IllegalStateException("original confirmation Source input closed");
                 root.requireReady();history.requireCurrent();if(payload!=null)payload.requireRoot(root);
             }}
             public void requireCurrent(){requireLoadingCurrent();if(reading||input==null)throw new IllegalStateException("historical Source I/O has not exited");
+                if(coldAdmission!=null)coldAdmission.requireCurrent();
                 if(historical!=null)historical.requireCurrent();}
             public void close(){
                 synchronized(root){if(closed)return;if(closing)throw new IllegalStateException("original confirmation input close remains owned");closing=true;}
                 try{
-                    if(reading)throw new IllegalStateException("original historical Source I/O remains owned");
+                    if(reading||authenticating)throw new IllegalStateException("original historical Source I/O remains owned");
                     if(historical!=null)historical.close();
                     final TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission;
                     synchronized(root){admission=!root.stopping&&root.failure==null?coldAdmission:null;

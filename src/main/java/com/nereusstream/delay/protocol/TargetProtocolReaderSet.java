@@ -44,7 +44,7 @@ public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descrip
         final var rootTuple=root.rootIssuerAuthorization()==null?ProtocolTuple.targetMigrationActivate():ProtocolTuple.targetMigrationActivateRootIssuer();
         for(var reader:readers){final var declaration=reader.declaration();
             if(!declaration.supports(rootTuple))throw new IllegalStateException("eligible reader lacks the actual migration Root generation");
-            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.extendedRootAuthorization()&&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive())
+            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.extendedRootAuthorization()&&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive()||value.supportsMigrationFullSourceArchive())
                 &&value.base().equals(descriptor.base())&&value.workerSourceCommit().equals(descriptor.workerSourceCommit())&&value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())
                 &&Arrays.equals(value.kafkaSdkJar(),descriptor.kafkaSdkJar())&&Arrays.equals(value.pulsarSdkJar(),descriptor.pulsarSdkJar()));
             if(!known)throw new IllegalStateException("eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");

@@ -2174,3 +2174,70 @@ QUERY预算、Owner/read权限/Source barrier和状态语义保持；metadata点
 Message view/Command await。F3与交接如实保留独立Gateway限制，不掩盖既有语义回归。
 任何当前合法Query/控制仍需oldshadow/原材料都阻断T/R，未配置Gateway不证明全域
 无Query/Pin/noFuture；原typed closed-contract和完整材料仍是唯一资格来源。
+
+## 2026-10-31：完整 Source 服务门与 Archive 大帧版本
+
+E6补一个闭合Source family服务计算/校验接点，按实际codec/Native版本、cardinality及
+收费点推导独立读写与实际副本/保留需求，再用现有Limits同时覆盖。互斥分支取max，
+每个copy/pass系数来自实际调用和生命周期；不以服务budget反推合法形状、不新增caller
+声明DTO/插件registry/倍率knob。queue仍是完整frame+SourcePosition，plan与原Held输入
+分别计入原Process预留，静态encoded/copy/work不冒充JVM/RSS/硬实时。基础family先核，
+实际声明/Root及持久required generation在READY前最终核，扩大能力也核新family，不能
+凭producer开关忽略已有合法输入。writer/retirement既有多turn和独立长loan责任保留。
+
+Native GC正式配置接现有维护注册/Host tick。原Catalog/history/admission/images已有
+真实材料的历史确认适配，先保PendingConfirmation原hold，完整R proof后才读原intent并
+形成原approval；不能用旧perturn/BUFFERED_BYTES制造完整准备容量或新管理权。
+
+COPY期间原I晚到physical副本实际会经SystemReplay→POSITION_SYSTEM→archive tail，
+不能由SDK退出/closed-contract排除。32MiB ArchiveRequest上限不等于所有合法Source
+frame上限：I/R body已有96/224MiB，还含Control/envelope/framing。UNKNOWN的旧opaque
+transfer/retry字段没有独立byte cap，224MiB只属已闭合固定family的body项。保持完整
+inline与原opaque语义，不新Outcome版本、exact-ref/远端路径或截断内容。
+
+旧Native72 schema1、Native71 archive schema2的bytes/digest/32MiB frame及各encoded
+ceiling冻结；新Native72 schema2/Native71 schema3显式按版本decode/max，Source/first/
+physical语义不变。COPY/T请求仍原32MiB/op40/kind39/tuple36与原管理权限。新增reader
+descriptor21/tuple37专声明新schema的格式可表示边界；旧1–20/默认14 Native56不变。
+CapabilityDeclaration显式v5上限11，旧v1–v4上限/bytes及tuple集合32冻结。
+
+写新schema前须实际新reader资格，新COPY建立该前提；旧descriptor20 image/prefix
+沿原受保护Source升级，不以新版binary自升级/跳Source，缺资格保原Source/owner/loan。
+大row/head/before/prospectiveProof/packet并存纳入E6真实分支，同批按实际encoded计费，
+不反向扩大COPY请求或制造额外record；实际physical/JVM/paid loan继续独立资格。
+
+旧HEAD上的真实descriptor21激活P自身也进入tail；仅此批可消费同一Native原子批内
+完整认证的P overlay。只从费用/tail前inputBusiness选exact Native53键，decodeForStore
+核原签名/Root/readers、明确21/37、scope/lineage/root及appliedAt等于本stamp，marker
+为当前完整Source input/position/digest，并有同stamp APPLIED/OK first和POSITION；
+原requireApplied以本stamp作frontier复核。仅授权P自己的新tail表示，不改全局
+readerAuthorized/business.requireAfter，不允许未来、拒绝、stale或仅POSITION副本。
+资格不在commit前发布；失败不生效、UNKNOWN保原hold。cold/checkpoint同样独立认此
+唯一等号，不以新tail反证P。P之前已排队大frame不跳prefix/倒签，缺实际部署事实时
+不新增另一恢复/升级流程。
+
+UNKNOWN按实际完整frame长度F推导parse/copy/canonical及保留窗口需求，在decode/copy前
+用原真实预算预检/借用。正式全输入READY还须真实Source冻结上界M：绑定exact Source/
+shard/范围/世代，覆盖仍需重放的保留prefix与未来全部相关writer的实际入队约束，持续
+有效。复用原trusted composition root/Held/Source admission材料的最小绑定，缺完整
+事实保持Unavailable/OPEN；调用者整数、当前broker/producer开关、SDK配置或bodyLimits
+均不证明该覆盖，未来入队约束也不能倒证旧prefix。M不缩减其它固定family合法max。
+已存在且超过当前容量的合法旧UNKNOWN保原Source/raw/attempt/费用/loan，不ACK推进、
+伪REJECTED/NOT_PUBLISHED或释放责任；原流程取得足额真实容量/更新资格后才处理。
+
+新版Native71/72以long checked计算完整canonical/envelope及元数据尺寸，在byte[]/
+framing不可表示前拒绝组装；ShardLogFrame的形式边界不是可服务2GiB/JVM/物理容量证明。
+新COPY/新schema写入及P自身同批tail均须同时满足真实Source M和实际Native编码/原loan
+资格；无法表示或支付保原输入责任、archive资格Unavailable。cold/reopen按现存新schema
+材料的实际尺寸及原loan复核，不能仅看未来M，也不因此另造通用admission服务。
+
+pre-A真实reader同样核实际frame/envelope/body解码、原raw及F的copy/field/retained成本，
+但纯reader资格不加载不存在的新TargetRoot或全部Target Native写计划。原sealed
+MigrationSourceOpening可在真实Inputs生命周期内私铸旧域FrameOpening，绑定同一次
+Driver/maintenance acquisition、accepted assignment/Owner/session、实际Source及认证
+旧Manifest/PlanAuthority中的oldStore/dbIdentity/oldlineage/cut，已打开的legacyCopy须
+同对象/metadata。材料未可得时按原顺序延后reader；不借Startup或伪Root。
+原SourceHandle须持续证明该读目的/旧域/范围从实际baseline/cut起的保留prefix与reader
+存续全部未来入队者，原SDK/read/IO/codec/shared子loan实际已付。完整认证在原OwnedIO/
+opening，handoff前后仅local；替换/stop撤销，真实退出前不退loan。跨A同reader只有原
+覆盖仍成立才可续读；Target apply仍由实际A/Root/Startup独立授权，不复制额度/转域。

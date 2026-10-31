@@ -1131,45 +1131,79 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
             List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
             BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,BoundedReadBudget recoveryReads,Runnable current){
-        requireManagedMarkerInputOwner();final var entry=Objects.requireNonNull(source).entry();
-        final var selected=entry.mutation();final var body=TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody());
-        if(!body.markerRetained())throw new IllegalArgumentException("historical retained-marker confirmation required");
-        for(var reads:List.of(catalogReads,nativeReads,recoveryReads))if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite historical reads required");
-        current.run();source.requireCurrent();final var grant=history.select(body.resource(),selected,entry.position()).orElseThrow(
-                ()->new ProtectionUnavailable("complete historical DELETE_CONFIRMATION grant is unavailable"));
-        if(grant.action()!=TargetRetirementAuthorizationHistory.Action.DELETE_CONFIRMATION||!selected.verifySignature(grant.writerKey()))
-            throw new ProtectionUnavailable("historical confirmation signature/purpose is unavailable");
-        final var originalCatalog=source.catalog();admission.requireCurrent();
-        originalCatalog.requireHistoricalRecoveryBinding(admission.qualifiedHistory().history(),body.resource(),entry.position());
-        final var intent=source.readIntent(nativeReads,history,grant);requireSupportedProtectionDeclarations(intent.record().intent());
-        final var root=readRoot(catalogReads).root;
-        requireExact(root.binding.policy.scope().canonicalBytes(),admission.qualifiedHistory().history().scope().canonicalBytes());
-        final var marker=body.markerEvidence().marker();intent.record().copy().requireMarker(marker);
-        final var closure=closedSnapshot(root,marker.exactKey(),marker.objectDigest());closure.requireObjectFingerprint(body.resource());
-        requireExact(closure.canonicalBytes(),intent.record().copy().closureImage());
-        final var pending=Objects.requireNonNull(root.markers.get(marker.exactKey()),"historical durable marker reservation");
-        requireExact(pending.marker.canonicalBytes(),marker.canonicalBytes());
-        if(pending.settlement!=null)pending.settlement.requireConfirmation(selected,body);
-        requireExact(readCapacityOwner(closure,catalogReads,current).reference().canonicalBytes(),marker.capacityOwner().canonicalBytes());
-        final var recovery=originalCatalog.captureHistoricalRecoveryProtection(intent,selected,entry.position(),images,recoveryReads,
-                ()->{current.run();source.requireCurrent();admission.requireCurrent();});
-        final var original=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.closure.managementTopicId)),"original historical read management");
-        final var permission=trust.currentManagement(original.artifact,Action.OBSERVE);
+        return authenticateHistoricalConfirmation(source,history,admission,images,catalogReads,nativeReads,recoveryReads,current,null);
+    }
+    /** Same historical authority and actual observations, consumed only after the original same-view Native preparation. */
+    public HistoricalConfirmation authenticateHistoricalConfirmation(
+            com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source,
+            TargetEvidenceRetirementStore.SourceHistory history,
+            com.nereusstream.delay.ownership.TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission,
+            List<com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage> images,
+            BoundedReadBudget catalogReads,BoundedReadBudget nativeReads,BoundedReadBudget recoveryReads,Runnable current,
+            TargetRetirementPreparation.Proof prepared){
+        final long catalogRows=catalogReads.actualRecords(),catalogBytes=catalogReads.actualBytes();
+        final long recoveryRows=recoveryReads.actualRecords(),recoveryBytes=recoveryReads.actualBytes();
+        long nativeChargedRows=0,nativeChargedBytes=0;
+        HistoricalConfirmation completed=null;
         try{
-            permission.requireCurrent();admission.requireCurrent();current.run();
-            final var actual=persistent(read(marker.exactKey(),catalogReads,Math.toIntExact(Math.max(marker.payloadBytes(),marker.canonicalBytes().length))));
-            if(actual==null)throw new ProtectionUnavailable("historical persistent marker is unavailable");
-            requireExact(actual.value(),marker.canonicalBytes());requireExact(Bytes.u64beBits(actual.version().versionId()),body.markerEvidence().observedMarkerVersion());
-            final var after=readRoot(catalogReads).root;
-            requireExact(after.binding.policy.scope().canonicalBytes(),root.binding.policy.scope().canonicalBytes());
-            requireExact(closedSnapshot(after,marker.exactKey(),marker.objectDigest()).canonicalBytes(),closure.canonicalBytes());
-            final var afterReservation=Objects.requireNonNull(after.markers.get(marker.exactKey()));
-            requireExact(afterReservation.marker.canonicalBytes(),marker.canonicalBytes());
-            if(afterReservation.settlement!=null)afterReservation.settlement.requireConfirmation(selected,body);
-            recovery.requireCurrent(recoveryReads,current);source.requireCurrent();history.current().run();admission.requireCurrent();permission.requireCurrent();current.run();
-            if(!catalogReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw new ProtectionUnavailable("historical confirmation read deadline exhausted");
-            final var result=new HistoricalConfirmation(this,source,admission,recovery,intent,permission);result.requireEntry(entry);return result;
-        }catch(RuntimeException|Error failure){permission.close();throw failure;}
+            requireManagedMarkerInputOwner();final var entry=Objects.requireNonNull(source).entry();
+            final var selected=entry.mutation();final var body=TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody());
+            if(!body.markerRetained())throw new IllegalArgumentException("historical retained-marker confirmation required");
+            if(prepared!=null){prepared.requireInput(selected,entry.position());prepared.requireCurrent();}
+            for(var reads:List.of(catalogReads,nativeReads,recoveryReads))if(reads.maxBytes()==Long.MAX_VALUE)throw new IllegalArgumentException("finite historical reads required");
+            current.run();source.requireCurrent();final var grant=history.select(body.resource(),selected,entry.position()).orElseThrow(
+                    ()->new ProtectionUnavailable("complete historical DELETE_CONFIRMATION grant is unavailable"));
+            if(grant.action()!=TargetRetirementAuthorizationHistory.Action.DELETE_CONFIRMATION||!selected.verifySignature(grant.writerKey()))
+                throw new ProtectionUnavailable("historical confirmation signature/purpose is unavailable");
+            final var originalCatalog=source.catalog();admission.requireCurrent();
+            originalCatalog.requireHistoricalRecoveryBinding(admission.qualifiedHistory().history(),body.resource(),entry.position());
+            final TargetEvidenceRetirementStore.AppliedIntent intent;
+            final long nativeRows=nativeReads.actualRecords(),nativeBytes=nativeReads.actualBytes();
+            try{intent=prepared==null?source.readIntent(nativeReads,history,grant):source.readIntent(nativeReads,history,grant,prepared);}
+            finally{nativeChargedRows=nativeReads.actualRecords()-nativeRows;nativeChargedBytes=nativeReads.actualBytes()-nativeBytes;}
+            requireSupportedProtectionDeclarations(intent.record().intent());
+            final var root=readRoot(catalogReads).root;
+            requireExact(root.binding.policy.scope().canonicalBytes(),admission.qualifiedHistory().history().scope().canonicalBytes());
+            final var marker=body.markerEvidence().marker();intent.record().copy().requireMarker(marker);
+            final var closure=closedSnapshot(root,marker.exactKey(),marker.objectDigest());closure.requireObjectFingerprint(body.resource());
+            requireExact(closure.canonicalBytes(),intent.record().copy().closureImage());
+            final var pending=Objects.requireNonNull(root.markers.get(marker.exactKey()),"historical durable marker reservation");
+            requireExact(pending.marker.canonicalBytes(),marker.canonicalBytes());
+            if(pending.settlement!=null)pending.settlement.requireConfirmation(selected,body);
+            requireExact(readCapacityOwner(closure,catalogReads,current).reference().canonicalBytes(),marker.capacityOwner().canonicalBytes());
+            final var recovery=originalCatalog.captureHistoricalRecoveryProtection(intent,selected,entry.position(),images,recoveryReads,
+                    ()->{current.run();source.requireCurrent();admission.requireCurrent();});
+            final var original=Objects.requireNonNull(root.topics.get(Bytes.hex(closure.closure.managementTopicId)),"original historical read management");
+            final var permission=trust.currentManagement(original.artifact,Action.OBSERVE);
+            try{
+                permission.requireCurrent();admission.requireCurrent();current.run();
+                final var actual=persistent(read(marker.exactKey(),catalogReads,Math.toIntExact(Math.max(marker.payloadBytes(),marker.canonicalBytes().length))));
+                if(actual==null)throw new ProtectionUnavailable("historical persistent marker is unavailable");
+                requireExact(actual.value(),marker.canonicalBytes());requireExact(Bytes.u64beBits(actual.version().versionId()),body.markerEvidence().observedMarkerVersion());
+                final var after=readRoot(catalogReads).root;
+                requireExact(after.binding.policy.scope().canonicalBytes(),root.binding.policy.scope().canonicalBytes());
+                requireExact(closedSnapshot(after,marker.exactKey(),marker.objectDigest()).canonicalBytes(),closure.canonicalBytes());
+                final var afterReservation=Objects.requireNonNull(after.markers.get(marker.exactKey()));
+                requireExact(afterReservation.marker.canonicalBytes(),marker.canonicalBytes());
+                if(afterReservation.settlement!=null)afterReservation.settlement.requireConfirmation(selected,body);
+                recovery.requireCurrent(recoveryReads,current);source.requireCurrent();history.current().run();admission.requireCurrent();permission.requireCurrent();current.run();
+                if(!catalogReads.beforeTimedWork()||!nativeReads.beforeTimedWork())throw new ProtectionUnavailable("historical confirmation read deadline exhausted");
+                final var result=new HistoricalConfirmation(this,source,admission,recovery,intent,permission);result.requireEntry(entry);
+                if(prepared!=null)prepared.requireCurrent();completed=result;return result;
+            }catch(RuntimeException|Error failure){permission.close();throw failure;}
+        }finally{
+            if(prepared!=null){
+                long rows=catalogReads.actualRecords()-catalogRows,bytes=catalogReads.actualBytes()-catalogBytes;
+                if(recoveryReads!=catalogReads){rows=Math.addExact(rows,recoveryReads.actualRecords()-recoveryRows);bytes=Math.addExact(bytes,recoveryReads.actualBytes()-recoveryBytes);}
+                // ConfirmationRead already debits its actual Native reads, including a shared budget's Native portion.
+                if(nativeReads==catalogReads||nativeReads==recoveryReads){rows-=nativeChargedRows;bytes-=nativeChargedBytes;}
+                try{prepared.debitReads(rows,bytes);}
+                catch(RuntimeException|Error failure){
+                    if(completed!=null)try{completed.close();}catch(RuntimeException|Error cleanup){failure.addSuppressed(cleanup);}
+                    throw failure;
+                }
+            }
+        }
     }
     public static void requireSupportedProtectionDeclarations(SystemMutation selected){
         final var body=TargetEvidenceRetireIntentBody.decode(Objects.requireNonNull(selected).canonicalBody());

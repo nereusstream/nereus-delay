@@ -274,24 +274,36 @@ public final class TargetSloControlScopeHeader {
             throw new IllegalArgumentException("registry key prefix must be bounded canonical NFC UTF-8 without trailing slash");
         return value;
     }
+    private record CanonicalOrder<T>(T value,byte[] key) {}
+
     private static List<AuthorIdentity> services(List<AuthorIdentity> aliases) {
         if (aliases == null || aliases.isEmpty() || aliases.size() > MAX_SERVICE_ALIASES) throw new IllegalArgumentException("finite SERVICE aliases required");
-        final var values = new ArrayList<>(aliases);
-        for (var alias : values) if (Objects.requireNonNull(alias).kind() != AuthorIdentity.Kind.SERVICE
-                || alias.canonicalBytes().length > TargetSloObservationPolicy.MAX_SERVICE_BYTES) throw new IllegalArgumentException("invalid Scope SERVICE alias");
-        values.sort((a, b) -> Arrays.compareUnsigned(a.canonicalBytes(), b.canonicalBytes()));
-        for (int n = 1; n < values.size(); n++) if (Arrays.equals(values.get(n - 1).canonicalBytes(), values.get(n).canonicalBytes()))
+        final var ordered = new ArrayList<CanonicalOrder<AuthorIdentity>>(aliases.size());
+        for (var alias : aliases) {
+            if(Objects.requireNonNull(alias).kind()!=AuthorIdentity.Kind.SERVICE)
+                throw new IllegalArgumentException("invalid Scope SERVICE alias");
+            final byte[] key=alias.canonicalBytes();
+            if(key.length>TargetSloObservationPolicy.MAX_SERVICE_BYTES)
+                throw new IllegalArgumentException("invalid Scope SERVICE alias");
+            ordered.add(new CanonicalOrder<>(alias,key));
+        }
+        ordered.sort((a,b)->Arrays.compareUnsigned(a.key,b.key));
+        for (int n = 1; n < ordered.size(); n++) if (Arrays.equals(ordered.get(n - 1).key, ordered.get(n).key))
             throw new IllegalArgumentException("duplicate Scope SERVICE alias");
-        return List.copyOf(values);
+        return ordered.stream().map(CanonicalOrder::value).toList();
     }
     private static List<ProtocolTuple> tuples(List<ProtocolTuple> tuples) {
         if (tuples == null || tuples.isEmpty() || tuples.size() > MAX_PROTOCOLS) throw new IllegalArgumentException("finite Scope protocol range required");
-        final var values = new ArrayList<>(tuples);
-        for (var tuple : values) if (Objects.requireNonNull(tuple).recordKind() != ProtocolTuple.SYSTEM_MUTATION)
-            throw new IllegalArgumentException("Scope protocols must be System Mutation tuples");
-        values.sort((a, b) -> Arrays.compareUnsigned(a.canonicalBytes(), b.canonicalBytes()));
-        for (int n = 1; n < values.size(); n++) if (values.get(n - 1).equals(values.get(n))) throw new IllegalArgumentException("duplicate Scope protocol tuple");
-        return List.copyOf(values);
+        final var ordered=new ArrayList<CanonicalOrder<ProtocolTuple>>(tuples.size());
+        for(var tuple:tuples){
+            if(Objects.requireNonNull(tuple).recordKind()!=ProtocolTuple.SYSTEM_MUTATION)
+                throw new IllegalArgumentException("Scope protocols must be System Mutation tuples");
+            ordered.add(new CanonicalOrder<>(tuple,tuple.canonicalBytes()));
+        }
+        ordered.sort((a,b)->Arrays.compareUnsigned(a.key,b.key));
+        for(int n=1;n<ordered.size();n++)if(ordered.get(n-1).value.equals(ordered.get(n).value))
+            throw new IllegalArgumentException("duplicate Scope protocol tuple");
+        return ordered.stream().map(CanonicalOrder::value).toList();
     }
     @Override public boolean equals(Object other) { return other instanceof TargetSloControlScopeHeader that && Arrays.equals(canonicalBytes(), that.canonicalBytes()); }
     @Override public int hashCode() { return Arrays.hashCode(digest); }

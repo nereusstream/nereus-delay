@@ -7,6 +7,7 @@ import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplaySuccessor;
 import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
+import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
@@ -71,6 +72,12 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private boolean hasDelivered;
     private PulsarSourcePosition lastDelivered;
     private SourceReplayEntry lastDeliveredEntry;
+    private TargetWorkerSourceStartup.FrameDecodeLoan frameDecode;
+    private SourcePosition frameDecodePosition;
+    private long frameDecodeBytes;
+    private Long frameDecodeGeneration;
+    private byte[] frameDecodeGuard;
+    private SourceReplayEntry decodedFrameEntry;
     private ReplayTail readThrough;
     private CompletableFuture<?> replayTailIo;
     private boolean replayTailCaptureStarted;
@@ -401,7 +408,8 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         barrier.validatePosition(entry.position());
     }
     @Override public synchronized boolean cleanupComplete() {
-        return closed && cleanup.cleanupComplete() && (replayTailIo == null || replayTailIo.isDone());
+        return closed && cleanup.cleanupComplete() && (replayTailIo == null || replayTailIo.isDone())
+                && (frameDecode == null || frameDecode.cleanupComplete());
     }
 
     /** Observes one finite tail on the original independent reader; it does not change the signed barrier. */
@@ -563,6 +571,9 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         ensureOpen();
         try {
             return cleanup.read(receiveTimeoutMs, ignored -> load());
+        } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+            // Keep the same unacknowledged native message and actual loan for a capacity retry.
+            throw unavailable;
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             if (target) { revokeLocalProtection(); }
@@ -582,6 +593,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         requireFullProtection();
         final boolean independentReplay = target && (sourceStartup != null || migrationOpening != null);
         if (current != null) {
+            if (frameDecode != null) frameDecode.requireCurrent();
             requireProof();
             if (independentReplay) { requireReplayBound((PulsarSourcePosition) current.position()); }
             return true;
@@ -620,14 +632,21 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             if (!before.equals(after)) {
                 throw new IllegalStateException("Pulsar recovery proof changed during receive");
             }
-            if (target && (message.getData() == null || message.getData().length > maximumFrameBytes)) {
-                throw new IllegalStateException("Target recovery Source frame exceeds its declared byte bound");
+            if (target) {
+                final var position = PulsarClientArtifactSourceRecordConsumer.position(
+                        message, assignment.shardId(), physicalTopic, after.attestation());
+                if (independentReplay) requireReplayBound(position);
+                retainFrameDecode(position, message.size(), after.generation(), after.digest());
             }
             final SourceReplayEntry decoded = target
                     ? PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message, assignment.shardId(),
                             physicalTopic, after.attestation(), after.generation(), after.digest())
                     : PulsarClientArtifactSourceRecordConsumer.decodeReplayRecord(message, assignment.shardId(),
                             physicalTopic, after.attestation(), after.generation(), after.digest());
+            if (target) {
+                frameDecode.retainDecoded(decoded);
+                decodedFrameEntry = decoded;
+            }
             if (independentReplay) {
                 requireReplayBound((PulsarSourcePosition) decoded.position());
             }
@@ -677,6 +696,53 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         return result;
     }
 
+    private void retainFrameDecode(SourcePosition position, long bytes, Long generation, byte[] guard) {
+        if (frameDecode == null) {
+            frameDecode = sourceStartup != null
+                    ? sourceStartup.acquireFrameDecode(position, bytes, generation, guard)
+                    : migrationOpening != null
+                            ? migrationOpening.acquireFrameDecode(position, bytes, generation, guard)
+                            : missingFrameDecode();
+            frameDecodePosition = position;
+            frameDecodeBytes = bytes;
+            frameDecodeGeneration = generation;
+            frameDecodeGuard = guard;
+        } else if (frameDecodeBytes != bytes || !Objects.equals(frameDecodeGeneration, generation)
+                || !Arrays.equals(frameDecodeGuard, guard)
+                || !Arrays.equals(frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
+            throw new IllegalStateException("Pulsar recovery changed its retained raw Source frame");
+        }
+        frameDecode.requireCurrent();
+    }
+
+    private static TargetWorkerSourceStartup.FrameDecodeLoan missingFrameDecode() {
+        throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                "Pulsar recovery lacks the original complete Source frame hold");
+    }
+
+    @Override public synchronized void releaseDecoded(SourceReplayEntry actual) {
+        if (!target) return;
+        if (actual != decodedFrameEntry || actual != lastDeliveredEntry || frameDecode == null) {
+            throw new IllegalStateException("Pulsar replay release changed its original decoded delivery");
+        }
+        releaseFrameDecode();
+        lastDeliveredEntry = null;
+    }
+
+    private void releaseFrameDecode() {
+        if (frameDecode == null) return;
+        frameDecode.requestRelease();
+        if (!frameDecode.cleanupComplete()) {
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("Pulsar frame decode cleanup remains pending");
+        }
+        frameDecode = null;
+        frameDecodePosition = null;
+        frameDecodeBytes = 0;
+        frameDecodeGeneration = null;
+        frameDecodeGuard = null;
+        decodedFrameEntry = null;
+    }
+
     @Override
     public synchronized void close() {
         if (!closed) {
@@ -700,6 +766,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                 throw new IllegalStateException("Pulsar guarded recovery close is unconfirmed; retain exact cursor", failure);
             }
         }
+        releaseFrameDecode();
     }
 
     /** Rechecks the exact connection/attestation and caller-held Source protection without receive or ACK. */

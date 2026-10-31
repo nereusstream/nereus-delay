@@ -15,7 +15,6 @@ import java.security.Signature;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -453,7 +452,10 @@ public final class DataResetManifest {
         }
         final List<ResourceIncarnation> result = new ArrayList<>(values);
         result.forEach(value -> Objects.requireNonNull(value, "resource"));
-        result.sort(Comparator.comparing(ResourceIncarnation::canonicalBytes, DataResetManifest::compareBytes));
+        final var canonicalKeys = new java.util.IdentityHashMap<ResourceIncarnation, byte[]>();
+        result.sort((left, right) -> compareBytes(
+                canonicalKeys.computeIfAbsent(left, ResourceIncarnation::canonicalBytes),
+                canonicalKeys.computeIfAbsent(right, ResourceIncarnation::canonicalBytes)));
         for (int index = 1; index < result.size(); index++) {
             if (result.get(index - 1).equals(result.get(index))) {
                 throw new IllegalArgumentException("duplicate manifest resource");
@@ -469,8 +471,10 @@ public final class DataResetManifest {
         }
         final List<WorkerCapability> result = new ArrayList<>(values);
         result.forEach(value -> Objects.requireNonNull(value, "workerCapability"));
-        result.sort(Comparator.comparing(
-                worker -> worker.workerId().getBytes(StandardCharsets.UTF_8), DataResetManifest::compareBytes));
+        final var workerKeys = new java.util.IdentityHashMap<WorkerCapability, byte[]>();
+        result.sort((left, right) -> compareBytes(
+                workerKeys.computeIfAbsent(left, worker -> worker.workerId().getBytes(StandardCharsets.UTF_8)),
+                workerKeys.computeIfAbsent(right, worker -> worker.workerId().getBytes(StandardCharsets.UTF_8))));
         for (int index = 1; index < result.size(); index++) {
             if (result.get(index - 1).workerId().equals(result.get(index).workerId())) {
                 throw new IllegalArgumentException("duplicate manifest Worker");

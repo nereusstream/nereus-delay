@@ -19,6 +19,11 @@ public interface SourceRecordConsumer extends AutoCloseable {
     /** Only an actually owned SDK group may participate in the Host's backend-failure lifecycle. */
     default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
 
+    /** Binds the original trusted Source frame hold before any Target payload is decoded. */
+    default void bindFrameDecode(TargetWorkerSourceStartup actual) {
+        throw new IllegalStateException("Source adapter has no original frame decode hold");
+    }
+
     /** Only an actual prepared SDK adapter may attest its current post-seek connection for the frozen startup. */
     default com.nereusstream.delay.protocol.PulsarActivationBarrier preparedPulsarBarrier(
             TargetWorkerSourceStartup.PulsarPreparation preparation) {

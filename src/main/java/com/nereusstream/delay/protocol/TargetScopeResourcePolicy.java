@@ -454,31 +454,40 @@ public final class TargetScopeResourcePolicy {
         return value;
     }
 
+    private record CanonicalOrder<T>(T value,byte[] key) {}
+
     private static List<AuthorIdentity> identities(List<AuthorIdentity> supplied, int maximum, boolean service, String name) {
         if (supplied == null || supplied.isEmpty() || supplied.size() > maximum)
             throw new IllegalArgumentException("finite nonempty " + name + " required");
-        final var values = new ArrayList<>(supplied);
-        for (var value : values) {
+        final var values = new ArrayList<CanonicalOrder<AuthorIdentity>>(supplied.size());
+        for (var value : supplied) {
             Objects.requireNonNull(value);
-            if (value.canonicalBytes().length > MAX_IDENTITY_BYTES || service && value.kind() != AuthorIdentity.Kind.SERVICE)
+            final byte[] key=value.canonicalBytes();
+            if (key.length > MAX_IDENTITY_BYTES || service && value.kind() != AuthorIdentity.Kind.SERVICE)
                 throw new IllegalArgumentException("invalid " + name);
+            values.add(new CanonicalOrder<>(value,key));
         }
-        values.sort((a, b) -> Arrays.compareUnsigned(a.canonicalBytes(), b.canonicalBytes()));
-        for (int n = 1; n < values.size(); n++) if (values.get(n - 1).equals(values.get(n)))
+        values.sort((a, b) -> Arrays.compareUnsigned(a.key,b.key));
+        for (int n = 1; n < values.size(); n++) if (values.get(n - 1).value.equals(values.get(n).value))
             throw new IllegalArgumentException("duplicate " + name);
-        return List.copyOf(values);
+        return values.stream().map(CanonicalOrder::value).toList();
     }
 
     private static List<ProtocolTuple> protocolValues(List<ProtocolTuple> supplied) {
         if (supplied == null || supplied.isEmpty() || supplied.size() > 16)
             throw new IllegalArgumentException("finite nonempty protocol domain required");
-        final var values = new ArrayList<>(supplied);
-        for (var value : values) if (Objects.requireNonNull(value).recordKind() != ProtocolTuple.SYSTEM_MUTATION
-                || value.canonicalBytes().length > 40) throw new IllegalArgumentException("invalid resource protocol tuple");
-        values.sort((a, b) -> Arrays.compareUnsigned(a.canonicalBytes(), b.canonicalBytes()));
-        for (int n = 1; n < values.size(); n++) if (values.get(n - 1).equals(values.get(n)))
+        final var values = new ArrayList<CanonicalOrder<ProtocolTuple>>(supplied.size());
+        for (var value : supplied) {
+            if (Objects.requireNonNull(value).recordKind() != ProtocolTuple.SYSTEM_MUTATION)
+                throw new IllegalArgumentException("invalid resource protocol tuple");
+            final byte[] key=value.canonicalBytes();
+            if(key.length>40)throw new IllegalArgumentException("invalid resource protocol tuple");
+            values.add(new CanonicalOrder<>(value,key));
+        }
+        values.sort((a, b) -> Arrays.compareUnsigned(a.key,b.key));
+        for (int n = 1; n < values.size(); n++) if (values.get(n - 1).value.equals(values.get(n).value))
             throw new IllegalArgumentException("duplicate resource protocol tuple");
-        return List.copyOf(values);
+        return values.stream().map(CanonicalOrder::value).toList();
     }
 
     private static String canonicalKey(String value, String name) {

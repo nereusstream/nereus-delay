@@ -100,6 +100,8 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetMigrationRetireIntent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,32);}
     public static ProtocolTuple targetMigrationRetireConfirm() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,33);}
     public static ProtocolTuple targetMigrationLogicalFirstArchive() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,36);}
+    /** Required reader for full inline Source archive formats; management still uses tuple36. */
+    public static ProtocolTuple targetMigrationFullSourceArchive() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,37);}
     public static ProtocolTuple targetMigrationActivateRootIssuer() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,35);}
     public static ProtocolTuple targetPayloadObligationSummary() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,34);}
     public static ProtocolTuple targetSloObservationEpochEvent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,5);}

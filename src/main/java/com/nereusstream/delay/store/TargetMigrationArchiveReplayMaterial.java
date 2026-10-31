@@ -39,6 +39,7 @@ public final class TargetMigrationArchiveReplayMaterial implements TargetMigrati
         final var custody=owner.custody();final byte[] frame=frame(actual);final byte[] digest=sourceDigest(actual);
         final byte[] result=outcome.isCommand()?outcome.commandResult().encode():outcome.systemMutationResult().encode();
         final var stamp=new TargetQuotaMutation(TargetQuotaMutation.increment(before.sequence()),actual.position(),digest);
+        TargetMigrationArchiveSourceFrame.requireFrame(frame,stamp);
         final var physical=new TargetMigrationArchivePhysicalRecord(outcome.isCommand()?ProtocolTuple.CLIENT_COMMAND:ProtocolTuple.SYSTEM_MUTATION,
                 logical.entry().originalKey(),logical.digest(),result,frozenFence);
         final byte[] raw=CanonicalProtobuf.message(out->{
@@ -83,6 +84,7 @@ public final class TargetMigrationArchiveReplayMaterial implements TargetMigrati
         final var custody=owner.custody();final byte[] frame=frame(actual);final byte[] digest=sourceDigest(actual);
         final byte[] result=outcome.isCommand()?outcome.commandResult().encode():outcome.systemMutationResult().encode();
         final byte[] proof=decision.proofBytes();
+        TargetMigrationArchiveSourceFrame.requireFrame(frame,decision.at());
         final byte[] raw=CanonicalProtobuf.message(out->{
             CanonicalProtobuf.uint32(out,1,2);CanonicalProtobuf.bytes(out,2,takeover.migration().plan().digest());
             CanonicalProtobuf.bytes(out,3,takeover.retirement().intention().digest());CanonicalProtobuf.bytes(out,4,takeover.retirement().intentAt().canonicalBytes());
@@ -150,6 +152,10 @@ public final class TargetMigrationArchiveReplayMaterial implements TargetMigrati
         final var root=Objects.requireNonNull(dependencies.migrationRoot());final var retirement=Objects.requireNonNull(dependencies.migrationRetirement());
         final var source=TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(7),8));
         final byte[] frame=QueryCodecSupport.bytes(f.get(8),9);
+        final int frameLimit=row.schemaVersion()==TargetMigrationArchiveRow.V1_SCHEMA_VERSION
+                ?TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES:TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES;
+        if(frame.length>frameLimit)throw new IllegalStateException("archive packet Source frame exceeds its actual Native reader schema");
+        TargetMigrationArchiveSourceFrame.requireFrame(frame,row.materializedAt());
         final var before=TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(6),7));
         final var step=Objects.requireNonNull(dependencies.migrationArchiveState(TargetMigrationArchiveState.historyKey(root.plan().migrationId(),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(5),6)).sequence())));
@@ -182,6 +188,10 @@ public final class TargetMigrationArchiveReplayMaterial implements TargetMigrati
         owner.requireOriginalPacket(raw,java.util.List.of(row.entry()),root,retirement);
     }
     public long retainedBytes(){return 128L+priorDigest.length+frameDigest.length+(logicalDigest==null?0:logicalDigest.length)+result.length+source.canonicalBytes().length+packet.canonicalBytes().length+inventory.canonicalBytes().length+(closedProof==null?0:closedProof.length);}
-    static byte[] frame(SourceReplayEntry actual){return actual instanceof SourceReplayRecord command?CommandCodec.encodeFrame(command.command()):((SourceReplayMutation)actual).mutation().encodeFrame();}
+    static byte[] frame(SourceReplayEntry actual){
+        final byte[] frame=actual instanceof SourceReplayRecord command?CommandCodec.encodeFrame(command.command()):((SourceReplayMutation)actual).mutation().encodeFrame();
+        if(frame.length>TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES)throw new IllegalArgumentException("actual complete Source frame exceeds its registered Source codec bound");
+        return frame;
+    }
     static byte[] sourceDigest(SourceReplayEntry actual){return actual instanceof SourceReplayRecord command?command.command().canonicalFrameDigest():Bytes.sha256(((SourceReplayMutation)actual).mutation().canonicalEnvelope());}
 }

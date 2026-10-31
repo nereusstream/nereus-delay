@@ -70,6 +70,9 @@ public final class TargetMigrationCompatibilityRuntime {
             TargetMigrationCompatibilityRuntime.this.requireLocalCurrent();
         }
         public void retainCleanup(CheckpointInputFuture.Cleanup actual) { root.retainArchiveRuntimeCleanup(actual); }
+        public TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+            return runtime==null?root.opening().sourceFrames():runtime.sourceFrameContract();
+        }
     }
     void reopenArchive(ShardStore actual, TargetMigrationImporter originalImporter,
             TargetMigrationImporter.PreparedCandidate originalCandidate, TargetMigrationArchiveStore.AppliedTakeover actualT,
@@ -99,6 +102,7 @@ public final class TargetMigrationCompatibilityRuntime {
         final var acquired = takingOver.receipt().join();
         archiveBackend = TargetStoreBackend.forMigration(target, plan.scope(), importer.root().identity().accountingIncarnation(),
                 plan.newLineage(), inputs.importLimits().writes(), candidate);
+        actual.bindArchiveSourceEnvelope(archiveBackend);
         archiveOwner = acquired; takeover = applied; takingOver = null; root.archiveActivated(applied); return true;
     }
 
@@ -183,6 +187,7 @@ public final class TargetMigrationCompatibilityRuntime {
         if (takeover != null) {
             archiveBackend = TargetStoreBackend.forMigration(target, plan.scope(), importer.root().identity().accountingIncarnation(),
                     plan.newLineage(), inputs.importLimits().writes(), candidate);
+            actual.bindArchiveSourceEnvelope(archiveBackend);
             final var rebound = Objects.requireNonNull(TargetMigrationArchiveStore.readAppliedTakeover(archiveBackend,
                     plan.scope(), plan.newLineage(), plan, configuration.newReadBudget(nanos), inputs.reads()));
             if (!rebound.state().equals(takeover.state())) throw new IllegalStateException("reopened Source changed the actual archive takeover");

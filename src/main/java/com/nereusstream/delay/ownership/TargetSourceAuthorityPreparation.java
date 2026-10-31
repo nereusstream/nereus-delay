@@ -24,6 +24,7 @@ public final class TargetSourceAuthorityPreparation {
     public static final class InputUnavailable extends RuntimeException {
         private static final long serialVersionUID=1L;
         public InputUnavailable(String message){super(message);}
+        public InputUnavailable(String message,Throwable cause){super(message,cause);}
     }
     public enum Family { COMMAND, GRANT, FENCE, EXPIRY, CLOSE, MEMBERSHIP, NATIVE_POLICY, ADMISSION, OUTCOME, CHANNEL, RETIREMENT, ACTIVATION, RECLAIM, SLO_MODE, SLO_EVENT, SLO_WRITER, PARENT_CONTROL_CREDIT, SCOPE_OBLIGATION, SCOPE_FEES, MIGRATION, PAYLOAD_SUMMARY }
 
@@ -74,6 +75,10 @@ public final class TargetSourceAuthorityPreparation {
     private Family family;
     private OwnedCheckpointIo<Held> opening;
     private volatile OwnedCheckpointIo<Boolean> advancing;
+    private OwnedCheckpointIo<Boolean> envelopeOpening;
+    private OwnedCheckpointIo<Boolean> serviceEnvelopeOpening;
+    private TargetStoreBackend.SourceOperationEnvelopeRequired envelopeRequest;
+    private SourceReplayEntry envelopeEntry;
     private WorkClassTask queuedPreparation;
     private WorkClassExecutionRegistry preparationClasses;
     private long preparationTurns;
@@ -91,6 +96,7 @@ public final class TargetSourceAuthorityPreparation {
     private volatile OwnedCheckpointIo<com.nereusstream.delay.runtime.TargetMigrationArchiveStore.AppliedTakeover> archiveTakeoverRead;
     private Runnable localOwnerAndSource;
     private TargetSourceApplyRuntime originalSource;
+    private TargetWorkerProcessRuntime.SourcePlanInputs sourcePlanInputs;
     private LongSupplier originalSourceClock;
     private long started;
     private boolean stopping;
@@ -156,8 +162,49 @@ public final class TargetSourceAuthorityPreparation {
         localOwnerAndSource = Objects.requireNonNull(originalLocalOwnerAndSource);
         originalSource=source;originalSourceClock=clock;
     }
+    synchronized void bindSourcePlanInputs(TargetWorkerProcessRuntime.SourcePlanInputs actual){
+        if(sourcePlanInputs!=null&&sourcePlanInputs!=actual)throw new IllegalStateException("Source preparation changed its original plan reservation");
+        sourcePlanInputs=Objects.requireNonNull(actual);
+    }
+    synchronized TargetWorkerProcessRuntime.SourcePlanInputs sourcePlanInputs(){return sourcePlanInputs;}
     synchronized void requireOriginalEntry(SourceReplayEntry expected){
         if(stopping||entry==null||!SourceApplyCoordinator.sameEntry(entry,expected))throw new IllegalStateException("original Source input is no longer selected");
+    }
+
+    synchronized boolean prepareOperationEnvelope(SourceReplayEntry expected,
+            TargetStoreBackend.SourceOperationEnvelopeRequired requested) {
+        if(stopping)throw new IllegalStateException("original Source preparation is stopped");
+        if(entry!=null&&!SourceApplyCoordinator.sameEntry(entry,expected)
+                ||envelopeEntry!=null&&!SourceApplyCoordinator.sameEntry(envelopeEntry,expected)
+                ||envelopeRequest!=null&&envelopeRequest!=requested)
+            throw new IllegalStateException("Source service continuation changed its selected event/request");
+        if(envelopeEntry==null){envelopeEntry=expected;envelopeRequest=requested;}
+        if(envelopeOpening==null) {
+            try {
+                envelopeOpening=OwnedCheckpointIo.submit(guard->{
+                    guard.run();requested.acquire();guard.run();return true;
+                },localOwnerAndSource,executor);
+            }catch(RejectedExecutionException full){if(executor.isShutdown())throw full;return false;}
+        }
+        if(!envelopeOpening.receipt().isDone()||!envelopeOpening.ioExited())return false;
+        try{envelopeOpening.receipt().join();}
+        catch(RuntimeException failure){throw new InputUnavailable("actual protocol family exceeds the original Source service/reservation contract",failure);}
+        envelopeOpening=null;envelopeRequest=null;envelopeEntry=null;
+        return true;
+    }
+
+    synchronized boolean prepareServiceEnvelope(){
+        if(stopping)throw new IllegalStateException("original Source service qualification is stopped");
+        if(serviceEnvelopeOpening==null){
+            try{
+                serviceEnvelopeOpening=OwnedCheckpointIo.submit(guard->{
+                    guard.run();Objects.requireNonNull(originalSource).verifyServiceEnvelope(originalSourceClock);guard.run();return true;
+                },localOwnerAndSource,executor);
+            }catch(RejectedExecutionException full){if(executor.isShutdown())throw full;return false;}
+        }
+        if(!serviceEnvelopeOpening.receipt().isDone()||!serviceEnvelopeOpening.ioExited())return false;
+        serviceEnvelopeOpening.receipt().join();
+        return true;
     }
 
     /** External consumers own these loans; registering one neither changes their lifetime nor grants Source authority. */
@@ -449,6 +496,8 @@ public final class TargetSourceAuthorityPreparation {
 
     public synchronized void requestStop() {
         stopping = true;
+        if(serviceEnvelopeOpening!=null)serviceEnvelopeOpening.requestStop();
+        if(envelopeOpening!=null)envelopeOpening.requestStop();
         if (opening != null) opening.requestStop();
         if (advancing != null) advancing.requestStop();
         if (archiveTakeoverRead != null) archiveTakeoverRead.requestStop();
@@ -457,6 +506,8 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     public synchronized void retryCleanup() {
+        if(serviceEnvelopeOpening!=null)serviceEnvelopeOpening.retryCleanup();
+        if(envelopeOpening!=null)envelopeOpening.retryCleanup();
         if (opening != null) opening.retryCleanup();
         if (advancing != null) advancing.retryCleanup();
         if (archiveTakeoverRead != null) archiveTakeoverRead.retryCleanup();
@@ -466,6 +517,8 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     public synchronized boolean ioExited() {
+        if(serviceEnvelopeOpening!=null&&!serviceEnvelopeOpening.ioExited())return false;
+        if(envelopeOpening!=null&&!envelopeOpening.ioExited())return false;
         for (var loan : nativeReadLoans) if (!loan.nativeReadIoExited()) return false;
         if (opening != null && !opening.ioExited()) return false;
         if (advancing != null && !advancing.ioExited()) return false;
@@ -474,6 +527,10 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     public synchronized Throwable pendingIoFailure() {
+        final var serviceFailure=serviceEnvelopeOpening==null?null:CheckpointInputFuture.ownedFailure(serviceEnvelopeOpening.receipt());
+        if(serviceFailure!=null)return serviceFailure;
+        final var envelopeFailure=envelopeOpening==null?null:CheckpointInputFuture.ownedFailure(envelopeOpening.receipt());
+        if(envelopeFailure!=null)return envelopeFailure;
         final var failure = closing == null ? null : CheckpointInputFuture.ownedFailure(closing.receipt());
         if (failure != null) return failure;
         final var preparationFailure = advancing == null ? null : CheckpointInputFuture.ownedFailure(advancing.receipt());
@@ -490,7 +547,9 @@ public final class TargetSourceAuthorityPreparation {
     }
 
     synchronized TargetSourceAuthorityPreparation fork() {
-        return new TargetSourceAuthorityPreparation(loader, executor, nanos, Duration.ofNanos(timeoutNanos), maximumBytes);
+        final var fork=new TargetSourceAuthorityPreparation(loader, executor, nanos, Duration.ofNanos(timeoutNanos), maximumBytes);
+        if(sourcePlanInputs!=null)fork.bindSourcePlanInputs(sourcePlanInputs);
+        return fork;
     }
 
     private boolean closeHeld() {

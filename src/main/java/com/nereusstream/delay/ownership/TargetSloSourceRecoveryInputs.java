@@ -127,6 +127,9 @@ public final class TargetSloSourceRecoveryInputs implements TargetSourceRecovery
     @Override public OwnerIdentity owner() { return original.owner(); }
     @Override public LocalBrokerMtlsResolver.SourceReceipt credential() { return original.credential(); }
     @Override public int maximumFrameBytes() { return original.maximumFrameBytes(); }
+    @Override public TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+        requireSourceCurrent();final var actual=original.sourceFrames();requireSourceCurrent();return actual;
+    }
     @Override public PulsarAttemptJournal journal() { return original.journal(); }
     @Override public TargetOwnedBackendGroup journalBackend() { return original.journalBackend(); }
     @Override public JournalWriter journalWriter() { return original.journalWriter(); }

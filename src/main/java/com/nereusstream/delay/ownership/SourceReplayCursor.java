@@ -77,6 +77,12 @@ public final class SourceReplayCursor<T> {
 
     public T next() {
         final T result = peek();
+        if (localReader != null) {
+            if (!(result instanceof SourceReplayEntry actual)) {
+                throw new IllegalStateException("original Source reader delivered an untyped replay entry");
+            }
+            localReader.releaseDecoded(actual);
+        }
         next = null;
         loaded = false;
         return result;

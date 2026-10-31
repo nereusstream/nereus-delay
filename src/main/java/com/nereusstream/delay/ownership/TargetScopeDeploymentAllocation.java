@@ -152,6 +152,56 @@ public final class TargetScopeDeploymentAllocation {
     }
 
     public interface SourceHandle extends Handle {
+        /**
+         * Local continuous qualification of this same actual Source owner. It must retain complete
+         * original Source/shard/range/generation facts for every retained prefix and enforce the
+         * authenticated frame ceiling at every relevant producer/admin/retry enqueue, including
+         * future writers. A snapshot number, largest observed frame or policy allowlist is insufficient.
+         * Revocation, Source replacement or loss of any original protection must revoke this check.
+         */
+        default void requireAllRetainedAndFutureFrames(TargetWorkerSourceStartup.FrameOpening opening,
+                SourceSnapshot authenticated) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no complete retained-prefix/future-writer frame freeze");
+        }
+        /** Same pre-acquired SDK/read/codec/shared window, including real JVM layout, field work and native exits. */
+        default void requireFrameReadAndCodecWindow(TargetWorkerSourceStartup.FrameOpening opening,
+                SourceSnapshot authenticated,com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no complete prepaid read/codec service window");
+        }
+        /** Actual Root-selected Native work under the same original IO/SDK/shared owner; computed bytes alone grant none. */
+        default void requireNativeSourceService(TargetWorkerSourceStartup.FrameOpening opening,SourceSnapshot authenticated,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds actual) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no paid actual Native service qualification");
+        }
+        /**
+         * Borrows only already acquired local SDK/read/IO/codec/shared capacity, before decoding/copying.
+         * The real object/field-work/layout contract and actual Native exits remain with this original
+         * owner; mathematical byte-array bounds alone grant no JVM or time qualification. No I/O,
+         * consumer/Startup/Store monitor or new acquisition is allowed in this local handoff.
+         */
+        default TargetWorkerSourceRuntimeFactory.FrameReadLoan borrowFrameReadAndCodec(
+                TargetWorkerSourceStartup.FrameOpening opening, SourcePosition actual,long completeFrameBytes,
+                Long generation,byte[] attestation,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode) {
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original Source has no current prepaid SDK/read/codec subloan");
+        }
+        /** Same complete Source freeze for this exact authenticated old Store/Manifest acquisition; grants no Target writes. */
+        default void requireAllRetainedAndFutureFrames(TargetMigrationProcessDriver.FrameOpening opening,
+                SourceSnapshot authenticated) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original migration Source has no complete old-domain read frame qualification");
+        }
+        /** Original old-domain read purpose and paid full codec window; management debit alone is insufficient. */
+        default void requireFrameReadAndCodecWindow(TargetMigrationProcessDriver.FrameOpening opening,
+                SourceSnapshot authenticated,com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original migration Source has no prepaid old-domain read/codec window");
+        }
+        /** The same original Held pays actual SDK/codec/field work and retains native cleanup; no fresh allocation. */
+        default TargetWorkerSourceRuntimeFactory.FrameReadLoan borrowFrameReadAndCodec(
+                TargetMigrationProcessDriver.FrameOpening opening,SourcePosition actual,long completeFrameBytes,
+                Long generation,byte[] attestation,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode) {
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original migration Source has no prepaid old-domain SDK/read/codec subloan");
+        }
         /** Reads/authenticates the real original allocation on its original I/O path. */
         SourceSnapshot readAuthenticated();
         /** Re-authenticates and updates the original local revocation token, on that same I/O path. */
@@ -367,6 +417,12 @@ public final class TargetScopeDeploymentAllocation {
         }
         public TargetScopeResourceConfiguration configuration() { return configuration; }
         public ActualBinding actualBinding() { return actualBinding; }
+        public TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(TargetWorkerSourceStartup.FrameOpening opening){
+            final SourceHandle original;
+            synchronized(this){requireCurrent();original=(SourceHandle)source.handle;}
+            opening.requireSource(actualBinding.source());
+            return TargetWorkerSourceRuntimeFactory.SourceFrameContract.capture(opening,original,this::requireCurrent);
+        }
 
         /** Pure local guard suitable for SDK and Store paths. Remote authentication occurs in refresh. */
         public synchronized void requireCurrent() {

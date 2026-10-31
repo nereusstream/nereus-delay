@@ -18,14 +18,14 @@ public record TargetMigrationRootIssuerAuthorization(byte[] deploymentAuthority,
         newStore=fixed(newStore,16,"new Store");newDbIdentity=fixed(newDbIdentity,32,"new DB");newLineage=fixed(newLineage,16,"new lineage");issuerId=fixed(issuerId,32,"original root issuer identity");
         if(scope.target()!=null||!scope.shard().equals(baselineSource.shardId())||issuerKeyVersion==0)throw new IllegalArgumentException("root issuer statement changed exact Source/Shard/key scope");
         final var sorted=new TreeMap<String,ProtocolTuple>();for(var tuple:allowedTuples){if(!allowed(tuple)||sorted.put(Bytes.hex(tuple.canonicalBytes()),tuple)!=null)throw new IllegalArgumentException("unregistered/duplicate Root extension purpose");}
-        if(sorted.isEmpty()||sorted.size()>8)throw new IllegalArgumentException("Root issuer permits a finite explicit reader extension subset");allowedTuples=List.copyOf(sorted.values());
+        if(sorted.isEmpty()||sorted.size()>9)throw new IllegalArgumentException("Root issuer permits a finite explicit reader extension subset");allowedTuples=List.copyOf(sorted.values());
         originalAuthorityHistory=Bytes.copy(Objects.requireNonNull(originalAuthorityHistory));if(originalAuthorityHistory.length==0||originalAuthorityHistory.length>MAX_HISTORY_BYTES)throw new IllegalArgumentException("complete bounded original authority/succession history required");
         if(signature!=null){Bytes.requireLength(signature,64,"independent management issuer signature");signature=Bytes.copy(signature);}
     }
     private static byte[] fixed(byte[] value,int bytes,String name){return TargetCompatibilityCodec.assigned(value,bytes,name);}
     private static boolean allowed(ProtocolTuple tuple){return tuple.equals(ProtocolTuple.targetObjectPayloadReclaim())||tuple.equals(ProtocolTuple.targetUncommittedObjectReclaim())
         ||tuple.equals(ProtocolTuple.targetMigrationObjectPayloadReclaim())||tuple.equals(ProtocolTuple.targetMigrationUncommittedObjectReclaim())||tuple.equals(ProtocolTuple.targetMigrationRetireIntent())
-        ||tuple.equals(ProtocolTuple.targetMigrationRetireConfirm())||tuple.equals(ProtocolTuple.targetPayloadObligationSummary())||tuple.equals(ProtocolTuple.targetMigrationLogicalFirstArchive());}
+        ||tuple.equals(ProtocolTuple.targetMigrationRetireConfirm())||tuple.equals(ProtocolTuple.targetPayloadObligationSummary())||tuple.equals(ProtocolTuple.targetMigrationLogicalFirstArchive())||tuple.equals(ProtocolTuple.targetMigrationFullSourceArchive());}
     @Override public byte[] deploymentAuthority(){return Bytes.copy(deploymentAuthority);}@Override public byte[] managementAuthorityDigest(){return Bytes.copy(managementAuthorityDigest);}
     @Override public byte[] migrationId(){return Bytes.copy(migrationId);}@Override public byte[] planDigest(){return Bytes.copy(planDigest);}@Override public byte[] newStore(){return Bytes.copy(newStore);}
     @Override public byte[] newDbIdentity(){return Bytes.copy(newDbIdentity);}@Override public byte[] newLineage(){return Bytes.copy(newLineage);}@Override public byte[] issuerId(){return Bytes.copy(issuerId);}
@@ -45,7 +45,7 @@ public record TargetMigrationRootIssuerAuthorization(byte[] deploymentAuthority,
         CanonicalProtobuf.bytes(out,11,issuerId);CanonicalProtobuf.uint32Bits(out,12,issuerKeyVersion);CanonicalProtobuf.uint32(out,13,1);for(var tuple:allowedTuples)CanonicalProtobuf.bytes(out,14,tuple.canonicalBytes());CanonicalProtobuf.bytes(out,15,originalAuthorityHistory);});}
     public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
     public byte[] canonicalBytes(){if(signature==null)throw new IllegalStateException("migration Root issuer policy is unsigned");final byte[] bytes=Bytes.concat(fields(),CanonicalProtobuf.message(out->{CanonicalProtobuf.bytes(out,16,digest());CanonicalProtobuf.bytes(out,17,signature);}));if(bytes.length>MAX_BYTES)throw new IllegalArgumentException("Root issuer policy exceeds existing bounded history/source fields");return bytes;}
-    public static TargetMigrationRootIssuerAuthorization decode(byte[] bytes){final var f=TargetCompatibilityCodec.read(bytes,MAX_BYTES,24,true,"migration Root issuer policy");
+    public static TargetMigrationRootIssuerAuthorization decode(byte[] bytes){final var f=TargetCompatibilityCodec.read(bytes,MAX_BYTES,25,true,"migration Root issuer policy");
         if(f.size()<17||QueryCodecSupport.uint32(f.get(0),1)!=1||QueryCodecSupport.uint32(f.get(12),13)!=1)throw new IllegalArgumentException("unknown migration Root issuer policy schema/purpose");
         final var tuples=new ArrayList<ProtocolTuple>();int index=13;while(index<f.size()&&f.get(index).number()==14)tuples.add(ProtocolTuple.decode(QueryCodecSupport.bytes(f.get(index++),14)));
         if(index+3!=f.size())throw new IllegalArgumentException("incomplete Root issuer policy closure");

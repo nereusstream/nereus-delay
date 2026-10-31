@@ -16,6 +16,116 @@ import java.util.function.LongSupplier;
 
 /** One original process-owned Source bootstrap, Store, lease and SDK handoff; no Source ACK is performed here. */
 public final class TargetWorkerSourceStartup {
+    public static final class FrameCapacityUnavailable extends RuntimeException {
+        private static final long serialVersionUID=1L;
+        public FrameCapacityUnavailable(String message){super(message);}
+    }
+    public static final class FrameOpening {
+        private final TargetWorkerSourceStartup startup;
+        private final ShardStore store;
+        private final TargetQuotaScope scope;
+        private final byte[] lineage;
+        private final SourceAssignment assignment;
+        private final OwnerLease owner;
+        private final com.nereusstream.delay.protocol.SourcePosition cut;
+        private FrameOpening(TargetWorkerSourceStartup startup,ShardStore store,TargetQuotaScope scope,byte[] lineage,
+                SourceAssignment assignment,OwnerLease owner,com.nereusstream.delay.protocol.SourcePosition cut){
+            this.startup=startup;this.store=store;this.scope=scope;this.lineage=lineage.clone();
+            this.assignment=assignment;this.owner=owner;this.cut=cut;
+        }
+        public SourceAssignment assignment(){return assignment;}
+        public com.nereusstream.delay.protocol.SourcePosition cut(){return cut;}
+        public TargetQuotaScope scope(){return scope;}
+        public byte[] lineage(){return lineage.clone();}
+        public void requireCurrent(){startup.requireCurrent();requireLocalCurrent();}
+        public void requireLocalCurrent(){
+            final var reserved=startup.sourcePlanReservation;
+            final var sourceOwner=reserved==null?null:reserved.localOwnerLease();
+            final var current=sourceOwner==null?startup.lease:sourceOwner;final var accepted=startup.assignment;
+            if(startup.stopping||startup.firstFailure!=null||startup.store!=store||store.nativeExposureFenceRaised()
+                    ||current==null||!current.sameIdentity(owner)||accepted==null||!accepted.sameIdentity(assignment)
+                    ||!current.validAt(startup.owner.clock().getAsLong())
+                    ||Long.compareUnsigned(store.localOpenedOwnerEpoch(),owner.ownerEpoch())>0)
+                throw new IllegalStateException("complete Source frame hold lost its actual Store/Root/Owner/session");
+        }
+        public void requireSource(com.nereusstream.delay.protocol.SourcePosition actual){
+            requireLocalCurrent();
+            if(actual==null||!scope.shard().equals(actual.shardId())||!cut.sameSourceIdentity(actual))
+                throw new IllegalArgumentException("frame contract changed its exact physical Source");
+        }
+        void requireSame(FrameOpening actual){
+            requireLocalCurrent();actual.requireLocalCurrent();
+            if(startup!=actual.startup||store!=actual.store||!scope.equals(actual.scope)||!Arrays.equals(lineage,actual.lineage)
+                    ||!assignment.sameIdentity(actual.assignment)||!owner.sameIdentity(actual.owner)||!cut.sameSourceIdentity(actual.cut))
+                throw new IllegalArgumentException("Source frame contract changed its original opening");
+        }
+        void requireReader(TargetStoreBackend.Reader actual){
+            actual.requireSourceFrameBinding(store,scope,lineage);requireSource(actual.source());
+            if(actual.source().compareTo(cut)<0)throw new IllegalStateException("Native frame gate predates the original Source hold cut");
+        }
+        void requireCheckpoint(com.nereusstream.delay.store.TargetCheckpointRootVerifier.RootProof actual){
+            requireLocalCurrent();
+            if(!Arrays.equals(store.metadata().storeIncarnation(),actual.metadata().storeIncarnation())
+                    ||!Arrays.equals(store.metadata().dbIdentity(),actual.metadata().dbIdentity())
+                    ||!scope.equals(actual.root().scope())||!Arrays.equals(lineage,actual.root().recoveryLineage()))
+                throw new IllegalArgumentException("cold Source frame audit changed its actual Native Store/Root/lineage");
+            requireSource(actual.source());
+        }
+        void requireFrame(com.nereusstream.delay.protocol.SourcePosition actual,Long generation,byte[] attestation){
+            requireSource(actual);
+            if(assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier barrier){
+                if(generation==null||attestation==null)throw new IllegalStateException("frame read lacks its actual guarded Source generation");
+                barrier.validateSourceConnection(generation,attestation);
+            }else if(generation!=null||attestation!=null)throw new IllegalStateException("Kafka frame carries a foreign Source generation");
+        }
+    }
+
+    public static final class FrameDecodeLoan implements CheckpointInputFuture.Cleanup {
+        private final TargetWorkerSourceRuntimeFactory.SourceFrameContract frames;
+        private final Runnable capacityRelease;
+        private final java.util.function.Consumer<FrameDecodeLoan> exited;
+        private final com.nereusstream.delay.protocol.SourcePosition position;
+        private final long bytes,retained;
+        private final Long generation;
+        private final byte[] attestation;
+        private volatile TargetWorkerSourceRuntimeFactory.FrameReadLoan physical;
+        private volatile boolean physicalPending=true;
+        private volatile boolean releaseRequested;
+        private boolean released;
+        private SourceReplayEntry decoded;
+        private FrameDecodeLoan(TargetWorkerSourceRuntimeFactory.SourceFrameContract frames,
+                Runnable capacityRelease,java.util.function.Consumer<FrameDecodeLoan> exited,
+                com.nereusstream.delay.protocol.SourcePosition position,long bytes,long retained,Long generation,byte[] attestation){
+            this.frames=frames;this.capacityRelease=capacityRelease;this.exited=exited;this.position=position;this.bytes=bytes;this.retained=retained;
+            this.generation=generation;this.attestation=attestation==null?null:attestation.clone();
+        }
+        public void requireCurrent(){
+            synchronized(this){if(releaseRequested||released)throw new FrameCapacityUnavailable("frame decode loan is exiting");}
+            frames.requireFrame(position,bytes,generation,attestation);
+            Objects.requireNonNull(physical,"original frame read/codec loan").requireCurrent();
+        }
+        public void retainDecoded(SourceReplayEntry actual){
+            requireCurrent();
+            if(!position.sameSourceIdentity(actual.position())||position.compareTo(actual.position())!=0
+                    ||!Objects.equals(generation,actual.sourceConnectionGeneration())
+                    ||!Arrays.equals(attestation,actual.guardAttestationDigest()))throw new IllegalStateException("decoded frame changed its actual Source/guard proof");
+            synchronized(this){if(decoded!=null&&decoded!=actual)throw new IllegalStateException("frame loan changed decoded entry");decoded=actual;}
+        }
+        public void requestRelease(){
+            synchronized(this){releaseRequested=true;}
+            final var actual=physical;if(actual!=null)actual.requestRelease();
+            cleanupComplete();
+        }
+        @Override public boolean cleanupComplete(){
+            final var actual=physical;if(!releaseRequested||physicalPending||actual!=null&&!actual.cleanupComplete())return false;
+            synchronized(this){if(released)return true;released=true;decoded=null;}
+            capacityRelease.run();exited.accept(this);return true;
+        }
+        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup(){
+            requestRelease();return cleanupComplete()?java.util.concurrent.CompletableFuture.completedFuture(null)
+                    :java.util.concurrent.CompletableFuture.failedFuture(new FrameCapacityUnavailable("original frame cleanup remains live"));
+        }
+    }
     public record Owner(AuthenticatedTenantContext tenant, WorkerAssignmentAuthority.Publication publication,
             String workerId, String ownerId, long leaseDurationMs, LongSupplier clock) {
         public Owner {
@@ -53,6 +163,9 @@ public final class TargetWorkerSourceStartup {
     private final TargetQuotaScope scope;
     private final TargetWorkerSourceRuntimeFactory.Content content;
     private TargetWorkerSourceRuntimeFactory.Content scopedContent;
+    private volatile TargetWorkerProcessRuntime.SourcePlanInputs sourcePlanReservation;
+    private volatile TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames;
+    private final java.util.Set<FrameDecodeLoan> frameDecodeLoans=java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TargetScopeResourceManager scopeResources;
     private OwnedCheckpointIo<TargetScopeResourceManager> scopeResourceOpening;
     private OwnedCheckpointIo<Boolean> scopeResourceClosing;
@@ -181,6 +294,7 @@ public final class TargetWorkerSourceStartup {
                 final var value = Objects.requireNonNull(provider.load(opening, expectedOwner, originalAssignment, allocationBytes, guard));
                 synchronized (this) { opening.original = value; opening.retainedBytes = value.retainedBytes(); }
                 guard.run(); opening.requireValue(); guard.run();
+                scopeContent();captureSourceFrames();guard.run();
                 return value;
             }, this::requireCurrent, graph.io());
             return opening;
@@ -234,6 +348,7 @@ public final class TargetWorkerSourceStartup {
         public int maximumFrameBytes() {
             synchronized(startup){requireValue();return original.maximumFrameBytes();}
         }
+        public FrameOpening frameOpening(){return startup.frameOpening();}
 
         /** Original strict prepare task only; native factories remain on that task's existing graph executor. */
         public void requireFenceFactory() {
@@ -852,6 +967,7 @@ public final class TargetWorkerSourceStartup {
 
     private boolean releaseRecoveryInputs() {
         if (!recoveryInputOperationsExited(true) || !recoveryInputCleanupExited()) return false;
+        if(!releaseFrameDecodeLoans())return false;
         boolean released = true;
         for (var input : recoveryInputs) {
             if (input.original == null || input.closed) continue;
@@ -1027,6 +1143,7 @@ public final class TargetWorkerSourceStartup {
         /** Advances one original consumer/authority handoff; the consumer supplies actual SDK facts, never publication authority. */
         public boolean advanceOwner(SourceRecordConsumer prepared) {
             if (!startup.settleRecoveryJournal(previousInputs, this)) return false;
+            if(!startup.releaseFrameDecodeLoans())return false;
             synchronized (startup) {
                 requireCurrent();
                 if (!startup.recoveryInputOperationsExited(false) || !startup.recoveryInputCleanupExited()) return false;
@@ -1071,7 +1188,10 @@ public final class TargetWorkerSourceStartup {
                 }
                 if (!replacePin()) return false;
                 if (!openedSuccessor) {
+                    final var previousStore=startup.store;
                     final var reopened = ShardStore.openTarget(startup.graph.config().store(), originalLease.shardId(), startup.graph.resources());
+                    if(startup.sourcePlanReservation!=null)startup.sourcePlanReservation.rebindAfterStoreExit(previousStore,reopened);
+                    if(startup.sourceFrames!=null){startup.sourceFrames.close();startup.sourceFrames=null;}
                     startup.store = reopened; startup.storeClosed = false;
                     startup.requireMigrationAdoption();
                     if (!Arrays.equals(frozen.storeIncarnation(), reopened.metadata().storeIncarnation())
@@ -1208,7 +1328,7 @@ public final class TargetWorkerSourceStartup {
 
     /** Optional deployment owners are acquired on the original bounded I/O graph, never converted from configuration. */
     private TargetWorkerSourceRuntimeFactory.Content scopeContent() {
-        if (content.scopeResources() == null) return content;
+        if (content.scopeResources() == null) return content.withSourcePlanInputs(sourcePlanReservation());
         final OwnedCheckpointIo<TargetScopeResourceManager> opening;
         synchronized (this) {
             if (scopedContent != null) return scopedContent;
@@ -1254,13 +1374,121 @@ public final class TargetWorkerSourceStartup {
         final var provider = new TargetScopeSourceAuthorityProvider(content.provider(), registrations, manager,
                 content.maximumBytes(), content.maximumBytes(), owner.clock());
         final var resolved = new TargetWorkerSourceRuntimeFactory.Content(provider, content.physical(), content.reads(),
-                content.lookupTimeout(), content.maximumBytes(), content.evidencePublication());
+                content.lookupTimeout(), content.maximumBytes(), content.evidencePublication())
+                .withSourcePlanInputs(sourcePlanReservation());
         synchronized (this) {
             if (scopeResources != null && scopeResources != manager) throw new IllegalStateException("original Scope allocation changed");
             scopeResources = manager;
             if (scopedContent == null) scopedContent = resolved;
             return scopedContent;
         }
+    }
+
+    private synchronized TargetWorkerProcessRuntime.SourcePlanInputs sourcePlanReservation() {
+        if(sourcePlanReservation==null)sourcePlanReservation=process.reserveSourcePlanInputs(this,
+                Objects.requireNonNull(store,"original Source Store"),content.maximumBytes());
+        return sourcePlanReservation;
+    }
+
+    /** Actual fixed Root points under the original Source read authority, on its existing I/O flight. */
+    public FrameOpening frameOpening(){
+        final ShardStore actual;final SourceAssignment accepted;final OwnerLease ownerLease;
+        synchronized(this){actual=Objects.requireNonNull(store);accepted=Objects.requireNonNull(assignment);ownerLease=Objects.requireNonNull(lease);}
+        requireCurrent();
+        final var budget=graph.config().checkpoint().newReadBudget(nanos);
+        try(final var guard=content.reads().acquire(actual.metadata(),scope)){
+            final var captured=actual.readWithBudget(budget,()->{
+                guard.requireCurrent();
+                final byte[] bookKey=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard());
+                final byte[] bookPayload=com.nereusstream.delay.store.TargetValueEnvelope.decode(
+                        actual.get(com.nereusstream.delay.store.ColumnFamily.META,bookKey),
+                        com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload();
+                // The encoded owner only selects the Root; the same payload is fully checked against that actual Root below.
+                final byte[] rootKey=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(bookPayload).owner().key();
+                rootKey[0]=com.nereusstream.delay.store.TargetKeyCodec.QUOTA_INCARNATION_TAG;
+                final var root=com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(rootKey,
+                        com.nereusstream.delay.store.TargetValueEnvelope.decode(actual.get(com.nereusstream.delay.store.ColumnFamily.META,rootKey),
+                                com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
+                final var book=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decodeForStore(
+                        bookKey,bookPayload,root.identity(),scope.tenantScope());
+                final byte[] aggregateKey=com.nereusstream.delay.protocol.TargetQuotaAggregate.genesis(scope.shard(),root.identity().accountingIncarnation()).key();
+                final var aggregate=com.nereusstream.delay.protocol.TargetQuotaAggregate.decodeForStore(aggregateKey,
+                        com.nereusstream.delay.store.TargetValueEnvelope.decode(actual.get(com.nereusstream.delay.store.ColumnFamily.META,aggregateKey),
+                                com.nereusstream.delay.protocol.TargetQuotaAggregate.VALUE_TYPE).payload(),scope.shard());
+                if(!root.identity().equals(book.owner())||!Arrays.equals(root.identity().accountingIncarnation(),aggregate.accountingIncarnation())
+                        ||!Arrays.equals(root.accounting().canonicalBytes(),book.accounting().canonicalBytes()))
+                    throw new IllegalStateException("Source frame capture changed its actual Root/accounting binding");
+                root.latestMutation().requireAtOrBefore(aggregate.mutation());book.mutation().requireAtOrBefore(aggregate.mutation());
+                guard.requireCurrent();
+                return new FrameOpening(this,actual,scope,root.recoveryLineage(),accepted,ownerLease,
+                        Objects.requireNonNull(actual.appliedShardLogPosition()));
+            }).value();
+            requireCurrent();captured.requireLocalCurrent();return captured;
+        }
+    }
+
+    TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(){
+        final var opening=frameOpening();
+        final var retained=sourceFrames;
+        if(retained!=null){retained.requireOpening(opening);return retained;}
+        TargetWorkerSourceRuntimeFactory.SourceFrameContract actual=null;
+        final RecoveryInputsOpening input;
+        synchronized(this){input=recoveryInputs.stream().filter(value->value.original!=null
+                &&value.assignment.sameIdentity(assignment)&&value.owner.ownerEpoch()==lease.ownerEpoch()
+                &&Arrays.equals(value.owner.leaseFencingDigest(),lease.leaseToken())).findFirst().orElse(null);}
+        if(input!=null&&input.original!=null&&input.assignment.sameIdentity(assignment)
+                &&input.owner.ownerEpoch()==lease.ownerEpoch()
+                &&Arrays.equals(input.owner.leaseFencingDigest(),lease.leaseToken())){
+            try{actual=input.original.sourceFrames();}catch(TargetSourceAuthorityPreparation.InputUnavailable missing){/* same original provider below */}
+        }
+        if(actual==null){
+            final var selected=scopedContent==null?content:scopedContent;
+            actual=Objects.requireNonNull(selected.provider().captureSourceFrames(opening));
+        }
+        actual.requireOpening(opening);
+        sourcePlanReservation().bindSourceFrames(actual);
+        sourcePlanReservation.prepareDecodeWindow();sourceFrames=actual;
+        return actual;
+    }
+    TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrameContract(){
+        final var actual=sourceFrames;
+        if(actual==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Source frame qualification is not captured");
+        actual.requireLocalCurrent();return actual;
+    }
+    TargetWorkerProcessRuntime.SourcePlanInputs prepareMigrationFrameInputs(TargetMigrationProcessDriver original){
+        process.requireMigrationRecoveryAdmission(original,this,store);
+        scopeContent();captureSourceFrames();return sourcePlanReservation();
+    }
+
+    public FrameDecodeLoan acquireFrameDecode(com.nereusstream.delay.protocol.SourcePosition actual,long completeFrameBytes,
+            Long generation,byte[] guardAttestation){
+        final var frames=sourceFrames;final var reserved=sourcePlanReservation;
+        if(frames==null)return process.migrationHistoryFrameDecode(this,actual,completeFrameBytes,generation,guardAttestation);
+        if(reserved==null)throw new FrameCapacityUnavailable("same original Source frame capacity is not yet available");
+        frames.requireFrame(actual,completeFrameBytes,generation,guardAttestation);
+        final var decode=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.frameDecode(completeFrameBytes);
+        reserved.borrowDecode(decode.retainedBytes());
+        return borrowFrameDecode(frames,actual,completeFrameBytes,generation,guardAttestation,decode,
+                ()->reserved.releaseDecode(decode.retainedBytes()),frameDecodeLoans);
+    }
+
+    static FrameDecodeLoan borrowFrameDecode(TargetWorkerSourceRuntimeFactory.SourceFrameContract frames,
+            com.nereusstream.delay.protocol.SourcePosition actual,long bytes,Long generation,byte[] attestation,
+            com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode,Runnable release,
+            java.util.Set<FrameDecodeLoan> retained){
+        final var loan=new FrameDecodeLoan(frames,release,retained::remove,actual,bytes,decode.retainedBytes(),generation,attestation);
+        retained.add(loan);
+        try{
+            loan.physical=frames.borrow(actual,bytes,generation,attestation,decode);
+            if(loan.releaseRequested)loan.physical.requestRelease();
+            loan.physicalPending=false;
+            loan.requireCurrent();return loan;
+        }catch(RuntimeException|Error failure){loan.physicalPending=false;loan.requestRelease();throw failure;}
+    }
+
+    private boolean releaseFrameDecodeLoans(){
+        for(final var loan:frameDecodeLoans){loan.requestRelease();if(!loan.cleanupComplete())return false;}
+        return frameDecodeLoans.isEmpty();
     }
 
     /** The configured Source producer uses the same managed registry and original allocation as Source replay. */
@@ -1876,6 +2104,7 @@ public final class TargetWorkerSourceStartup {
             synchronized (this) { recoverySource = source; }
             source.replayCursor().requireGuarded();
             final var sourceContent = scopeContent();
+            captureSourceFrames();
             recovery = checkpointCatalog == null ? TargetWorkerSourceRuntimeFactory.reopen(graph.oxia(), graph.config(), graph.classes(),
                     graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
                     source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), sourceContent, identity, journal,
@@ -1998,6 +2227,7 @@ public final class TargetWorkerSourceStartup {
             requireCurrent();
             store = ShardStore.createTarget(graph.config().store(), assignment.shardId(), graph.resources());
             requireCurrent();
+            sourcePlanReservation();
             var prepared = TargetStoreBootstrap.prepareWithControlSnapshot(store, initial.scope(), initial.lineage(),
                     new TargetStoreBackend.WriteLimits(graph.config().source().records(), graph.config().source().bytes()),
                     graph.config().checkpoint().newReadBudget(nanos), initial.prepared(), initial.entry().mutation(),
@@ -2189,6 +2419,8 @@ public final class TargetWorkerSourceStartup {
 
     public synchronized TargetWorkerSourceRuntimeFactory.Activated activation() {
         if (activation == null || stopping || firstFailure != null) throw new IllegalStateException("Source activation is unavailable");
+        if(!activation.runtime().operationEnvelopeReady())throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                "Source activation lacks its completed actual Native service qualification");
         return activation;
     }
     public synchronized ShardStore store() {
@@ -2682,7 +2914,12 @@ public final class TargetWorkerSourceStartup {
     public synchronized Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
     public synchronized Optional<Throwable> recoveryCleanupFailure() { return Optional.ofNullable(recoveryCleanupFailure); }
     public synchronized Optional<Throwable> checkpointPinFailure() { return Optional.ofNullable(checkpointPinFailure); }
-    public synchronized boolean activationReady() { return activation != null && !stopping && firstFailure == null; }
+    public boolean activationReady() {
+        final TargetWorkerSourceRuntimeFactory.Activated actual;
+        synchronized(this){if(activation==null||stopping||firstFailure!=null)return false;actual=activation;}
+        if(!actual.runtime().prepareServiceEnvelope())return false;
+        synchronized(this){return activation==actual&&!stopping&&firstFailure==null&&actual.runtime().operationEnvelopeReady();}
+    }
     public synchronized void retain(Throwable failure) {
         if (firstFailure == null) firstFailure = failure;
         else if (firstFailure != failure) {
@@ -2782,6 +3019,7 @@ public final class TargetWorkerSourceStartup {
                 }
                 storeClosed = true; leaseReleased = failedWorkerExit.leaseReleased(); ownerLost = failedWorkerExit.ownerLost();
                 if (!releaseRecoveryInputs() || !releaseOwnedCheckpointPin()) return false;
+                if(sourcePlanReservation!=null)sourcePlanReservation.release();
                 failedCleanupComplete = true;
                 return true;
             }
@@ -2797,6 +3035,7 @@ public final class TargetWorkerSourceStartup {
                 else if (!(leaseReleased = graph.oxia().providers().leases().release(current.get()))) return false;
             }
             if (!releaseRecoveryInputs() || !releaseOwnedCheckpointPin()) return false;
+            if(sourcePlanReservation!=null)sourcePlanReservation.release();
             // An uncertain acquisition remains in the original failure receipt; no successful lease is invented.
             failedCleanupComplete = true;
             return true;
@@ -2808,7 +3047,11 @@ public final class TargetWorkerSourceStartup {
     /** Only the original stopped Host can authorize the final pin release before its shared Oxia clients close. */
     boolean releaseCheckpointPinForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
         permit.requireOriginalRoot(graph.oxia());
-        synchronized (this) { return releaseRecoveryInputs() && releaseOwnedCheckpointPin(); }
+        synchronized (this) {
+            if(!releaseRecoveryInputs() || !releaseOwnedCheckpointPin())return false;
+            if(sourcePlanReservation!=null)sourcePlanReservation.release();
+            return true;
+        }
     }
 
     private boolean releaseOwnedCheckpointPin() {

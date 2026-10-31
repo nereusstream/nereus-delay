@@ -208,6 +208,42 @@ public final class TargetProtocolActivationStore {
         return initial.input().scope().equals(scope)&&Arrays.equals(initial.input().lineage(),lineage)&&initial.input().protocolTuples().contains(tuple)
             &&initial.input().protocolTuples().contains(actual.body().payload().descriptor().base().systemMutationTuple());
     }
+    /** The enabling Source may archive its own exact activation in the same Native batch. */
+    public static TargetProtocolActivationRecord requireProjectedFullSourceArchiveReader(TargetStoreBackend.Reader reader,
+            List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,TargetQuotaMutation at,
+            com.nereusstream.delay.ownership.SourceReplayEntry actualInput){
+        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
+        final byte[] before=reader.get(ColumnFamily.META,key),raw=reader.projected(ColumnFamily.META,key,overlay);
+        if(raw==null)throw new IllegalStateException("complete Source archive requires its actual descriptor21 activation");
+        final var record=TargetProtocolActivationRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
+        if(!record.body().payload().descriptor().supportsMigrationFullSourceArchive()||record.rootEvidence()==null)
+            throw new IllegalStateException("complete Source archive lacks its exact original Root reader authorization");
+        final var owner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
+        if(before!=null){
+            if(!Arrays.equals(before,raw))throw new IllegalStateException("archive reader activation cannot change its original retained row");
+            requireApplied(reader,List.of(),scope,lineage,owner,record,reader.aggregate().mutation());
+        }else{
+            if(!record.appliedAt().equals(at)||at.sequence()!=TargetQuotaMutation.increment(reader.sourceSequence())
+                    ||reader.source()==null||at.source().compareTo(reader.source())<=0
+                    ||!(actualInput instanceof com.nereusstream.delay.ownership.SourceReplayMutation actual)
+                    ||!Arrays.equals(actual.position().canonicalBytes(),at.source().canonicalBytes())
+                    ||!Arrays.equals(actual.mutation().canonicalEnvelope(),record.marker().canonicalEnvelope()))
+                throw new IllegalStateException("archive reader activation overlay is not this actual Source successor");
+            requireNewProjected(reader,overlay,ColumnFamily.META,key);
+            requireNewProjected(reader,overlay,ColumnFamily.DEDUPE,resultKey(record.marker().systemMutationId()));
+            requireNewProjected(reader,overlay,ColumnFamily.DEDUPE,positionKey(at.source()));
+            requireApplied(reader,overlay,scope,lineage,owner,record,at);
+        }
+        return record;
+    }
+    private static void requireNewProjected(TargetStoreBackend.Reader reader,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key){
+        TargetStoreBackend.Edit selected=null;
+        for(var edit:overlay)if(edit.family()==family&&Arrays.equals(edit.key(),key)){
+            if(selected!=null)throw new IllegalStateException("archive reader activation repeats one actual Native key");selected=edit;
+        }
+        if(selected==null||selected.before()!=null||selected.after()==null||reader.get(family,key)!=null)
+            throw new IllegalStateException("archive reader activation needs its exact new Native53/first/POS batch");
+    }
     /** Read-only ledger dependency; no local runtime capability or current reader/Owner is substituted for historical bytes. */
     public static void requirePriorActivation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
             TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){

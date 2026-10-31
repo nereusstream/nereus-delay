@@ -2,6 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
@@ -61,6 +62,10 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private KafkaSourcePosition positionedAnchor;
     private KafkaSourcePosition lastDeliveredPosition;
     private SourceReplayEntry lastDeliveredEntry;
+    private TargetWorkerSourceStartup.FrameDecodeLoan frameDecode;
+    private SourcePosition frameDecodePosition;
+    private long frameDecodeBytes;
+    private SourceReplayEntry decodedFrameEntry;
     private com.nereusstream.delay.ownership.TargetOwnedBackendGroup migrationBackend;
     private volatile com.nereusstream.delay.ownership.TargetMigrationSourceOpening migrationOpening;
     private com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
@@ -363,6 +368,9 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         ensureOpen();
         try {
             return load();
+        } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+            // The same raw Fetch record and its original loan remain retryable on this reader.
+            throw unavailable;
         } catch (RuntimeException | Error failure) {
             if (target) { revokeLocalProtection(); }
             throw failure;
@@ -375,6 +383,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new IllegalStateException("Kafka recovery resource guard changed");
         }
         if (current != null) {
+            if (frameDecode != null) frameDecode.requireCurrent();
             return true;
         }
         if (replayTailExclusive >= 0) {
@@ -428,12 +437,14 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                     record.leaderEpoch().orElse(null),
                     record.timestamp());
             final byte[] value = requireValue(record);
-            if (target && value.length > maximumFrameBytes) {
-                throw new IllegalStateException("Target recovery Source frame exceeds its declared byte bound");
-            }
+            if (target) retainFrameDecode(position, value.length);
             current = target
                     ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(value, shard, position, null, null)
                     : KafkaClientArtifactSourceRecordDecoder.decode(value, shard, position, null, null);
+            if (target) {
+                frameDecode.retainDecoded(current);
+                decodedFrameEntry = current;
+            }
             activationBarrierReached = activationBarrier.reachedBy(position);
             requireFullProtection();
             return true;
@@ -452,6 +463,48 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         if (target) { lastDeliveredPosition = (KafkaSourcePosition) result.position(); lastDeliveredEntry = result; }
         current = null;
         return result;
+    }
+
+    private void retainFrameDecode(SourcePosition position, long bytes) {
+        if (frameDecode == null) {
+            frameDecode = sourceStartup != null
+                    ? sourceStartup.acquireFrameDecode(position, bytes, null, null)
+                    : migrationOpening != null
+                            ? migrationOpening.acquireFrameDecode(position, bytes, null, null)
+                            : missingFrameDecode();
+            frameDecodePosition = position;
+            frameDecodeBytes = bytes;
+        } else if (frameDecodeBytes != bytes || !java.util.Arrays.equals(
+                frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
+            throw new IllegalStateException("Kafka recovery changed its retained raw Source frame");
+        }
+        frameDecode.requireCurrent();
+    }
+
+    private static TargetWorkerSourceStartup.FrameDecodeLoan missingFrameDecode() {
+        throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                "Kafka recovery lacks the original complete Source frame hold");
+    }
+
+    @Override public synchronized void releaseDecoded(SourceReplayEntry actual) {
+        if (!target) return;
+        if (actual != decodedFrameEntry || actual != lastDeliveredEntry || frameDecode == null) {
+            throw new IllegalStateException("Kafka replay release changed its original decoded delivery");
+        }
+        releaseFrameDecode();
+        lastDeliveredEntry = null;
+    }
+
+    private void releaseFrameDecode() {
+        if (frameDecode == null) return;
+        frameDecode.requestRelease();
+        if (!frameDecode.cleanupComplete()) {
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("Kafka frame decode cleanup remains pending");
+        }
+        frameDecode = null;
+        frameDecodePosition = null;
+        frameDecodeBytes = 0;
+        decodedFrameEntry = null;
     }
 
     private boolean loadNativePrefix(long exclusiveBound) {
@@ -498,8 +551,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         for (var record : records.records(topicPartition)) {
             KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
             if (record.offset() < readThrough || record.offset() >= nativeBound
-                    || record.offset() >= processed.offset() || record.timestamp() < 0
-                    || requireValue(record).length > maximumFrameBytes) {
+                    || record.offset() >= processed.offset() || record.timestamp() < 0) {
                 throw new IllegalStateException("Source replay record is outside its processed native prefix");
             }
             next = new BufferedRecord(record, evidence);
@@ -536,6 +588,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                 current = null;
                 lastDeliveredEntry = null;
                 buffered.clear();
+                releaseFrameDecode();
             }
             else { consumer.close(); }
             closed = true;
@@ -588,7 +641,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     }
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return migrationBackend; }
     @Override public synchronized boolean cleanupComplete() {
-        return closed && target && consumer.guardedResourcesTerminated() && (allocation == null || allocation.released());
+        return closed && target && consumer.guardedResourcesTerminated() && (allocation == null || allocation.released())
+                && (frameDecode == null || frameDecode.cleanupComplete());
     }
 
     /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */

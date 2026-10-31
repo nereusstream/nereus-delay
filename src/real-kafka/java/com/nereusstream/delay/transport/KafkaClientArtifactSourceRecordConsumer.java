@@ -3,6 +3,7 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
@@ -44,6 +45,11 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private BufferedRecord inFlight;
     private KafkaSourcePosition lastAcknowledged;
+    private TargetWorkerSourceStartup frameStartup;
+    private TargetWorkerSourceStartup.FrameDecodeLoan frameDecode;
+    private SourcePosition frameDecodePosition;
+    private long frameDecodeBytes;
+    private SourceReplayEntry decodedFrameEntry;
     private volatile boolean closed;
     private volatile boolean closing;
     private final KafkaClientArtifactOwnedSourceBackend backend;
@@ -103,6 +109,16 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         return backend == null ? pollOpen() : backend.nativeOperation(this::pollOpen);
     }
 
+    @Override public synchronized void bindFrameDecode(TargetWorkerSourceStartup actual) {
+        Objects.requireNonNull(actual, "original Source frame startup");
+        if (!target || backend == null || inFlight != null || !buffered.isEmpty()
+                || !actual.acceptedAssignment().shardId().equals(shard)
+                || frameStartup != null && frameStartup != actual) {
+            throw new IllegalStateException("Kafka frame decoding must bind its original Source before delivery");
+        }
+        frameStartup = actual;
+    }
+
     private synchronized Optional<PolledSourceRecord> pollOpen() {
         ensureOpen();
         if (inFlight != null) {
@@ -132,17 +148,51 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                     record.offset(),
                     record.leaderEpoch().orElse(null),
                     record.timestamp());
+            final byte[] value = requireValue(record);
+            if (target) retainFrameDecode(position, value.length);
             final SourceReplayEntry entry = target
                     ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(
-                            requireValue(record), shard, position, null, null)
-                    : KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
+                            value, shard, position, null, null)
+                    : KafkaClientArtifactSourceRecordDecoder.decode(value, shard, position, null, null);
+            if (target) {
+                frameDecode.retainDecoded(entry);
+                decodedFrameEntry = entry;
+            }
             inFlight = fetched;
             return Optional.of(new PolledSourceRecord(
                     entry, (candidate, ignoredOutcome) -> acknowledge(fetched, entry, candidate)));
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             buffered.addFirst(fetched);
             throw failure;
         }
+    }
+
+    private void retainFrameDecode(SourcePosition position, long bytes) {
+        if (frameDecode == null) {
+            if (frameStartup == null) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "Kafka active Source lacks its original complete frame hold");
+            frameDecode = frameStartup.acquireFrameDecode(position, bytes, null, null);
+            frameDecodePosition = position;
+            frameDecodeBytes = bytes;
+        } else if (frameDecodeBytes != bytes || !java.util.Arrays.equals(
+                frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
+            throw new IllegalStateException("Kafka active Source changed its retained raw frame");
+        }
+        frameDecode.requireCurrent();
+    }
+
+    private void releaseFrameDecode(SourceReplayEntry actual) {
+        if (!target) return;
+        if (frameDecode == null || decodedFrameEntry != actual) {
+            throw new IllegalStateException("Kafka ACK changed its original frame decode loan");
+        }
+        frameDecode.requestRelease();
+        if (!frameDecode.cleanupComplete()) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                "Kafka ACK retains its original frame decode cleanup");
+        frameDecode = null;
+        frameDecodePosition = null;
+        frameDecodeBytes = 0;
+        decodedFrameEntry = null;
     }
 
     @Override
@@ -263,6 +313,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                     return SourceAcknowledgement.AcknowledgementResult.unknown(
                             new IllegalStateException("Kafka source ACK state changed"));
                 }
+                releaseFrameDecode(expected);
                 lastAcknowledged = (KafkaSourcePosition) expected.position();
                 inFlight = null;
             }

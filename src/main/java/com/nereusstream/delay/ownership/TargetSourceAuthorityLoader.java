@@ -20,6 +20,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
      * consume only this hold's immutable local snapshots. No current-role substitution or remote I/O at commit.
      */
     @FunctionalInterface public interface Provider {
+        /** Same original Source owner and continuously held complete retained/future admission material. */
+        default TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(TargetWorkerSourceStartup.FrameOpening opening){
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source frame admission material unavailable");
+        }
         HeldInputs load(SourceReplayEntry entry, TargetSourceAuthorityPreparation.Family family, Runnable guard);
         default HeldInputs load(SourceReplayEntry entry,TargetSourceAuthorityPreparation.Family family,Runnable guard,
                 TargetSourceApplyRuntime.ConfirmationRead source){return load(entry,family,guard);}

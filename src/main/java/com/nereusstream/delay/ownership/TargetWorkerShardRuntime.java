@@ -159,6 +159,7 @@ public final class TargetWorkerShardRuntime
         shardId = exactStore.shardId();
         sourceBackendGroup = consumer.ownedBackendGroup();
         actualSourceConsumer = consumer;
+        exactTarget.bindSourceFrameDecode(consumer);
         sourceLoop = new WorkerSourceApplyLoop(Objects.requireNonNull(consumer, "consumer"), exactClasses, exactTarget);
         maintenance = exactTarget.newReservationGcRuntime(
                 exactClasses,

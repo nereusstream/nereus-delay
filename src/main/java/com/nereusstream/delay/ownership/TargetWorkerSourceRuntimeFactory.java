@@ -17,10 +17,124 @@ import java.util.function.LongSupplier;
 public final class TargetWorkerSourceRuntimeFactory {
     private TargetWorkerSourceRuntimeFactory() {}
 
+    /** A local subloan of the original Source owner's already acquired SDK/read/codec capacity. */
+    public interface FrameReadLoan {
+        void requireCurrent();
+        void requestRelease();
+        boolean cleanupComplete();
+    }
+
+    /** Complete retained-prefix and future-writer constraint, never minted from a configured number. */
+    public static final class SourceFrameContract implements AutoCloseable {
+        private final TargetWorkerSourceStartup.FrameOpening opening;
+        private final TargetMigrationProcessDriver.FrameOpening migrationOpening;
+        private final TargetScopeDeploymentAllocation.SourceHandle original;
+        private final TargetScopeDeploymentAllocation.SourceSnapshot snapshot;
+        private final com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximumDecode;
+        private final Runnable held;
+        private volatile boolean closed;
+        private SourceFrameContract(TargetWorkerSourceStartup.FrameOpening opening,
+                TargetScopeDeploymentAllocation.SourceHandle original,
+                TargetScopeDeploymentAllocation.SourceSnapshot snapshot,Runnable held) {
+            this.opening=opening;this.migrationOpening=null;this.original=original;this.snapshot=snapshot;this.held=held;
+            maximumDecode=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.frameDecode(snapshot.maximumSourceFrameBytes());
+        }
+        private SourceFrameContract(TargetMigrationProcessDriver.FrameOpening opening,
+                TargetScopeDeploymentAllocation.SourceHandle original,
+                TargetScopeDeploymentAllocation.SourceSnapshot snapshot,Runnable held) {
+            this.opening=null;this.migrationOpening=opening;this.original=original;this.snapshot=snapshot;this.held=held;
+            maximumDecode=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.frameDecode(snapshot.maximumSourceFrameBytes());
+        }
+        static SourceFrameContract capture(TargetMigrationProcessDriver.FrameOpening opening,
+                TargetScopeDeploymentAllocation.SourceHandle original,Runnable held) {
+            Objects.requireNonNull(opening).requireCurrent();Objects.requireNonNull(held).run();
+            final var snapshot=Objects.requireNonNull(Objects.requireNonNull(original).readAuthenticated());
+            opening.requireSource(snapshot.source());original.requireAllRetainedAndFutureFrames(opening,snapshot);
+            original.requireLocalCurrent();held.run();opening.requireCurrent();
+            final var captured=new SourceFrameContract(opening,original,snapshot,held);
+            captured.requireLocalCurrent();return captured;
+        }
+        /** Called on the original bounded acquisition flight; the same original handle remains owned. */
+        public static SourceFrameContract capture(TargetWorkerSourceStartup.FrameOpening opening,
+                TargetScopeDeploymentAllocation.SourceHandle original,Runnable held) {
+            Objects.requireNonNull(opening).requireCurrent();Objects.requireNonNull(held).run();
+            final var snapshot=Objects.requireNonNull(Objects.requireNonNull(original).readAuthenticated());
+            opening.requireSource(snapshot.source());
+            original.requireAllRetainedAndFutureFrames(opening,snapshot);
+            original.requireLocalCurrent();held.run();opening.requireCurrent();
+            final var captured=new SourceFrameContract(opening,original,snapshot,held);
+            captured.requireLocalCurrent();return captured;
+        }
+        public long maximumFrameBytes(){requireLocalCurrent();return snapshot.maximumSourceFrameBytes();}
+        public void requireLocalCurrent(){
+            if(closed)throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original complete Source frame qualification was released");
+            if(opening!=null)opening.requireLocalCurrent();else migrationOpening.requireLocalCurrent();
+            held.run();original.requireLocalCurrent();
+            if(opening!=null)original.requireAllRetainedAndFutureFrames(opening,snapshot);
+            else original.requireAllRetainedAndFutureFrames(migrationOpening,snapshot);
+            if(opening!=null)original.requireFrameReadAndCodecWindow(opening,snapshot,maximumDecode);
+            else original.requireFrameReadAndCodecWindow(migrationOpening,snapshot,maximumDecode);
+            if(opening!=null)opening.requireLocalCurrent();else migrationOpening.requireLocalCurrent();
+        }
+        public void requireCurrent(TargetStoreBackend.Reader actual){
+            requireLocalCurrent();
+            if(opening==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("old-domain reader frame qualification grants no Target Native service");
+            opening.requireReader(actual);requireLocalCurrent();
+        }
+        public void requireService(TargetStoreBackend.Reader actual,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds computed){
+            requireCurrent(actual);
+            if(Objects.requireNonNull(computed).requiresSourceFrameQualification())
+                throw new TargetSourceAuthorityPreparation.InputUnavailable("Native service calculation lacks its original Source qualification");
+            original.requireNativeSourceService(opening,snapshot,computed);requireCurrent(actual);
+        }
+        public void requireCheckpoint(com.nereusstream.delay.store.TargetCheckpointRootVerifier.RootProof actual){
+            requireLocalCurrent();
+            if(opening==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("old-domain reader frame hold grants no Target checkpoint qualification");
+            opening.requireCheckpoint(Objects.requireNonNull(actual));requireLocalCurrent();
+        }
+        /** Retained authenticated archive material has its historical guard proof in the same original complete prefix hold. */
+        public void requireRetainedFrame(com.nereusstream.delay.protocol.SourcePosition actual,long bytes){
+            requireLocalCurrent();
+            if(opening!=null)opening.requireSource(actual);else migrationOpening.requireSource(actual);
+            if(bytes<1||bytes>snapshot.maximumSourceFrameBytes())throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "retained archive Source frame exceeds its original complete frame hold");
+        }
+        void requireOpening(TargetWorkerSourceStartup.FrameOpening actual){
+            requireLocalCurrent();
+            if(opening==null)throw new IllegalArgumentException("migration reader frame qualification cannot become a Target Root hold");
+            opening.requireSame(actual);
+        }
+        public void requireFrame(com.nereusstream.delay.protocol.SourcePosition actual,long bytes,
+                Long generation,byte[] attestation){
+            requireLocalCurrent();
+            if(opening!=null)opening.requireFrame(actual,generation,attestation);else migrationOpening.requireFrame(actual,generation,attestation);
+            if(bytes<1||bytes>snapshot.maximumSourceFrameBytes())throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "retained actual Source frame is outside the authenticated complete frame freeze; preserve its raw responsibility");
+        }
+        FrameReadLoan borrow(com.nereusstream.delay.protocol.SourcePosition actual,long bytes,Long generation,byte[] attestation,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode){
+            requireFrame(actual,bytes,generation,attestation);
+            final var loan=Objects.requireNonNull(opening!=null
+                    ?original.borrowFrameReadAndCodec(opening,actual,bytes,generation,attestation,decode)
+                    :original.borrowFrameReadAndCodec(migrationOpening,actual,bytes,generation,attestation,decode),
+                    "original Source read/codec subloan");
+            return loan;
+        }
+        @Override public void close(){closed=true;}
+    }
+
     public record Content(TargetSourceAuthorityLoader.Provider provider, TargetStoreBackend.CommitAuthority physical,
             TargetStoreBackend.ReadAuthority reads, Duration lookupTimeout, long maximumBytes,
             com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication,
-            TargetScopeResourceManager.Inputs scopeResources) {
+            TargetScopeResourceManager.Inputs scopeResources,
+            TargetWorkerProcessRuntime.SourcePlanInputs sourcePlanInputs) {
+        public Content(TargetSourceAuthorityLoader.Provider provider, TargetStoreBackend.CommitAuthority physical,
+                TargetStoreBackend.ReadAuthority reads, Duration lookupTimeout, long maximumBytes,
+                com.nereusstream.delay.store.CheckpointPublicationCoordinator evidencePublication,
+                TargetScopeResourceManager.Inputs scopeResources) {
+            this(provider,physical,reads,lookupTimeout,maximumBytes,evidencePublication,scopeResources,null);
+        }
         public Content(TargetSourceAuthorityLoader.Provider provider,TargetStoreBackend.CommitAuthority physical,
                 TargetStoreBackend.ReadAuthority reads,Duration lookupTimeout,long maximumBytes){this(provider,physical,reads,lookupTimeout,maximumBytes,null);}
         public Content(TargetSourceAuthorityLoader.Provider provider,TargetStoreBackend.CommitAuthority physical,
@@ -34,6 +148,11 @@ public final class TargetWorkerSourceRuntimeFactory {
                     || lookupTimeout.toNanos() == Long.MAX_VALUE || maximumBytes < 1 || maximumBytes == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Source content requires finite original provider bounds");
             }
+        }
+        Content withSourcePlanInputs(TargetWorkerProcessRuntime.SourcePlanInputs actual) {
+            if(sourcePlanInputs!=null&&sourcePlanInputs!=actual)throw new IllegalStateException("Source content changed its original plan reservation");
+            return new Content(provider,physical,reads,lookupTimeout,maximumBytes,evidencePublication,scopeResources,
+                    Objects.requireNonNull(actual));
         }
     }
     private static com.nereusstream.delay.store.RecoveryCatalogAuthority evidenceCatalog(Content content,
@@ -73,6 +192,8 @@ public final class TargetWorkerSourceRuntimeFactory {
                 throw new IllegalArgumentException("Source activation belongs to another actual Worker/Store graph");
             }
             config.requireRuntime(classes, resources);
+            if(!runtime.operationEnvelopeReady())throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "actual Source graph has not completed its Native operation service gate");
             runtime.requireWorkerStore(store, resources);
             if (runtime.drainAuthority() != oxia.providers().leases() || !runtime.hasAuthorityPreparation()) {
                 throw new IllegalStateException("Source activation lost its original Oxia/content graph");
@@ -146,6 +267,8 @@ public final class TargetWorkerSourceRuntimeFactory {
         TargetSourceApplyRuntime runtime = null;
         OwnerLease active = null;
         try {
+            bindOperationEnvelope(initialized.backend(), store, config, classes, resources, content);
+            preparation.bindSourcePlanInputs(content.sourcePlanInputs());
             active = TargetWorkerOwnerActivation.activate(initialized, store, assignment, expectedLease, authorities.leases(), ownerClock);
             // Re-read actual Route/assignment after activation I/O, before constructing an exposed Source runtime.
             accept(oxia, tenant, publication, workerId);
@@ -204,6 +327,8 @@ public final class TargetWorkerSourceRuntimeFactory {
             var reopened = TargetStoreBootstrap.reopen(store, scope,
                     new TargetStoreBackend.WriteLimits(config.source().records(), config.source().bytes()),
                     config.checkpoint().newReadBudget(nanos), guardedReads, config.checkpoint().ledger());
+            bindOperationEnvelope(reopened.backend(), store, config, classes, resources, content);
+            preparation.bindSourcePlanInputs(content.sourcePlanInputs());
             final var turn = new ReplayTurnBudget(config.source().records(), config.source().bytes(), config.source().elapsedNanos());
             recovery = catalog == null
                     ? new TargetOwnerRecoveryCoordinator(store, reopened, assignment, lease, authorities, config.source(), source,
@@ -225,6 +350,20 @@ public final class TargetWorkerSourceRuntimeFactory {
     private static void requireResolvedScopeResources(Content content) {
         if (Objects.requireNonNull(content).scopeResources() != null)
             throw new TargetSourceAuthorityPreparation.InputUnavailable("configured Scope resources require their actual owned Source startup");
+    }
+
+    private static void bindOperationEnvelope(TargetStoreBackend backend, ShardStore store,
+            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            Content content) {
+        final var actual=content.sourcePlanInputs();
+        if(actual==null)throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                "configured Source requires its original Process plan/provider reservation");
+        actual.requireBinding(store,config,classes,resources,content.maximumBytes());
+        if(content.lookupTimeout().toNanos()<config.source().elapsedNanos())
+            throw new IllegalArgumentException("Source Native action exceeds its original authority-I/O timeout window");
+        // The actual writer kernel is installed only after the SDK binds its original OwnerIdentity.
+        // Final Root/Native service qualification therefore runs on its owned I/O before READY.
+        backend.bindSourceOperationEnvelope(actual);
     }
 
     public static final class Recovery {

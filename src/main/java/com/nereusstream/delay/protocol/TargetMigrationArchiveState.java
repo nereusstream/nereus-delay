@@ -9,12 +9,15 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
         byte[] intentDigest, TargetQuotaMutation intentAt, long generation, byte[] archiveRoot,
         TargetMigrationArchiveCoverage coverage, TargetQuotaMutation shadowCut, TargetQuotaMutation coveredThrough,
         byte[] managementDigest, TargetQuotaMutation managementAt, boolean taken, long tailRows, long tailRawBytes,
-        PreparedControlOperation control, SystemMutation input, TargetQuotaMutation mutation, byte[] tailFrame, TargetMigrationObjectReference inventory) {
+        PreparedControlOperation control, SystemMutation input, TargetQuotaMutation mutation, byte[] tailFrame, TargetMigrationObjectReference inventory, int schemaVersion) {
     public static final int VALUE_TYPE = 71;
-    public static final int SCHEMA_VERSION = 2;
-    public static final int MAX_CANONICAL_BYTES = 2 * TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES
+    public static final int V2_SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
+    public static final int V2_MAX_CANONICAL_BYTES = 2 * TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES
             + TargetQuotaIncarnation.MAX_CANONICAL_BYTES + TargetMigrationArchiveCoverage.MAX_CANONICAL_BYTES
             + 4 * TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 8192;
+    public static final int MAX_CANONICAL_BYTES = TargetMigrationArchiveSourceFrame.MAX_NATIVE_CANONICAL_BYTES;
+    private static final byte[] V3_DOMAIN = Bytes.utf8("nereus-delay-migration-archive-state-v3\0");
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-migration-archive-state-v1\0");
     public TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] migrationId, byte[] planDigest,
             byte[] intentDigest, TargetQuotaMutation intentAt, long generation, byte[] archiveRoot,
@@ -24,7 +27,69 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
         this(payer, migrationId, planDigest, intentDigest, intentAt, generation, archiveRoot, coverage, shadowCut, coveredThrough,
                 managementDigest, managementAt, taken, tailRows, tailRawBytes, control, input, mutation, tailFrame, null);
     }
+    public TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] migrationId, byte[] planDigest,
+            byte[] intentDigest, TargetQuotaMutation intentAt, long generation, byte[] archiveRoot,
+            TargetMigrationArchiveCoverage coverage, TargetQuotaMutation shadowCut, TargetQuotaMutation coveredThrough,
+            byte[] managementDigest, TargetQuotaMutation managementAt, boolean taken, long tailRows, long tailRawBytes,
+            PreparedControlOperation control, SystemMutation input, TargetQuotaMutation mutation, byte[] tailFrame,
+            TargetMigrationObjectReference inventory) {
+        this(payer, migrationId, planDigest, intentDigest, intentAt, generation, archiveRoot, coverage, shadowCut,
+                coveredThrough, managementDigest, managementAt, taken, tailRows, tailRawBytes, control, input, mutation,
+                tailFrame, inventory, SCHEMA_VERSION);
+    }
+    public static int maximumCanonicalBytes(int version) {
+        if (version == V2_SCHEMA_VERSION) return V2_MAX_CANONICAL_BYTES;
+        if (version == SCHEMA_VERSION) return MAX_CANONICAL_BYTES;
+        throw new IllegalArgumentException("unknown archive Native71 schema");
+    }
+    public static int maximumSourceFrameBytes(int version) {
+        maximumCanonicalBytes(version);
+        return version == V2_SCHEMA_VERSION ? TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES
+                : TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES;
+    }
+    /** A supplied genuine Source maximum remains distinct from this format-only size calculation. */
+    public static long maximumCanonicalBytes(int version, long sourceFrameMaximum) {
+        maximumCanonicalBytes(version);
+        if (version == V2_SCHEMA_VERSION) return V2_MAX_CANONICAL_BYTES;
+        if (sourceFrameMaximum < 0) throw new IllegalArgumentException("negative frozen Source maximum");
+        final long mutation = TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
+        final long[] mutations = {mutation, mutation, mutation, mutation, mutation};
+        final long head = encodedLength(version, TargetQuotaIncarnation.MAX_CANONICAL_BYTES, mutations, -1L, true,
+                Long.MAX_VALUE, Long.MAX_VALUE, TargetMigrationArchiveCoverage.MAX_CANONICAL_BYTES, -1, -1,
+                sourceFrameMaximum, TargetMigrationObjectReference.MAX_CANONICAL_BYTES);
+        final long managementInput = Math.subtractExact(TargetMigrationArchiveSourceFrame.controlFrameBytes(
+                Math.addExact((long) TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES, 192L)),
+                ShardLogFrame.HEADER_LENGTH + ShardLogFrame.TRAILER_LENGTH);
+        final long step = encodedLength(version, TargetQuotaIncarnation.MAX_CANONICAL_BYTES, mutations, -1L, true,
+                Long.MAX_VALUE, Long.MAX_VALUE, TargetMigrationArchiveCoverage.MAX_CANONICAL_BYTES,
+                Math.addExact((long) TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES, 2048L), managementInput,
+                -1, TargetMigrationObjectReference.MAX_CANONICAL_BYTES);
+        return Math.max(head, step);
+    }
+    private static long encodedLength(int version, long payerBytes, long[] mutations, long generation, boolean taken,
+            long rows, long rawBytes, long coverageBytes, long controlBytes, long inputBytes, long frameBytes, long inventoryBytes) {
+        long size = TargetMigrationArchiveSourceFrame.scalarFieldBytes(1, version);
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.scalarFieldBytes(2, inputBytes >= 0 ? 2 : 1));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(3, payerBytes));
+        for (int field : new int[] {4, 5, 6, 9, 13}) size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(field, 32));
+        final int[] mutationFields = {7, 11, 12, 14, 18};
+        for (int i = 0; i < mutationFields.length; i++)
+            size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(mutationFields[i], mutations[i]));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.scalarFieldBytes(8, generation));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(10, coverageBytes));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.scalarFieldBytes(15, taken ? 1 : 0));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.scalarFieldBytes(16, rows));
+        size = Math.addExact(size, TargetMigrationArchiveSourceFrame.scalarFieldBytes(17, rawBytes));
+        if (inputBytes >= 0) {
+            size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(19, controlBytes));
+            size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(20, inputBytes));
+        }
+        if (frameBytes >= 0) size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(21, frameBytes));
+        if (inventoryBytes >= 0) size = Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(22, inventoryBytes));
+        return Math.addExact(size, TargetMigrationArchiveSourceFrame.bytesFieldBytes(inventoryBytes >= 0 ? 23 : 22, 32));
+    }
     public TargetMigrationArchiveState {
+        maximumCanonicalBytes(schemaVersion);
         Objects.requireNonNull(payer); migrationId = TargetCompatibilityCodec.assigned(migrationId, 32, "migration ID");
         planDigest = TargetCompatibilityCodec.assigned(planDigest, 32, "original migration plan"); intentDigest = TargetCompatibilityCodec.assigned(intentDigest, 32, "original retirement intent");
         archiveRoot = TargetCompatibilityCodec.assigned(archiveRoot, 32, "actual archive rolling root"); managementDigest = TargetCompatibilityCodec.assigned(managementDigest, 32, "actual archive management frame");
@@ -34,6 +99,13 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
         if (generation == 0 || tailRows < 0 || tailRawBytes < 0 || (control == null) != (input == null)
                 || !coveredThrough.equals(mutation) || !Arrays.equals(managementAt.mutationDigest(), managementDigest))
             throw new IllegalArgumentException("archive state changed actual management/Source coverage");
+        if (schemaVersion == SCHEMA_VERSION)
+            TargetMigrationArchiveSourceFrame.requireNativeCanonical(encodedLength(schemaVersion, payer.canonicalBytes().length,
+                    new long[] {intentAt.canonicalBytes().length, shadowCut.canonicalBytes().length, coveredThrough.canonicalBytes().length,
+                            managementAt.canonicalBytes().length, mutation.canonicalBytes().length}, generation, taken, tailRows, tailRawBytes,
+                    coverage.canonicalBytes().length, control == null ? -1 : control.canonicalBytes().length,
+                    input == null ? -1 : input.canonicalEnvelope().length, tailFrame == null ? -1 : tailFrame.length,
+                    inventory == null ? -1 : inventory.canonicalBytes().length), "archive Native71 state");
         if (input != null) {
             final var body = TargetMigrationControlBody.decode(input.canonicalBody()); body.requireInput(input);
             if (!(body.request() instanceof TargetMigrationArchiveRequest request) || !control.request().equals(request.operationRequest())
@@ -48,7 +120,7 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
                 throw new IllegalArgumentException("archive step does not follow its exact actual Source frontier");
             ControlTargetMutationBinding.validate(control, control.targets().getFirst(), input);
         } else if (!mutation.equals(managementAt)) {
-            tailFrame = TargetMigrationRetirementInventory.material(tailFrame, TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES, "actual archive tail frame");
+            tailFrame = TargetMigrationRetirementInventory.material(tailFrame, maximumSourceFrameBytes(schemaVersion), "actual archive tail frame");
             requireFrame(tailFrame, mutation);
         } else if (tailFrame != null) throw new IllegalArgumentException("management head cannot invent an archive tail frame");
     }
@@ -60,7 +132,7 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
     }
     public TargetMigrationArchiveState head() {
         return new TargetMigrationArchiveState(payer, migrationId, planDigest, intentDigest, intentAt, generation, archiveRoot,
-                coverage, shadowCut, coveredThrough, managementDigest, managementAt, taken, tailRows, tailRawBytes, null, null, mutation, tailFrame, inventory);
+                coverage, shadowCut, coveredThrough, managementDigest, managementAt, taken, tailRows, tailRawBytes, null, null, mutation, tailFrame, inventory, schemaVersion);
     }
     public TargetMigrationArchiveState tail(byte[] newRoot, long rows, long bytes, TargetQuotaMutation at, byte[] frame) {
         return tail(newRoot, rows, bytes, at, frame, inventory);
@@ -96,20 +168,22 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
     }
     public byte[] key() { return history() ? historyKey(migrationId, managementAt.sequence()) : headKey(migrationId); }
     public static void requireFrame(byte[] frame, TargetQuotaMutation at) {
-        final var decoded = ShardLogFrame.decode(frame); final byte[] digest;
-        if (decoded.recordKind() == ProtocolTuple.CLIENT_COMMAND) {
-            final var command = CommandCodec.decodeFrame(frame);
-            if (!command.shardId().equals(at.source().shardId())) throw new IllegalArgumentException("archive tail frame changed actual Source Shard");
-            digest = command.canonicalFrameDigest();
-        } else {
-            final var input = SystemMutation.decodeTargetFrame(frame);
-            if (!input.shardId().equals(at.source().shardId())) throw new IllegalArgumentException("archive tail frame changed actual Source Shard");
-            digest = Bytes.sha256(input.canonicalEnvelope());
-        }
-        if (!Arrays.equals(digest, at.mutationDigest())) throw new IllegalArgumentException("archive tail lost its actual complete Source frame");
+        TargetMigrationArchiveSourceFrame.requireFrame(frame, at);
     }
-    private byte[] fields() { return CanonicalProtobuf.message(out -> {
-        CanonicalProtobuf.uint32(out, 1, SCHEMA_VERSION); CanonicalProtobuf.uint32(out, 2, history() ? 2 : 1);
+    public long canonicalLength() {
+        return encodedLength(schemaVersion, payer.canonicalBytes().length,
+                new long[] {intentAt.canonicalBytes().length, shadowCut.canonicalBytes().length, coveredThrough.canonicalBytes().length,
+                        managementAt.canonicalBytes().length, mutation.canonicalBytes().length}, generation, taken, tailRows, tailRawBytes,
+                coverage.canonicalBytes().length, control == null ? -1 : control.canonicalBytes().length,
+                input == null ? -1 : input.canonicalEnvelope().length, tailFrame == null ? -1 : tailFrame.length,
+                inventory == null ? -1 : inventory.canonicalBytes().length);
+    }
+    public long nativeValueLength() { return TargetMigrationArchiveSourceFrame.nativeValueBytes(canonicalLength()); }
+    private byte[] fields() {
+        if (schemaVersion == SCHEMA_VERSION)
+            TargetMigrationArchiveSourceFrame.requireNativeCanonical(canonicalLength(), "archive Native71 state");
+        return CanonicalProtobuf.message(out -> {
+        CanonicalProtobuf.uint32(out, 1, schemaVersion); CanonicalProtobuf.uint32(out, 2, history() ? 2 : 1);
         CanonicalProtobuf.bytes(out, 3, payer.canonicalBytes()); CanonicalProtobuf.bytes(out, 4, migrationId); CanonicalProtobuf.bytes(out, 5, planDigest);
         CanonicalProtobuf.bytes(out, 6, intentDigest); CanonicalProtobuf.bytes(out, 7, intentAt.canonicalBytes()); CanonicalProtobuf.uint64Bits(out, 8, generation);
         CanonicalProtobuf.bytes(out, 9, archiveRoot); CanonicalProtobuf.bytes(out, 10, coverage.canonicalBytes()); CanonicalProtobuf.bytes(out, 11, shadowCut.canonicalBytes());
@@ -120,13 +194,21 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
         if (tailFrame != null) CanonicalProtobuf.bytes(out, 21, tailFrame);
         if (inventory != null) CanonicalProtobuf.bytes(out, 22, inventory.canonicalBytes());
     }); }
-    public byte[] digest() { return Bytes.sha256(DOMAIN, fields()); }
-    public byte[] canonicalBytes() { return CanonicalProtobuf.message(out -> { out.writeBytes(fields()); CanonicalProtobuf.bytes(out, inventory == null ? 22 : 23, digest()); }); }
+    public byte[] digest() { return schemaVersion == V2_SCHEMA_VERSION ? Bytes.sha256(DOMAIN, fields())
+            : TargetMigrationArchiveSourceFrame.digest(V3_DOMAIN, fields()); }
+    public byte[] canonicalBytes() {
+        if (schemaVersion == V2_SCHEMA_VERSION)
+            return CanonicalProtobuf.message(out -> { out.writeBytes(fields()); CanonicalProtobuf.bytes(out, inventory == null ? 22 : 23, digest()); });
+        final byte[] fields = fields();
+        final byte[] digest = TargetMigrationArchiveSourceFrame.digest(V3_DOMAIN, fields);
+        return CanonicalProtobuf.message(out -> { out.writeBytes(fields); CanonicalProtobuf.bytes(out, inventory == null ? 22 : 23, digest); });
+    }
     public static TargetMigrationArchiveState decode(byte[] encoded) {
-        final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 23, false, "migration archive state");
+        final int version = TargetMigrationArchiveSourceFrame.schemaVersion(encoded, "migration archive state");
+        final var f = TargetCompatibilityCodec.read(encoded, maximumCanonicalBytes(version), 23, false, "migration archive state");
         if (f.size() < 19) throw new IllegalArgumentException("incomplete archive state");
         for (int i = 0; i < 18; i++) if (f.get(i).number() != i + 1) throw new IllegalArgumentException("unknown archive state field");
-        if (QueryCodecSupport.uint32(f.getFirst(), 1) != SCHEMA_VERSION) throw new IllegalArgumentException("unknown archive state schema");
+        
         final int kind = QueryCodecSupport.uint32(f.get(1), 2), taken = QueryCodecSupport.uint32(f.get(14), 15);
         if (kind != 1 && kind != 2 || taken > 1) throw new IllegalArgumentException("unknown archive state kind");
         int i = 18; final var control = kind == 2 ? PreparedControlOperation.decode(QueryCodecSupport.bytes(f.get(i++), 19)) : null;
@@ -141,7 +223,7 @@ public record TargetMigrationArchiveState(TargetQuotaIncarnation payer, byte[] m
                 TargetMigrationArchiveCoverage.decode(QueryCodecSupport.bytes(f.get(9), 10)), TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10), 11)),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(11), 12)), QueryCodecSupport.fixed(f.get(12), 13, 32), TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(13), 14)),
                 taken == 1, QueryCodecSupport.uint(f.get(15), 16), QueryCodecSupport.uint(f.get(16), 17), control, input,
-                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(17), 18)), tail, inventory);
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(17), 18)), tail, inventory, version);
         if (!Arrays.equals(value.digest(), QueryCodecSupport.fixed(f.get(i), hasInventory ? 23 : 22, 32))) throw new IllegalArgumentException("archive state digest changed");
         QueryCodecSupport.requireCanonical(encoded, value.canonicalBytes(), "migration archive state"); return value;
     }

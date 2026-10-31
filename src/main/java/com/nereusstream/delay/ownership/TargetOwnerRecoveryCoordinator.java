@@ -663,6 +663,7 @@ public final class TargetOwnerRecoveryCoordinator {
                     turnNumber = turn;
                     return new OwnerRecoveryTurn(outcomes, false, turn);
                 }
+                try {
                 if (pendingEntry == null) {
                     if (!source.hasNext()) {
                         if(assignment.activationBarrier().reachedBy(store.appliedShardLogPosition())&&replayTailReached()){
@@ -675,6 +676,10 @@ public final class TargetOwnerRecoveryCoordinator {
                     pendingEntry = Objects.requireNonNull(source.peek(), "source entry");
                 } else if (!sameEntry(pendingEntry, source.peek())) {
                     throw new IllegalStateException("Target recovery retained Source entry changed");
+                }
+                } catch(TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                    turnNumber=turn;
+                    return new OwnerRecoveryTurn(outcomes,false,turn,false,null,null,unavailable);
                 }
                 final long charged = Math.addExact(pendingEntry.position().canonicalBytes().length,
                         frame(pendingEntry).length);
@@ -721,10 +726,15 @@ public final class TargetOwnerRecoveryCoordinator {
                 if (!replay.completeAuthorities(pendingEntry)) {
                     turnNumber = turn; return new OwnerRecoveryTurn(outcomes, false, turn);
                 }
+                try {
                 if (!sameEntry(pendingEntry, source.peek())) {
                     throw new IllegalStateException("Target recovery Source changed before cursor advance");
                 }
                 source.next();
+                } catch(TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                    turnNumber=turn;
+                    return new OwnerRecoveryTurn(outcomes,false,turn,false,null,null,unavailable);
+                }
                 outcomes.add(Objects.requireNonNull(applied.result(), "applied result"));
                 pendingEntry = null;
                 pending = null;

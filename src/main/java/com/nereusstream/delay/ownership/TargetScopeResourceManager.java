@@ -61,6 +61,9 @@ public final class TargetScopeResourceManager implements AutoCloseable, Checkpoi
     private volatile RootRecord observedRoot;
     private volatile boolean closing;
     private CaptureContext captureContext;
+    public TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(TargetWorkerSourceStartup.FrameOpening opening){
+        requireCurrent();final var result=actualOwned.captureSourceFrames(opening);requireCurrent();return result;
+    }
 
     private TargetScopeResourceManager(Inputs inputs, TargetScopeDeploymentAllocation.Owned actualOwned,
             Storage storage, Runnable guard) {

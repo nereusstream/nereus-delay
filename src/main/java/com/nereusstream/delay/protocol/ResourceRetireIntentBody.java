@@ -2,7 +2,6 @@ package com.nereusstream.delay.protocol;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -295,6 +294,16 @@ public final class ResourceRetireIntentBody {
 
     /** Canonical ProtectionSet projection. */
     public record ProtectionSet(List<ProtectionRef> references, byte[] canonicalBytes, byte[] digest) {
+        private static final class CanonicalProtection{
+            private final ProtectionRef value;
+            private byte[] key;
+            private CanonicalProtection(ProtectionRef value){this.value=value;}
+            private byte[] key(){if(key==null)key=value.canonicalBytes();return key;}
+        }
+        private static List<CanonicalProtection> protectionOrder(List<ProtectionRef> references){
+            final var result=new ArrayList<CanonicalProtection>(references.size());
+            for(var reference:references)result.add(new CanonicalProtection(reference));return result;
+        }
         /** Length without making an encoded copy; bounded Root callers must preflight before encoding. */
         public int canonicalByteLength() { return canonicalBytes.length; }
         public ProtectionSet {
@@ -302,9 +311,9 @@ public final class ResourceRetireIntentBody {
             Objects.requireNonNull(canonicalBytes, "canonicalBytes");
             Bytes.requireLength(digest, HASH_LENGTH, "protection set digest");
             references = List.copyOf(references);
-            final Comparator<ProtectionRef> comparator = Comparator.comparing(ref -> Bytes.hex(ref.canonicalBytes()));
+            final var ordered=protectionOrder(references);
             for (int index = 1; index < references.size(); index++) {
-                final int order = comparator.compare(references.get(index - 1), references.get(index));
+                final int order = Arrays.compareUnsigned(ordered.get(index-1).key(),ordered.get(index).key());
                 if (order > 0) {
                     throw new IllegalArgumentException("ProtectionSet references are not canonical-byte sorted");
                 }
@@ -358,14 +367,16 @@ public final class ResourceRetireIntentBody {
             if (!Bytes.constantTimeEquals(digest, expected)) {
                 throw new IllegalArgumentException("ProtectionSet digest mismatch");
             }
-            final List<ProtectionRef> sorted = new ArrayList<>(refs);
-            sorted.sort(Comparator.comparing(ref -> Bytes.hex(ref.canonicalBytes())));
+            final var ordered=protectionOrder(refs);
+            final var sortedKeys=new ArrayList<>(ordered);
+            sortedKeys.sort((a,b)->Arrays.compareUnsigned(a.key(),b.key()));
+            final List<ProtectionRef> sorted=sortedKeys.stream().map(value->value.value).toList();
             if (!refs.equals(sorted)) {
                 throw new IllegalArgumentException("ProtectionSet references are not canonical-byte sorted");
             }
             for (int index = 1; index < refs.size(); index++) {
                 if (Arrays.equals(
-                        refs.get(index - 1).canonicalBytes(), refs.get(index).canonicalBytes())) {
+                        ordered.get(index - 1).key(), ordered.get(index).key())) {
                     throw new IllegalArgumentException("ProtectionSet contains duplicate references");
                 }
             }

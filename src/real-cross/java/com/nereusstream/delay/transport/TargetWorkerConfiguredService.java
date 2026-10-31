@@ -107,6 +107,12 @@ public final class TargetWorkerConfiguredService {
         }
     }
 
+    /** Original Native GC admission/history/retention provider and its qualified UTC evidence source. */
+    public record NativeGcInputs(com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.InputProvider provider,
+            Supplier<TrustedUtcIntervalEvidence> time) {
+        public NativeGcInputs { Objects.requireNonNull(provider); Objects.requireNonNull(time); }
+    }
+
     public record SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
             TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
             ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
@@ -116,7 +122,21 @@ public final class TargetWorkerConfiguredService {
             TargetMigrationInputs.Provider migration,
             com.nereusstream.delay.ownership.TargetMigrationMaintenanceInputs.Provider migrationMaintenance,
             com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance.Inputs.Provider payloadSummaryInitialization,
-            com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Provider payloadSummaryPrefix) {
+            com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Provider payloadSummaryPrefix,
+            NativeGcInputs nativeGc) {
+        public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
+                TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
+                ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
+                TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
+                Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
+                Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders,
+                TargetMigrationInputs.Provider migration,
+                com.nereusstream.delay.ownership.TargetMigrationMaintenanceInputs.Provider migrationMaintenance,
+                com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationMaintenance.Inputs.Provider payloadSummaryInitialization,
+                com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.Provider payloadSummaryPrefix) {
+            this(owner, initial, content, successor, capacity, recovery, maintenance, publishing, expiry, checkpoint,
+                    receipts, journal, sloProviders, migration, migrationMaintenance, payloadSummaryInitialization, payloadSummaryPrefix, null);
+        }
         public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
                 TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
                 ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
@@ -176,7 +196,8 @@ public final class TargetWorkerConfiguredService {
 
     private enum Stage { MIGRATION, CHECKPOINT, SOURCE, RESTORE_PREPARATION, RESTORE, OPEN_SOURCE, SOURCE_READY,
         WRITER, WRITER_READY, INVENTORY, MANAGEMENT, CHANNELS, JOURNAL, PUBLISHING,
-        SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, MIGRATION_MAINTENANCE, PAYLOAD_SUMMARY_MAINTENANCE, READY }
+        SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, MIGRATION_MAINTENANCE, PAYLOAD_SUMMARY_MAINTENANCE,
+        NATIVE_GC_MAINTENANCE, READY }
 
     private static final class Source {
         final TargetWorkerServiceConfiguration.Source configuration;
@@ -325,6 +346,13 @@ public final class TargetWorkerConfiguredService {
             if (source.payloadSummaryPrefix() != null) retainedHeap = Math.addExact(retainedHeap,
                     source.payloadSummaryPrefix().limits().maximumRetainedBytes());
             if (source.writerOrigin() != null) retainedHeap = Math.addExact(retainedHeap, source.writerOrigin().limits().maximumRetainedBytes());
+            if ((source.nativeGc() != null) != (input.nativeGc() != null))
+                throw new IllegalArgumentException("Native GC configuration requires its exact original input provider and qualified UTC supplier");
+            if (source.nativeGc() != null) {
+                if (processConfig.worker().source().counters() < 4)
+                    throw new IllegalArgumentException("Native GC requires the original Source root/owner counter window");
+                retainedHeap = Math.addExact(retainedHeap, source.nativeGc().configuration().maximumInputBytes());
+            }
             if (source.typedMigration() != null) retainedHeap = Math.addExact(retainedHeap,
                     source.typedMigration().maximumRetainedBytes());
             if (source.typedMigrationCompatibility() != null) retainedHeap = Math.addExact(retainedHeap,
@@ -644,6 +672,12 @@ public final class TargetWorkerConfiguredService {
                 if (config.payloadSummaryInitialization() != null)
                     source.payloadSummaryInitialization = source.startup.configurePayloadSummaryInitialization(source.worker,
                             source.writer, config.payloadSummaryInitialization().configuration(), input.payloadSummaryInitialization());
+                source.stage = Stage.NATIVE_GC_MAINTENANCE;
+            }
+            case NATIVE_GC_MAINTENANCE -> {
+                if (config.nativeGc() != null)
+                    source.startup.configureResourceReclaimMaintenance(source.worker, source.writer,
+                            config.nativeGc().configuration(), input.nativeGc().provider(), input.nativeGc().time(), dependencies.ownerClock());
                 source.stage = Stage.READY;
             }
             case READY -> { }
@@ -654,6 +688,10 @@ public final class TargetWorkerConfiguredService {
             com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Provider original) {
         if (source.inputs.migrationMaintenance() == null && source.inputs.payloadSummaryInitialization() == null) return original;
         return new com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.Provider() {
+            @Override public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(
+                    com.nereusstream.delay.ownership.TargetWorkerSourceStartup.FrameOpening opening){
+                return original.captureSourceFrames(opening);
+            }
             @Override public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadWriterPrelude(
                     com.nereusstream.delay.ownership.SourceReplayEntry entry,
                     com.nereusstream.delay.runtime.TargetSloWriterOrigin.PreparationRequired request, Runnable current,

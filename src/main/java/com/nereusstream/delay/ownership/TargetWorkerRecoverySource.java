@@ -9,6 +9,10 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
     void requireStartup(SourceAssignment assignment, long maximumFrameBytes,
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
     SourceReplayCursor<SourceReplayEntry> replayCursor();
+    /** The outer replay look-ahead has actually consumed this exact decoded delivery. */
+    default void releaseDecoded(SourceReplayEntry actual) {
+        throw new IllegalStateException("reader has no original frame decode loan");
+    }
     SourceReplaySuccessor successorAfter(SourcePosition position);
     /** The same actual continuous reader/Owner/admission hold, without poll, native I/O or external validation. */
     default void requireLocalCurrent() {

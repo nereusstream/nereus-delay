@@ -150,9 +150,11 @@ public final class TargetMigrationArchiveClosedContract {
                 TargetQuotaMutation before, long fence, boolean logical, Domain domain) {
             qualification = q; this.actual = actual; this.outcome = outcome; this.before = before; this.fence = fence; this.logical = logical;
             at = new TargetQuotaMutation(TargetQuotaMutation.increment(before.sequence()), actual.position(), sourceDigest(actual));
+            final byte[] actualFrame = frame(actual);
+            TargetMigrationArchiveSourceFrame.requireFrame(actualFrame, at);
             proof = CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, 1); CanonicalProtobuf.bytes(out, 2, q.rawMaterials());
-                CanonicalProtobuf.bytes(out, 3, domain.canonicalBytes()); CanonicalProtobuf.bytes(out, 4, frame(actual));
+                CanonicalProtobuf.uint32(out, 1, 2); CanonicalProtobuf.bytes(out, 2, q.rawMaterials());
+                CanonicalProtobuf.bytes(out, 3, domain.canonicalBytes()); CanonicalProtobuf.bytes(out, 4, actualFrame);
                 CanonicalProtobuf.bytes(out, 5, actual.position().canonicalBytes()); CanonicalProtobuf.bytes(out, 6, before.canonicalBytes());
                 CanonicalProtobuf.bytes(out, 7, Bytes.u64beBits(fence)); CanonicalProtobuf.uint32(out, 8, logical ? 1 : 0);
                 CanonicalProtobuf.bytes(out, 9, outcome.isCommand() ? outcome.commandResult().encode() : outcome.systemMutationResult().encode());
@@ -234,7 +236,9 @@ public final class TargetMigrationArchiveClosedContract {
         retirement.requireRoot(root); row.requirePlan(root.plan());
         final var f = QueryCodecSupport.read(fullProof, "complete original closed interpretation");
         QueryCodecSupport.requireNumbers(f, new int[] {1,2,3,4,5,6,7,8,9}, "original closed interpretation");
-        if (QueryCodecSupport.uint32(f.getFirst(), 1) != 1) throw new IllegalArgumentException("unknown original closed interpretation");
+        final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
+        if (version != 1 && version != 2 || version == 2 && row.schemaVersion() != TargetMigrationArchiveRow.SCHEMA_VERSION)
+            throw new IllegalArgumentException("unknown or mismatched original closed interpretation");
         final byte[] qualified = QueryCodecSupport.bytes(f.get(1), 2), domainBytes = QueryCodecSupport.bytes(f.get(2), 3);
         final var q = QueryCodecSupport.read(qualified, "complete original closed domain inventory", true);
         if (q.size() < 8 || QueryCodecSupport.uint32(q.getFirst(), 1) != 1
@@ -256,6 +260,9 @@ public final class TargetMigrationArchiveClosedContract {
         }
         final var domain = Objects.requireNonNull(selected, "selected original producer domain is absent from fixed inventory");
         final byte[] frame = QueryCodecSupport.bytes(f.get(3), 4);
+        if (version == 1 && frame.length > TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES)
+            throw new IllegalArgumentException("legacy closed interpretation exceeds its original Source frame bound");
+        TargetMigrationArchiveSourceFrame.requireFrame(frame, row.materializedAt());
         final var source = TargetSourcePosition.decode(QueryCodecSupport.bytes(f.get(4), 5));
         final var before = TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(5), 6));
         final byte[] fenceRaw = QueryCodecSupport.bytes(f.get(6), 7);

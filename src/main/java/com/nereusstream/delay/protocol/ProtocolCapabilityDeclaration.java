@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -21,6 +20,7 @@ public final class ProtocolCapabilityDeclaration {
     public static final int LEGACY_VERSION = 1;
     public static final int TARGET_VERSION = 3;
     public static final int EXTENDED_TARGET_VERSION = 4;
+    public static final int FULL_SOURCE_ARCHIVE_TARGET_VERSION = 5;
     public static final int DIGEST_LENGTH = 32;
     private static final int MAX_TUPLES = 32;
     private static final int MAX_CANONICAL_BYTES = 1 << 20;
@@ -104,6 +104,14 @@ public final class ProtocolCapabilityDeclaration {
         return new ProtocolCapabilityDeclaration(EXTENDED_TARGET_VERSION,workerId,workerIdentity,tuples,artifacts,descriptors,epoch,session,null);
     }
 
+    /** Four original plus seven explicitly selected descriptors; previous factories retain their exact versions. */
+    public static ProtocolCapabilityDeclaration fullSourceArchiveTarget(String workerId,byte[] workerIdentity,List<ProtocolTuple> tuples,
+            List<ArtifactGenerationSet> artifacts,List<TargetProtocolActivationDescriptor> descriptors,long epoch,byte[] session){
+        return new ProtocolCapabilityDeclaration(FULL_SOURCE_ARCHIVE_TARGET_VERSION,workerId,workerIdentity,tuples,artifacts,descriptors,epoch,session,null);
+    }
+
+    private static boolean targetVersion(int version){return version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION;}
+
     private ProtocolCapabilityDeclaration(
             final int version,
             final String workerId,
@@ -114,7 +122,7 @@ public final class ProtocolCapabilityDeclaration {
             final long capabilityEpoch,
             final byte[] sessionIdentity,
             final byte[] declarationDigest) {
-        if (version != LEGACY_VERSION && version != VERSION && version != TARGET_VERSION && version != EXTENDED_TARGET_VERSION) {
+        if (version != LEGACY_VERSION && version != VERSION && !targetVersion(version)) {
             throw new IllegalArgumentException("unsupported protocol capability declaration version");
         }
         this.version = version;
@@ -124,18 +132,21 @@ public final class ProtocolCapabilityDeclaration {
         this.supportedTuples = sortedTuples(supportedTuples);
         this.artifactGenerationSets = sortedArtifactSets(artifactGenerationSets, version != LEGACY_VERSION);
         final var targets=new ArrayList<>(Objects.requireNonNull(targetDescriptors));
-        targets.sort(Comparator.comparing(TargetProtocolActivationDescriptor::canonicalBytes,ProtocolCapabilityDeclaration::compareBytes));
-        if((version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION)?(targets.isEmpty()||targets.size()>(version==EXTENDED_TARGET_VERSION?10:4)):!targets.isEmpty())
+        final var targetOrder=canonicalOrder(targets,TargetProtocolActivationDescriptor::canonicalBytes);
+        for(int i=0;i<targets.size();i++)targets.set(i,targetOrder.get(i).value);
+        if(targetVersion(version)?(targets.isEmpty()||targets.size()>(version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?11:version==EXTENDED_TARGET_VERSION?10:4)):!targets.isEmpty())
             throw new IllegalArgumentException("Target declaration requires an explicit finite version3 descriptor set");
-        if(version==EXTENDED_TARGET_VERSION){
+        if(version==EXTENDED_TARGET_VERSION||version==FULL_SOURCE_ARCHIVE_TARGET_VERSION){
             final long original=targets.stream().filter(value->!value.extendedRootAuthorization()).count();
-            if(original>4||targets.size()-original>6)throw new IllegalArgumentException("version4 has four original and six explicitly registered new descriptor slots");
+            if(original>4||targets.size()-original>(version==FULL_SOURCE_ARCHIVE_TARGET_VERSION?7:6))throw new IllegalArgumentException("Target declaration exceeds its version's original/extended descriptor slots");
         }
         for(int i=0;i<targets.size();i++){
             final var target=targets.get(i);
             if(version==TARGET_VERSION&&target.extendedRootAuthorization())throw new IllegalArgumentException("new descriptor requires explicit version4 reader declaration");
+            if(version==EXTENDED_TARGET_VERSION&&target.supportsMigrationFullSourceArchive())throw new IllegalArgumentException("complete Source archive descriptor requires explicit version5 reader declaration");
             if(!this.artifactGenerationSets.contains(target.base())||!this.supportedTuples.contains(target.tuple())
-                    ||i>0&&target.equals(targets.get(i-1)))throw new IllegalArgumentException("Target declaration lost exact base/tuple or duplicated descriptor");
+                    ||i>0&&Arrays.equals(targetOrder.get(i).key(TargetProtocolActivationDescriptor::canonicalBytes),
+                        targetOrder.get(i-1).key(TargetProtocolActivationDescriptor::canonicalBytes)))throw new IllegalArgumentException("Target declaration lost exact base/tuple or duplicated descriptor");
         }
         this.targetDescriptors=List.copyOf(targets);
         if (capabilityEpoch <= 0) {
@@ -197,7 +208,7 @@ public final class ProtocolCapabilityDeclaration {
         return artifactGenerationSets.stream().anyMatch(candidate -> candidate.equals(artifacts));
     }
     public List<TargetProtocolActivationDescriptor> targetDescriptors(){return targetDescriptors;}
-    public boolean supports(TargetProtocolActivationDescriptor descriptor){return (version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION)&&targetDescriptors.contains(Objects.requireNonNull(descriptor));}
+    public boolean supports(TargetProtocolActivationDescriptor descriptor){return targetVersion(version)&&targetDescriptors.contains(Objects.requireNonNull(descriptor));}
 
     public byte[] canonicalBytes() {
         final byte[] encoded = CanonicalProtobuf.message(output -> {
@@ -206,7 +217,7 @@ public final class ProtocolCapabilityDeclaration {
                 for (ArtifactGenerationSet artifactGenerationSet : artifactGenerationSets) {
                     CanonicalProtobuf.bytes(output, 7, artifactGenerationSet.canonicalBytes());
                 }
-                if(version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION){
+                if(targetVersion(version)){
                     for(var descriptor:targetDescriptors)CanonicalProtobuf.bytes(output,8,descriptor.canonicalBytes());
                     CanonicalProtobuf.bytes(output,9,declarationDigest);
                 }else CanonicalProtobuf.bytes(output, 8, declarationDigest);
@@ -237,7 +248,7 @@ public final class ProtocolCapabilityDeclaration {
             throw new IllegalArgumentException("protocol capability declaration is incomplete");
         }
         final int version = (int) QueryCodecSupport.uint(fields.get(0), 1);
-        if (version != LEGACY_VERSION && version != VERSION && version != TARGET_VERSION && version != EXTENDED_TARGET_VERSION) {
+        if (version != LEGACY_VERSION && version != VERSION && !targetVersion(version)) {
             throw new IllegalArgumentException("unsupported protocol capability declaration version");
         }
         final String workerId = text(QueryCodecSupport.bytes(fields.get(1), 2), "workerId");
@@ -263,9 +274,9 @@ public final class ProtocolCapabilityDeclaration {
                 artifactGenerationSets.add(
                         ArtifactGenerationSet.decode(QueryCodecSupport.nested(fields.get(index++), 7)));
             }
-            if(version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION)while(index<fields.size()-1&&fields.get(index).number()==8)
+            if(targetVersion(version))while(index<fields.size()-1&&fields.get(index).number()==8)
                 targets.add(TargetProtocolActivationDescriptor.decode(QueryCodecSupport.bytes(fields.get(index++),8)));
-            final int digestField=version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION?9:8;
+            final int digestField=targetVersion(version)?9:8;
             if (artifactGenerationSets.isEmpty()
                     || index + 1 != fields.size()
                     || fields.get(index).number() != digestField) {
@@ -332,9 +343,24 @@ public final class ProtocolCapabilityDeclaration {
                 for (ArtifactGenerationSet artifactGenerationSet : artifactGenerationSets) {
                     CanonicalProtobuf.bytes(output, 7, artifactGenerationSet.canonicalBytes());
                 }
-                if(version==TARGET_VERSION||version==EXTENDED_TARGET_VERSION)for(var descriptor:targetDescriptors)CanonicalProtobuf.bytes(output,8,descriptor.canonicalBytes());
+                if(targetVersion(version))for(var descriptor:targetDescriptors)CanonicalProtobuf.bytes(output,8,descriptor.canonicalBytes());
             }
         });
+    }
+
+    /** Lazy keys preserve the original pre-sort/short-circuit validation order for rejected singleton inputs. */
+    private static final class CanonicalOrder<T>{
+        private final T value;
+        private byte[] key;
+        private CanonicalOrder(T value){this.value=value;}
+        private byte[] key(java.util.function.Function<T,byte[]> canonical){
+            if(key==null)key=canonical.apply(value);return key;
+        }
+    }
+    private static <T> List<CanonicalOrder<T>> canonicalOrder(List<T> values,java.util.function.Function<T,byte[]> canonical){
+        final var ordered=new ArrayList<CanonicalOrder<T>>(values.size());
+        for(var value:values)ordered.add(new CanonicalOrder<>(value));
+        ordered.sort((a,b)->compareBytes(a.key(canonical),b.key(canonical)));return ordered;
     }
 
     private static List<ProtocolTuple> sortedTuples(final List<ProtocolTuple> values) {
@@ -342,8 +368,8 @@ public final class ProtocolCapabilityDeclaration {
         if (values.isEmpty() || values.size() > MAX_TUPLES) {
             throw new IllegalArgumentException("supportedTuples must be bounded and non-empty");
         }
-        final List<ProtocolTuple> result = new ArrayList<>(values);
-        result.sort(Comparator.comparing(ProtocolTuple::canonicalBytes, ProtocolCapabilityDeclaration::compareBytes));
+        final var ordered=canonicalOrder(values,ProtocolTuple::canonicalBytes);
+        final List<ProtocolTuple> result=ordered.stream().map(value->value.value).toList();
         for (int index = 1; index < result.size(); index++) {
             if (result.get(index - 1).equals(result.get(index))) {
                 throw new IllegalArgumentException("duplicate supported protocol tuple");
@@ -361,9 +387,8 @@ public final class ProtocolCapabilityDeclaration {
         if (current && (values.isEmpty() || values.size() > MAX_TUPLES)) {
             throw new IllegalArgumentException("current declaration requires bounded ArtifactGenerationSets");
         }
-        final List<ArtifactGenerationSet> result = new ArrayList<>(values);
-        result.sort(Comparator.comparing(
-                ArtifactGenerationSet::canonicalBytes, ProtocolCapabilityDeclaration::compareBytes));
+        final var ordered=canonicalOrder(values,ArtifactGenerationSet::canonicalBytes);
+        final List<ArtifactGenerationSet> result=ordered.stream().map(value->value.value).toList();
         for (int index = 1; index < result.size(); index++) {
             if (result.get(index - 1).equals(result.get(index))) {
                 throw new IllegalArgumentException("duplicate ArtifactGenerationSet");

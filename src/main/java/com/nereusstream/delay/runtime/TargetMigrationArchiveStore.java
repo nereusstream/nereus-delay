@@ -15,6 +15,7 @@ import java.util.Objects;
 public final class TargetMigrationArchiveStore {
     private TargetMigrationArchiveStore() {}
     private record OwnReplay(TargetStoreBackend backend, SourceReplayEntry actual) {}
+    private record KeyedArchiveRow(byte[] originalKey, TargetMigrationArchiveRow row) {}
     private static final ThreadLocal<OwnReplay> OWN_REPLAY = new ThreadLocal<>();
 
     private static TargetStoreBackend.Prepared planReplay(TargetStoreBackend backend, SourceReplayEntry actual,
@@ -64,6 +65,47 @@ public final class TargetMigrationArchiveStore {
     private record Capture(TargetMigrationRoot root, TargetMigrationRetirementRecord retirement,
             TargetMigrationArchiveState prior, TargetQuotaIncarnation payer, TargetQuotaMutation frontier, TargetQuotaMutation at) {}
 
+    private static void requireWriter(TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> overlay,
+            TargetMigrationRoot root, TargetQuotaMutation at, SourceReplayEntry actual) {
+        requireSourceFrame(reader,actual.position(),frame(actual).length);
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
+        if (reader.projected(ColumnFamily.META, key, overlay) == null)
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                    "complete inline archive retains its Source and owner until actual reader21/37 activation");
+        final var activation = TargetProtocolActivationStore.requireProjectedFullSourceArchiveReader(reader, overlay,
+                root.plan().scope(), root.plan().newLineage(), at, actual);
+        if (!at.equals(activation.appliedAt())) at.requireAfter(activation.appliedAt());
+    }
+
+    /** New-format history requires its real reader Source; only that enabling Source may share its own tail stamp. */
+    public static void requireFullSourceFormat(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay,
+            TargetMigrationRoot root, TargetQuotaMutation business, TargetQuotaMutation frontier, byte[] actualFrame) {
+        if(view instanceof TargetStoreBackend.Reader reader){
+            if(actualFrame==null)throw new IllegalStateException("new archive schema lacks its retained complete Source frame");
+            requireSourceFrame(reader,business.source(),actualFrame.length);
+        }
+        final var scope = root.plan().scope(); final byte[] lineage = root.plan().newLineage();
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
+        final var raw = view.projected(ColumnFamily.META, key, overlay);
+        if (raw == null) throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                "new archive schema lacks its original full-Source reader activation");
+        final var activation = TargetProtocolActivationRecord.decodeForStore(key,
+                TargetValueEnvelope.decode(raw, TargetProtocolActivationRecord.VALUE_TYPE).payload(), scope, lineage);
+        if (!activation.body().payload().descriptor().supportsMigrationFullSourceArchive() || activation.rootEvidence() == null)
+            throw new IllegalStateException("new archive schema changed its actual reader21/37 Root authority");
+        TargetProtocolActivationStore.requireApplied(view, overlay, scope, lineage, root.owner().identity(), activation, frontier);
+        if (business.equals(activation.appliedAt())) {
+            if (actualFrame == null || !Arrays.equals(actualFrame, activation.marker().encodeFrame()))
+                throw new IllegalStateException("only the exact enabling Source can archive its own reader activation");
+            if (view instanceof TargetStoreBackend.Reader reader && reader.get(ColumnFamily.META, key) == null)
+                TargetProtocolActivationStore.requireProjectedFullSourceArchiveReader(reader, overlay, scope, lineage,
+                        business, new SourceReplayMutation(activation.marker(), business.source(), null, null));
+        } else business.requireAfter(activation.appliedAt());
+    }
+    private static void requireSourceFrame(TargetStoreBackend.Reader reader,SourcePosition source,long bytes){
+        final var genuineM=reader.sourceFrameContract();genuineM.requireRetainedFrame(source,bytes);genuineM.requireCurrent(reader);
+    }
+
     public static Prepared prepareFirst(TargetStoreBackend backend, TargetQuotaScope scope, byte[] lineage,
             TargetMigrationImporter.Limits limits, BoundedReadBudget budget, PreparedControlOperation control,
             SystemMutation input, SourcePosition source, TargetMigrationStore.Authority authority,
@@ -78,6 +120,8 @@ public final class TargetMigrationArchiveStore {
                     || reader.closedIngressDeadlineThrough() >= input.retryUntilEpochMs()) throw new IllegalStateException("archive Source operation is not a later unexpired input");
             final var root = TargetMigrationStore.requireActivated(reader, List.of(), scope, lineage, reader.aggregate().mutation());
             final var retirement = Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader, List.of(), root, reader.aggregate().mutation()), "actual RETIRE intent");
+            requireWriter(reader, List.of(), root, new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),
+                    source, Bytes.sha256(input.canonicalEnvelope())), new SourceReplayMutation(input, source, null, null));
             request.requireRetirement(root, retirement);
             if (retirement.retired() || !TargetProtocolActivationStore.readerAuthorized(reader, scope, lineage, request.tuple()))
                 throw new IllegalStateException("archive requires original RETIRING domain and actual reader36 activation");
@@ -115,6 +159,7 @@ public final class TargetMigrationArchiveStore {
             current.run();
             if (!reader.aggregate().mutation().equals(capture.frontier())) throw new IllegalStateException("archive exact Native preparation cut changed");
             final var actualRoot = TargetMigrationStore.requireActivated(reader, List.of(), scope, lineage, reader.aggregate().mutation());
+            requireWriter(reader, List.of(), actualRoot, capture.at(), new SourceReplayMutation(input, source, null, null));
             final var actualRetirement = Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader, List.of(), actualRoot, reader.aggregate().mutation()));
             final var prior = head(reader, List.of(), actualRoot, actualRetirement, reader.aggregate().mutation());
             if (!actualRoot.equals(capture.root()) || !actualRetirement.equals(capture.retirement()) || !Objects.equals(prior, capture.prior()))
@@ -162,6 +207,8 @@ public final class TargetMigrationArchiveStore {
             TargetMigrationRoot root, TargetMigrationRetirementRecord retirement, TargetQuotaMutation frontier) {
         final var head = decodeState(view.projected(ColumnFamily.META, TargetMigrationArchiveState.headKey(root.plan().migrationId()), overlay));
         if (head == null) return null;
+        if (head.schemaVersion() == TargetMigrationArchiveState.SCHEMA_VERSION)
+            requireFullSourceFormat(view, overlay, root, head.mutation(), frontier, head.tailFrame());
         head.requireRetirement(root, retirement); head.mutation().requireAtOrBefore(frontier);
         if (head.history()) throw new IllegalStateException("archive head cannot replace its immutable management history");
         final var step = Objects.requireNonNull(decodeState(view.projected(ColumnFamily.META,
@@ -179,6 +226,8 @@ public final class TargetMigrationArchiveStore {
             TargetMigrationRetirementRecord retirement, TargetMigrationArchiveState step, TargetQuotaMutation frontier) {
         step.requireRetirement(root, retirement);
         if (!step.history()) throw new IllegalStateException("actual archive management history required");
+        if (step.schemaVersion() == TargetMigrationArchiveState.SCHEMA_VERSION)
+            requireFullSourceFormat(view, overlay, root, step.managementAt(), frontier, step.input().encodeFrame());
         step.request().requireRetirement(root, retirement);
         final var request = step.request();
         final var inventory = request.action() instanceof TargetMigrationArchiveRequest.Takeover transfer
@@ -321,6 +370,8 @@ public final class TargetMigrationArchiveStore {
     public static void requireRow(TargetRecordAccounting.View view, List<TargetStoreBackend.Edit> overlay, TargetMigrationRoot root,
             TargetMigrationRetirementRecord retirement, TargetMigrationArchiveRow row, TargetQuotaMutation frontier) {
         row.requirePlan(root.plan()); row.materializedAt().requireAtOrBefore(frontier); TargetMigrationArchiveSemantics.requireEntry(row.entry(), root.plan());
+        if (row.schemaVersion() == TargetMigrationArchiveRow.SCHEMA_VERSION)
+            requireFullSourceFormat(view, overlay, root, row.materializedAt(), frontier, row.sourceFrame());
         if (row.sourceBranch() == TargetMigrationArchiveRow.SourceBranch.COPY_BATCH) {
             final var step = Objects.requireNonNull(decodeState(view.projected(ColumnFamily.META,
                     TargetMigrationArchiveState.historyKey(row.migrationId(), row.materializedAt().sequence()), overlay)), "archive row original actual COPY");
@@ -378,6 +429,7 @@ public final class TargetMigrationArchiveStore {
             TargetMigrationArchivePreparation.PreparedTail proof) {
         final var prior = head(reader, List.of(), root, retirement, reader.aggregate().mutation());
         if (prior == null) return List.copyOf(existing);
+        requireWriter(reader, existing, root, at, actual);
         Objects.requireNonNull(proof, "actual privately prepared original Source tail").requireTail(reader, root, retirement, actual, at);
         proof.requireCurrent(); final var edits = new ArrayList<>(existing); byte[] digest = prior.archiveRoot(); long rows = 0, bytes = 0;
         byte[] previous = null;
@@ -443,6 +495,8 @@ public final class TargetMigrationArchiveStore {
             if (reader.closedIngressDeadlineThrough() != originalFence) throw new IllegalStateException("archive physical replay changed original Source fence");
             if (reader.source() == null || actual.position().compareTo(reader.source()) <= 0) throw new IllegalStateException("route an already applied archive physical occurrence through readPhysicalReplay");
             final var root = TargetMigrationStore.requireActivated(reader, List.of(), scope, lineage, reader.aggregate().mutation());
+            requireWriter(reader, List.of(), root, new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),
+                    actual.position(), sourceDigest(actual)), actual);
             final var retirement = Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader, List.of(), root, reader.aggregate().mutation()));
             final var applied = requireTakeover(reader, List.of(), root, retirement, reader.aggregate().mutation());
             if (!applied.equals(takeover.state())) throw new IllegalStateException("archive replay changed actual Source takeover");
@@ -523,6 +577,7 @@ public final class TargetMigrationArchiveStore {
             final var at = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), actual.position(), sourceDigest(actual));
             if (!at.equals(decision.at())) throw new IllegalStateException("closed-contract materialization changed its exact actual Source stamp");
             final var root = TargetMigrationStore.requireActivated(reader, List.of(), scope, lineage, reader.aggregate().mutation());
+            requireWriter(reader, List.of(), root, at, actual);
             final var retirement = Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader, List.of(), root, reader.aggregate().mutation()));
             final var applied = requireTakeover(reader, List.of(), root, retirement, reader.aggregate().mutation());
             if (!applied.equals(takeover.state())) throw new IllegalStateException("closed-contract decision changed actual Source takeover");
@@ -628,13 +683,20 @@ public final class TargetMigrationArchiveStore {
                     retirement = Objects.requireNonNull(TargetMigrationRetirementStore.decode(reader.get(ColumnFamily.META, TargetMigrationRetirementRecord.keyFor(root.plan().migrationId())))); }
                 if (row) {
                     final var next = decodeRow(edit.after()); next.requirePlan(root.plan());
+                    if (next.schemaVersion() == TargetMigrationArchiveRow.SCHEMA_VERSION)
+                        requireFullSourceFormat(reader, edits, root, at, at, next.sourceFrame());
                     if (edit.before() != null || !next.materializedAt().equals(at) || !Arrays.equals(next.key(), edit.key())) throw new IllegalStateException("archive original namespace first cannot be overwritten");
                 } else {
                     final var next = decodeState(edit.after()); next.requireRetirement(root, retirement);
+                    if (next.schemaVersion() == TargetMigrationArchiveState.SCHEMA_VERSION)
+                        requireFullSourceFormat(reader, edits, root, at, at,
+                                next.history() ? next.input().encodeFrame() : next.tailFrame());
                     if (!next.mutation().equals(at) || !Arrays.equals(next.key(), edit.key())) throw new IllegalStateException("archive progress changed actual Source/key");
                     if (next.history()) { if (edit.before() != null) throw new IllegalStateException("archive management history is immutable"); }
                     else {
                         final var prior = decodeState(edit.before());
+                        if (prior != null && next.schemaVersion() < prior.schemaVersion())
+                            throw new IllegalStateException("archive Source cannot downgrade its established format");
                         if (prior == null || next.generation() != prior.generation()) {
                             final var step = Objects.requireNonNull(decodeState(reader.projected(ColumnFamily.META,
                                     TargetMigrationArchiveState.historyKey(next.migrationId(), at.sequence()), edits)), "actual same-batch archive management history");
@@ -646,7 +708,8 @@ public final class TargetMigrationArchiveStore {
                                     || next.taken() != prior.taken() || !next.coverage().equals(prior.coverage())) throw new IllegalStateException("archive tail changed its original management/base coverage");
                             byte[] digest = prior.archiveRoot(); long count = 0, bytes = 0;
                             final var added = edits.stream().filter(e -> e.family() == ColumnFamily.META && e.key().length > 2 && e.key()[0] == TargetKeyCodec.MIGRATION_ARCHIVE_TAG && e.before() == null && e.after() != null)
-                                    .map(e -> decodeRow(e.after())).sorted((a,b) -> Arrays.compareUnsigned(a.entry().originalKey(), b.entry().originalKey())).toList();
+                                    .map(e -> decodeRow(e.after())).map(value -> new KeyedArchiveRow(value.entry().originalKey(), value))
+                                    .sorted((a,b) -> Arrays.compareUnsigned(a.originalKey(), b.originalKey())).map(KeyedArchiveRow::row).toList();
                             for (var addedRow : added) { digest = TargetMigrationArchiveRequest.appendRoot(digest, addedRow.entry()); count++; bytes = Math.addExact(bytes, addedRow.entry().rawValue().length); }
                             if (!Arrays.equals(digest, next.archiveRoot()) || next.tailRows() != Math.addExact(prior.tailRows(), count)
                                     || next.tailRawBytes() != Math.addExact(prior.tailRawBytes(), bytes)) throw new IllegalStateException("archive actual Source tail root/count/bytes changed");
@@ -673,6 +736,64 @@ public final class TargetMigrationArchiveStore {
     public static void requireCheckpoint(TargetCheckpointDependencies dependencies) {
         final var cursor = new RetirementCursor(dependencies);
         while (!cursor.advance(256, () -> {}, ignored -> {}, ignored -> {})) { }
+    }
+    public static void requireCheckpointFormat(TargetCheckpointDependencies dependencies, TargetMigrationArchiveRow row) {
+        if (row.schemaVersion() == TargetMigrationArchiveRow.SCHEMA_VERSION)
+            requireCheckpointFormat(dependencies, row.materializedAt(), row.sourceFrame());
+    }
+    public static void requireCheckpointFormat(TargetCheckpointDependencies dependencies, TargetMigrationArchiveState state) {
+        if (state.schemaVersion() == TargetMigrationArchiveState.SCHEMA_VERSION)
+            requireCheckpointFormat(dependencies, state.mutation(), state.history() ? state.input().encodeFrame() : state.tailFrame());
+    }
+    public static void requireCheckpointFormat(TargetCheckpointDependencies dependencies, TargetMigrationArchiveRow row,
+            com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract genuineM){
+        if(row.schemaVersion()!=TargetMigrationArchiveRow.SCHEMA_VERSION)return;
+        Objects.requireNonNull(genuineM).requireCheckpoint(dependencies.root());
+        if(row.nativeValueLength()>Integer.MAX_VALUE)throw new IllegalStateException("complete archive Native72 row is not representable");
+        final var frame=row.sourceFrame();
+        if(frame!=null)genuineM.requireRetainedFrame(row.materializedAt().source(),frame.length);
+        requireCheckpointFormat(dependencies,row);genuineM.requireCheckpoint(dependencies.root());
+    }
+    public static void requireCheckpointFormat(TargetCheckpointDependencies dependencies, TargetMigrationArchiveState state,
+            com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract genuineM){
+        if(state.schemaVersion()!=TargetMigrationArchiveState.SCHEMA_VERSION)return;
+        Objects.requireNonNull(genuineM).requireCheckpoint(dependencies.root());
+        if(state.nativeValueLength()>Integer.MAX_VALUE)throw new IllegalStateException("complete archive Native71 state is not representable");
+        final var frame=state.history()?state.input().encodeFrame():state.tailFrame();
+        if(frame!=null)genuineM.requireRetainedFrame(state.mutation().source(),frame.length);
+        requireCheckpointFormat(dependencies,state);genuineM.requireCheckpoint(dependencies.root());
+    }
+    /** Structural Source/first/POS join; the original lifecycle audit independently authenticates its Root/issuer/readers. */
+    private static void requireCheckpointFormat(TargetCheckpointDependencies dependencies, TargetQuotaMutation business, byte[] actualFrame) {
+        final var migration = Objects.requireNonNull(dependencies.migrationRoot());
+        final var scope = migration.plan().scope(); final byte[] lineage = migration.plan().newLineage();
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
+        TargetProtocolActivationRecord selected = null;
+        for (var candidate : dependencies.protocolActivations()) if (Arrays.equals(candidate.key(), key)) {
+            if (selected != null) throw new IllegalStateException("duplicate actual full-Source archive activation");
+            selected = candidate;
+        }
+        final var activation = Objects.requireNonNull(selected, "new archive schema lost its actual reader21/37 Source");
+        if (!activation.body().payload().descriptor().supportsMigrationFullSourceArchive() || activation.rootEvidence() == null
+                || !activation.body().payload().scope().equals(scope) || !Arrays.equals(activation.body().payload().lineage(), lineage))
+            throw new IllegalStateException("new archive checkpoint changed its original full-Source reader Root");
+        activation.rootEvidence().require(activation.body().payload());
+        final var first = Objects.requireNonNull(dependencies.resultRecord(Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, 1}, activation.marker().systemMutationId())), "actual reader37 first");
+        final var position = Objects.requireNonNull(dependencies.resultRecord(Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, 1}, activation.appliedAt().source().canonicalBytes())), "actual reader37 POS");
+        final var owner = Objects.requireNonNull(dependencies.incarnation(migration.owner().key()), "actual archive Source owner");
+        first.requireOwner(owner); position.requireOwner(owner); position.requireFirst(first);
+        if (first.kind() != TargetResultRecord.Kind.SYSTEM || !first.mutation().equals(activation.appliedAt())
+                || position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM || !position.mutation().equals(activation.appliedAt())
+                || !Arrays.equals(first.typedPayload(), SystemMutationResult.from(activation.marker(), ApplyStatus.APPLIED,
+                        StableCode.OK, activation.appliedAt().source().canonicalBytes()).encode()))
+            throw new IllegalStateException("archive reader permission lost its actual APPLIED Source first/POS");
+        activation.appliedAt().requireAtOrBefore(dependencies.root().aggregate().mutation());
+        if (business.equals(activation.appliedAt())) {
+            if (actualFrame == null || !Arrays.equals(actualFrame, activation.marker().encodeFrame()))
+                throw new IllegalStateException("only the complete reader37 activation itself may share its archive stamp");
+        } else business.requireAfter(activation.appliedAt());
     }
 
     /** Same complete archive fold for protected multi-turn preparation; construction does not copy or sort the inventory. */
@@ -710,6 +831,7 @@ public final class TargetMigrationArchiveStore {
                     if (!states.hasNext()) { phase = 1; continue; }
                     requireRoot(); any = true;
                     final var state = states.next(); state.requireRetirement(root, retirement);
+                    requireCheckpointFormat(dependencies, state);
                     if (state.history()) {
                         if (steps.put(state.managementAt().sequence(), state) != null) throw new IllegalStateException("duplicate actual archive management Source");
                         retained.accept(64);
@@ -718,6 +840,7 @@ public final class TargetMigrationArchiveStore {
                     if (!entries.hasNext()) { reverse = steps.values().iterator(); phase = 2; continue; }
                     requireRoot(); any = true;
                     final var row = entries.next(); row.requirePlan(root.plan()); TargetMigrationArchiveSemantics.requireEntry(row.entry(), root.plan());
+                    requireCheckpointFormat(dependencies, row);
                     requirePhysical(dependencies, row);
                     final byte[] key = row.key(); copied.accept(key.length); retained.accept(Math.addExact(key.length, 64));
                     if (rows.put(key,row) != null) throw new IllegalStateException("duplicate archive original namespace/key");

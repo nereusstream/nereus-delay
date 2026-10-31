@@ -57,6 +57,8 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(maintenanceTurn, "maintenanceTurn");
         Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
         Objects.requireNonNull(checkpoint, "checkpoint").requireWorkClasses(workClasses);
+        requireSourceOperationEnvelope(source, workClasses, maximumSourceFrameBytes,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.basic());
         resources.validate(store);
         WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
                 CapacityVector.empty(), CapacityVector.empty());
@@ -192,6 +194,30 @@ public record TargetWorkerRuntimeConfig(
     /** SourceApplyWorkClassExecutor charges the full Source Position as well as the retained frame. */
     public long maximumSourceApplyTaskBytes() {
         return maximumSourceApplyTaskBytes(maximumSourceFrameBytes);
+    }
+
+    /** Native plan work is independent of the queued frame/position and of provider-held content. */
+    public void requireSourceOperationEnvelope(
+            com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
+        if(Objects.requireNonNull(required).requiresSourceFrameQualification())
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("complete Source service requires its original frame qualification");
+        requireSourceOperationEnvelope(source, workClasses, maximumSourceFrameBytes, Objects.requireNonNull(required));
+    }
+
+    private static void requireSourceOperationEnvelope(TargetSourceApplyRuntime.Limits limits,
+            WorkClassRuntimeConfig classes, long maximumFrameBytes,
+            com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
+        final boolean fixed=required.requiresSourceFrameQualification();
+        if (maximumFrameBytes<(fixed?required.fixedMaximumFrameBytes():required.maximumFrameBytes())
+                ||limits.records() < Math.max(required.readRecords(), required.writeRecords())
+                || limits.bytes() < Math.max(fixed?required.fixedReadBytes():required.readBytes(), fixed?required.fixedWriteBytes():required.writeBytes())
+                || limits.counters() < required.maximumCounters()
+                || limits.domains() < required.maximumDomains())
+            throw new IllegalArgumentException("Source limits cannot serve the complete legal Native operation family");
+        final var policy = classes.policies().get(WorkClass.SOURCE_APPLY);
+        if (policy.maxTimePerTurnNanos() < limits.elapsedNanos()
+                || classes.maxBorrowedResourceHoldNanos() < limits.elapsedNanos())
+            throw new IllegalArgumentException("Source operation exceeds the original action/borrowed-resource time window");
     }
 
     private static long maximumSourceApplyTaskBytes(long maximumFrameBytes) {

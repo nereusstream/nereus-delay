@@ -647,6 +647,13 @@ public final class TargetMigrationMaintenance {
         @Override public OwnerLease ownerLease() { return owner.admission.startup().ownerLease(); }
         @Override public OwnerIdentity ownerIdentity() { return owner.admission.ownerIdentity(); }
         @Override public SourcePosition baseline() { return Objects.requireNonNull(owner.baseline); }
+        @Override public TargetWorkerSourceStartup.FrameDecodeLoan acquireFrameDecode(SourcePosition actual,long bytes,Long generation,byte[] attestation){
+            owner.requireLocalCurrent();
+            return owner.admission.startup().acquireFrameDecode(actual,bytes,generation,attestation);
+        }
+        @Override public TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+            owner.requireLocalCurrent();return owner.admission.startup().sourceFrameContract();
+        }
         @Override public TargetDestinationSdkBudget sdkBudget() { return owner.admission.sdkBudget(); }
         @Override public SystemWriterAppendBudget systemWriterBudget() { return owner.admission.systemWriters(); }
         public void retainInputs(TargetMigrationMaintenanceInputs actual) {

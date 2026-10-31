@@ -6783,3 +6783,58 @@ receipts may the old dedicated subloan/DB be returned and R confirmed; shared So
 resources keep their original ownership. Archive/T provenance, first/POS, protection and permanent
 identity/retirement tombstones enter the formal checkpoint and independent cold audit. Fees release
 only on the original exact actual settlement, once, without per-ID double refunds.
+
+The complete-inline-Source archive reader is separately registered as tuple
+`(1,1,SYSTEM_MUTATION,1,37)` through `targetMigrationFullSourceArchive`. It is a required-reader
+capability, not another CONTROL operation or a replacement for operation40/kind39/tuple36 management
+authorization. Descriptor21 selects exactly37. Its closed matrix uses the descriptor20 common
+fields1–46 with41=7; fields47/48/49 are respectively Native72 schema2, Native71 archive-head/history
+schema3 and the unchanged ArchiveRequest schema1. New field50 is the Source frame representation
+boundary `TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES` of the original NDL1/byte-array format,
+not a claim that every legal Source input fits an independently estimated body maximum or a physical
+service budget. Complete Native metadata and inline frame sizes are preflighted with checked long
+arithmetic before allocation/encoding. COPY_BATCH retains its original 32MiB request ceiling.
+
+Native72 schema1, Native71 archive schema2 and their original 32MiB frame/encoded ceilings and
+digest domains remain fixed. New schemas72v2/71v3 retain the complete inline original Source frame
+under their separately bounded formats. Descriptor20 reads only72v1/71v2; descriptor21 explicitly
+reads72v1/v2 and71v2/v3. The Native maximum72 alone is insufficient to select these formats.
+The existing canonical field numbers remain unchanged. New row/state digest domains are respectively
+`nereus-delay-migration-logical-first-native72-v2` and `nereus-delay-migration-archive-state-v3`, each
+followed by NUL; decoding selects the explicit version before applying that version's encoded bound.
+Descriptor1–20 matrices/canonical bytes, the global legacy Native maximum56, default descriptor14
+advertisements and existing reader declarations remain unchanged.
+
+`ProtocolCapabilityDeclaration` adds explicit schema5 through `fullSourceArchiveTarget`: at most
+eleven selected descriptors, comprising at most four original descriptors and seven versions15–21.
+Its canonical field layout and digest input follow schema4 with discriminator5. Schema4 remains
+capped at ten/four-plus-six and rejects descriptor21; schemas1–3 retain their original bytes and
+limits. The supported tuple list still holds at most32 entries. No constructor or advertisement
+automatically publishes descriptor21 or unrelated capabilities.
+
+The original Root issuer must explicitly authorize37, using the existing signed RootAnchor,
+independently pinned issuer and complete current eligible-reader activation path. The bounded
+migration issuer policy may explicitly select13,14,30–34,36,37 (at most9); an already signed policy
+without37 gains no permission. Its original bytes, signature and actual A binding remain unchanged.
+New schemas require the actual APPLIED descriptor21/tuple37 Source activation before writing;
+missing eligibility retains the original Source/owner/loan responsibilities and is unavailable.
+
+The original UNKNOWN Outcome still preserves opaque field15 transfer and field17 RetryDecision
+placeholder bytes. Neither branch acquires a new byte cap, body generation or typed interpretation.
+Its Source cost uses actual complete frame size F alongside the fixed read/edit shape. Definitive
+typed transfer/retry validation remains unchanged. Actual frozen Source material and its original
+authority must supply the resource reservation; an absent reservation makes service qualification
+unavailable while preserving the original frame, UNKNOWN, fees and loan responsibilities. Descriptor21,
+Native encoded ceilings, a previous 224MiB body estimate or current service Limits cannot truncate
+those legal opaque bytes or substitute for that actual F/material.
+
+The sole same-Source exception is the enabling activation P's own archive tail. Before archive/fee
+edits, `requireProjectedFullSourceArchiveReader` accepts only the exact new Native53 key for37 in
+that input-business overlay, its complete signed descriptor21 activation/Root evidence/readers,
+the exact current full Source frame and physical position, and its same-stamp APPLIED/OK first and
+POSITION. It runs the unchanged complete `requireApplied` against that exact projected batch.
+Persisted37 follows its original prior-activation path. Cold/checkpoint/ledger may use equality only
+for that exact P's own tail and must authenticate P independently; a tail cannot prove P. This does
+not relax another business operation's prior-Source ordering, publish a capability before atomic
+commit, replace the management purpose, skip an earlier queued frame or upgrade an old image by
+format inference. Failure/UNKNOWN keeps the original continuous hold and recovery responsibility.

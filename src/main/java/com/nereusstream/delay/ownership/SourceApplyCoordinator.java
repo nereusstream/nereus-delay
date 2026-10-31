@@ -94,12 +94,18 @@ public final class SourceApplyCoordinator {
                     }
                     pendingSourceRecord = polled.get();
                     pending = new Pending(pendingSourceRecord.entry());
+                } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                    return TurnResult.waitingForCapacity(unavailable);
                 } catch (RuntimeException | Error failure) {
                     target.fence();
                     return TurnResult.sourcePollFailure(failure);
                 }
             } else {
-                final SourceReplayEntry next = peekSource();
+                final SourceReplayEntry next;
+                try { next = peekSource(); }
+                catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                    return TurnResult.waitingForCapacity(unavailable);
+                }
                 if (next == null) {
                     return TurnResult.exhausted();
                 }
@@ -235,6 +241,8 @@ public final class SourceApplyCoordinator {
                     throw new IllegalStateException("source look-ahead changed before cursor advance");
                 }
                 source.next();
+            } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                return new TurnResult(TurnStatus.WAITING_FOR_SOURCE_CAPACITY,pending.entry,null,null,unavailable);
             } catch (RuntimeException | Error failure) {
                 // The broker ACK is already confirmed, but the caller-owned
                 // cursor could not be advanced. Continuity is no longer proven;
@@ -267,6 +275,8 @@ public final class SourceApplyCoordinator {
                 return null;
             }
             return Objects.requireNonNull(source.peek(), "source look-ahead entry");
+        } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+            throw unavailable;
         } catch (RuntimeException | Error failure) {
             target.fence();
             return throwUnchecked(failure);
@@ -316,6 +326,7 @@ public final class SourceApplyCoordinator {
     public enum TurnStatus {
         EXHAUSTED,
         WAITING_FOR_SOURCE,
+        WAITING_FOR_SOURCE_CAPACITY,
         SOURCE_POLL_FAILURE,
         WAITING_FOR_WORK_CLASS,
         WAITING_FOR_AUTHORITY,
@@ -346,6 +357,9 @@ public final class SourceApplyCoordinator {
                 if (entry != null || appliedOutcome != null || task != null || failure != null) {
                     throw new IllegalArgumentException("source idle turn cannot carry work evidence");
                 }
+            } else if (status == TurnStatus.WAITING_FOR_SOURCE_CAPACITY) {
+                if(appliedOutcome!=null||task!=null||!(failure instanceof TargetWorkerSourceStartup.FrameCapacityUnavailable))
+                    throw new IllegalArgumentException("Source capacity wait must retain its original cause");
             } else if (status == TurnStatus.SOURCE_POLL_FAILURE) {
                 if (entry != null || appliedOutcome != null || task != null || failure == null) {
                     throw new IllegalArgumentException("source poll failure has invalid evidence");
@@ -375,6 +389,9 @@ public final class SourceApplyCoordinator {
         private static TurnResult sourcePollFailure(final Throwable failure) {
             return new TurnResult(
                     TurnStatus.SOURCE_POLL_FAILURE, null, null, null, Objects.requireNonNull(failure, "failure"));
+        }
+        private static TurnResult waitingForCapacity(final TargetWorkerSourceStartup.FrameCapacityUnavailable failure) {
+            return new TurnResult(TurnStatus.WAITING_FOR_SOURCE_CAPACITY, null, null, null, Objects.requireNonNull(failure));
         }
 
         private static TurnResult waiting(final SourceReplayEntry entry, final WorkClassTask task) {

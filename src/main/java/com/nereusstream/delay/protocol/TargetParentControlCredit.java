@@ -237,7 +237,8 @@ public final class TargetParentControlCredit {
     private TargetParentControlCredit(Control funding, TargetQuotaGrantActivation actualPayerGrant, List<Allocation> allocations) {
         this.funding = Objects.requireNonNull(funding); this.actualPayerGrant = Objects.requireNonNull(actualPayerGrant);
         definition = funding.definition();
-        if (!actualPayerGrant.grant().equals(definition.expectedPayerGrant()) || actualPayerGrant.grant().scope().target() != null)
+        if (!Arrays.equals(actualPayerGrant.grant().canonicalBytes(), definition.expectedPayerGrant().canonicalBytes())
+                || actualPayerGrant.grant().scope().target() != null)
             throw new IllegalArgumentException("parent credit changed its actual original Native SHARD grant activation");
         definition.requireSource(actualPayerGrant.mutation().source()); actualPayerGrant.mutation().requireAtOrBefore(funding.appliedAt());
         if (allocations == null || allocations.size() > definition.maximumAllocations()) throw new IllegalArgumentException("parent child allocation count exceeds its frozen envelope");

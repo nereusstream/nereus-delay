@@ -146,6 +146,9 @@ public final class TargetWorkerServiceConfiguration {
     public record WriterOrigin(Path file, com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits limits) {
         public WriterOrigin { Objects.requireNonNull(file); Objects.requireNonNull(limits); }
     }
+    public record NativeGc(Path file, com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.Configuration configuration) {
+        public NativeGc { Objects.requireNonNull(file); Objects.requireNonNull(configuration); }
+    }
 
     public record Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
             Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
@@ -156,7 +159,23 @@ public final class TargetWorkerServiceConfiguration {
             Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
             Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility,
             MigrationMaintenance migrationMaintenance, PayloadSummaryInitialization payloadSummaryInitialization,
-            PayloadSummaryPrefix payloadSummaryPrefix, WriterOrigin writerOrigin) {
+            PayloadSummaryPrefix payloadSummaryPrefix, WriterOrigin writerOrigin, NativeGc nativeGc) {
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+                Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration,
+                Path migrationCompatibilityFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigrationCompatibility,
+                MigrationMaintenance migrationMaintenance, PayloadSummaryInitialization payloadSummaryInitialization,
+                PayloadSummaryPrefix payloadSummaryPrefix, WriterOrigin writerOrigin) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile, storePath,
+                    typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels, readResourcesFile,
+                    typedReadResources, sloServiceFile, typedSloService, migrationFile, typedMigration,
+                    migrationCompatibilityFile, typedMigrationCompatibility, migrationMaintenance, payloadSummaryInitialization,
+                    payloadSummaryPrefix, writerOrigin, null);
+        }
         public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
                 Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
                 SourceConfiguration typedSource, WriterConfiguration typedWriter,
@@ -421,6 +440,23 @@ public final class TargetWorkerServiceConfiguration {
                 final var limits = loadWriterOrigin(file); writerOrigin = new WriterOrigin(file, limits);
                 retainedHeap = Math.addExact(retainedHeap, limits.maximumRetainedBytes());
             }
+            final var gcFields = f.prefixed(key + "nativeGc.", 1);
+            final NativeGc nativeGc;
+            if (gcFields.isEmpty()) nativeGc = null;
+            else {
+                if (!gcFields.keySet().equals(Set.of("file")))
+                    throw new IllegalArgumentException("Native GC requires its one explicit finite original configuration");
+                final var file = files.add(resolve(base, gcFields.get("file")), MAXIMUM_FILE_BYTES);
+                final var config = loadNativeGc(file);
+                final var signingFile = files.add(config.signingConfiguration(), MAXIMUM_FILE_BYTES);
+                final var signing = TargetWorkerRuntimeConfigLoader.loadFields(signingFile);
+                for (String input : List.of("signing.serviceIdentityFile", "signing.publicKeyFile", "signing.privateKeyFile"))
+                    files.add(signing.absolutePath(input), 1024);
+                if (process.worker().source().counters() < 4)
+                    throw new IllegalArgumentException("Native GC requires the original Source root/owner counter window");
+                nativeGc = new NativeGc(file, config);
+                retainedHeap = Math.addExact(retainedHeap, config.maximumInputBytes());
+            }
             final Path sourceFile = files.add(resolve(base, f.text(key + "sourceFile")), MAXIMUM_FILE_BYTES);
             files.references(sourceFile, "source.authorizationFile", "source.signedRouteFile");
             final Path writerFile = files.add(resolve(base, f.text(key + "writerFile")), MAXIMUM_FILE_BYTES);
@@ -624,7 +660,7 @@ public final class TargetWorkerServiceConfiguration {
             }
             sources.add(new Source(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile,
                     inventoryFile, storePath, source, writer, checkpoint, inventory, channelList, readResourcesFile, readResources,
-                    sloServiceFile, sloService, migrationFile, migration, compatibilityFile, compatibility, live, summary, prefix, writerOrigin));
+                    sloServiceFile, sloService, migrationFile, migration, compatibilityFile, compatibility, live, summary, prefix, writerOrigin, nativeGc));
         }
         f.requireComplete();
         files.requireUnchanged();
@@ -688,6 +724,20 @@ public final class TargetWorkerServiceConfiguration {
                 fields.number("origin.totalReadRecords"), fields.number("origin.totalReadBytes"), fields.number("origin.totalElapsedNanos"),
                 fields.integer("origin.turnReadRecords"), fields.number("origin.turnReadBytes"), fields.number("origin.turnElapsedNanos"));
         fields.requireComplete(); return limits;
+    }
+    private static com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.Configuration loadNativeGc(Path file) throws IOException {
+        final var fields = TargetWorkerRuntimeConfigLoader.loadFields(file);
+        final var result = new com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.Configuration(
+                fields.absolutePath("gc.signingConfigurationFile"), fields.hex("gc.deploymentRootDigest", 32, 32),
+                fields.integer("gc.maximumRows"), nativeGcReads(fields, "gc.discovery."), nativeGcReads(fields, "gc.keys."),
+                nativeGcReads(fields, "gc.recovery."), nativeGcReads(fields, "gc.nativeReads."),
+                fields.number("gc.maximumInputBytes"), fields.number("gc.preparationTimeoutNanos"), fields.number("gc.retryWindowMs"));
+        fields.requireComplete(); return result;
+    }
+    private static com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.ReadLimits nativeGcReads(
+            TargetWorkerRuntimeConfigLoader.Fields fields, String prefix) {
+        return new com.nereusstream.delay.ownership.TargetResourceReclaimMaintenance.ReadLimits(
+                fields.integer(prefix + "records"), fields.number(prefix + "bytes"), fields.number(prefix + "nanos"));
     }
 
     private static int boundedCount(int value, int maximum, String name) {

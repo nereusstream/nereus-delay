@@ -68,6 +68,8 @@ public final class TargetMigrationProcessDriver {
     private volatile boolean exposed;
     private SourcePosition synchronizedThrough;
     private SourceReplayEntry pending;
+    private boolean pendingConsumed;
+    private volatile TargetWorkerSourceStartup.FrameCapacityUnavailable frameCapacityFailure;
     private TargetMigrationStore.Activated activated;
     private TargetMigrationAdoption.Adopted adopted;
     private TargetMigrationAdoption adoption;
@@ -96,6 +98,82 @@ public final class TargetMigrationProcessDriver {
     private TargetMigrationArchiveHeld.RuntimeHold archiveHold;
     private BoundedReadBudget archiveBudget;
     private CheckpointInputFuture.Cleanup archiveRuntimeCleanup;
+    private TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames;
+    private final java.util.Set<TargetWorkerSourceStartup.FrameDecodeLoan> frameDecodeLoans=java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Original old-domain reader binding. Only its real Driver can mint it after opening the authenticated copy. */
+    public static final class FrameOpening {
+        private final TargetMigrationProcessDriver driver;
+        private final TargetMigrationInputs held;
+        private final ShardStore.LegacyCheckpointReplayCopy copy;
+        private final ShardStore store;
+        private final CheckpointManifest manifest;
+        private final SourceAssignment assignment;
+        private final OwnerLease owner;
+        private final SourcePosition cut;
+        private final byte[] lineage;
+        private FrameOpening(TargetMigrationProcessDriver driver) {
+            this.driver=driver;held=Objects.requireNonNull(driver.inputs);copy=Objects.requireNonNull(driver.legacyCopy);
+            store=copy.store();manifest=Objects.requireNonNull(held.manifest());assignment=driver.assignment;
+            owner=driver.compatibilityRecovery?driver.reopenedSource.ownerLease():driver.lease;
+            final var plan=Objects.requireNonNull(driver.plan);cut=plan.baseline().source();lineage=plan.oldLineage();
+            if(manifest.storeFormatVersion()!=1||!store.shardId().equals(plan.scope().shard())
+                    ||!Arrays.equals(store.metadata().storeIncarnation(),plan.oldStore())
+                    ||!Arrays.equals(store.metadata().dbIdentity(),plan.oldDbIdentity())
+                    ||!manifest.sourceStoreIncarnation().equals(store.metadata().storeIncarnationUuid())
+                    ||!Arrays.equals(manifest.dbIdentity(),store.metadata().dbIdentity())
+                    ||!Arrays.equals(manifest.recoveryLineageId(),lineage)
+                    ||!Arrays.equals(manifest.manifestSha256(),plan.oldManifest().resource().manifestSha256())
+                    ||!Arrays.equals(manifest.appliedShardLogPosition().canonicalBytes(),cut.canonicalBytes()))
+                throw new IllegalStateException("migration Source frame hold changed its authenticated old Store/Manifest/lineage/cut");
+        }
+        public TargetMigrationSourceOpening acquisition(){return driver.opening;}
+        public Object actualLegacyStore(){return store;}
+        public StoreMetadata legacyMetadata(){return store.metadata();}
+        public CheckpointManifest manifest(){return manifest;}
+        public SourceAssignment assignment(){return assignment;}
+        public SourcePosition cut(){return cut;}
+        public byte[] lineage(){return lineage.clone();}
+        public void requireCurrent(){driver.requireCurrent();requireLocalCurrent();}
+        public void requireLocalCurrent(){
+            driver.requireLocalCurrent();
+            final var current=driver.compatibilityRecovery?driver.reopenedSource.ownerLease():driver.lease;
+            if(driver.inputs!=held||driver.legacyCopy!=copy||store.isCloseStarted()
+                    ||!assignment.sameIdentity(driver.assignment)||current==null||!owner.sameIdentity(current))
+                throw new IllegalStateException("original migration read frame acquisition was replaced or exited");
+        }
+        public void requireSource(SourcePosition actual){
+            requireLocalCurrent();
+            if(actual==null||!cut.sameSourceIdentity(actual))throw new IllegalArgumentException("migration frame changed its original physical Source");
+        }
+        void requireFrame(SourcePosition actual,Long generation,byte[] attestation){
+            requireSource(actual);
+            if(actual.compareTo(cut)<=0)throw new IllegalArgumentException("migration frame predates its actual baseline");
+            if(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier){
+                if(generation==null||attestation==null)throw new IllegalStateException("migration frame lacks its actual Source generation");
+                barrier.validateSourceConnection(generation,attestation);
+            }else if(generation!=null||attestation!=null)throw new IllegalStateException("Kafka migration frame carries a foreign Source generation");
+        }
+    }
+
+    private void captureSourceFrames(){
+        if(sourceFrames!=null){sourceFrames.requireLocalCurrent();return;}
+        final var binding=new FrameOpening(this);
+        sourceFrames=TargetWorkerSourceRuntimeFactory.SourceFrameContract.capture(binding,
+                Objects.requireNonNull(inputs.originalManagementSource()),inputs::requireLocalCurrent);
+        // This remains the original held-input share; the Source owner must already pay the complete codec window.
+        if(inputs.retainedBytes()>configuration.maximumRetainedBytes())
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("migration Source codec material exceeds its original Held reservation");
+    }
+
+    private TargetWorkerSourceStartup.FrameDecodeLoan acquireFrameDecode(SourcePosition actual,long bytes,Long generation,byte[] attestation){
+        requireLocalCurrent();
+        final var frames=sourceFrames;
+        if(frames==null)throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original migration Source frame qualification is not yet captured");
+        frames.requireFrame(actual,bytes,generation,attestation);
+        final var decode=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.frameDecode(bytes);
+        return TargetWorkerSourceStartup.borrowFrameDecode(frames,actual,bytes,generation,attestation,decode,()->{},frameDecodeLoans);
+    }
 
     TargetMigrationProcessDriver(TargetWorkerProcessRuntime process, TargetWorkerProcessRuntime.Assembly graph,
             TargetMigrationConfiguration configuration, TargetWorkerSourceStartup.Owner owner,
@@ -163,6 +241,7 @@ public final class TargetMigrationProcessDriver {
         advance(); return serviceAdmitted();
     }
     public Optional<Throwable> firstFailure() { return Optional.ofNullable(firstFailure); }
+    public Optional<TargetWorkerSourceStartup.FrameCapacityUnavailable> frameCapacityFailure(){return Optional.ofNullable(frameCapacityFailure);}
     public boolean activationExposed() { return exposed || staged != null; }
     public synchronized Optional<SourcePosition> baseline() {
         return inputs == null ? Optional.empty() : Optional.of(archivePreview == null ? inputs.manifest().appliedShardLogPosition() : plan.baseline().source());
@@ -221,7 +300,11 @@ public final class TargetMigrationProcessDriver {
                 synchronized (TargetMigrationProcessDriver.this) {
                     if (stopping) return;
                     try {
-                        operation = OwnedCheckpointIo.submit(guard -> { step(guard); return true; },
+                        operation = OwnedCheckpointIo.submit(guard -> {
+                            try{step(guard);frameCapacityFailure=null;}
+                            catch(TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable){frameCapacityFailure=unavailable;}
+                            return true;
+                        },
                                 this::requireCurrent, graph.io());
                     } catch (RuntimeException | Error failure) { retain(failure); throw failure; }
                 }
@@ -259,6 +342,7 @@ public final class TargetMigrationProcessDriver {
                 state = State.SOURCE;
             }
             case SOURCE -> {
+                captureSourceFrames();
                 if (transport == null) bindTransport(transportFactory.apply(opening));
                 if (!transport.advance()) return;
                 final var actualReader = Objects.requireNonNull(transport.reader());
@@ -358,6 +442,7 @@ public final class TargetMigrationProcessDriver {
             candidate = importer.resumeSealed(attempt.candidate(), configuration.newReadBudget(nanos));
             final var backend = TargetStoreBackend.forMigration(target, plan.scope(), importer.root().identity().accountingIncarnation(),
                     plan.newLineage(), inputs.importLimits().writes(), candidate);
+            backend.bindSourceOperationEnvelope(reopenedSource.prepareMigrationFrameInputs(this));
             archiveTakeover = Objects.requireNonNull(com.nereusstream.delay.runtime.TargetMigrationArchiveStore.readAppliedTakeover(
                     backend, plan.scope(), plan.newLineage(), plan, configuration.newReadBudget(nanos), inputs.reads()), "actual Native72 takeover/first/POS");
             if (!archiveTakeover.state().equals(archivePreview)) throw new IllegalStateException("preview differs from actual authenticated takeover");
@@ -414,7 +499,7 @@ public final class TargetMigrationProcessDriver {
         activated = TargetMigrationStore.resumeActivated(candidate, attempt.control(), attempt.input(),
                 recoveredRoot.activatedAt().source(), inputs.activationAuthority(), configuration.newReadBudget(nanos));
         inputs.requireCompatibilityCurrent(plan, target.metadata()); inputs.requireReplayRetention(plan, recoveredTargetCut);
-        current.run(); state = State.HISTORY;
+        captureSourceFrames();current.run(); state = State.HISTORY;
     }
     private void recoverArchive(Runnable current) {
         if (receivedArchive == null) {
@@ -443,6 +528,7 @@ public final class TargetMigrationProcessDriver {
     /** Rebuilds only the old shadow. Persisted Native68 or actual first/POS determines each historical owner. */
     private void recoverHistory(Runnable current) {
         if (reader == null) return;
+        if(pendingConsumed){completeFrameDelivery();return;}
         if (!captured) { reader.captureReplayTail(); captured = true; }
         if (!sourceCursor.hasNext()) {
             final var through = reader.capturedTailReadThrough();
@@ -454,10 +540,11 @@ public final class TargetMigrationProcessDriver {
                 throw new SourceReplayGapException("original C history did not reconstruct the actual opened Native frontier");
             inputs.requireReplayRetention(plan, minimumReplayCut); state = State.HISTORY_CLOSE; return;
         }
-        final var entry = sourceCursor.next();
+        if(pending==null)pending=sourceCursor.peek();
+        final var entry = pending;
         reader.requireReaderEntry(entry, assignment, readerCut); sourceSuccessor.validate(lastSeen, entry.position());
         lastSeen = entry.position();
-        if (entry.position().compareTo(recoveredTargetCut) > 0) return;
+        if (entry.position().compareTo(recoveredTargetCut) > 0) {completeFrameDelivery();return;}
         if (inputs.classifySource(entry, plan) == TargetMigrationInputs.SourceDomain.UNKNOWN)
             throw new TargetSourceAuthorityPreparation.InputUnavailable("historical original writer/producer domain is unknown");
         final boolean prefix = target.readWithBudget(configuration.newReadBudget(nanos), () -> target.get(ColumnFamily.META,
@@ -475,7 +562,14 @@ public final class TargetMigrationProcessDriver {
                     configuration.newReadBudget(nanos), () -> inputs.requireCompatibilityCurrent(plan, target.metadata()));
             legacy.applyMigrationTargetPosition(proof);
         }
-        current.run();
+        current.run();completeFrameDelivery();
+    }
+
+    private void completeFrameDelivery(){
+        pendingConsumed=true;
+        if(!SourceApplyCoordinator.sameEntry(pending,sourceCursor.peek()))
+            throw new IllegalStateException("migration Source changed its actually consumed frame");
+        sourceCursor.next();pending=null;pendingConsumed=false;
     }
 
     private void buildMaterial(Runnable current) {
@@ -565,6 +659,7 @@ public final class TargetMigrationProcessDriver {
     }
 
     private void replayOne(Runnable current) {
+        if(pendingConsumed){completeFrameDelivery();return;}
         if (!captured) { reader.captureReplayTail(); captured = true; }
         final var cursor = sourceCursor;
         if (pending == null) {
@@ -587,16 +682,16 @@ public final class TargetMigrationProcessDriver {
                 }
                 transport.openReaderAfter(synchronizedThrough); captured = false; state = State.SOURCE; return;
             }
-            pending = cursor.next();
+            pending = cursor.peek();
         }
         final var entry = pending;
         reader.requireReaderEntry(entry, assignment, readerCut);
         sourceSuccessor.validate(lastSeen, entry.position());
         lastSeen = entry.position();
-        if (handoffReading) { pending = null; return; }
+        if (handoffReading) { completeFrameDelivery(); return; }
         if (activated != null && entry.position().compareTo(target.appliedShardLogPosition()) > 0) {
             // Preserve the actual full captured requirement; the original CATCHING_UP runtime applies it.
-            handoffReading = true; pending = null; return;
+            handoffReading = true; completeFrameDelivery(); return;
         }
         if (entry instanceof SourceReplayMutation mutation && TargetMigrationControlBody.isControl(mutation.mutation())) {
             if (!Arrays.equals(mutation.mutation().encodeFrame(), exact.mutation().encodeFrame()))
@@ -622,7 +717,7 @@ public final class TargetMigrationProcessDriver {
             final var shadowProof = com.nereusstream.delay.runtime.TargetMigrationTargetApplied.read(legacyCopy, target,
                     plan, entry, configuration.newReadBudget(nanos), inputs::requireLocalCurrent);
             legacy.applyMigrationTargetPosition(shadowProof);
-            pending = null; synchronizedThrough = entry.position(); return;
+            synchronizedThrough = entry.position(); completeFrameDelivery(); return;
         }
         if (activated != null && hasActualTargetPosition(entry)) {
             final var domain = inputs.classifySource(entry, plan);
@@ -631,10 +726,10 @@ public final class TargetMigrationProcessDriver {
             final var proof = com.nereusstream.delay.runtime.TargetMigrationTargetApplied.read(legacyCopy, target, plan,
                     entry, configuration.newReadBudget(nanos), () -> inputs.requireCompatibilityCurrent(plan, target.metadata()));
             legacy.applyMigrationTargetPosition(proof);
-            pending = null; synchronizedThrough = entry.position(); return;
+            synchronizedThrough = entry.position(); completeFrameDelivery(); return;
         }
         applyLegacyPrefix(entry, current);
-        pending = null; synchronizedThrough = entry.position();
+        synchronizedThrough = entry.position(); completeFrameDelivery();
     }
 
     private boolean hasActualTargetPosition(SourceReplayEntry entry) {
@@ -804,6 +899,7 @@ public final class TargetMigrationProcessDriver {
         if (transport != null && (!transport.ioExited() || !transport.cleanupComplete())) return false;
         if (writer != null && (!writer.operationsExited() || !writer.cleanupComplete())) return false;
         for (var original : readers) if (!original.cleanupComplete()) return false;
+        for(var loan:frameDecodeLoans){loan.requestRelease();if(!loan.cleanupComplete())return false;}
         if (compatibility != null && stopping) {
             compatibility.requestStop();
             if (!compatibility.ioExited()) return false;
@@ -928,6 +1024,16 @@ public final class TargetMigrationProcessDriver {
                 : Objects.requireNonNull(driver.lease, "actual maintenance lease"); }
         public OwnerIdentity ownerIdentity() { return Objects.requireNonNull(driver.identity, "actual signed Source identity"); }
         public SourcePosition baseline() { return driver.baseline().orElseThrow(); }
+        public TargetWorkerSourceStartup.FrameDecodeLoan acquireFrameDecode(SourcePosition actual,long bytes,Long generation,byte[] attestation){
+            return driver.acquireFrameDecode(actual,bytes,generation,attestation);
+        }
+        public TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+            requireLocalCurrent();
+            if(driver.archivePreview!=null)return driver.reopenedSource.sourceFrameContract();
+            final var actual=driver.sourceFrames;
+            if(actual==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original migration frame material is not captured");
+            actual.requireLocalCurrent();return actual;
+        }
         public TargetDestinationSdkBudget sdkBudget() { return driver.sdk; }
         public SystemWriterAppendBudget systemWriterBudget() { return driver.process.migrationSystemWriterBudget(driver); }
         public SystemWriterAppendBudget systemWriters() { return systemWriterBudget(); }

@@ -13,6 +13,8 @@ public final class TargetMigrationArchivePreparation {
     private static final byte[] PACKET_DOMAIN = Bytes.utf8("nereus-delay-migration-archive-packet-v1\0");
     private static final byte[] RANGE_DOMAIN = Bytes.utf8("nereus-delay-migration-archive-range-v1\0");
     private static final byte[] ARCHIVE_DOMAIN = Bytes.utf8("nereus-delay-migration-logical-first-archive-v1\0");
+    private static final int LEGACY_PACKET_SCHEMA = 1;
+    private static final int FULL_SOURCE_PACKET_SCHEMA = 2;
     private TargetMigrationArchivePreparation() {}
 
     /** Original private Compatibility opening, including its actual Source admission and child-loan protection. */
@@ -323,7 +325,7 @@ public final class TargetMigrationArchivePreparation {
             TargetQuotaMutation shadowCut, TargetQuotaMutation coveredThrough, byte[] priorArchiveRoot,
             TargetMigrationArchiveCoverage coverage, byte[] sourceCoverageDigest,
             List<TargetMigrationArchiveEntry> entries, long tailRows, long tailRawBytes,
-            TargetMigrationObjectReference priorInventory, byte[] closedContract) {
+            TargetMigrationObjectReference priorInventory, byte[] closedContract, int schemaVersion) {
         public Packet {
             priorArchiveRoot = Bytes.copy(priorArchiveRoot); sourceCoverageDigest = Bytes.copy(sourceCoverageDigest);
             entries = List.copyOf(entries);
@@ -338,8 +340,9 @@ public final class TargetMigrationArchivePreparation {
     public static Packet decodePacket(byte[] bytes, TargetMigrationObjectReference actualPacket) {
         actualPacket.requireContent(bytes);
         final var f = QueryCodecSupport.read(bytes, "complete archive packet", true);
+        final int version = QueryCodecSupport.uint32(f.getFirst(), 1);
         if (f.size() < 10 || f.size() > TargetMigrationArchiveRequest.MAX_ROWS + 12
-                || QueryCodecSupport.uint32(f.getFirst(), 1) != 1)
+                || version != LEGACY_PACKET_SCHEMA && version != FULL_SOURCE_PACKET_SCHEMA)
             throw new IllegalArgumentException("archive packet shape exceeds its closed schema");
         final var plan = TargetMigrationPlan.decode(QueryCodecSupport.bytes(f.get(1), 2));
         final var retirement = TargetMigrationRetirementRecord.decode(QueryCodecSupport.bytes(f.get(2), 3));
@@ -354,7 +357,8 @@ public final class TargetMigrationArchivePreparation {
             final var raw = decodeRaw(QueryCodecSupport.bytes(f.get(index), 9));
             final var entry = new TargetMigrationArchiveEntry(raw.key(), raw.value(), raw.origin(), raw.first(), raw.provenance(),
                     new TargetMigrationRecordReference(actualPacket, entries.size()));
-            TargetMigrationArchiveSemantics.requireEntry(entry, plan); requireRawProof(raw, plan);
+            TargetMigrationArchiveSemantics.requireEntry(entry, plan);
+            requireRawProof(raw, plan, version == FULL_SOURCE_PACKET_SCHEMA);
             if (!entries.isEmpty() && Arrays.compareUnsigned(entries.getLast().originalKey(), entry.originalKey()) >= 0)
                 throw new IllegalArgumentException("archive packet repeats or reorders an original identity");
             entries.add(entry);
@@ -370,7 +374,7 @@ public final class TargetMigrationArchivePreparation {
         shadowCut.requireAtOrBefore(through);
         if (!Arrays.equals(retirement.intention().planDigest(), plan.digest()) || !retirement.intention().scope().equals(plan.scope()))
             throw new IllegalArgumentException("archive packet changed its exact original intent/plan");
-        return new Packet(plan, retirement, shadowCut, through, prior, coverage, source, entries, tailRows, tailBytes, priorInventory, closed);
+        return new Packet(plan, retirement, shadowCut, through, prior, coverage, source, entries, tailRows, tailBytes, priorInventory, closed, version);
     }
 
     public static void requireArchivePacketProvenance(TargetMigrationRoot root, TargetMigrationRetirementRecord retirement,
@@ -484,11 +488,15 @@ public final class TargetMigrationArchivePreparation {
         return new Header(prior, source, frame, result);
     }
     private static void requirePrefixHeader(TargetMigrationPrefixRecord prefix, byte[] raw) {
+        requirePrefixHeader(prefix, raw, true);
+    }
+    private static void requirePrefixHeader(TargetMigrationPrefixRecord prefix, byte[] raw, boolean fullSource) {
         final var h = header(raw);
         if (!Arrays.equals(h.actual().canonicalBytes(), prefix.at().source().canonicalBytes())
                 || !Arrays.equals(h.prior().canonicalBytes(), prefix.prior().source().canonicalBytes()))
             throw new IllegalStateException("archive original prefix changed physical Source predecessor");
         if (prefix.recordKind() == ProtocolTuple.CLIENT_COMMAND) {
+            requireSourceFrame(h.frame(), prefix.at(), fullSource);
             final var command = CommandCodec.decodeFrame(h.frame());
             if (!Arrays.equals(command.commandId().bytes(), prefix.originalIdentity())
                     || !Arrays.equals(command.commandHash(), prefix.originalSemanticHash())
@@ -498,6 +506,7 @@ public final class TargetMigrationArchivePreparation {
             CommandResult.decode(h.result());
         } else {
             final var input = SystemMutation.decodeTargetEnvelope(h.frame());
+            requireSourceFrame(input.encodeFrame(), prefix.at(), fullSource);
             if (!Arrays.equals(input.systemMutationId(), prefix.originalIdentity())
                     || !Arrays.equals(input.mutationHash(), prefix.originalSemanticHash())
                     || !Arrays.equals(Bytes.sha256(input.canonicalEnvelope()), prefix.at().mutationDigest())
@@ -508,9 +517,15 @@ public final class TargetMigrationArchivePreparation {
     }
 
     private static void requireRawProof(Raw row, TargetMigrationPlan plan) {
+        requireRawProof(row, plan, true);
+    }
+    private static void requireRawProof(Raw row, TargetMigrationPlan plan, boolean fullSource) {
         final var f = QueryCodecSupport.read(row.proof(), "archive complete original proof");
         final int kind = QueryCodecSupport.uint32(f.getFirst(), 1);
-        if (kind == 3) { requireProspectiveProof(row, f); return; }
+        if (kind == 3 || kind == 5) {
+            if (kind == 5 && !fullSource) throw new IllegalArgumentException("legacy archive packet cannot carry full Source proof");
+            requireProspectiveProof(row, f, kind == 5); return;
+        }
         if (kind == 4) {
             QueryCodecSupport.requireNumbers(f, new int[] {1,2,3,4,5,6,7}, "actual legacy Source header proof");
             final var prefix = TargetMigrationPrefixRecord.decode(QueryCodecSupport.bytes(f.get(6), 7)); prefix.requirePlan(plan);
@@ -521,7 +536,7 @@ public final class TargetMigrationArchivePreparation {
             final byte[] h = protectedRecord(manifest, QueryCodecSupport.bytes(f.get(2), 3),
                     CheckpointResource.decode(QueryCodecSupport.bytes(f.get(3), 4)), QueryCodecSupport.bytes(f.get(4), 5),
                     QueryCodecSupport.uint(f.get(5), 6), plan);
-            requirePrefixHeader(prefix, h); requirePrefixRow(row, prefix, h); return;
+            requirePrefixHeader(prefix, h, fullSource); requirePrefixRow(row, prefix, h); return;
         }
         QueryCodecSupport.requireNumbers(f, kind == 1 ? new int[] {1,2,3,4,5,6} : new int[] {1,2,3,4,5,6,7,8,9}, "archive original proof");
         if (kind != 1 && kind != 2) throw new IllegalArgumentException("unknown archive original proof");
@@ -543,7 +558,7 @@ public final class TargetMigrationArchivePreparation {
                 throw new IllegalStateException("archive prefix original record changed protected Source provenance");
             final byte[] header = protectedRecord(manifest, manifestBytes,
                     CheckpointResource.decode(QueryCodecSupport.bytes(f.get(7), 8)), QueryCodecSupport.bytes(f.get(8), 9), prefix.sourceRecord().ordinal(), plan);
-            requirePrefixHeader(prefix, header); requirePrefixRow(row, prefix, header);
+            requirePrefixHeader(prefix, header, fullSource); requirePrefixRow(row, prefix, header);
         }
     }
 
@@ -638,7 +653,7 @@ public final class TargetMigrationArchivePreparation {
             this.closed = closed;
             priorRoot = prior == null ? TargetMigrationArchiveRequest.genesisRoot(intent().intention().digest()) : prior.archiveRoot();
             packet = CanonicalProtobuf.message(out -> {
-                CanonicalProtobuf.uint32(out, 1, 1); CanonicalProtobuf.bytes(out, 2, plan().canonicalBytes());
+                CanonicalProtobuf.uint32(out, 1, FULL_SOURCE_PACKET_SCHEMA); CanonicalProtobuf.bytes(out, 2, plan().canonicalBytes());
                 CanonicalProtobuf.bytes(out, 3, intent().record().canonicalBytes());
                 CanonicalProtobuf.bytes(out, 4, shadowCut.canonicalBytes()); CanonicalProtobuf.bytes(out, 5, coveredThrough.canonicalBytes());
                 CanonicalProtobuf.bytes(out, 6, priorRoot); CanonicalProtobuf.bytes(out, 7, coverage.canonicalBytes());
@@ -986,15 +1001,19 @@ public final class TargetMigrationArchivePreparation {
         final byte[] first = evidence.get(Bytes.hex(firstKey));
         final byte[] positionKey = Bytes.concat(new byte[] {(byte) TargetKeyCodec.RESULT_POSITION_TAG, 1}, actual.position().canonicalBytes());
         final byte[] position = Objects.requireNonNull(evidence.get(Bytes.hex(positionKey)), "actual prospective Source POSITION");
+        final byte[] actualFrame = frame(actual);
+        final var actualAt = TargetResultRecord.decode(TargetValueEnvelope.decode(position, TargetResultRecord.VALUE_TYPE).payload()).mutation();
+        TargetMigrationArchiveSourceFrame.requireFrame(actualFrame, actualAt);
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(out, 1, 3); CanonicalProtobuf.bytes(out, 2, frame(actual));
+            CanonicalProtobuf.uint32(out, 1, 5); CanonicalProtobuf.bytes(out, 2, actualFrame);
             CanonicalProtobuf.bytes(out, 3, first == null ? new byte[0] : first); CanonicalProtobuf.bytes(out, 4, position);
             CanonicalProtobuf.bytes(out, 5, Bytes.u64beBits(fence));
         });
     }
-    private static void requireProspectiveProof(Raw row, List<CanonicalProtobuf.Reader.Field> f) {
+    private static void requireProspectiveProof(Raw row, List<CanonicalProtobuf.Reader.Field> f, boolean fullSource) {
         QueryCodecSupport.requireNumbers(f, new int[] {1,2,3,4,5}, "prospective original Target Source");
         final byte[] frame = QueryCodecSupport.bytes(f.get(1), 2);
+        requireSourceFrame(frame, row.provenance(), fullSource);
         final var wire = ShardLogFrame.decode(frame);
         final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(QueryCodecSupport.bytes(f.get(3), 4), TargetResultRecord.VALUE_TYPE).payload());
         if (!position.kind().position() || !position.mutation().equals(row.provenance()))
@@ -1086,5 +1105,11 @@ public final class TargetMigrationArchivePreparation {
     private static byte[] frame(SourceReplayEntry entry) {
         return entry instanceof SourceReplayRecord command ? CommandCodec.encodeFrame(command.command())
                 : ((SourceReplayMutation) entry).mutation().encodeFrame();
+    }
+
+    private static void requireSourceFrame(byte[] frame, TargetQuotaMutation at, boolean fullSource) {
+        if (!fullSource && frame.length > TargetMigrationArchiveRequest.MAX_CANONICAL_BYTES)
+            throw new IllegalArgumentException("legacy archive Source proof exceeds its original frame bound");
+        TargetMigrationArchiveSourceFrame.requireFrame(frame, at);
     }
 }

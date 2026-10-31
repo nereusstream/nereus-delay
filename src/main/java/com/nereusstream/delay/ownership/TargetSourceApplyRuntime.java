@@ -706,6 +706,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final LongSupplier monotonicClock;
     /** Only the executing Source action shares this window; unrelated I/O threads keep their own checks. */
     private final ThreadLocal<BoundedReadBudget> sourceActionBudget = new ThreadLocal<>();
+    private BoundedReadBudget envelopeRetryBudget;
+    private TargetStoreBackend.SourceOperationEnvelopeRequired operationEnvelopeRequest;
+    private volatile boolean serviceEnvelopeVerified;
     private final boolean recoveryOnly;
     private final Runnable recoveryProtection;
     private volatile TargetOwnerRecoveryCoordinator.LocalRecoveryProtection recoveryLocalProtection;
@@ -849,6 +852,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             }
         },this,clock);
         originalEvidenceCatalog=catalog;
+        final var planInputs=selected.sourcePlanInputs();
+        if(planInputs!=null){backend.bindSourceOperationEnvelope(planInputs);planInputs.bindSourceRuntime(this);}
         authorityPreparation = selected;
     }
     synchronized void bindOriginalEvidenceCatalog(com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog){
@@ -1753,15 +1758,61 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     boolean authorityIoExited() { final var selected = authorityPreparation; return (writerOrigin==null||writerOrigin.exited())&&(payloadSummaryLegacyPrefix==null||payloadSummaryLegacyPrefix.ioExited())&&(migrationCompatibility==null||migrationCompatibility.ioExited(this))&&(selected == null || selected.ioExited())&&(activeSloFinal==null||activeSloFinal.ioExited())&&(sloCustodyExport==null||sloCustodyExport.ioExited())&&(sloFinalMaintenance==null||sloFinalMaintenance.ioExited()); }
     Throwable authorityIoFailure() { final var selected = authorityPreparation; final var failure=selected == null ? null : selected.pendingIoFailure();final var finals=activeSloFinal==null?null:activeSloFinal.pendingIoFailure();final var maintenance=sloFinalMaintenance==null?null:sloFinalMaintenance.pendingIoFailure();return failure!=null?failure:finals!=null?finals:maintenance!=null?maintenance:sloCustodyExport!=null&&sloCustodyExport.pendingIoFailure()!=null?sloCustodyExport.pendingIoFailure():migrationCompatibility==null?null:migrationCompatibility.failure(this); }
 
+    boolean operationEnvelopeReady(){return !fenced&&serviceEnvelopeVerified
+            &&store.localOpenedOwnerEpoch()==lease.ownerEpoch()&&backend.sourceOperationEnvelopeReady();}
+    void bindSourceFrameDecode(SourceRecordConsumer actual){
+        final var selected=authorityPreparation;
+        if(selected==null||selected.sourcePlanInputs()==null)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("Source consumer lacks its original shared frame reservation");
+        selected.sourcePlanInputs().bindSourceConsumer(actual);
+    }
+    TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrameContract(){
+        final var selected=authorityPreparation;
+        if(selected==null||selected.sourcePlanInputs()==null)
+            throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Source has no original frame reservation");
+        return selected.sourcePlanInputs().sourceFrameContract();
+    }
+    void requireSourcePlanStore(ShardStore actual){backend.requireStore(actual);}
+    OwnerLease frameOwnerLease(){
+        if(fenced)throw new IllegalStateException("original Source frame runtime is fenced");
+        return lease;
+    }
+    void bindArchiveSourceEnvelope(TargetStoreBackend actual){actual.shareSourceOperationEnvelope(backend);}
+    boolean prepareServiceEnvelope(){
+        if(operationEnvelopeReady())return true;
+        final var selected=authorityPreparation;
+        if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source service-envelope I/O owner unavailable");
+        if(!selected.prepareServiceEnvelope())return false;
+        if(!backend.sourceOperationEnvelopeReady())throw new IllegalStateException("Source service qualification lost its actual Native reservation");
+        serviceEnvelopeVerified=true;return true;
+    }
+    void verifyServiceEnvelope(LongSupplier clock){
+        try{
+            requireOwner(clock);
+            backend.verifySourceOperationEnvelope(new BoundedReadBudget(limits.records(),limits.bytes(),limits.elapsedNanos(),monotonicClock),authorities.reads());
+            requireOwner(clock);
+        }catch(RuntimeException|Error failure){fence();throw failure;}
+    }
+
     @Override synchronized boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
         final var preparation=authorityPreparation;
         final var tail=preparation==null?null:preparation.archiveTail(entry);
         return backend.withArchiveTail(tail,()->prepareAuthoritiesWithArchive(entry,clock,recovery));
     }
     private boolean prepareAuthoritiesWithArchive(SourceReplayEntry entry,LongSupplier clock,boolean recovery){
+        if(!prepareServiceEnvelope())return false;
         final var oldPrefix = payloadSummaryLegacyPrefix;
         if (oldPrefix != null && !oldPrefix.prepare(this, entry)) return false;
         final var selected = authorityPreparation;
+        final var envelope=operationEnvelopeRequest;
+        if(envelope!=null){
+            if(selected==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source envelope I/O owner unavailable");
+            envelope.requireBackend(backend);
+            try{if(!selected.prepareOperationEnvelope(entry,envelope))return false;}
+            catch(RuntimeException|Error failure){fence();throw failure;}
+            operationEnvelopeRequest=null;
+            return true;
+        }
         if (selected == null && (sloInitialization != null || recoveryOnly)) return true;
         requireSubmission(entry, recovery); requireOwner(clock);
         final var migration = migrationCompatibility;
@@ -3752,6 +3803,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     @Override
     synchronized void requireSubmission(final SourceReplayEntry entry, final boolean recovery) {
+        if(!operationEnvelopeReady())throw new TargetSourceAuthorityPreparation.InputUnavailable("Source Native work precedes its completed actual service qualification");
         if (fenced || recovery != recoveryOnly) {
             throw new IllegalStateException("Target source lifecycle does not match its apply submission");
         }
@@ -4104,7 +4156,17 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                             result.stableCode(),
                             entry.position().canonicalBytes())));
         } catch (ReadYield incomplete) {
+            if(envelopeRetryBudget!=null){
+                fence();throw new IllegalStateException("complete Source activation replan exceeded its original cumulative service budget",incomplete);
+            }
             throw incomplete;
+        } catch (TargetStoreBackend.SourceOperationEnvelopeRequired requested) {
+            requested.requireBackend(backend);
+            if(envelopeRetryBudget!=null){
+                fence();throw new TargetSourceAuthorityPreparation.InputUnavailable("actual Source protocol enlargement is not serviceable in one reserved replan");
+            }
+            envelopeRetryBudget=budget;operationEnvelopeRequest=requested;
+            throw new TargetSourceAuthorityPreparation.Required();
         } catch (com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.TailPreparationRequired requested) {
             archiveTailRequest=requested;
             throw requested;
@@ -4315,8 +4377,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             throw new IllegalStateException("Target Source action cannot recursively replace its original deadline");
         }
         try {
-            final var budget = new BoundedReadBudget(
-                    limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock);
+            final var budget = envelopeRetryBudget==null ? new BoundedReadBudget(
+                    limits.records(), limits.bytes(), limits.elapsedNanos(), monotonicClock) : envelopeRetryBudget;
             sourceActionBudget.set(budget);
             return budget;
         } catch (RuntimeException | Error failure) {
@@ -4334,6 +4396,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     private SourceReplayOutcome completeSourceAction(final SourceReplayOutcome outcome) {
         requireSourceActionCurrent();
+        envelopeRetryBudget=null;
         return outcome;
     }
 

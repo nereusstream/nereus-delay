@@ -28,6 +28,29 @@ import java.util.Objects;
 
 /** Actual source-mutation accounting from typed before/after records, including fixed projection inventory growth. */
 public final class TargetSourceAccounting implements TargetMessageStore.AccountingAssembler {
+    /**
+     * Fixed projection reads of this assembler followed by TargetStoreBackend.prepare. Business
+     * before checks, typed charge dependencies, Scope settlement and optional metadata are counted
+     * separately by the closed Source-family calculation. Touched and changed sets differ: prepare
+     * looks up every touched counter twice, whereas the backend rechecks only changed counters.
+     */
+    static void envelopeProjectionReads(java.util.function.BiConsumer<Integer,Long> add,
+            boolean rootInOverlay,long touchedCounters,long changedCounters,
+            long touchedTargets,long changedTargets){
+        add.accept(com.nereusstream.delay.protocol.TargetQuotaAggregate.VALUE_TYPE,2L);
+        if(!rootInOverlay)add.accept(TargetQuotaIncarnation.VALUE_TYPE,1L);
+        add.accept(TargetQuotaBookkeeping.VALUE_TYPE,1L);
+        add.accept(TargetQuotaCounter.VALUE_TYPE,Math.addExact(Math.multiplyExact(2L,touchedCounters),changedCounters));
+        add.accept(com.nereusstream.delay.protocol.TargetQuotaTotal.VALUE_TYPE,
+                Math.addExact(touchedTargets,Math.multiplyExact(2L,changedTargets)));
+    }
+
+    /** Backend.measure writes one aggregate plus the Source position and sequence for a Source batch. */
+    static long envelopeWriteRecords(long completeBusiness,long changedCounters,long changedTargets,
+            boolean fence,boolean cursors){
+        long records=Math.addExact(Math.addExact(completeBusiness,changedCounters),changedTargets);
+        return Math.addExact(records,3L+(fence?1:0)+(cursors?1:0));
+    }
     private final TargetQuotaScope scope;
     private final byte[] lineage;
     private final SourcePosition source;

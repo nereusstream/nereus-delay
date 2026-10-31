@@ -17,6 +17,10 @@ public sealed interface TargetMigrationSourceOpening
     OwnerLease ownerLease();
     OwnerIdentity ownerIdentity();
     SourcePosition baseline();
+    /** Local borrow from this exact acquisition's complete Source freeze and original paid codec/SDK owner. */
+    TargetWorkerSourceStartup.FrameDecodeLoan acquireFrameDecode(SourcePosition actual,long bytes,
+            Long generation,byte[] guardAttestation);
+    TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames();
     TargetDestinationSdkBudget sdkBudget();
     SystemWriterAppendBudget systemWriterBudget();
     default SystemWriterAppendBudget systemWriters() { return systemWriterBudget(); }

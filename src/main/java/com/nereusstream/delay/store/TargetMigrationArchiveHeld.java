@@ -18,10 +18,13 @@ public final class TargetMigrationArchiveHeld {
     private final TargetMigrationArchiveReceipt receipt;
     private final TargetMigrationArchiveStore.AppliedTakeover takeover;
     private final TargetMigrationArchiveInventory head;
+    private final boolean fullSourcePackets;
     private RuntimeHold runtime;
     private byte[] nativeHead;
     private TargetMigrationArchiveHeld(TargetMigrationArchiveCustody custody,TargetMigrationArchiveReceipt receipt,
-            TargetMigrationArchiveStore.AppliedTakeover takeover,TargetMigrationArchiveInventory head){this.custody=custody;this.receipt=receipt;this.takeover=takeover;this.head=head;}
+            TargetMigrationArchiveStore.AppliedTakeover takeover,TargetMigrationArchiveInventory head,boolean fullSourcePackets){
+        this.custody=custody;this.receipt=receipt;this.takeover=takeover;this.head=head;this.fullSourcePackets=fullSourcePackets;
+    }
     static Cursor begin(TargetMigrationArchiveCustody custody,TargetMigrationArchiveReceipt receipt,TargetMigrationArchiveStore.AppliedTakeover takeover){
         return new Cursor(custody,receipt,takeover);
     }
@@ -33,6 +36,10 @@ public final class TargetMigrationArchiveHeld {
     public void requireDependencies(TargetCheckpointDependencies dependencies){
         requireCurrent();final var root=Objects.requireNonNull(dependencies.migrationRoot());final var retirement=Objects.requireNonNull(dependencies.migrationRetirement());
         final var captured=Objects.requireNonNull(dependencies.migrationArchiveState(TargetMigrationArchiveState.headKey(root.plan().migrationId())));
+        if(fullSourcePackets&&captured.schemaVersion()!=TargetMigrationArchiveState.SCHEMA_VERSION)
+            throw new IllegalStateException("full-Source archive packets require their actual new Native71 reader schema");
+        if(captured.schemaVersion()==TargetMigrationArchiveState.SCHEMA_VERSION)
+            TargetMigrationArchiveStore.requireCheckpointFormat(dependencies,captured,sourceFrames());
         if(nativeHead==null||!Arrays.equals(nativeHead,captured.digest()))
             throw new IllegalStateException("complete original Native72 Source/raw material audit is not current for this image");
         if(!Arrays.equals(head.intentDigest(),retirement.intention().digest())||!head.intentAt().equals(retirement.intentAt())
@@ -53,6 +60,9 @@ public final class TargetMigrationArchiveHeld {
     public NativeCursor prepareNativeInputs(TargetCheckpointDependencies actual,BoundedReadBudget cumulative){return new NativeCursor(this,actual,cumulative);}
     public boolean ioExited(){return custody.ioExited();}
     public long retainedBytes(){return Math.addExact(head.canonicalBytes().length,receipt==null?0:receipt.canonicalBytes().length);}
+    private com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+        requireCurrent();return runtime==null?custody.opening.sourceFrames():runtime.opening.sourceFrames();
+    }
 
     /** Full actual Native rows are already captured by the original collector; one raw dependency is read per turn. */
     public static final class NativeCursor{
@@ -71,6 +81,8 @@ public final class TargetMigrationArchiveHeld {
                 if(!rows.hasNext()){held.nativeHead=Bytes.copy(head);complete=true;return true;}
                 final var row=rows.next();
                 if(!cumulative.beforeRead())throw cumulative.incomplete();
+                if(row.schemaVersion()==TargetMigrationArchiveRow.SCHEMA_VERSION)
+                    TargetMigrationArchiveStore.requireCheckpointFormat(dependencies,row,held.sourceFrames());
                 if(row.sourceBranch()!=TargetMigrationArchiveRow.SourceBranch.COPY_BATCH){
                     final var object=row.entry().originalRecord().object();final var raw=held.readExact(object,held.custody.limits.maximumPacketBytes());
                     if(!cumulative.tryCharge(row.key().length,raw.length))throw cumulative.incomplete();
@@ -78,7 +90,8 @@ public final class TargetMigrationArchiveHeld {
                         TargetMigrationArchiveReplayMaterial.requirePacket(raw,row,dependencies,held.custody.owner);
                     else{
                         final var packet=TargetMigrationArchivePreparation.decodePacket(raw,object);final long ordinal=row.entry().originalRecord().ordinal();
-                        if(!packet.plan().equals(dependencies.migrationRoot().plan())
+                        if(packet.schemaVersion()>1&&row.schemaVersion()!=TargetMigrationArchiveRow.SCHEMA_VERSION
+                                ||!packet.plan().equals(dependencies.migrationRoot().plan())
                                 ||!packet.retirement().intention().equals(dependencies.migrationRetirement().intention())
                                 ||!packet.retirement().intentAt().equals(dependencies.migrationRetirement().intentAt())
                                 ||ordinal>=packet.entries().size()||!packet.entries().get(Math.toIntExact(ordinal)).equals(row.entry()))
@@ -98,6 +111,9 @@ public final class TargetMigrationArchiveHeld {
         void requireCurrent();
         void requireLocalCurrent();
         void retainCleanup(CheckpointInputFuture.Cleanup actual);
+        default com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("archive runtime lacks its original complete Source frame material");
+        }
     }
     public synchronized RuntimeHold acquireRuntime(TargetMigrationArchiveStore.AppliedTakeover actual,RuntimeOpening opening){
         Objects.requireNonNull(actual).requireCurrent();Objects.requireNonNull(opening).requireCurrent();
@@ -183,7 +199,7 @@ public final class TargetMigrationArchiveHeld {
         private BoundedReadBudget cumulative;
         private long rows,rawBytes,retained,physicalBytes;
         private int packets;
-        private boolean failed,closed;
+        private boolean failed,closed,fullSourcePackets;
         private TargetMigrationArchiveHeld complete;
         private Cursor(TargetMigrationArchiveCustody custody,TargetMigrationArchiveReceipt receipt,TargetMigrationArchiveStore.AppliedTakeover takeover){
             this.custody=custody;this.receipt=Objects.requireNonNull(receipt);this.takeover=takeover;
@@ -222,6 +238,11 @@ public final class TargetMigrationArchiveHeld {
                 }
                 final byte[] raw=read(inventory.packet(),custody.limits.maximumPacketBytes());
                 final var packet=TargetMigrationArchivePreparation.decodePacket(raw,inventory.packet());
+                if(packet.schemaVersion()>1){
+                    fullSourcePackets=true;
+                    if(takeover!=null&&takeover.state().schemaVersion()!=TargetMigrationArchiveState.SCHEMA_VERSION)
+                        throw new IllegalStateException("old archive Source takeover cannot adopt a full-Source packet format");
+                }
                 final var entries=packet.entries();
                 final var root=custody.intent==null?custody.takeover.migration():custody.intent.migration();
                 final var retirement=custody.intent==null?custody.takeover.retirement():custody.intent.record();
@@ -250,7 +271,7 @@ public final class TargetMigrationArchiveHeld {
                         ||rows!=Math.addExact(head.coverage().totalRows(),head.tailRows())
                         ||rawBytes!=Math.addExact(head.coverage().totalRawBytes(),head.tailRawBytes())||packets!=head.packets()||physicalBytes>head.reservedBytes())
                     throw new IllegalStateException("archive receiving inventory lacks complete original namespace/tail coverage");
-                keys=null;complete=new TargetMigrationArchiveHeld(custody,receipt,takeover,head);return Optional.of(complete);
+                keys=null;complete=new TargetMigrationArchiveHeld(custody,receipt,takeover,head,fullSourcePackets);return Optional.of(complete);
             }catch(RuntimeException|Error rejected){failed=true;throw rejected;}
         }
         private byte[] read(TargetMigrationObjectReference object,int maximumBytes){

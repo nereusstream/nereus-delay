@@ -18,6 +18,9 @@ public final class TargetScopeSourceAuthorityProvider implements TargetSourceAut
     private final TargetScopeResourceManager manager;
     private final long maximumNativeBytes, maximumRetainedBytes;
     private final LongSupplier clock;
+    @Override public TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(TargetWorkerSourceStartup.FrameOpening opening){
+        return manager.captureSourceFrames(opening);
+    }
 
     public TargetScopeSourceAuthorityProvider(TargetSourceAuthorityLoader.Provider original,
             OxiaControlTargetRegistrationAuthority registrations, TargetScopeResourceManager manager,

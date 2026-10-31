@@ -196,6 +196,8 @@ public final class TargetWorkerProcessRuntime {
     private int payloadSummaryRotation;
     private final java.util.Map<TargetWorkerSourceStartup, WriterOriginInputs> writerOriginInputs = new java.util.IdentityHashMap<>();
     private long writerOriginInputBytes;
+    private final java.util.Map<TargetWorkerSourceStartup, SourcePlanInputs> sourcePlanInputs = new java.util.IdentityHashMap<>();
+    private long sourcePlanInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private TargetWorkerHostRuntime.PreparationAttempt hostPreparation;
@@ -467,9 +469,154 @@ public final class TargetWorkerProcessRuntime {
 
     /** The original metric queue/context charge shares the existing process input heap envelope. */
     private long maximumInputHeapBytes() {
-        return Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(
+        return Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(Math.subtractExact(
                 configuration.worker().resources().certifiedJvmHeapBytes(), configuration.maximumMetricRetainedHeapBytes()),
-                migrationInputBytes), migrationMaintenanceInputBytes), payloadSummaryInputBytes), payloadSummaryPrefixInputBytes), writerOriginInputBytes);
+                migrationInputBytes), migrationMaintenanceInputBytes), payloadSummaryInputBytes), payloadSummaryPrefixInputBytes), writerOriginInputBytes), sourcePlanInputBytes);
+    }
+
+    synchronized SourcePlanInputs reserveSourcePlanInputs(TargetWorkerSourceStartup source,
+            com.nereusstream.delay.store.ShardStore store, long providerBytes) {
+        requireSourceAssemblyAdmission(source);
+        if (sourcePlanInputs.containsKey(source) || providerBytes < 1 || providerBytes == Long.MAX_VALUE)
+            throw new IllegalStateException("Source plan inputs already reserved or lack their finite provider window");
+        final var initial = com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.basic();
+        final long bytes = Math.addExact(providerBytes, initial.fixedRetainedBytes());
+        requireSourcePlanSpace(bytes);
+        final var actual = new SourcePlanInputs(this, source, Objects.requireNonNull(store), providerBytes, initial);
+        sourcePlanInputs.put(source, actual); sourcePlanInputBytes = Math.addExact(sourcePlanInputBytes, bytes);
+        return actual;
+    }
+
+    private void requireSourcePlanSpace(long additional) {
+        if (Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
+                scopeInputBytes), checkpointInputBytes), additional) > maximumInputHeapBytes())
+            throw new IllegalStateException("complete Source plan/provider materials exceed the original Process input envelope");
+    }
+
+    /** Private-constructed process reservation, shared by this Source's recovery and active generations. */
+    public static final class SourcePlanInputs {
+        private final TargetWorkerProcessRuntime process;
+        private final TargetWorkerSourceStartup source;
+        private volatile com.nereusstream.delay.store.ShardStore store;
+        private final long providerBytes;
+        private volatile com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds bounds;
+        private volatile TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames;
+        private volatile TargetSourceApplyRuntime sourceRuntime;
+        private volatile long decodeReservedBytes;
+        private final AtomicLong decodeBorrowedBytes = new AtomicLong();
+        private volatile boolean released;
+        private SourcePlanInputs(TargetWorkerProcessRuntime process, TargetWorkerSourceStartup source,
+                com.nereusstream.delay.store.ShardStore store, long providerBytes,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds bounds) {
+            this.process=process; this.source=source; this.store=store; this.providerBytes=providerBytes; this.bounds=bounds;
+        }
+        public void requireBinding(com.nereusstream.delay.store.ShardStore actual, TargetWorkerRuntimeConfig config,
+                WorkClassExecutionRegistry classes, SharedRocksDbResources resources, long actualProviderBytes) {
+            if (actual!=store || config!=process.configuration.worker() || classes!=process.classes || resources!=process.resources
+                    ||actualProviderBytes!=providerBytes)
+                throw new IllegalArgumentException("Source plan reservation changed its original Process/Store graph");
+            requireCurrent();
+        }
+        public void requireStore(com.nereusstream.delay.store.ShardStore actual) {
+            if(actual!=store)throw new IllegalArgumentException("Source plan reservation belongs to another Store");
+            requireCurrent();
+        }
+        public void requireCurrent() {
+            if(released || store.nativeExposureFenceRaised())throw new IllegalStateException("original Source plan window is released or fenced");
+        }
+        public boolean includes(com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
+            requireCurrent(); return bounds.includes(Objects.requireNonNull(required));
+        }
+        public TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrameContract() {
+            requireCurrent();
+            final var actual=sourceFrames;
+            if(actual==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source frame material is not captured");
+            actual.requireLocalCurrent();return actual;
+        }
+        public void prepareSourceFrames() { requireCurrent();source.captureSourceFrames(); }
+        void bindSourceConsumer(SourceRecordConsumer actual) { sourceFrameContract();Objects.requireNonNull(actual).bindFrameDecode(source); }
+        void bindSourceRuntime(TargetSourceApplyRuntime actual){
+            requireCurrent();Objects.requireNonNull(actual).requireSourcePlanStore(store);sourceRuntime=actual;
+        }
+        OwnerLease localOwnerLease(){final var actual=sourceRuntime;return actual==null?null:actual.frameOwnerLease();}
+        public com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds operationBounds() {
+            sourceFrameContract();return bounds;
+        }
+        void bindSourceFrames(TargetWorkerSourceRuntimeFactory.SourceFrameContract actual) {
+            Objects.requireNonNull(actual).requireLocalCurrent();
+            synchronized(process) {
+                requireCurrent();
+                if(sourceFrames!=null&&sourceFrames!=actual&&decodeBorrowedBytes.get()!=0)
+                    throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original Source generation still retains frame decode loans");
+                final var next=sourceFrames==null&&!bounds.requiresSourceFrameQualification()
+                        ?bounds.forSourceGeneration(actual):bounds.withSourceFrames(actual);
+                process.configuration.worker().requireSourceOperationEnvelope(next);
+                final long additional=Math.subtractExact(next.retainedBytes(),bounds.fixedRetainedBytes());
+                process.requireSourcePlanSpace(additional);
+                process.sourcePlanInputBytes=Math.addExact(process.sourcePlanInputBytes,additional);
+                bounds=next;sourceFrames=actual;
+            }
+        }
+        void prepareDecodeWindow() {
+            final var actual=sourceFrameContract();
+            final long required=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.frameDecode(actual.maximumFrameBytes()).retainedBytes();
+            synchronized(process) {
+                requireCurrent();
+                final long additional=Math.max(0,Math.subtractExact(required,decodeReservedBytes));
+                process.requireSourcePlanSpace(additional);
+                process.sourcePlanInputBytes=Math.addExact(process.sourcePlanInputBytes,additional);
+                decodeReservedBytes=Math.addExact(decodeReservedBytes,additional);
+            }
+        }
+        void rebindAfterStoreExit(com.nereusstream.delay.store.ShardStore oldStore,
+                com.nereusstream.delay.store.ShardStore nextStore) {
+            synchronized(process) {
+                if(released||store!=oldStore||!oldStore.isClosed()||decodeBorrowedBytes.get()!=0
+                        ||process.sourcePlanInputs.get(source)!=this
+                        ||!java.util.Arrays.equals(oldStore.metadata().storeIncarnation(),nextStore.metadata().storeIncarnation())
+                        ||!java.util.Arrays.equals(oldStore.metadata().dbIdentity(),nextStore.metadata().dbIdentity()))
+                    throw new IllegalStateException("Source generation did not drain its original Store/frame reservation");
+                store=Objects.requireNonNull(nextStore);sourceFrames=null;sourceRuntime=null;
+            }
+        }
+        void borrowDecode(long bytes) {
+            requireCurrent();
+            if(bytes<1||bytes>decodeReservedBytes)throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("actual frame exceeds its original shared decode window");
+            for(;;) {
+                final long used=decodeBorrowedBytes.get();
+                if(bytes>decodeReservedBytes-used)throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original recovery/active frame decode window is still retained");
+                if(decodeBorrowedBytes.compareAndSet(used,Math.addExact(used,bytes)))return;
+            }
+        }
+        void releaseDecode(long bytes) {
+            final long remaining=decodeBorrowedBytes.addAndGet(-bytes);
+            if(bytes<1||remaining<0)throw new IllegalStateException("frame decode loan released outside its original reservation");
+        }
+        /** Called only on the original Source I/O flight, outside its Native plan and runtime monitor. */
+        public void acquire(com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
+            synchronized(process) {
+                requireCurrent();
+                if(process.stopping||process.controlledStartupFailure!=null||process.receiptManagementFailed
+                        ||process.sourcePlanInputs.get(source)!=this)
+                    throw new IllegalStateException("Source plan input owner changed or its original Process is stopping");
+                final var next=bounds.covering(Objects.requireNonNull(required));
+                process.configuration.worker().requireSourceOperationEnvelope(next);
+                final long additional=Math.subtractExact(next.retainedBytes(),bounds.fixedRetainedBytes());
+                process.requireSourcePlanSpace(additional);
+                process.sourcePlanInputBytes=Math.addExact(process.sourcePlanInputBytes,additional);
+                bounds=next;
+            }
+        }
+        void release() {
+            synchronized(process) {
+                if(released)return;
+                if(decodeBorrowedBytes.get()!=0)throw new IllegalStateException("Source plan cleanup still owns actual frame decode loans");
+                if(!process.sourcePlanInputs.remove(source,this))throw new IllegalStateException("Source plan cleanup changed its original owner");
+                process.sourcePlanInputBytes=Math.subtractExact(process.sourcePlanInputBytes,
+                        Math.addExact(Math.addExact(providerBytes,bounds.fixedRetainedBytes()),decodeReservedBytes));
+                released=true;
+            }
+        }
     }
     synchronized WriterOriginInputs reserveWriterOrigin(TargetWorkerSourceStartup source, long bytes) {
         requireSourceAssemblyAdmission(source);
@@ -849,6 +996,13 @@ public final class TargetWorkerProcessRuntime {
 
     boolean migrationHistoryRequired(TargetWorkerSourceStartup source) {
         final var original = migrationRecovery(source); return original != null && original.historyRequired();
+    }
+    TargetWorkerSourceStartup.FrameDecodeLoan migrationHistoryFrameDecode(TargetWorkerSourceStartup source,
+            com.nereusstream.delay.protocol.SourcePosition actual,long bytes,Long generation,byte[] attestation) {
+        final var original=migrationRecovery(source);
+        if(original==null||!original.historyRequired())throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                "original Source has no current complete migration-history frame hold");
+        return original.opening().acquireFrameDecode(actual,bytes,generation,attestation);
     }
 
     com.nereusstream.delay.protocol.SourcePosition migrationReaderCut(TargetWorkerSourceStartup source) {
@@ -1591,7 +1745,8 @@ public final class TargetWorkerProcessRuntime {
                     || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
                     || !scopeInputs.isEmpty() || scopeInputBytes != 0
                     || !migrationReservations.isEmpty() || migrationInputBytes != 0 || migrationMaintenanceInputBytes != 0
-                    || payloadSummaryInputBytes != 0 || payloadSummaryPrefixInputBytes != 0 || writerOriginInputBytes != 0) return;
+                    || payloadSummaryInputBytes != 0 || payloadSummaryPrefixInputBytes != 0 || writerOriginInputBytes != 0
+                    || sourcePlanInputBytes!=0 || !sourcePlanInputs.isEmpty()) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

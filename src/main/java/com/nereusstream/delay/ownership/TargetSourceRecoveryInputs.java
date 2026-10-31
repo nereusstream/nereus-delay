@@ -32,6 +32,10 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
     OwnerIdentity owner();
     LocalBrokerMtlsResolver.SourceReceipt credential();
     int maximumFrameBytes();
+    /** Already captured on this original hold's acquisition flight; local access only, no numeric upgrade. */
+    default TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
+        throw new TargetSourceAuthorityPreparation.InputUnavailable("original recovery hold has no complete Source frame qualification");
+    }
     PulsarAttemptJournal journal();
     TargetOwnedBackendGroup journalBackend();
     default JournalWriter journalWriter() { return null; }

@@ -400,6 +400,17 @@ public final class TargetStoreBackend {
             requireActive();
             if (expected != TargetStoreBackend.this) throw new IllegalArgumentException("retirement preparation belongs to another actual backend");
         }
+        public void requireSourceFrameBinding(ShardStore actual,TargetQuotaScope expected,byte[] expectedLineage){
+            requireActive();
+            if(store!=actual||!scope.equals(expected)||!Arrays.equals(lineage,expectedLineage))
+                throw new IllegalArgumentException("Source frame qualification changed its actual Native Store/root lineage");
+        }
+        public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrameContract(){
+            requireActive();
+            final var inputs=sourceOperationInputs;
+            if(inputs==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("Native plan has no original complete Source frame qualification");
+            final var actual=inputs.sourceFrameContract();actual.requireCurrent(this);return actual;
+        }
 
         private void requireActive() {
             if (!active || !Thread.holdsLock(store)) {
@@ -629,6 +640,9 @@ public final class TargetStoreBackend {
     private volatile TargetQueueChangeSignal targetQueueChangeSignal;
     private volatile TargetQueueHeadCache targetQueueHeadCache;
     private volatile com.nereusstream.delay.runtime.TargetSloWriterOrigin writerOrigin;
+    private volatile com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs sourceOperationInputs;
+    private volatile TargetStoreBackend sourceOperationEnvelopeParent;
+    private volatile boolean sourceOperationEnvelopeReady;
     private final ThreadLocal<com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail> archiveTailContext = new ThreadLocal<>();
 
     public TargetStoreBackend(
@@ -675,6 +689,98 @@ public final class TargetStoreBackend {
     public void requireStore(final ShardStore actual) {
         if (store != Objects.requireNonNull(actual, "store")) {
             throw new IllegalArgumentException("Target backend belongs to another Store instance");
+        }
+    }
+
+    /** The configured Source binds the actual Process reservation after reading this Native Root. */
+    public void bindSourceOperationEnvelope(
+            com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs actual) {
+        Objects.requireNonNull(actual).requireStore(store);
+        synchronized(store) {
+            if(sourceOperationInputs!=null&&sourceOperationInputs!=actual)
+                throw new IllegalStateException("actual Native backend changed its Source plan reservation");
+            sourceOperationInputs=actual;
+        }
+    }
+
+    public boolean sourceOperationEnvelopeReady() {
+        final var actual=sourceOperationInputs;
+        final var parent=sourceOperationEnvelopeParent;
+        if(!(sourceOperationEnvelopeReady||parent!=null&&parent.sourceOperationEnvelopeReady())||actual==null||store.nativeExposureFenceRaised())return false;
+        actual.sourceFrameContract();return true;
+    }
+    /** Aliases the same actual Source reservation for its existing archive backend over this exact Store. */
+    public void shareSourceOperationEnvelope(TargetStoreBackend original){
+        Objects.requireNonNull(original);
+        if(original==this||original.store!=store||!original.scope.equals(scope)||!Arrays.equals(original.lineage,lineage)
+                ||original.sourceOperationEnvelopeParent!=null)
+            throw new IllegalArgumentException("archive Source envelope changed its original Native backend");
+        bindSourceOperationEnvelope(Objects.requireNonNull(original.sourceOperationInputs));
+        sourceOperationEnvelopeParent=original;
+    }
+
+    /** Only the original Source owned-I/O caller invokes this, after its real kernel has been installed. */
+    public void verifySourceOperationEnvelope(BoundedReadBudget budget, ReadAuthority reads) {
+        final var actual=sourceOperationInputs;
+        if(actual==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                "Source lacks its original Process Native-plan reservation");
+        actual.requireStore(store);
+        actual.prepareSourceFrames();
+        final var required=guardedRead(budget,reader->{
+            final var frames=actual.sourceFrameContract();
+            final var computed=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.required(reader,frames);
+            frames.requireService(reader,computed);return computed;
+        },reads);
+        actual.acquire(required);
+        actual.requireStore(store);
+        sourceOperationEnvelopeReady=true;
+    }
+
+    /** A process-local continuation for prospective APPLIED work; it cannot be restored by serialization. */
+    public static final class SourceOperationEnvelopeRequired extends RuntimeException {
+        private static final long serialVersionUID=1L;
+        private final transient TargetStoreBackend backend;
+        private final transient com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs inputs;
+        private final transient com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required;
+        private SourceOperationEnvelopeRequired(TargetStoreBackend backend,
+                com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs inputs,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
+            super("actual APPLIED protocol family requires its complete Source service window");
+            this.backend=backend;this.inputs=inputs;this.required=required;
+        }
+        @java.io.Serial
+        private void readObject(java.io.ObjectInputStream ignored) throws java.io.InvalidObjectException {
+            throw new java.io.InvalidObjectException("Source operation continuation requires its original live Process and cannot be restored");
+        }
+        public void requireBackend(TargetStoreBackend actual) {
+            if(actual!=backend||backend.sourceOperationInputs!=inputs)
+                throw new IllegalArgumentException("Source operation request changed its original backend/reservation");
+        }
+        public void acquire() {
+            if(Thread.holdsLock(backend.store))throw new IllegalStateException("Source operation window cannot grow inside a Native plan");
+            requireBackend(backend);inputs.acquire(required);
+        }
+    }
+
+    private void requireSourceOperationEnvelope(Reader reader, Mutation mutation) {
+        final var actual=sourceOperationInputs;
+        if(actual==null)return; // Unconfigured bootstrap/maintenance is not an exposed Source runtime.
+        if(!sourceOperationEnvelopeReady())throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                "Source Native operation family has not completed its actual Root service gate");
+        actual.requireStore(store);
+        actual.sourceFrameContract().requireService(reader,actual.operationBounds());
+        for(final var edit:mutation.business()) {
+            if(edit.family()!=ColumnFamily.META||edit.key.length<2
+                    ||edit.key[0]!=TargetKeyCodec.PROTOCOL_ACTIVATION_TAG||edit.before!=null||edit.after==null)continue;
+            final var applied=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(edit.key,
+                    TargetValueEnvelope.decode(edit.after,com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
+            final com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required;
+            try{required=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.activating(reader,applied.readers().descriptor(),actual.operationBounds());}
+            catch(com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable unavailable){
+                throw new IllegalStateException("prospective Source protocol family lacks its original service capability",unavailable);
+            }
+            actual.sourceFrameContract().requireService(reader,required);
+            if(!actual.includes(required))throw new SourceOperationEnvelopeRequired(this,actual,required);
         }
     }
 
@@ -975,6 +1081,7 @@ public final class TargetStoreBackend {
             try {
                 if (proof != null) proof.requireReader(reader, this);
                 mutation = Objects.requireNonNull(planner.apply(reader), "mutation");
+                requireSourceOperationEnvelope(reader,mutation);
                 com.nereusstream.delay.runtime.TargetMigrationRetirementStore.requireEdits(reader, mutation.business(),
                         mutation.quota().counters().mutation());
                 com.nereusstream.delay.runtime.TargetMigrationArchiveStore.requireEdits(reader, mutation.business(),

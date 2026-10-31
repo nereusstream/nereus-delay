@@ -3,6 +3,7 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
+import com.nereusstream.delay.ownership.TargetWorkerSourceStartup;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
@@ -42,6 +43,13 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     private SourceConnectionProof inFlightProof;
     private PulsarSourcePosition lastAcknowledged;
     private SourceConnectionProof lastAckProof;
+    private TargetWorkerSourceStartup frameStartup;
+    private TargetWorkerSourceStartup.FrameDecodeLoan frameDecode;
+    private SourcePosition frameDecodePosition;
+    private long frameDecodeBytes;
+    private Long frameDecodeGeneration;
+    private byte[] frameDecodeGuard;
+    private SourceReplayEntry decodedFrameEntry;
     private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.PulsarPreparation preparation;
     private SourceConnectionProof preparedProof;
     private PulsarSourcePosition preparedCut;
@@ -137,6 +145,16 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         }
     }
 
+    @Override public synchronized void bindFrameDecode(TargetWorkerSourceStartup actual) {
+        Objects.requireNonNull(actual, "original Source frame startup");
+        if (!target || backend == null || inFlight != null || buffered != null
+                || !actual.acceptedAssignment().shardId().equals(shard)
+                || frameStartup != null && frameStartup != actual) {
+            throw new IllegalStateException("Pulsar frame decoding must bind its original Source before delivery");
+        }
+        frameStartup = actual;
+    }
+
     private synchronized Optional<PolledSourceRecord> pollOpen() {
         ensureOpen();
         if (preparation != null && !activeSuccessorBound) throw new IllegalStateException("prepared P1 Source cannot deliver before actual activation");
@@ -153,6 +171,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                 // The old connection was closed before this unacknowledged message
                 // could be committed. Drop the local handle and let the broker
                 // redeliver it on the new guarded SUBSCRIBE connection.
+                clearFrameDecode();
                 buffered = null;
                 bufferedProof = null;
                 return Optional.empty();
@@ -177,9 +196,14 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                 // A connection switch may race with receive(). The message has
                 // not been ACKed, so its replay on the new guarded connection is
                 // the only safe authority; do not carry an old proof across it.
+                clearFrameDecode();
                 buffered = null;
                 bufferedProof = null;
                 return Optional.empty();
+            }
+            if (target) {
+                final var position = position(message, shard, physicalTopic, afterReceive.attestation());
+                retainFrameDecode(position, message.size(), afterReceive.generation(), afterReceive.digest());
             }
             final SourceReplayEntry entry = decodeReplayRecord(
                     message,
@@ -188,6 +212,10 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                     afterReceive.attestation(),
                     afterReceive.generation(),
                     afterReceive.digest(), target);
+            if (target) {
+                frameDecode.retainDecoded(entry);
+                decodedFrameEntry = entry;
+            }
             if (activeSuccessorBound) {
                 final var position = (PulsarSourcePosition) entry.position();
                 if (deliveredCurrent != null && position.compareTo(deliveredCurrent) < 0) {
@@ -211,6 +239,44 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             bufferedProof = beforeReceive;
             throw failure;
         }
+    }
+
+    private void retainFrameDecode(SourcePosition position, long bytes, Long generation, byte[] guard) {
+        if (frameDecode == null) {
+            if (frameStartup == null) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "Pulsar active Source lacks its original complete frame hold");
+            frameDecode = frameStartup.acquireFrameDecode(position, bytes, generation, guard);
+            frameDecodePosition = position;
+            frameDecodeBytes = bytes;
+            frameDecodeGeneration = generation;
+            frameDecodeGuard = guard;
+        } else if (frameDecodeBytes != bytes || !Objects.equals(frameDecodeGeneration, generation)
+                || !Arrays.equals(frameDecodeGuard, guard)
+                || !Arrays.equals(frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
+            throw new IllegalStateException("Pulsar active Source changed its retained raw frame");
+        }
+        frameDecode.requireCurrent();
+    }
+
+    private void releaseFrameDecode(SourceReplayEntry actual) {
+        if (!target) return;
+        if (frameDecode == null || decodedFrameEntry != actual) {
+            throw new IllegalStateException("Pulsar ACK changed its original frame decode loan");
+        }
+        clearFrameDecode();
+    }
+
+    private void clearFrameDecode() {
+        if (frameDecode == null) return;
+        frameDecode.requestRelease();
+        if (!frameDecode.cleanupComplete()) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                "Pulsar retains its original frame decode cleanup");
+        frameDecode = null;
+        frameDecodePosition = null;
+        frameDecodeBytes = 0;
+        frameDecodeGeneration = null;
+        frameDecodeGuard = null;
+        decodedFrameEntry = null;
     }
 
     @Override
@@ -345,6 +411,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                     return SourceAcknowledgement.AcknowledgementResult.unknown(
                             new IllegalStateException("Pulsar source ACK state changed"));
                 }
+                releaseFrameDecode(expected);
                 lastAcknowledged = (PulsarSourcePosition) expected.position();
                 lastAckProof = acknowledgedProof;
                 inFlight = null;
@@ -384,14 +451,18 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             throw new IllegalArgumentException("Pulsar source message belongs to another physical topic");
         }
         final var source = position(message, shard, physicalTopic, attestation);
+        final byte[] frame = requireData(message);
+        if (target && frame.length != message.size()) {
+            throw new IllegalStateException("Pulsar complete Source frame size changed before decoding");
+        }
         return target
-                ? PulsarClientArtifactSourceRecordDecoder.decodeTarget(requireData(message), shard, source,
+                ? PulsarClientArtifactSourceRecordDecoder.decodeTarget(frame, shard, source,
                         generation, digest)
                 : PulsarClientArtifactSourceRecordDecoder.decode(
-                        requireData(message), shard, source, generation, digest);
+                        frame, shard, source, generation, digest);
     }
 
-    private static PulsarSourcePosition position(
+    static PulsarSourcePosition position(
             final Message<byte[]> message,
             final ShardId shard,
             final String physicalTopic,
