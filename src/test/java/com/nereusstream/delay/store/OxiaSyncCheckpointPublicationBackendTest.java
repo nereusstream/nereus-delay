@@ -306,9 +306,11 @@ class OxiaSyncCheckpointPublicationBackendTest {
                         throw new IllegalStateException("simulated Oxia session fence");
                     }
                 });
-        records.afterPut = () -> sessionAlive.set(false);
+        records.afterEphemeralPut = () -> sessionAlive.set(false);
 
-        assertThrows(IllegalStateException.class, () -> fenced.createRecoveryPin(pin));
+        assertEquals(
+                "simulated Oxia session fence",
+                assertThrows(IllegalStateException.class, () -> fenced.createRecoveryPin(pin)).getMessage());
 
         final OxiaSyncCheckpointPublicationBackend reopened =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/fenced-publication-pin-create", LIMITS);
@@ -501,6 +503,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
         private int putCount;
         private boolean failNextPutAfterCommit;
         private Runnable afterPut = () -> {};
+        private Runnable afterEphemeralPut = () -> {};
         private Runnable afterDelete = () -> {};
 
         @Override
@@ -539,6 +542,9 @@ class OxiaSyncCheckpointPublicationBackendTest {
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
             afterPut.run();
+            if (options.contains(PutOption.AsEphemeralRecord)) {
+                afterEphemeralPut.run();
+            }
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");

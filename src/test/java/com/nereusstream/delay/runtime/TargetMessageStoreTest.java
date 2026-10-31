@@ -67,7 +67,7 @@ class TargetMessageStoreTest {
         final var shard = message.scheduleSource().shardId();
         final var scope = new TargetQuotaScope(shard, bytes(32, 0x22), null);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             final var backend = new TargetStoreBackend(
                     store, scope, bytes(16, 0x33), bytes(16, 0x44), new TargetStoreBackend.WriteLimits(64, 1 << 20));
             final var queueCache = new TargetQueueHeadCache();

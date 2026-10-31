@@ -81,7 +81,7 @@ class CheckpointExecutionCoordinatorTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("target-checkpoint-rejection"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
-                ShardStore store = ShardStore.openTarget(config, shard, resources)) {
+                ShardStore store = ShardStore.createTarget(config, shard, resources)) {
             final long writesBefore = store.operationStatistics().nativeWriteCalls();
             final Path checkpoint = tempDir.resolve("target-unsupported-checkpoint");
             final CheckpointPublicationCoordinator publication = new CheckpointPublicationCoordinator(

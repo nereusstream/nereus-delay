@@ -10258,7 +10258,8 @@ class DelayShardTest {
                             current.payloadReference(),
                             current.retryEligibilityAtEpochMs())
                     .withRuntimeIndex(GenerationRuntimeIndex.publishing(
-                            firstAttemptId, obligations, 2, 0, false, current.stateVersion()));
+                            // A second admission with the first attempt still open consumes one uncertain retry.
+                            firstAttemptId, obligations, 2, 1, false, current.stateVersion()));
             store.write(batch -> {
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(schedule.delayMessageId()), withSecond.encode());
                 batch.putValue(

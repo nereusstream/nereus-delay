@@ -102,7 +102,7 @@ class TargetCommandReplayStoreTest {
         registrations.register(signed.control());
         final var config = ShardStoreConfig.defaults(root);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
                             store,
@@ -313,7 +313,7 @@ class TargetCommandReplayStoreTest {
         registrations.register(signed.control());
         final var config = ShardStoreConfig.defaults(root);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
                             store,

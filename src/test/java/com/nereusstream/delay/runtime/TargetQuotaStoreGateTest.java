@@ -61,7 +61,7 @@ class TargetQuotaStoreGateTest {
         final var scope = shard.scope();
         final var config = ShardStoreConfig.defaults(root);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             final var backend = new TargetStoreBackend(
                     store,
                     scope,

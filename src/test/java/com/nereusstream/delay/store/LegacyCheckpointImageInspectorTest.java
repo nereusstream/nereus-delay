@@ -199,7 +199,10 @@ class LegacyCheckpointImageInspectorTest {
                 assertEquals(manifest.sourceStoreIncarnation(), copy.metadata().storeIncarnationUuid());
                 assertEquals(source, copy.appliedShardLogPosition());
                 assertFalse(Files.exists(workspace.resolve("ACTIVE")));
-                assertEquals(registeredStores, resources.registeredPhysicalUsageSources());
+                assertEquals(
+                        registeredStores + 1,
+                        resources.registeredPhysicalUsageSources(),
+                        "the private replay DB must remain included in physical resource accounting");
 
                 final byte[] scratchKey = KeyCodec.idMessage(DelayMessageId.random(shard));
                 final byte[] scratchPayload = Bytes.utf8("private replay mutation");

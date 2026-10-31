@@ -55,7 +55,7 @@ class TargetKeyCodecTest {
                 while (cause.getCause() != null) {
                     cause = cause.getCause();
                 }
-                assertTrue(cause.getMessage().contains("unsupported store format"), cause.toString());
+                assertEquals("Store format does not match the explicitly selected reader", cause.getMessage());
             }
         }
     }

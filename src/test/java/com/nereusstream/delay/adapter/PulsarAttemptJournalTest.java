@@ -88,6 +88,15 @@ class PulsarAttemptJournalTest {
                 new PulsarAttemptJournal.JournalPosition(12, 34, 0, 1, 2_000);
 
         for (PulsarAttemptJournal.RecordKind kind : PulsarAttemptJournal.RecordKind.values()) {
+            if (kind == PulsarAttemptJournal.RecordKind.RESOLVED_NOT_PUBLISHED) {
+                // Post-ownership negative settlement belongs to the independent Target v2 Journal.
+                assertThrows(
+                        IllegalArgumentException.class, () -> new PulsarAttemptJournal.AppendRequest(kind, mapping));
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> new PulsarAttemptJournal.JournalRecord(kind, mapping, position));
+                continue;
+            }
             final PulsarAttemptJournal.AppendRequest request = new PulsarAttemptJournal.AppendRequest(kind, mapping);
             final byte[] encoded = PulsarAttemptJournalRecordCodec.encode(request);
             final PulsarAttemptJournal.JournalRecord decoded =

@@ -65,7 +65,23 @@ class ControlRequestSupportCodecTest {
         assertEquals(ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY, ControlOperationKind.fromWire(22));
         assertEquals(ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER, ControlOperationKind.fromWire(23));
         assertEquals(ControlOperationKind.CLOSE_TARGET_NATIVE_MEMBER, ControlOperationKind.fromWire(24));
-        assertThrows(IllegalArgumentException.class, () -> ControlOperationKind.fromWire(25));
+        assertEquals(ControlOperationKind.CREATE_TARGET_CHANNEL, ControlOperationKind.fromWire(25));
+        assertEquals(ControlOperationKind.RENEW_TARGET_CHANNEL, ControlOperationKind.fromWire(26));
+        assertEquals(ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK, ControlOperationKind.fromWire(27));
+        assertEquals(ControlOperationKind.ACTIVATE_TARGET_PROTOCOL, ControlOperationKind.fromWire(28));
+        assertEquals(ControlOperationKind.ENABLE_TARGET_SLO_CERTIFICATION, ControlOperationKind.fromWire(29));
+        assertEquals(ControlOperationKind.STOP_TARGET_SLO_CERTIFICATION, ControlOperationKind.fromWire(30));
+        assertEquals(ControlOperationKind.REGISTER_TARGET_SLO_WRITER_EPOCH, ControlOperationKind.fromWire(31));
+        assertEquals(ControlOperationKind.CLOSE_TARGET_SLO_WRITER_EPOCH, ControlOperationKind.fromWire(32));
+        assertEquals(ControlOperationKind.ALLOCATE_PARENT_CONTROL_CREDIT, ControlOperationKind.fromWire(33));
+        assertEquals(ControlOperationKind.ALLOCATE_SCOPE_CONTROL_OBLIGATION, ControlOperationKind.fromWire(34));
+        assertEquals(ControlOperationKind.ACTIVATE_TARGET_MIGRATION, ControlOperationKind.fromWire(35));
+        assertEquals(ControlOperationKind.SETTLE_TARGET_MIGRATION_CUSTODY, ControlOperationKind.fromWire(36));
+        assertEquals(ControlOperationKind.RETIRE_TARGET_MIGRATION, ControlOperationKind.fromWire(37));
+        assertEquals(ControlOperationKind.CONFIRM_TARGET_MIGRATION_RETIRED, ControlOperationKind.fromWire(38));
+        assertEquals(ControlOperationKind.INITIALIZE_TARGET_PAYLOAD_SUMMARY, ControlOperationKind.fromWire(39));
+        assertEquals(ControlOperationKind.MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE, ControlOperationKind.fromWire(40));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationKind.fromWire(41));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new QuotaTransferPlanRef(new byte[32], bytes(32, 1), 1, bytes(32, 2)));

@@ -2280,7 +2280,7 @@ class TargetQuotaGrantStoreTest {
         final byte[] closureKey;
         final byte[] closureBytes;
         try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(

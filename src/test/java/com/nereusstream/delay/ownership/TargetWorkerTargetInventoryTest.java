@@ -55,8 +55,8 @@ class TargetWorkerTargetInventoryTest {
         final var secondTarget = target(1);
         final var metricEvents = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
         try (var resources = new SharedRocksDbResources(config);
-                var firstStore = ShardStore.openTarget(config, firstShard, resources);
-                var secondStore = ShardStore.openTarget(config, secondShard, resources);
+                var firstStore = ShardStore.createTarget(config, firstShard, resources);
+                var secondStore = ShardStore.createTarget(config, secondShard, resources);
                 var metrics = new BoundedAsyncMetricExporter(
                         new BoundedAsyncMetricExporter.Limits(8, 72), metricEvents::add)) {
             seedQueue(firstStore, firstTarget, 1, 2);

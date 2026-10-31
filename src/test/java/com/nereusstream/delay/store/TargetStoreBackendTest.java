@@ -44,7 +44,7 @@ class TargetStoreBackendTest {
         final var targetConfig = ShardStoreConfig.defaults(root.resolve("target"));
         byte[] identity;
         try (var resources = new SharedRocksDbResources(targetConfig);
-                var store = ShardStore.openTarget(targetConfig, shard, resources)) {
+                var store = ShardStore.createTarget(targetConfig, shard, resources)) {
             identity = store.metadata().encode();
             assertEquals(2, store.metadata().storeFormatVersion());
         }
@@ -70,10 +70,17 @@ class TargetStoreBackendTest {
     }
 
     @Test
-    void openingAnEmptyTargetStoreDoesNotReconstructOrActivateItsWorkerRoot() {
+    void emptyTargetOpenIsRejectedAndFreshCreationDoesNotActivateItsWorkerRoot() {
         final var config = ShardStoreConfig.defaults(root.resolve("target-open-is-not-activation"));
+        try (var resources = new SharedRocksDbResources(config)) {
+            final var failure = assertThrows(
+                    IllegalStateException.class, () -> ShardStore.openTarget(config, shard, resources));
+            assertEquals(
+                    "Target open requires a valid ACTIVE pointer; orphan adoption requires protected repair",
+                    failure.getCause().getMessage());
+        }
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             assertEquals(2, store.metadata().storeFormatVersion());
             assertNull(store.appliedShardLogPosition());
             assertEquals(0, store.shardMutationSequence());
@@ -101,7 +108,7 @@ class TargetStoreBackendTest {
         final var config = ShardStoreConfig.defaults(root.resolve("atomic"));
         byte[] aggregate;
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             final var backend = backend(store);
             final var first = plan(backend, 1);
             final var stale = plan(backend, 1);
@@ -143,7 +150,7 @@ class TargetStoreBackendTest {
     void completingAQuotaReadPlanAfterAnInterveningBatchRejectsItsStaleView() {
         final var config = ShardStoreConfig.defaults(root.resolve("stale-read-plan"));
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             final var backend = backend(store);
             final var readPlan = backend.guardedPrepareRead(
                     new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
@@ -169,7 +176,7 @@ class TargetStoreBackendTest {
                 bytes(32, 0x42), shard.partition(), 1, 100, "persistent://tenant/ns/target-cursor", 1, 2, 3, 0, 1);
         final TargetStoreBackend.Mutation mutation;
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             final var backend = backend(store);
             final var prepared = backend.prepare(
                     new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
@@ -256,7 +263,7 @@ class TargetStoreBackendTest {
         final var config = ShardStoreConfig.defaults(root.resolve("cursor-frontiers"));
         final var cursor = targetCursor(1, 8, 300);
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             store.recordEvidenceCursors(List.of(cursor));
             final var backend = backend(store);
             final long before = store.latestSequenceNumber();

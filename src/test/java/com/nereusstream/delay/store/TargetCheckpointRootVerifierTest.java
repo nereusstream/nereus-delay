@@ -40,7 +40,7 @@ class TargetCheckpointRootVerifierTest {
         final var targetConfig = ShardStoreConfig.defaults(tempDir.resolve("target"));
         final Path targetDb;
         try (var resources = new SharedRocksDbResources(targetConfig);
-                var store = ShardStore.openTarget(targetConfig, shard, resources)) {
+                var store = ShardStore.createTarget(targetConfig, shard, resources)) {
             targetDb = store.dbPath();
         }
         final var limits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
@@ -85,7 +85,7 @@ class TargetCheckpointRootVerifierTest {
         final var claimed = TargetMessageRecord.decode(vector("order.message.claimed"));
         final var config = ShardStoreConfig.defaults(tempDir.resolve("strict"));
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(
+                var store = ShardStore.createTarget(
                         config, message.locator().messageId().routingId().shardId(), resources)) {
             final TargetRecordAccounting.View view = new TargetRecordAccounting.View() {
                 @Override

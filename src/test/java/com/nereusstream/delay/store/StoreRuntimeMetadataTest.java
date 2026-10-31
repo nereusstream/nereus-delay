@@ -55,7 +55,7 @@ class StoreRuntimeMetadataTest {
                 "persistent://tenant/ns/target-journal", 1, 2, 3, 0, 1);
         final var config = ShardStoreConfig.defaults(tempDir.resolve("target-evidence"));
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, shard, resources)) {
+                var store = ShardStore.createTarget(config, shard, resources)) {
             store.recordEvidenceCursors(List.of(cursor));
             assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
             final var foreignScope = new EvidenceCursor.TargetScope(new ShardId(RouteIncarnation.random(), 2),

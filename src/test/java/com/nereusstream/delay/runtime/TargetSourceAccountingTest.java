@@ -54,7 +54,7 @@ class TargetSourceAccountingTest {
         final var config = ShardStoreConfig.defaults(root);
         final Path physicalDb;
         try (var resources = new SharedRocksDbResources(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             physicalDb = store.dbPath();
             final var backend = new TargetStoreBackend(
                     store,

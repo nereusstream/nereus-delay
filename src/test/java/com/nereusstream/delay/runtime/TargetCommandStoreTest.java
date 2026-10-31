@@ -315,7 +315,7 @@ class TargetCommandStoreTest {
         final SourceReplayMutation[] uncertainEntryForRecovery = new SourceReplayMutation[1];
         final Path physicalDb;
         try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
-                var store = ShardStore.openTarget(config, scope.shard(), resources)) {
+                var store = ShardStore.createTarget(config, scope.shard(), resources)) {
             physicalDb = store.dbPath();
             final var initialized = TargetStoreBootstrap.commit(
                     TargetStoreBootstrap.prepare(
@@ -1355,7 +1355,7 @@ class TargetCommandStoreTest {
                                 workerClasses) : null;
                 checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
                         otherSource, otherSigned.mutation()));
-                try (var otherStore = ShardStore.openTarget(config, otherShard, resources)) {
+                try (var otherStore = ShardStore.createTarget(config, otherShard, resources)) {
                     final TargetStoreBootstrap.Prepared otherPrepared;
                     if (checkpointContext == null) {
                         otherPrepared = TargetStoreBootstrap.prepare(
