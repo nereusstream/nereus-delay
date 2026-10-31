@@ -252,28 +252,29 @@ public record TargetCheckpointLifecycleInputs(
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.uint32(
-                    out,
-                    1,
-                    requiresDuplicatePositionCapability()
-                            ? 10
-                            : requiresIncarnationCapability()
-                                    ? 9
-                                    : requiresAnchorAllocationCapability()
-                                            ? 8
-                                            : requiresUncommittedObjectCapability()
-                                                    ? 7
-                                                    : requiresObjectPayloadCapability()
-                                                            ? 6
-                                                            : requiresNativeRetainedReclaimCapability()
-                                                                    ? 5
-                                                                    : requiresSelfContainedInlinePayloadReclaimCapability()
-                                                                            ? 4
-                                                                            : requiresInlinePayloadReclaimCapability()
-                                                                                    ? 3
-                                                                                    : requiresResourceReclaimCapability()
-                                                                                            ? 2
-                                                                                            : 1);
+            final int schemaVersion;
+            if (requiresDuplicatePositionCapability()) {
+                schemaVersion = 10;
+            } else if (requiresIncarnationCapability()) {
+                schemaVersion = 9;
+            } else if (requiresAnchorAllocationCapability()) {
+                schemaVersion = 8;
+            } else if (requiresUncommittedObjectCapability()) {
+                schemaVersion = 7;
+            } else if (requiresObjectPayloadCapability()) {
+                schemaVersion = 6;
+            } else if (requiresNativeRetainedReclaimCapability()) {
+                schemaVersion = 5;
+            } else if (requiresSelfContainedInlinePayloadReclaimCapability()) {
+                schemaVersion = 4;
+            } else if (requiresInlinePayloadReclaimCapability()) {
+                schemaVersion = 3;
+            } else if (requiresResourceReclaimCapability()) {
+                schemaVersion = 2;
+            } else {
+                schemaVersion = 1;
+            }
+            CanonicalProtobuf.uint32(out, 1, schemaVersion);
             for (var v : activations) {
                 CanonicalProtobuf.bytes(out, 2, v.canonicalBytes());
             }

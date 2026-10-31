@@ -2669,13 +2669,14 @@ class TargetCommandStoreTest {
                                                                                 writerOwner.leaseFencingDigest())
                                                                         .canonicalBytes(),
                                                                 writer.canonicalBytes());
+                                                        final var verificationKey = keys.getPublic();
+                                                        final boolean ordinaryPublication = TargetPublishAdmissionBody
+                                                                        .decode(mutation.canonicalBody())
+                                                                        .publication()
+                                                                == null;
                                                         return new TargetPublishAdmissionVerifier.Authorization(
-                                                                keys.getPublic(),
-                                                                TargetPublishAdmissionBody.decode(
-                                                                                                mutation
-                                                                                                        .canonicalBody())
-                                                                                        .publication()
-                                                                                == null
+                                                                verificationKey,
+                                                                ordinaryPublication
                                                                         ? ProtocolTuple.targetPublishAdmission()
                                                                         : ProtocolTuple
                                                                                 .targetMaterializedPublishAdmission(),

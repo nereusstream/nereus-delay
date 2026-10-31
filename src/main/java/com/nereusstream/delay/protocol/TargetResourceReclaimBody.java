@@ -948,29 +948,35 @@ public record TargetResourceReclaimBody(
     }
 
     public ProtocolTuple requiredTuple() {
-        return migrationPayloadReclaim()
-                ? uncommittedObjectReclaim()
-                        ? ProtocolTuple.targetMigrationUncommittedObjectReclaim()
-                        : ProtocolTuple.targetMigrationObjectPayloadReclaim()
-                : duplicatePositionReclaim()
-                        ? ProtocolTuple.targetDuplicatePositionReclaim()
-                        : incarnationReclaim()
-                                ? ProtocolTuple.targetIncarnationReclaim()
-                                : anchorAllocationReclaim()
-                                        ? ProtocolTuple.targetAnchorAllocationReclaim()
-                                        : uncommittedObjectReclaim()
-                                                ? ProtocolTuple.targetUncommittedObjectReclaim()
-                                                : objectPayloadReclaim()
-                                                        ? ProtocolTuple.targetObjectPayloadReclaim()
-                                                        : nativeRetainedReclaim()
-                                                                ? ProtocolTuple.targetNativeRetainedReclaim()
-                                                                : selfContainedInlinePayloadRelease()
-                                                                        ? ProtocolTuple
-                                                                                .targetSelfContainedInlinePayloadReclaim()
-                                                                        : inlinePayloadRelease()
-                                                                                ? ProtocolTuple
-                                                                                        .targetInlinePayloadReclaim()
-                                                                                : ProtocolTuple.targetResourceReclaim();
+        if (migrationPayloadReclaim()) {
+            return uncommittedObjectReclaim()
+                    ? ProtocolTuple.targetMigrationUncommittedObjectReclaim()
+                    : ProtocolTuple.targetMigrationObjectPayloadReclaim();
+        }
+        if (duplicatePositionReclaim()) {
+            return ProtocolTuple.targetDuplicatePositionReclaim();
+        }
+        if (incarnationReclaim()) {
+            return ProtocolTuple.targetIncarnationReclaim();
+        }
+        if (anchorAllocationReclaim()) {
+            return ProtocolTuple.targetAnchorAllocationReclaim();
+        }
+        if (uncommittedObjectReclaim()) {
+            return ProtocolTuple.targetUncommittedObjectReclaim();
+        }
+        if (objectPayloadReclaim()) {
+            return ProtocolTuple.targetObjectPayloadReclaim();
+        }
+        if (nativeRetainedReclaim()) {
+            return ProtocolTuple.targetNativeRetainedReclaim();
+        }
+        if (selfContainedInlinePayloadRelease()) {
+            return ProtocolTuple.targetSelfContainedInlinePayloadReclaim();
+        }
+        return inlinePayloadRelease()
+                ? ProtocolTuple.targetInlinePayloadReclaim()
+                : ProtocolTuple.targetResourceReclaim();
     }
 
     public TargetResourceReclaimBody withNativeFacts(TargetNativeReclaimFacts facts) {

@@ -752,32 +752,32 @@ public final class TargetCheckpointSemanticSnapshot {
         final var lifecycle =
                 TargetCheckpointLifecycleInputs.collect(complete, lifecycleAuthority, budget, limits, guard);
         final var root = complete.root();
+        final int schemaVersion;
+        if (lifecycle.requiresDuplicatePositionCapability()) {
+            schemaVersion = 16;
+        } else if (lifecycle.requiresIncarnationCapability()) {
+            schemaVersion = 15;
+        } else if (lifecycle.requiresAnchorAllocationCapability()) {
+            schemaVersion = 14;
+        } else if (lifecycle.requiresUncommittedObjectCapability()) {
+            schemaVersion = 13;
+        } else if (lifecycle.requiresObjectPayloadCapability()) {
+            schemaVersion = 12;
+        } else if (lifecycle.requiresNativeRetainedReclaimCapability()) {
+            schemaVersion = 11;
+        } else if (lifecycle.requiresSelfContainedInlinePayloadReclaimCapability()) {
+            schemaVersion = 10;
+        } else if (lifecycle.requiresInlinePayloadReclaimCapability()) {
+            schemaVersion = 9;
+        } else if (lifecycle.requiresResourceReclaimCapability()) {
+            schemaVersion = 8;
+        } else if (lifecycle.requiresRetainedMarkerCapability()) {
+            schemaVersion = 7;
+        } else {
+            schemaVersion = 6;
+        }
         final var result = new TargetCheckpointSemanticSnapshot(
-                lifecycle.requiresDuplicatePositionCapability()
-                        ? 16
-                        : lifecycle.requiresIncarnationCapability()
-                                ? 15
-                                : lifecycle.requiresAnchorAllocationCapability()
-                                        ? 14
-                                        : lifecycle.requiresUncommittedObjectCapability()
-                                                ? 13
-                                                : lifecycle.requiresObjectPayloadCapability()
-                                                        ? 12
-                                                        : lifecycle.requiresNativeRetainedReclaimCapability()
-                                                                ? 11
-                                                                : lifecycle
-                                                                                .requiresSelfContainedInlinePayloadReclaimCapability()
-                                                                        ? 10
-                                                                        : lifecycle
-                                                                                        .requiresInlinePayloadReclaimCapability()
-                                                                                ? 9
-                                                                                : lifecycle
-                                                                                                .requiresResourceReclaimCapability()
-                                                                                        ? 8
-                                                                                        : lifecycle
-                                                                                                        .requiresRetainedMarkerCapability()
-                                                                                                ? 7
-                                                                                                : 6,
+                schemaVersion,
                 root.metadata(),
                 root.source(),
                 root.mutationSequence(),

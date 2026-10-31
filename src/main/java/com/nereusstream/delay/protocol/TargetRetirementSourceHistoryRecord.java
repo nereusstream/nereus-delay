@@ -90,42 +90,34 @@ public record TargetRetirementSourceHistoryRecord(
     }
 
     private int schemaVersion() {
-        return input.type() != SystemMutationType.TARGET_RESOURCE_RECLAIM
-                ? 1
-                : TargetResourceReclaimBody.decode(input.canonicalBody()).migrationPayloadReclaim()
-                        ? TargetResourceReclaimBody.decode(input.canonicalBody())
-                                        .uncommittedObjectReclaim()
-                                ? 12
-                                : 11
-                        : TargetResourceReclaimBody.decode(input.canonicalBody())
-                                        .duplicatePositionReclaim()
-                                ? 10
-                                : TargetResourceReclaimBody.decode(input.canonicalBody())
-                                                .incarnationReclaim()
-                                        ? 9
-                                        : TargetResourceReclaimBody.decode(input.canonicalBody())
-                                                        .anchorAllocationReclaim()
-                                                ? 8
-                                                : TargetResourceReclaimBody.decode(input.canonicalBody())
-                                                                .uncommittedObjectReclaim()
-                                                        ? 7
-                                                        : TargetResourceReclaimBody.decode(input.canonicalBody())
-                                                                        .objectPayloadReclaim()
-                                                                ? 6
-                                                                : TargetResourceReclaimBody.decode(
-                                                                                        input.canonicalBody())
-                                                                                .nativeRetainedReclaim()
-                                                                        ? 5
-                                                                        : TargetResourceReclaimBody.decode(
-                                                                                                input.canonicalBody())
-                                                                                        .selfContainedInlinePayloadRelease()
-                                                                                ? 4
-                                                                                : TargetResourceReclaimBody.decode(
-                                                                                                        input
-                                                                                                                .canonicalBody())
-                                                                                                .inlinePayloadRelease()
-                                                                                        ? 3
-                                                                                        : 2;
+        if (input.type() != SystemMutationType.TARGET_RESOURCE_RECLAIM) {
+            return 1;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).migrationPayloadReclaim()) {
+            return TargetResourceReclaimBody.decode(input.canonicalBody()).uncommittedObjectReclaim() ? 12 : 11;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).duplicatePositionReclaim()) {
+            return 10;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).incarnationReclaim()) {
+            return 9;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).anchorAllocationReclaim()) {
+            return 8;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).uncommittedObjectReclaim()) {
+            return 7;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).objectPayloadReclaim()) {
+            return 6;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).nativeRetainedReclaim()) {
+            return 5;
+        }
+        if (TargetResourceReclaimBody.decode(input.canonicalBody()).selfContainedInlinePayloadRelease()) {
+            return 4;
+        }
+        return TargetResourceReclaimBody.decode(input.canonicalBody()).inlinePayloadRelease() ? 3 : 2;
     }
 
     private byte[] fields() {

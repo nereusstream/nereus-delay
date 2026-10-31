@@ -806,53 +806,30 @@ public final class TargetResourceReclaimStore {
     private boolean protocolReady(
             TargetStoreBackend.Reader reader, SourcePosition source, TargetResourceReclaimBody body) {
         final var activation = TargetProtocolActivationStore.applied(reader, scope, lineage, body.authorizationTuple());
-        return activation != null
-                && (body.duplicatePositionReclaim()
-                        ? activation.body().payload().descriptor().supportsDuplicatePositionReclaim()
-                        : body.incarnationReclaim()
-                                ? activation.body().payload().descriptor().supportsIncarnationReclaim()
-                                : body.anchorAllocationReclaim()
-                                        ? activation
-                                                .body()
-                                                .payload()
-                                                .descriptor()
-                                                .supportsAnchorAllocationReclaim()
-                                        : body.uncommittedObjectReclaim()
-                                                ? activation
-                                                        .body()
-                                                        .payload()
-                                                        .descriptor()
-                                                        .supportsUncommittedObjectPayloadReclaim()
-                                                : body.objectPayloadReclaim()
-                                                        ? activation
-                                                                .body()
-                                                                .payload()
-                                                                .descriptor()
-                                                                .supportsObjectPayloadReclaim()
-                                                        : body.nativeRetainedReclaim()
-                                                                ? activation
-                                                                        .body()
-                                                                        .payload()
-                                                                        .descriptor()
-                                                                        .supportsNativeRetainedReclaim()
-                                                                : body.selfContainedInlinePayloadRelease()
-                                                                        ? activation
-                                                                                .body()
-                                                                                .payload()
-                                                                                .descriptor()
-                                                                                .supportsSelfContainedInlinePayloadReclaim()
-                                                                        : body.inlinePayloadRelease()
-                                                                                ? activation
-                                                                                        .body()
-                                                                                        .payload()
-                                                                                        .descriptor()
-                                                                                        .supportsInlinePayloadReclaim()
-                                                                                : activation
-                                                                                        .body()
-                                                                                        .payload()
-                                                                                        .descriptor()
-                                                                                        .supportsResourceReclaim())
-                && activation.appliedAt().source().compareTo(source) < 0;
+        if (activation == null) {
+            return false;
+        }
+        final boolean supported;
+        if (body.duplicatePositionReclaim()) {
+            supported = activation.body().payload().descriptor().supportsDuplicatePositionReclaim();
+        } else if (body.incarnationReclaim()) {
+            supported = activation.body().payload().descriptor().supportsIncarnationReclaim();
+        } else if (body.anchorAllocationReclaim()) {
+            supported = activation.body().payload().descriptor().supportsAnchorAllocationReclaim();
+        } else if (body.uncommittedObjectReclaim()) {
+            supported = activation.body().payload().descriptor().supportsUncommittedObjectPayloadReclaim();
+        } else if (body.objectPayloadReclaim()) {
+            supported = activation.body().payload().descriptor().supportsObjectPayloadReclaim();
+        } else if (body.nativeRetainedReclaim()) {
+            supported = activation.body().payload().descriptor().supportsNativeRetainedReclaim();
+        } else if (body.selfContainedInlinePayloadRelease()) {
+            supported = activation.body().payload().descriptor().supportsSelfContainedInlinePayloadReclaim();
+        } else if (body.inlinePayloadRelease()) {
+            supported = activation.body().payload().descriptor().supportsInlinePayloadReclaim();
+        } else {
+            supported = activation.body().payload().descriptor().supportsResourceReclaim();
+        }
+        return supported && activation.appliedAt().source().compareTo(source) < 0;
     }
 
     private TargetQuotaIncarnation sourceRoot(TargetStoreBackend.Reader reader, TargetQuotaMutation stamp) {
