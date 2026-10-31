@@ -54,6 +54,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     private volatile RouteCacheHealth health = RouteCacheHealth.UNAVAILABLE;
     private boolean started;
     private boolean closeCompleted;
+    private final Object closeLock = new Object();
     private java.util.concurrent.ThreadPoolExecutor sharedNotifications;
     private RefreshLimits refreshLimits;
     private java.util.function.LongSupplier refreshClock;
@@ -249,39 +250,46 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     @Override
-    public synchronized void close() {
-        if (closeCompleted) {
-            return;
-        }
-        if (sharedNotifications != null) {
-            stopNotificationIo();
-            if (!notificationIoExited()) {
-                throw new IllegalStateException("original Route refresh I/O remains pending");
+    public void close() {
+        synchronized (closeLock) {
+            synchronized (this) {
+                if (closeCompleted) {
+                    return;
+                }
+                if (sharedNotifications != null) {
+                    stopNotificationIo();
+                    if (!notificationIoExited()) {
+                        throw new IllegalStateException("original Route refresh I/O remains pending");
+                    }
+                }
+                active.clear();
+                history.clear();
+                activeKeyByIncarnation.clear();
+                health = RouteCacheHealth.CLOSED;
+            }
+            // SDK termination waits for notification callbacks, which must observe CLOSED under the cache monitor.
+            Throwable closeFailure = null;
+            if (ownedNotificationExecutor != null) {
+                try {
+                    ownedNotificationExecutor.shutdownNow();
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
+            }
+            if (sharedNotifications == null) {
+                try {
+                    client.close();
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
+            }
+            if (closeFailure != null) {
+                throwUnchecked(closeFailure);
+            }
+            synchronized (this) {
+                closeCompleted = true;
             }
         }
-        active.clear();
-        history.clear();
-        activeKeyByIncarnation.clear();
-        health = RouteCacheHealth.CLOSED;
-        Throwable closeFailure = null;
-        if (ownedNotificationExecutor != null) {
-            try {
-                ownedNotificationExecutor.shutdownNow();
-            } catch (RuntimeException | Error failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
-            }
-        }
-        if (sharedNotifications == null) {
-            try {
-                client.close();
-            } catch (RuntimeException | Error failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
-            }
-        }
-        if (closeFailure != null) {
-            throwUnchecked(closeFailure);
-        }
-        closeCompleted = true;
     }
 
     private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {

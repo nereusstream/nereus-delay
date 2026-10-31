@@ -1,6 +1,7 @@
 package com.nereusstream.delay.route;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -42,6 +43,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
@@ -237,6 +240,42 @@ class OxiaSignedRouteSnapshotProviderTest {
         provider.close();
 
         assertEquals(2, client.closeCount());
+    }
+
+    @Test
+    void routeProviderCloseAllowsItsNativeNotificationCallbackToExit() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaSignedRouteSnapshotProvider provider =
+                new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
+        provider.start().toCompletableFuture().join();
+        final Consumer<Notification> notification = client.watchers.getFirst();
+        try (var callbacks = Executors.newSingleThreadExecutor()) {
+            client.afterNextClose(() -> assertDoesNotThrow(() -> callbacks
+                    .submit(() -> notification.accept(new Notification.KeyModified("/nereus/route/head", 1)))
+                    .get(5, TimeUnit.SECONDS)));
+
+            provider.close();
+
+            assertEquals(RouteCacheHealth.CLOSED, provider.health());
+            assertEquals(1, client.closeCount());
+        }
+    }
+
+    @Test
+    void sessionCloseAllowsItsNativeCallbackToObserveTheClosedSession() {
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
+        session.startSession();
+        try (var callbacks = Executors.newSingleThreadExecutor()) {
+            client.afterNextClose(() -> assertDoesNotThrow(() -> callbacks
+                    .submit(() -> assertThrows(IllegalStateException.class, () -> session.get("/nereus/route/head")))
+                    .get(5, TimeUnit.SECONDS)));
+
+            session.close();
+
+            assertEquals(1, client.closeCount());
+        }
     }
 
     @Test
@@ -495,6 +534,7 @@ class OxiaSignedRouteSnapshotProviderTest {
         private int notificationRegistrations;
         private int closeCalls;
         private int failNextCloseCalls;
+        private Runnable afterNextClose;
 
         @Override
         public GetResult get(final String key) {
@@ -613,6 +653,10 @@ class OxiaSignedRouteSnapshotProviderTest {
             failNextCloseCalls++;
         }
 
+        void afterNextClose(final Runnable callback) {
+            afterNextClose = callback;
+        }
+
         int closeCount() {
             return closeCalls;
         }
@@ -620,6 +664,11 @@ class OxiaSignedRouteSnapshotProviderTest {
         @Override
         public void close() {
             closeCalls++;
+            if (afterNextClose != null) {
+                final Runnable callback = afterNextClose;
+                afterNextClose = null;
+                callback.run();
+            }
             records.clear();
             ephemeralKeys.clear();
             watchers.clear();

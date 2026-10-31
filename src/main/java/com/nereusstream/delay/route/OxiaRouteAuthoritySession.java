@@ -49,6 +49,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private boolean started;
     private boolean closed;
     private boolean closeCompleted;
+    private final Object closeLock = new Object();
     private Duration configuredRequestTimeout;
     private final java.util.List<OxiaRouteRecordClient> retiring = new java.util.ArrayList<>();
 
@@ -431,41 +432,52 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     }
 
     @Override
-    public synchronized void close() {
-        if (closeCompleted) {
-            return;
-        }
-        closed = true;
-        started = false;
-        sessionVersion = null;
-        sessionIdentity = null;
-        Throwable closeFailure = null;
-        for (var original : retiring) {
+    public void close() {
+        synchronized (closeLock) {
+            final java.util.List<OxiaRouteRecordClient> originalRetiring;
+            final OxiaRouteRecordClient originalDelegate;
+            final OxiaRouteRecordClient originalNotifications;
+            synchronized (this) {
+                if (closeCompleted) {
+                    return;
+                }
+                closed = true;
+                started = false;
+                sessionVersion = null;
+                sessionIdentity = null;
+                originalRetiring = java.util.List.copyOf(retiring);
+                originalDelegate = delegate;
+                originalNotifications = notificationDelegate;
+            }
+            // Native termination may need callbacks to recheck this session's closed state.
+            Throwable closeFailure = null;
+            for (var original : originalRetiring) {
+                try {
+                    original.close();
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
+            }
             try {
-                original.close();
+                originalDelegate.close();
             } catch (RuntimeException | Error failure) {
+                // The independent watch owner must still receive its close request.
                 closeFailure = appendCloseFailure(closeFailure, failure);
             }
-        }
-        try {
-            delegate.close();
-        } catch (RuntimeException | Error failure) {
-            // The watch client is an independent Oxia session. Its close
-            // must still be attempted when the authority client reports a
-            // teardown failure, otherwise the watch session can be stranded.
-            closeFailure = appendCloseFailure(closeFailure, failure);
-        }
-        if (notificationDelegate != delegate) {
-            try {
-                notificationDelegate.close();
-            } catch (RuntimeException | Error failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
+            if (originalNotifications != originalDelegate) {
+                try {
+                    originalNotifications.close();
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
+            }
+            if (closeFailure != null) {
+                throwUnchecked(closeFailure);
+            }
+            synchronized (this) {
+                closeCompleted = true;
             }
         }
-        if (closeFailure != null) {
-            throwUnchecked(closeFailure);
-        }
-        closeCompleted = true;
     }
 
     private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
