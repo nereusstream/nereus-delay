@@ -74,6 +74,26 @@ public final class TargetRecordAccounting {
         long arrayObjects(){return arrayObjects;}
     }
 
+    /* These fixed subgraphs repeatedly occur inside the Source family union. Each holder evaluates
+       the unchanged numeric graph once; sharing its immutable five scalars does not share or remove
+       any modeled codec call. Separate holders preserve their dependency order during initialization.
+       No actual Source F, Reader, frame qualification or other runtime authority is retained here. */
+    private static final class EvidenceResourceMaterial {
+        private static final EnvelopeMaterial DECODE=calculateEnvelopeEvidenceResourceDecode();
+    }
+    private static final class EvidenceConfirmedBodyMaterial {
+        private static final EnvelopeMaterial DECODE=calculateEnvelopeEvidenceConfirmedBodyDecode();
+    }
+    private static final class ResourceFrameMaterial {
+        private static final EnvelopeMaterial DECODE=calculateEnvelopeResourceFrameDecode();
+    }
+    private static final class ResourceReclaimMaterial {
+        private static final EnvelopeMaterial DECODE=calculateEnvelopeResourceReclaimDecode();
+    }
+    private static final class RetirementSourceHistoryMaterial {
+        private static final EnvelopeMaterial DECODE=calculateEnvelopeRetirementSourceHistoryDecode();
+    }
+
     private static EnvelopeMaterial envelopeArray(long bytes){return new EnvelopeMaterial(bytes,bytes,bytes,0,1);}
     /** A source block retaining several independently allocated arrays whose total length is bounded here. */
     private static EnvelopeMaterial envelopeArrays(long bytes,long count){return new EnvelopeMaterial(bytes,bytes,bytes,0,count);}
@@ -2793,7 +2813,8 @@ public final class TargetRecordAccounting {
         return envelopeWritten(envelopeDrop(fields,envelopeEvidenceProvenanceCanonical()),
                 com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.MAX_CANONICAL_BYTES);
     }
-    private static EnvelopeMaterial envelopeEvidenceResourceDecode(){
+    private static EnvelopeMaterial envelopeEvidenceResourceDecode(){return EvidenceResourceMaterial.DECODE;}
+    private static EnvelopeMaterial calculateEnvelopeEvidenceResourceDecode(){
         final long n=com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource.MAX_CANONICAL_BYTES;
         final long key=com.nereusstream.delay.protocol.TargetRecoveryProofRef.MAX_KEY_BYTES;
         var args=envelopeHold(envelopeArrays(176,6),envelopeNested(24,envelopeShardSubjectDecode()));
@@ -3003,7 +3024,8 @@ public final class TargetRecordAccounting {
         return envelopeCoreDecoded(envelopeBusinessConfirmedBodyBytes(),11,args,envelopeReturn(check,0),
                 envelopeEvidenceConfirmedBodyCanonical(marker),args.held);
     }
-    private static EnvelopeMaterial envelopeEvidenceConfirmedBodyDecode(){
+    private static EnvelopeMaterial envelopeEvidenceConfirmedBodyDecode(){return EvidenceConfirmedBodyMaterial.DECODE;}
+    private static EnvelopeMaterial calculateEnvelopeEvidenceConfirmedBodyDecode(){
         return envelopeChoice(envelopeEvidenceConfirmedBodyDecode(false),envelopeEvidenceConfirmedBodyDecode(true));
     }
     private static EnvelopeMaterial envelopeEvidenceConfirmedIdentity(){
@@ -3217,7 +3239,8 @@ public final class TargetRecordAccounting {
         return envelopeCoreHashed(envelopeRetirementSourceHistoryFields(),com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.MAX_BYTES,
                 "nereus-delay-target-retirement-source-history-record\0");
     }
-    private static EnvelopeMaterial envelopeRetirementSourceHistoryDecode(){
+    private static EnvelopeMaterial envelopeRetirementSourceHistoryDecode(){return RetirementSourceHistoryMaterial.DECODE;}
+    private static EnvelopeMaterial calculateEnvelopeRetirementSourceHistoryDecode(){
         var args=envelopeNested(com.nereusstream.delay.protocol.TargetRetirementSourceHistoryRecord.MAX_ENVELOPE_BYTES,envelopeRetirementInputDecode());
         args=envelopeHold(args,envelopeNested(TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES,envelopeMutationDecode(false)));
         args=envelopeHold(args,envelopeNested(com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory.PublicProof.MAX_BYTES,envelopeRetirementPublicProofDecode()));
@@ -7872,7 +7895,8 @@ public final class TargetRecordAccounting {
     private static EnvelopeMaterial envelopeResourceFrameCanonical(){
         return envelopeWritten(envelopeMutationCanonical(false),envelopeResourceFrameBytes());
     }
-    private static EnvelopeMaterial envelopeResourceFrameDecode(){
+    private static EnvelopeMaterial envelopeResourceFrameDecode(){return ResourceFrameMaterial.DECODE;}
+    private static EnvelopeMaterial calculateEnvelopeResourceFrameDecode(){
         final long frame=envelopeResourceFrameBytes();
         var args=envelopeNested(TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES,envelopeMutationDecode(false));
         args=envelopeHold(args,envelopeArray(frame));
@@ -8274,7 +8298,8 @@ public final class TargetRecordAccounting {
     private static EnvelopeMaterial envelopeResourceObjectIntentIdentity(){
         return envelopeCall(envelopeResourceObjectIntentDecode(),envelopeChoice(envelopeResourceReclaimLogical(6,true),envelopeResourceReclaimLogical(8,false)),0);
     }
-    private static EnvelopeMaterial envelopeResourceReclaimDecode(){
+    private static EnvelopeMaterial envelopeResourceReclaimDecode(){return ResourceReclaimMaterial.DECODE;}
+    private static EnvelopeMaterial calculateEnvelopeResourceReclaimDecode(){
         var result=envelopeChoice(envelopeResourceReclaimDecode(0,false,false),envelopeResourceReclaimDecode(1,false,false));
         result=envelopeChoice(result,envelopeResourceReclaimDecode(1,true,false));
         for(int kind=2;kind<=5;kind++)result=envelopeChoice(result,envelopeResourceReclaimDecode(kind,false,true));

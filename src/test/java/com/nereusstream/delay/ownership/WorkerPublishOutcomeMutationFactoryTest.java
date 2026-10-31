@@ -22,6 +22,7 @@ import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import java.security.KeyPair;
@@ -63,9 +64,11 @@ class WorkerPublishOutcomeMutationFactoryTest {
         final KeyPair keyPair = keyPair();
         final AuthorIdentity author = AuthorIdentity.owner(
                 Bytes.utf8("deployment"), Bytes.utf8("worker"), 7, Bytes.sha256(Bytes.utf8("fence")));
+        final byte[] transferBytes = unknownTransfer();
+        final byte[] retryBytes = unknownRetryPlaceholder();
         final WorkerPublishOutcomeMutationFactory factory = new WorkerPublishOutcomeMutationFactory(
                 (attempt, request, physical) -> new WorkerPublishOutcomeMutationFactory.OutcomeContext(
-                        9_000, 4, unknownTransfer(), observedAt(), unknownRetryPlaceholder()),
+                        9_000, 4, transferBytes, observedAt(), retryBytes),
                 author.canonicalBytes(),
                 1,
                 keyPair.getPrivate());
@@ -74,13 +77,20 @@ class WorkerPublishOutcomeMutationFactoryTest {
                 fixture.attempt,
                 fixture.request,
                 DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null));
-        final PublishOutcomeBody body = PublishOutcomeBody.decode(mutation.canonicalBody());
+        final byte[] frame = mutation.encodeFrame();
+        final var decodedMutation = SystemMutation.decodeFrame(frame);
+        final PublishOutcomeBody body = PublishOutcomeBody.decode(decodedMutation.canonicalBody());
 
         assertTrue(mutation.verifySignature(keyPair.getPublic()));
+        assertTrue(decodedMutation.verifySignature(keyPair.getPublic()));
+        assertArrayEquals(mutation.canonicalBody(), decodedMutation.canonicalBody());
+        assertArrayEquals(frame, decodedMutation.encodeFrame());
         assertEquals(3, body.sideEffect());
         assertEquals(4, body.disposition());
         assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, body.stableCode());
         assertEquals(0, body.evidence().length);
+        assertArrayEquals(transferBytes, body.transfer());
+        assertArrayEquals(retryBytes, body.retryDecision().canonicalBytes());
     }
 
     @Test

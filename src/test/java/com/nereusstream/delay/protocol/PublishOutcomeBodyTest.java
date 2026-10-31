@@ -61,6 +61,8 @@ class PublishOutcomeBodyTest {
         assertEquals(2, PublishOutcomeBody.decode(notPublished).sideEffect());
         assertEquals(1, PublishOutcomeBody.decode(notPublished).disposition());
 
+        final byte[] transferBytes = unknownTransfer();
+        final byte[] retryBytes = unknownRetryPlaceholder();
         final byte[] unknown = PublishOutcomeBody.encodeInitial(
                 shard,
                 9_000,
@@ -69,15 +71,21 @@ class PublishOutcomeBodyTest {
                 4,
                 StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
                 null,
-                unknownTransfer(),
+                transferBytes,
                 observedAt(),
-                unknownRetryPlaceholder());
+                retryBytes);
         final PublishOutcomeBody parsedUnknown = PublishOutcomeBody.decode(unknown);
         assertEquals(3, parsedUnknown.sideEffect());
         assertEquals(4, parsedUnknown.disposition());
         assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, parsedUnknown.stableCode());
         assertEquals(0, parsedUnknown.evidence().length);
         assertFalse(parsedUnknown.retryDecision().hasFullShape());
+        assertArrayEquals(transferBytes, parsedUnknown.transfer());
+        assertArrayEquals(retryBytes, parsedUnknown.retryDecision().canonicalBytes());
+        assertArrayEquals(unknown, PublishOutcomeBody.encodeInitial(
+                shard, 9_000, attempt, parsedUnknown.sideEffect(), parsedUnknown.disposition(),
+                parsedUnknown.stableCode(), null, parsedUnknown.transfer(), parsedUnknown.observedAt(),
+                parsedUnknown.retryDecision().canonicalBytes()));
     }
 
     @Test
