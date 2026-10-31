@@ -101,21 +101,27 @@ public final class TrustedUtcClock {
         private final long monotonicNs;
         private final TrustedUtcInterval interval;
 
-        private CustodyTime(TrustedUtcClock clock, long sampleRevision, long monotonicNs,
-                TrustedUtcInterval interval) {
-            this.clock = clock; this.sampleRevision = sampleRevision;
-            this.monotonicNs = monotonicNs; this.interval = interval;
+        private CustodyTime(TrustedUtcClock clock, long sampleRevision, long monotonicNs, TrustedUtcInterval interval) {
+            this.clock = clock;
+            this.sampleRevision = sampleRevision;
+            this.monotonicNs = monotonicNs;
+            this.interval = interval;
         }
 
-        public TrustedUtcInterval interval() { return interval; }
+        public TrustedUtcInterval interval() {
+            return interval;
+        }
 
         /** A changed sample, qualification loss/recovery or monotonic regression cannot bridge custody. */
         public void requireContinuousTo(CustodyTime after) {
             Objects.requireNonNull(after);
-            if (clock != after.clock || sampleRevision != after.sampleRevision
+            if (clock != after.clock
+                    || sampleRevision != after.sampleRevision
                     || elapsedNanoseconds(after.monotonicNs, monotonicNs) < 0
-                    || !interval.qualified() || !after.interval.qualified()) {
-                throw new IllegalStateException("native custody changed its original qualified UTC authority or sample");
+                    || !interval.qualified()
+                    || !after.interval.qualified()) {
+                throw new IllegalStateException(
+                        "native custody changed its original qualified UTC authority or sample");
             }
             synchronized (clock) {
                 if (clock.sampleRevision != sampleRevision) {

@@ -50,7 +50,9 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
         } catch (PulsarClientException failure) {
             throw new IllegalStateException("Pulsar guarded recovery seek failed", failure);
         } finally {
-            if (reading != null) { reading.close(); }
+            if (reading != null) {
+                reading.close();
+            }
         }
     }
 
@@ -65,12 +67,18 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
         try {
             return awaitStableProofOpen(consumer, expectedGuard, physicalTopic, partition, proofTimeout);
         } finally {
-            if (reading != null) { reading.close(); }
+            if (reading != null) {
+                reading.close();
+            }
         }
     }
 
-    private static PositionedGuardProof awaitStableProofOpen(GuardedConsumer<byte[]> consumer,
-            TopicResourceGuard expectedGuard, String physicalTopic, int partition, Duration proofTimeout) {
+    private static PositionedGuardProof awaitStableProofOpen(
+            GuardedConsumer<byte[]> consumer,
+            TopicResourceGuard expectedGuard,
+            String physicalTopic,
+            int partition,
+            Duration proofTimeout) {
         final GuardedConsumer<byte[]> acceptedConsumer = Objects.requireNonNull(consumer, "consumer");
         final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         final String topic = requirePhysicalTopic(physicalTopic);

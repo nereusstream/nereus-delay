@@ -1,7 +1,27 @@
 package com.nereusstream.delay.transport;
 
-import com.nereusstream.delay.ownership.*;
-import com.nereusstream.delay.protocol.*;
+import com.nereusstream.delay.ownership.CheckpointInputFuture;
+import com.nereusstream.delay.ownership.LocalBrokerMtlsResolver;
+import com.nereusstream.delay.ownership.OwnedCheckpointIo;
+import com.nereusstream.delay.ownership.OwnedSourceCursor;
+import com.nereusstream.delay.ownership.OwnedSourceSystemWriter;
+import com.nereusstream.delay.ownership.SourceAssignment;
+import com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization;
+import com.nereusstream.delay.ownership.SourceTransportCredentialUse;
+import com.nereusstream.delay.ownership.SystemWriterAppendBudget;
+import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
+import com.nereusstream.delay.ownership.TargetOwnedBackendGroup;
+import com.nereusstream.delay.ownership.TargetPayloadSummaryInitializationAppendPermit;
+import com.nereusstream.delay.ownership.TargetScopeExposureSource;
+import com.nereusstream.delay.ownership.TargetWorkerRuntimeConfig;
+import com.nereusstream.delay.ownership.TargetWorkerShardRuntime;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.TargetPayloadSummaryInitializationBody;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.SharedRocksDbResources;
 import java.time.Duration;
@@ -36,206 +56,490 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
     private TargetPayloadSummaryInitializationAppendPermit payloadSummaryPermit;
     private SystemMutation payloadSummaryInput, lastPayloadSummaryInput;
 
-    private PulsarClientArtifactOwnedSystemWriter(TargetWorkerShardRuntime worker, PulsarClientArtifactOwnedBackendGroup group,
-            SystemWriterAppendBudget.Writer writer, TargetDestinationSdkBudget.Client allocation, Duration timeout) {
-        this.worker = worker; this.group = group; this.writer = writer; this.allocation = allocation;
-        nativeOpening = new OwnedSourceCursor<>(creating, value -> {
-            writer.beginClose();
-            synchronized (gate) { if (closing == null) closing = new PulsarClientArtifactProducerClose(group.clientForProof(), value, timeout); }
-            return closing.closeFuture().thenRun(this::releaseNative);
-        }, group);
+    private PulsarClientArtifactOwnedSystemWriter(
+            TargetWorkerShardRuntime worker,
+            PulsarClientArtifactOwnedBackendGroup group,
+            SystemWriterAppendBudget.Writer writer,
+            TargetDestinationSdkBudget.Client allocation,
+            Duration timeout) {
+        this.worker = worker;
+        this.group = group;
+        this.writer = writer;
+        this.allocation = allocation;
+        nativeOpening = new OwnedSourceCursor<>(
+                creating,
+                value -> {
+                    writer.beginClose();
+                    synchronized (gate) {
+                        if (closing == null) {
+                            closing = new PulsarClientArtifactProducerClose(group.clientForProof(), value, timeout);
+                        }
+                    }
+                    return closing.closeFuture().thenRun(this::releaseNative);
+                },
+                group);
     }
-    public static PulsarClientArtifactOwnedSystemWriter open(String allocationId, PulsarClientArtifactOwnedBackendGroup group,
-            GuardedConsumer<byte[]> source, TargetWorkerRuntimeConfig configuration, TargetWorkerShardRuntime worker,
-            SourceAssignment assignment, OwnerIdentity owner, LocalBrokerMtlsResolver.SourceReceipt credential,
-            Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
-            CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
-            SharedRocksDbResources resources, ThreadPoolExecutor io) {
-        return open(allocationId, group, source, configuration, worker, assignment, owner, credential, timeout,
-                time, clock, pool, cost, writers, classes, resources, io, null);
+
+    public static PulsarClientArtifactOwnedSystemWriter open(
+            String allocationId,
+            PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> source,
+            TargetWorkerRuntimeConfig configuration,
+            TargetWorkerShardRuntime worker,
+            SourceAssignment assignment,
+            OwnerIdentity owner,
+            LocalBrokerMtlsResolver.SourceReceipt credential,
+            Duration timeout,
+            Supplier<TrustedUtcIntervalEvidence> time,
+            LongSupplier clock,
+            TargetDestinationSdkBudget pool,
+            CapacityVector cost,
+            SystemWriterAppendBudget writers,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
+            ThreadPoolExecutor io) {
+        return open(
+                allocationId,
+                group,
+                source,
+                configuration,
+                worker,
+                assignment,
+                owner,
+                credential,
+                timeout,
+                time,
+                clock,
+                pool,
+                cost,
+                writers,
+                classes,
+                resources,
+                io,
+                null);
     }
-    public static PulsarClientArtifactOwnedSystemWriter open(String allocationId, PulsarClientArtifactOwnedBackendGroup group,
-            GuardedConsumer<byte[]> source, TargetWorkerRuntimeConfig configuration, TargetWorkerShardRuntime worker,
-            SourceAssignment assignment, OwnerIdentity owner, LocalBrokerMtlsResolver.SourceReceipt credential,
-            Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, LongSupplier clock, TargetDestinationSdkBudget pool,
-            CapacityVector cost, SystemWriterAppendBudget writers, WorkClassExecutionRegistry classes,
-            SharedRocksDbResources resources, ThreadPoolExecutor io, TargetScopeExposureSource.Issuer exposureIssuer) {
-        configuration.requireRuntime(classes, resources); worker.requireFleetComposition(classes, resources); pool.requireWorker(classes, resources);
+
+    public static PulsarClientArtifactOwnedSystemWriter open(
+            String allocationId,
+            PulsarClientArtifactOwnedBackendGroup group,
+            GuardedConsumer<byte[]> source,
+            TargetWorkerRuntimeConfig configuration,
+            TargetWorkerShardRuntime worker,
+            SourceAssignment assignment,
+            OwnerIdentity owner,
+            LocalBrokerMtlsResolver.SourceReceipt credential,
+            Duration timeout,
+            Supplier<TrustedUtcIntervalEvidence> time,
+            LongSupplier clock,
+            TargetDestinationSdkBudget pool,
+            CapacityVector cost,
+            SystemWriterAppendBudget writers,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
+            ThreadPoolExecutor io,
+            TargetScopeExposureSource.Issuer exposureIssuer) {
+        configuration.requireRuntime(classes, resources);
+        worker.requireFleetComposition(classes, resources);
+        pool.requireWorker(classes, resources);
         group.requireWorkerGraph(classes, resources);
-        if (PulsarClientArtifactOwnedBackendGroup.findNative(source) != group || timeout.toMillis() < 1 || timeout.toMillis() > 60_000)
+        if (PulsarClientArtifactOwnedBackendGroup.findNative(source) != group
+                || timeout.toMillis() < 1
+                || timeout.toMillis() > 60_000) {
             throw new IllegalArgumentException("Source writer requires the original P1 consumer and finite timeout");
+        }
         credential.authorization().requireAssignment(assignment);
         credential.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
         final var resource = credential.authorization().resource().pulsar();
-        final var guard = new TopicResourceGuard(resource.authenticatedClusterId(), resource.resourceIncarnation(), resource.physicalTopicCreationTimestamp());
+        final var guard = new TopicResourceGuard(
+                resource.authenticatedClusterId(),
+                resource.resourceIncarnation(),
+                resource.physicalTopicCreationTimestamp());
         group.requireSourceReadResource(credential, guard);
-        if (!source.resourceGuard().equals(guard) || !source.getTopic().equals(resource.physicalTopic()))
+        if (!source.resourceGuard().equals(guard) || !source.getTopic().equals(resource.physicalTopic())) {
             throw new IllegalArgumentException("P1 system writer changes its actual Source resource");
+        }
         final long[] minimum = new long[CapacityDimension.COUNT];
         minimum[CapacityDimension.ADAPTER_PRODUCERS.wireValue() - 1] = 1;
         minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
         minimum[CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = configuration.maximumSourceFrameBytes();
-        if (!cost.covers(new CapacityVector(minimum))) throw new IllegalArgumentException("P1 system writer cannot serve the configured Source frame");
+        if (!cost.covers(new CapacityVector(minimum))) {
+            throw new IllegalArgumentException("P1 system writer cannot serve the configured Source frame");
+        }
         final var client = group.nativeClientForFactory();
         final var allocation = pool.reserve(allocationId, cost);
         final SystemWriterAppendBudget.Writer writer;
-        try { writer = writers.registerWriter(assignment.shardId()); }
-        catch (RuntimeException | Error failed) { allocation.releaseUnstarted(); throw failed; }
+        try {
+            writer = writers.registerWriter(assignment.shardId());
+        } catch (RuntimeException | Error failed) {
+            allocation.releaseUnstarted();
+            throw failed;
+        }
         final var backend = new PulsarClientArtifactOwnedSystemWriter(worker, group, writer, allocation, timeout);
         try {
-            group.registerCleanup(backend, () -> {
-                synchronized (backend.gate) { return backend.activeAppends == 0 && backend.opening != null && backend.opening.operationExited(); }
-            }, backend::resourcesTerminated, proof -> { proof.requireClient(client); writer.beginClose(); backend.nativeOpening.requestClose();
-                backend.nativeOpening.backendShutdownCompleted(group); backend.releaseNative(); });
+            group.registerCleanup(
+                    backend,
+                    () -> {
+                        synchronized (backend.gate) {
+                            return backend.activeAppends == 0
+                                    && backend.opening != null
+                                    && backend.opening.operationExited();
+                        }
+                    },
+                    backend::resourcesTerminated,
+                    proof -> {
+                        proof.requireClient(client);
+                        writer.beginClose();
+                        backend.nativeOpening.requestClose();
+                        backend.nativeOpening.backendShutdownCompleted(group);
+                        backend.releaseNative();
+                    });
             worker.registerSystemWriterBackend(allocationId, backend, pool, clock);
-            backend.opening = OwnedCheckpointIo.submit(active -> {
-                active.run(); worker.requirePublicationOwner(owner, clock);
-                credential.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
-                credential.requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
-                final var builder = PulsarClientArtifactProducerFactory.builder(client, resource.authenticatedClusterId(),
-                        resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(),
-                        "nereus-source-system-" + java.util.UUID.randomUUID()).guardedNativeSendLimit(2)
-                        .compressionType(CompressionType.NONE)
-                        .sendTimeout(Math.toIntExact(timeout.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
-                group.createNative(() -> {
-                    allocation.beginConstruction();
-                    return builder.createAsync();
-                }, null).whenComplete((value, failed) -> {
-                    if (failed == null) backend.creating.complete(value); else backend.creating.completeExceptionally(failed);
-                });
-                try { return backend.nativeOpening.read(timeout.toMillis(), value -> {
-                    active.run(); worker.requirePublicationOwner(owner, clock); group.requireProducerArtifact(value);
-                    if (!resource.physicalTopic().equals(value.getTopic())) throw new IllegalStateException("P1 Source producer changes its signed topic");
-                    final var nativeContract = value.guardedNativeSendContract().orElseThrow(
-                            () -> new IllegalStateException("P1 Source producer lacks its finite guarded native submission contract"));
-                    if (nativeContract.maximumNativeSubmissions() != 2)
-                        throw new IllegalStateException("P1 Source producer changed its frozen native submission limit");
-                    final var copyContract = new TargetScopeExposureSource.CopyContract(nativeContract.maximumNativeSubmissions(),
-                            Bytes.sha256(Bytes.utf8("nereus-p1-source-native-custody-v1\n"), group.activatedSdkJarSha256(), nativeContract.sha256(),
-                                    Bytes.u64be(timeout.toMillis())));
-                    synchronized (backend.gate) { backend.producer = value; backend.payloadSummaryCopies = copyContract; }
-                    backend.credentialUse = worker.bindSystemWriterCredential(credential, assignment, owner, value, time, clock);
-                    return new PulsarClientArtifactShardLogMutationAppender(value, source, assignment.shardId(), resource.authenticatedClusterId(),
-                            resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), timeout,
-                            writer, backend::requireAppend, copyContract, exposureIssuer);
-                }); } catch (Exception failed) {
-                    if (failed instanceof InterruptedException) Thread.currentThread().interrupt();
-                    throw new IllegalStateException("Original P1 Source producer opening did not complete", failed);
-                }
-            }, () -> { credential.requireActive(time.get()); }, io);
+            backend.opening = OwnedCheckpointIo.submit(
+                    active -> {
+                        active.run();
+                        worker.requirePublicationOwner(owner, clock);
+                        credential.requireOperation(
+                                SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
+                        credential.requireOperation(
+                                SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+                        final var builder = PulsarClientArtifactProducerFactory.builder(
+                                        client,
+                                        resource.authenticatedClusterId(),
+                                        resource.resourceIncarnation(),
+                                        resource.physicalTopic(),
+                                        resource.physicalTopicCreationTimestamp(),
+                                        "nereus-source-system-" + java.util.UUID.randomUUID())
+                                .guardedNativeSendLimit(2)
+                                .compressionType(CompressionType.NONE)
+                                .sendTimeout(
+                                        Math.toIntExact(timeout.toMillis()),
+                                        java.util.concurrent.TimeUnit.MILLISECONDS);
+                        group.createNative(
+                                        () -> {
+                                            allocation.beginConstruction();
+                                            return builder.createAsync();
+                                        },
+                                        null)
+                                .whenComplete((value, failed) -> {
+                                    if (failed == null) {
+                                        backend.creating.complete(value);
+                                    } else {
+                                        backend.creating.completeExceptionally(failed);
+                                    }
+                                });
+                        try {
+                            return backend.nativeOpening.read(timeout.toMillis(), value -> {
+                                active.run();
+                                worker.requirePublicationOwner(owner, clock);
+                                group.requireProducerArtifact(value);
+                                if (!resource.physicalTopic().equals(value.getTopic())) {
+                                    throw new IllegalStateException("P1 Source producer changes its signed topic");
+                                }
+                                final var nativeContract = value.guardedNativeSendContract()
+                                        .orElseThrow(
+                                                () -> new IllegalStateException(
+                                                        "P1 Source producer lacks its finite guarded native submission contract"));
+                                if (nativeContract.maximumNativeSubmissions() != 2) {
+                                    throw new IllegalStateException(
+                                            "P1 Source producer changed its frozen native submission limit");
+                                }
+                                final var copyContract = new TargetScopeExposureSource.CopyContract(
+                                        nativeContract.maximumNativeSubmissions(),
+                                        Bytes.sha256(
+                                                Bytes.utf8("nereus-p1-source-native-custody-v1\n"),
+                                                group.activatedSdkJarSha256(),
+                                                nativeContract.sha256(),
+                                                Bytes.u64be(timeout.toMillis())));
+                                synchronized (backend.gate) {
+                                    backend.producer = value;
+                                    backend.payloadSummaryCopies = copyContract;
+                                }
+                                backend.credentialUse = worker.bindSystemWriterCredential(
+                                        credential, assignment, owner, value, time, clock);
+                                return new PulsarClientArtifactShardLogMutationAppender(
+                                        value,
+                                        source,
+                                        assignment.shardId(),
+                                        resource.authenticatedClusterId(),
+                                        resource.resourceIncarnation(),
+                                        resource.physicalTopic(),
+                                        resource.physicalTopicCreationTimestamp(),
+                                        timeout,
+                                        writer,
+                                        backend::requireAppend,
+                                        copyContract,
+                                        exposureIssuer);
+                            });
+                        } catch (Exception failed) {
+                            if (failed instanceof InterruptedException) {
+                                Thread.currentThread().interrupt();
+                            }
+                            throw new IllegalStateException(
+                                    "Original P1 Source producer opening did not complete", failed);
+                        }
+                    },
+                    () -> {
+                        credential.requireActive(time.get());
+                    },
+                    io);
             backend.opening.receipt().whenComplete((value, failed) -> {
                 if (failed != null) {
                     backend.creating.completeExceptionally(failed);
-                    try { allocation.releaseUnstarted(); writer.abandonUnstarted(); synchronized (backend.gate) { backend.nativeClosed = true; backend.released = true; } }
-                    catch (IllegalStateException started) { backend.nativeOpening.requestClose(); }
+                    try {
+                        allocation.releaseUnstarted();
+                        writer.abandonUnstarted();
+                        synchronized (backend.gate) {
+                            backend.nativeClosed = true;
+                            backend.released = true;
+                        }
+                    } catch (IllegalStateException started) {
+                        backend.nativeOpening.requestClose();
+                    }
                 }
                 group.cleanupProgress();
             });
             return backend;
         } catch (RuntimeException | Error failed) {
-            if (backend.opening == null) { allocation.releaseUnstarted(); writer.abandonUnstarted(); backend.nativeClosed = true; backend.released = true; }
-            else backend.nativeOpening.requestClose();
+            if (backend.opening == null) {
+                allocation.releaseUnstarted();
+                writer.abandonUnstarted();
+                backend.nativeClosed = true;
+                backend.released = true;
+            } else {
+                backend.nativeOpening.requestClose();
+            }
             throw failed;
         }
     }
+
     public boolean finishStartup() {
         synchronized (gate) {
-            if (nativeClosed) throw new IllegalStateException("P1 Source writer is closed", CheckpointInputFuture.ownedFailure(opening.receipt()));
-            if (!opening.operationExited()) return false;
+            if (nativeClosed) {
+                throw new IllegalStateException(
+                        "P1 Source writer is closed", CheckpointInputFuture.ownedFailure(opening.receipt()));
+            }
+            if (!opening.operationExited()) {
+                return false;
+            }
             final var result = opening.receipt();
-            if (!result.isDone()) return false;
+            if (!result.isDone()) {
+                return false;
+            }
             result.join();
-            if (!opening.ioExited()) return false;
-            appender = opening.completedValue().orElseThrow(() -> new IllegalStateException("P1 Source writer opening failed", CheckpointInputFuture.ownedFailure(opening.receipt())));
-            ready = true; return true;
+            if (!opening.ioExited()) {
+                return false;
+            }
+            appender = opening.completedValue()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "P1 Source writer opening failed", CheckpointInputFuture.ownedFailure(opening.receipt())));
+            ready = true;
+            return true;
         }
     }
+
     private void requireAppend() {
-        final SourceTransportCredentialUse use; final Producer<byte[]> actual;
+        final SourceTransportCredentialUse use;
+        final Producer<byte[]> actual;
         final TargetPayloadSummaryInitializationAppendPermit summary;
         final SystemMutation exactSummary;
-        synchronized (gate) { if (!ready || nativeClosed) throw new IllegalStateException("P1 Source producer is unavailable"); use = credentialUse; actual = producer;
-            summary = payloadSummaryPermit; exactSummary = payloadSummaryInput; }
-        try { use.require(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, actual);
-            if (summary != null) summary.beforeSdk(this, exactSummary, payloadSummaryCopies); }
-        catch (RuntimeException | Error failed) { try { group.requestHostQuarantine(); } catch (RuntimeException | Error cleanup) { failed.addSuppressed(cleanup); } throw failed; }
-    }
-    @Override public AppendOutcome append(SystemMutation mutation) {
-        if (TargetPayloadSummaryInitializationBody.isControl(mutation))
-            throw new IllegalArgumentException("summary initialization requires its independent typed PLATFORM_OPERATOR SDK permit");
-        final PulsarClientArtifactShardLogMutationAppender current;
-        synchronized (gate) { if (!ready || nativeClosed || !group.workerReady(worker) || payloadSummaryPermit != null) return AppendOutcome.definitelyNotPersisted(); activeAppends++; current = appender; }
-        try { return current.append(mutation); }
-        finally { synchronized (gate) { activeAppends--; } group.cleanupProgress(); }
-    }
-    @Override public TargetScopeExposureSource.CopyContract payloadSummaryCopyContract() {
         synchronized (gate) {
-            if (!ready || nativeClosed || !group.workerReady(worker)) throw new IllegalStateException("actual P1 Source producer is not live");
+            if (!ready || nativeClosed) {
+                throw new IllegalStateException("P1 Source producer is unavailable");
+            }
+            use = credentialUse;
+            actual = producer;
+            summary = payloadSummaryPermit;
+            exactSummary = payloadSummaryInput;
+        }
+        try {
+            use.require(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, actual);
+            if (summary != null) {
+                summary.beforeSdk(this, exactSummary, payloadSummaryCopies);
+            }
+        } catch (RuntimeException | Error failed) {
+            try {
+                group.requestHostQuarantine();
+            } catch (RuntimeException | Error cleanup) {
+                failed.addSuppressed(cleanup);
+            }
+            throw failed;
+        }
+    }
+
+    @Override
+    public AppendOutcome append(SystemMutation mutation) {
+        if (TargetPayloadSummaryInitializationBody.isControl(mutation)) {
+            throw new IllegalArgumentException(
+                    "summary initialization requires its independent typed PLATFORM_OPERATOR SDK permit");
+        }
+        final PulsarClientArtifactShardLogMutationAppender current;
+        synchronized (gate) {
+            if (!ready || nativeClosed || !group.workerReady(worker) || payloadSummaryPermit != null) {
+                return AppendOutcome.definitelyNotPersisted();
+            }
+            activeAppends++;
+            current = appender;
+        }
+        try {
+            return current.append(mutation);
+        } finally {
+            synchronized (gate) {
+                activeAppends--;
+            }
+            group.cleanupProgress();
+        }
+    }
+
+    @Override
+    public TargetScopeExposureSource.CopyContract payloadSummaryCopyContract() {
+        synchronized (gate) {
+            if (!ready || nativeClosed || !group.workerReady(worker)) {
+                throw new IllegalStateException("actual P1 Source producer is not live");
+            }
             return payloadSummaryCopies;
         }
     }
-    @Override public boolean payloadSummaryOperationsExited() {
+
+    @Override
+    public boolean payloadSummaryOperationsExited() {
         synchronized (gate) {
-            if (activeAppends != 0) return false;
-            if (lastPayloadSummaryInput != null && appender != null && !appender.nativeOperationsExited(lastPayloadSummaryInput)) return false;
-            lastPayloadSummaryInput = null; return true;
+            if (activeAppends != 0) {
+                return false;
+            }
+            if (lastPayloadSummaryInput != null
+                    && appender != null
+                    && !appender.nativeOperationsExited(lastPayloadSummaryInput)) {
+                return false;
+            }
+            lastPayloadSummaryInput = null;
+            return true;
         }
     }
-    @Override public AppendOutcome appendPayloadSummary(SystemMutation input, TargetPayloadSummaryInitializationAppendPermit permit) {
-        Objects.requireNonNull(permit); TargetPayloadSummaryInitializationBody.decode(input.canonicalBody()).requireInput(input);
-        if (!TargetPayloadSummaryInitializationBody.isControl(input) || !worker.shardId().equals(input.shardId()))
+
+    @Override
+    public AppendOutcome appendPayloadSummary(
+            SystemMutation input, TargetPayloadSummaryInitializationAppendPermit permit) {
+        Objects.requireNonNull(permit);
+        TargetPayloadSummaryInitializationBody.decode(input.canonicalBody()).requireInput(input);
+        if (!TargetPayloadSummaryInitializationBody.isControl(input)
+                || !worker.shardId().equals(input.shardId())) {
             throw new IllegalArgumentException("summary initialization changed its actual P1 Worker/purpose");
+        }
         final PulsarClientArtifactShardLogMutationAppender current;
         synchronized (gate) {
-            if (!ready || nativeClosed || !group.workerReady(worker)) return AppendOutcome.definitelyNotPersisted();
-            if (activeAppends != 0 || payloadSummaryPermit != null
-                    || lastPayloadSummaryInput != null && !appender.nativeOperationsExited(lastPayloadSummaryInput))
+            if (!ready || nativeClosed || !group.workerReady(worker)) {
+                return AppendOutcome.definitelyNotPersisted();
+            }
+            if (activeAppends != 0
+                    || payloadSummaryPermit != null
+                    || lastPayloadSummaryInput != null && !appender.nativeOperationsExited(lastPayloadSummaryInput)) {
                 throw new IllegalStateException("original P1 Source native handoff remains owned");
-            activeAppends = 1; payloadSummaryPermit = permit; payloadSummaryInput = input;
-            lastPayloadSummaryInput = input; current = appender;
+            }
+            activeAppends = 1;
+            payloadSummaryPermit = permit;
+            payloadSummaryInput = input;
+            lastPayloadSummaryInput = input;
+            current = appender;
         }
-        try { return current.append(input); }
-        finally { synchronized (gate) { activeAppends = 0; payloadSummaryPermit = null; payloadSummaryInput = null; } group.cleanupProgress(); }
+        try {
+            return current.append(input);
+        } finally {
+            synchronized (gate) {
+                activeAppends = 0;
+                payloadSummaryPermit = null;
+                payloadSummaryInput = null;
+            }
+            group.cleanupProgress();
+        }
     }
+
     private void releaseNative() {
         final PulsarClientArtifactShardLogMutationAppender current;
         final boolean firstExit;
         synchronized (gate) {
             firstExit = !nativeClosed;
-            nativeClosed = true; ready = false;
-            current = appender != null ? appender : opening == null ? null : opening.completedValue().orElse(null);
+            nativeClosed = true;
+            ready = false;
+            current = appender != null
+                    ? appender
+                    : opening == null ? null : opening.completedValue().orElse(null);
         }
-        if (firstExit && current != null) current.producerNativeClosed();
+        if (firstExit && current != null) {
+            current.producerNativeClosed();
+        }
         advanceExposureCleanup(current);
         finishRelease(current);
     }
+
     private void advanceExposureCleanup(PulsarClientArtifactShardLogMutationAppender current) {
         synchronized (gate) {
-            if (released || exposureCleanupStarting || exposureCleanup != null && !exposureCleanup.isDone()) return;
+            if (released || exposureCleanupStarting || exposureCleanup != null && !exposureCleanup.isDone()) {
+                return;
+            }
             exposureCleanupStarting = true;
         }
         final CompletableFuture<Void> attempt;
-        try { attempt = current == null ? CompletableFuture.completedFuture(null) : current.retryExposureCleanup(); }
-        catch (RuntimeException | Error failed) {
-            synchronized (gate) { exposureCleanupStarting = false; exposureCleanup = CompletableFuture.failedFuture(failed); }
+        try {
+            attempt = current == null ? CompletableFuture.completedFuture(null) : current.retryExposureCleanup();
+        } catch (RuntimeException | Error failed) {
+            synchronized (gate) {
+                exposureCleanupStarting = false;
+                exposureCleanup = CompletableFuture.failedFuture(failed);
+            }
             return;
         }
-        synchronized (gate) { exposureCleanup = attempt; exposureCleanupStarting = false; }
+        synchronized (gate) {
+            exposureCleanup = attempt;
+            exposureCleanupStarting = false;
+        }
         attempt.whenComplete((ignored, failed) -> {
             finishRelease(current);
-            if (failed == null) group.cleanupProgress();
+            if (failed == null) {
+                group.cleanupProgress();
+            }
         });
     }
+
     private void finishRelease(PulsarClientArtifactShardLogMutationAppender current) {
-        if (current != null && !current.exposureLoansExited()) return;
+        if (current != null && !current.exposureLoansExited()) {
+            return;
+        }
         synchronized (gate) {
-            if (!nativeClosed || released || exposureCleanupStarting || exposureCleanup == null
-                    || !exposureCleanup.isDone() || exposureCleanup.isCompletedExceptionally()) return;
-            writer.producerClosed(); allocation.closed(); released = true;
+            if (!nativeClosed
+                    || released
+                    || exposureCleanupStarting
+                    || exposureCleanup == null
+                    || !exposureCleanup.isDone()
+                    || exposureCleanup.isCompletedExceptionally()) {
+                return;
+            }
+            writer.producerClosed();
+            allocation.closed();
+            released = true;
         }
     }
-    @Override public TargetWorkerShardRuntime sourceWriterWorker() { return worker; }
-    @Override public TargetOwnedBackendGroup ownedBackendGroup() { return group; }
-    @Override public boolean readyForAppending() { synchronized (gate) { return ready && !nativeClosed && group.workerReady(worker); } }
-    @Override public boolean resourcesTerminated() { synchronized (gate) { return released; } }
+
+    @Override
+    public TargetWorkerShardRuntime sourceWriterWorker() {
+        return worker;
+    }
+
+    @Override
+    public TargetOwnedBackendGroup ownedBackendGroup() {
+        return group;
+    }
+
+    @Override
+    public boolean readyForAppending() {
+        synchronized (gate) {
+            return ready && !nativeClosed && group.workerReady(worker);
+        }
+    }
+
+    @Override
+    public boolean resourcesTerminated() {
+        synchronized (gate) {
+            return released;
+        }
+    }
 }

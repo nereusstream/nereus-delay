@@ -76,8 +76,7 @@ public final class TargetMembershipClosureRecord {
     }
 
     public static TargetMembershipClosureRecord decode(final byte[] encoded) {
-        final var fields = TargetCompatibilityCodec.read(
-                encoded, MAX_CANONICAL_BYTES, 5, false, "membership closure");
+        final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false, "membership closure");
         QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5}, "membership closure");
         if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unknown membership closure version");

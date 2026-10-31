@@ -67,59 +67,88 @@ public final class TargetPublishOutcomeVerifier {
     @FunctionalInterface
     public interface ResolutionAuthority {
         void requireAuthenticated(
-                TargetOrdinaryPublicationBinding publication, PublishEvidence evidence, EvidenceCursor cursor,
-                SourcePosition admissionSource, SourcePosition unknownSource, SourcePosition resolutionSource);
+                TargetOrdinaryPublicationBinding publication,
+                PublishEvidence evidence,
+                EvidenceCursor cursor,
+                SourcePosition admissionSource,
+                SourcePosition unknownSource,
+                SourcePosition resolutionSource);
     }
 
     @FunctionalInterface
     public interface NativeEvidenceAuthority {
         void requireAuthenticated(
                 com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
-                PublishEvidence evidence, SourcePosition admissionSource, SourcePosition outcomeSource);
+                PublishEvidence evidence,
+                SourcePosition admissionSource,
+                SourcePosition outcomeSource);
     }
 
     @FunctionalInterface
     public interface NativeResolutionAuthority {
         void requireAuthenticated(
                 com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
-                PublishEvidence evidence, EvidenceCursor cursor, SourcePosition admissionSource,
-                SourcePosition unknownSource, SourcePosition resolutionSource);
+                PublishEvidence evidence,
+                EvidenceCursor cursor,
+                SourcePosition admissionSource,
+                SourcePosition unknownSource,
+                SourcePosition resolutionSource);
     }
 
     public record EvidenceContext(
-            SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority,
-            NativeEvidenceAuthority nativeAuthority, NativeResolutionAuthority nativeResolutionAuthority,
+            SystemMutation admission,
+            EvidenceAuthority authority,
+            ResolutionAuthority resolutionAuthority,
+            NativeEvidenceAuthority nativeAuthority,
+            NativeResolutionAuthority nativeResolutionAuthority,
             OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery recoveryProof) {
-        public EvidenceContext(SystemMutation admission,EvidenceAuthority authority,ResolutionAuthority resolutionAuthority,
-                NativeEvidenceAuthority nativeAuthority,NativeResolutionAuthority nativeResolutionAuthority){
-            this(admission,authority,resolutionAuthority,nativeAuthority,nativeResolutionAuthority,null);
+        public EvidenceContext(
+                SystemMutation admission,
+                EvidenceAuthority authority,
+                ResolutionAuthority resolutionAuthority,
+                NativeEvidenceAuthority nativeAuthority,
+                NativeResolutionAuthority nativeResolutionAuthority) {
+            this(admission, authority, resolutionAuthority, nativeAuthority, nativeResolutionAuthority, null);
         }
+
         public EvidenceContext(SystemMutation admission, EvidenceAuthority authority) {
             this(admission, authority, null, null, null);
         }
-        public EvidenceContext(SystemMutation admission, EvidenceAuthority authority,
-                ResolutionAuthority resolutionAuthority) {
+
+        public EvidenceContext(
+                SystemMutation admission, EvidenceAuthority authority, ResolutionAuthority resolutionAuthority) {
             this(admission, authority, resolutionAuthority, null, null);
         }
-        public static EvidenceContext nativeContext(SystemMutation admission, NativeEvidenceAuthority authority,
-                NativeResolutionAuthority resolution) {
+
+        public static EvidenceContext nativeContext(
+                SystemMutation admission, NativeEvidenceAuthority authority, NativeResolutionAuthority resolution) {
             return new EvidenceContext(admission, null, null, authority, resolution);
         }
         /** The caller resolves this full Catalog snapshot outside Store I/O; it carries no live SDK closure. */
-        public static EvidenceContext archivedContext(OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot,SystemMutation prepared){
+        public static EvidenceContext archivedContext(
+                OxiaSyncTargetKafkaReceiptProtectionCatalog.PreparedRecovery snapshot, SystemMutation prepared) {
             Objects.requireNonNull(snapshot).requireExact(prepared);
-            return new EvidenceContext(snapshot.verified().proof().admission(),null,null,null,null,snapshot);
+            return new EvidenceContext(snapshot.verified().proof().admission(), null, null, null, null, snapshot);
         }
+
         public EvidenceContext {
             RetryContext.requireAdmission(admission);
             final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
             if (!body.materialized()) {
                 throw new IllegalArgumentException("Target physical evidence requires materialized Admission v4/v5");
             }
-            if(recoveryProof!=null){
-                if(body.kafkaReceipt()==null||authority!=null||resolutionAuthority!=null||nativeAuthority!=null||nativeResolutionAuthority!=null
-                        ||!Arrays.equals(admission.canonicalEnvelope(),recoveryProof.verified().proof().admission().canonicalEnvelope()))
-                    throw new IllegalArgumentException("archived K2 evidence requires its original Admission and private full snapshot only");
+            if (recoveryProof != null) {
+                if (body.kafkaReceipt() == null
+                        || authority != null
+                        || resolutionAuthority != null
+                        || nativeAuthority != null
+                        || nativeResolutionAuthority != null
+                        || !Arrays.equals(
+                                admission.canonicalEnvelope(),
+                                recoveryProof.verified().proof().admission().canonicalEnvelope())) {
+                    throw new IllegalArgumentException(
+                            "archived K2 evidence requires its original Admission and private full snapshot only");
+                }
             } else if (body.nativePublication() != null) {
                 Objects.requireNonNull(nativeAuthority, "nativeEvidenceAuthority");
                 if (authority != null || resolutionAuthority != null) {
@@ -153,9 +182,16 @@ public final class TargetPublishOutcomeVerifier {
                 long maximumMutationEnqueueAgeMs,
                 DecisionTimeAuthority decisionTime,
                 RetryContext retryContext) {
-            this(writerKey, activatedTuple, activeOwner, maximumDecisionWidthMs,
-                    maximumBrokerTimestampDivergenceMs, maximumMutationEnqueueAgeMs,
-                    decisionTime, retryContext, null);
+            this(
+                    writerKey,
+                    activatedTuple,
+                    activeOwner,
+                    maximumDecisionWidthMs,
+                    maximumBrokerTimestampDivergenceMs,
+                    maximumMutationEnqueueAgeMs,
+                    decisionTime,
+                    retryContext,
+                    null);
         }
 
         public Authorization(
@@ -207,7 +243,9 @@ public final class TargetPublishOutcomeVerifier {
                 throw new IllegalArgumentException("Target retry context requires a bounded Target Admission image");
             }
             final var body = TargetPublishAdmissionBody.decode(mutation.canonicalBody());
-            if (!body.owner().equals(AuthorIdentity.decode(mutation.authorIdentity()).asOwnerIdentity())
+            if (!body.owner()
+                            .equals(AuthorIdentity.decode(mutation.authorIdentity())
+                                    .asOwnerIdentity())
                     || !body.shard().equals(mutation.shardId())
                     || body.retryUntilEpochMs() != mutation.retryUntilEpochMs()
                     || !Arrays.equals(body.publishAttemptId(), mutation.logicalOperationIdentity())) {
@@ -257,7 +295,8 @@ public final class TargetPublishOutcomeVerifier {
         final boolean resolution = mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
         if (author.kind() != (resolution ? AuthorIdentity.Kind.SERVICE : AuthorIdentity.Kind.OWNER)
                 || !Bytes.constantTimeEquals(
-                        mutation.logicalOperationIdentity(), resolution
+                        mutation.logicalOperationIdentity(),
+                        resolution
                                 ? body.evidenceResolutionLogicalOperationIdentity()
                                 : body.initialLogicalOperationIdentity())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
@@ -272,11 +311,14 @@ public final class TargetPublishOutcomeVerifier {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         if (body.recoveryProof() != null) {
-            final var context=authorized.evidenceContext();
-            if(context==null||context.recoveryProof()==null)
-                throw new IllegalStateException("proof-bearing Source requires complete authenticated original Catalog object/seal snapshot");
+            final var context = authorized.evidenceContext();
+            if (context == null || context.recoveryProof() == null) {
+                throw new IllegalStateException(
+                        "proof-bearing Source requires complete authenticated original Catalog object/seal snapshot");
+            }
             context.recoveryProof().requireExact(mutation);
-        } else if(authorized.evidenceContext()!=null&&authorized.evidenceContext().recoveryProof()!=null){
+        } else if (authorized.evidenceContext() != null
+                && authorized.evidenceContext().recoveryProof() != null) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final var observedAt = body.observedAt();
@@ -300,22 +342,36 @@ public final class TargetPublishOutcomeVerifier {
     }
 
     /** Revalidates the immutable historical retry window/jitter; current runtime quota counts remain separate. */
-    public static void requireHistoricalRetryWindow(TargetPublishAdmissionBody current,
+    public static void requireHistoricalRetryWindow(
+            TargetPublishAdmissionBody current,
             TargetPublishAdmissionBody first,
-            RetryPolicySemantic policy, PublishOutcomeBody outcome) {
+            RetryPolicySemantic policy,
+            PublishOutcomeBody outcome) {
         if (!current.materialized()) {
             throw new IllegalStateException("historical Outcome requires protected materialized Admission window");
         }
-        requireRetryWindow(current.locator(), current.nativePublication() != null
-                        ? current.nativePublication().deliverAtEpochMs() : current.publication().deliverAtEpochMs(),
+        requireRetryWindow(
+                current.locator(),
                 current.nativePublication() != null
-                        ? current.nativePublication().expireAtEpochMs() : current.publication().expireAtEpochMs(),
-                current, first, policy, outcome);
+                        ? current.nativePublication().deliverAtEpochMs()
+                        : current.publication().deliverAtEpochMs(),
+                current.nativePublication() != null
+                        ? current.nativePublication().expireAtEpochMs()
+                        : current.publication().expireAtEpochMs(),
+                current,
+                first,
+                policy,
+                outcome);
     }
 
-    static void requireRetryWindow(TargetMessageLocator locator, long deliverAt, long expireAt,
-            TargetPublishAdmissionBody current, TargetPublishAdmissionBody first,
-            RetryPolicySemantic policy, PublishOutcomeBody outcome) {
+    static void requireRetryWindow(
+            TargetMessageLocator locator,
+            long deliverAt,
+            long expireAt,
+            TargetPublishAdmissionBody current,
+            TargetPublishAdmissionBody first,
+            RetryPolicySemantic policy,
+            PublishOutcomeBody outcome) {
         final var retry = outcome.retryDecision();
         final long firstAt = first.decisionTime().latestEpochMs();
         final long deadline;
@@ -352,8 +408,7 @@ public final class TargetPublishOutcomeVerifier {
                     || uncertain && policy.uncertainPolicy() != UncertainPolicy.BOUNDED_RETRY_POSSIBLE_DUPLICATE
                     || retry.nextRetryAt() != next
                     || next > deadline
-                    || Math.max(deliverAt, next) >= expireAt
-) {
+                    || Math.max(deliverAt, next) >= expireAt) {
                 throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
             }
         }

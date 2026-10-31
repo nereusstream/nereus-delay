@@ -6,23 +6,23 @@ import com.nereusstream.delay.protocol.CommandHash;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
 import com.nereusstream.delay.protocol.PayloadReference;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.QueryCodecSupport;
+import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.TargetMessageLocator;
+import com.nereusstream.delay.protocol.TargetMigrationPlan;
+import com.nereusstream.delay.protocol.TargetMigrationRecordReference;
+import com.nereusstream.delay.protocol.TargetMigrationReservationOrigin;
+import com.nereusstream.delay.protocol.TargetMigrationRoot;
 import com.nereusstream.delay.protocol.TargetPayloadReference;
 import com.nereusstream.delay.protocol.TargetQueueState;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaPayloadOwner;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
-import com.nereusstream.delay.protocol.TargetMigrationPlan;
-import com.nereusstream.delay.protocol.TargetMigrationRecordReference;
-import com.nereusstream.delay.protocol.TargetMigrationReservationOrigin;
-import com.nereusstream.delay.protocol.TargetMigrationRoot;
-import com.nereusstream.delay.protocol.PayloadReservationReceipt;
-import com.nereusstream.delay.protocol.SourcePosition;
-import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.Arrays;
 import java.util.Objects;
@@ -51,14 +51,40 @@ public record TargetReservationRecord(
             + TargetPayloadReference.MAX_CANONICAL_BYTES
             + 512
             + TargetReservationControls.Closure.MAX_CANONICAL_BYTES
-            + TargetMigrationReservationOrigin.MAX_CANONICAL_BYTES + 17;
+            + TargetMigrationReservationOrigin.MAX_CANONICAL_BYTES
+            + 17;
 
-    public TargetReservationRecord(TargetMessageLocator locator, byte[] reservationId, CommandId prepareCommandId,
-            ProtocolTuple prepareTuple, byte[] prepareCommandHash, long expiryEpochMs, PayloadReservationStatus status,
-            long stateVersion, TargetQuotaMutation prepareAnchor, TargetQuotaMutation mutation, PayloadReference committedPayload,
-            byte[] recoveryLineage, TargetOrderState.OrderingContract orderingContract, TargetReservationControls.Closure closure) {
-        this(locator, reservationId, prepareCommandId, prepareTuple, prepareCommandHash, expiryEpochMs, status, stateVersion,
-                prepareAnchor, mutation, committedPayload, recoveryLineage, orderingContract, closure, null);
+    public TargetReservationRecord(
+            TargetMessageLocator locator,
+            byte[] reservationId,
+            CommandId prepareCommandId,
+            ProtocolTuple prepareTuple,
+            byte[] prepareCommandHash,
+            long expiryEpochMs,
+            PayloadReservationStatus status,
+            long stateVersion,
+            TargetQuotaMutation prepareAnchor,
+            TargetQuotaMutation mutation,
+            PayloadReference committedPayload,
+            byte[] recoveryLineage,
+            TargetOrderState.OrderingContract orderingContract,
+            TargetReservationControls.Closure closure) {
+        this(
+                locator,
+                reservationId,
+                prepareCommandId,
+                prepareTuple,
+                prepareCommandHash,
+                expiryEpochMs,
+                status,
+                stateVersion,
+                prepareAnchor,
+                mutation,
+                committedPayload,
+                recoveryLineage,
+                orderingContract,
+                closure,
+                null);
     }
 
     public TargetReservationRecord(
@@ -126,7 +152,9 @@ public record TargetReservationRecord(
                         .equals(mutation.source().shardId())
                 || Arrays.equals(recoveryLineage, new byte[16])
                 || !Arrays.equals(reservationId, id(prepareCommandId, locator, prepareCommandHash))
-                || expiryEpochMs <= (migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.originalPrepareSource()).brokerPersistenceTimeEpochMs()
+                || expiryEpochMs
+                        <= (migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.originalPrepareSource())
+                                .brokerPersistenceTimeEpochMs()
                 || (status == PayloadReservationStatus.COMMITTED) != (committedPayload != null)) {
             throw new IllegalArgumentException("invalid Target reservation identity/lifecycle/anchor");
         }
@@ -138,7 +166,12 @@ public record TargetReservationRecord(
                         || !Arrays.equals(closure.bindingDigest(), locator.scheduleBindingDigest())
                         || !Arrays.equals(closure.recoveryLineage(), recoveryLineage)
                         || !closure.source().shardId().equals(mutation.source().shardId())
-                        || closure.source().compareTo(migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.originalPrepareSource()) <= 0
+                        || closure.source()
+                                        .compareTo(
+                                                migrationOrigin == null
+                                                        ? prepareAnchor.source()
+                                                        : migrationOrigin.originalPrepareSource())
+                                <= 0
                         || closure.source().compareTo(mutation.source()) > 0
                         || (closure.source().compareTo(mutation.source()) == 0
                                 && !Arrays.equals(
@@ -148,26 +181,35 @@ public record TargetReservationRecord(
             throw new IllegalArgumentException("closure does not prove Close-before-expiry for this reservation");
         }
         if (status == PayloadReservationStatus.RESERVED) {
-            if ((migrationOrigin == null ? stateVersion != 1 : stateVersion < migrationOrigin.receiptAnchorStateVersion())
+            if ((migrationOrigin == null
+                            ? stateVersion != 1
+                            : stateVersion < migrationOrigin.receiptAnchorStateVersion())
                     || !prepareAnchor.equals(mutation)) {
                 throw new IllegalArgumentException("reserved projection must be the immutable Prepare anchor");
             }
         } else if (migrationOrigin != null && mutation.equals(migrationOrigin.importedAt())) {
-            if (status != migrationOrigin.originalStatus() || stateVersion != migrationOrigin.originalStateVersion()
+            if (status != migrationOrigin.originalStatus()
+                    || stateVersion != migrationOrigin.originalStateVersion()
                     || status != PayloadReservationStatus.COMMITTED) {
-                throw new IllegalArgumentException("initial imported terminal reservation lost its complete original state");
+                throw new IllegalArgumentException(
+                        "initial imported terminal reservation lost its complete original state");
             }
         } else {
-            if (Long.compareUnsigned(stateVersion, migrationOrigin == null ? 1 : migrationOrigin.receiptAnchorStateVersion()) <= 0) {
+            if (Long.compareUnsigned(
+                            stateVersion, migrationOrigin == null ? 1 : migrationOrigin.receiptAnchorStateVersion())
+                    <= 0) {
                 throw new IllegalArgumentException("terminal reservation requires a lifecycle successor");
             }
             mutation.requireStoreSuccessorOf(prepareAnchor);
         }
         if (migrationOrigin != null) {
             final var receipt = migrationOrigin.originalReceipt();
-            if (!prepareAnchor.equals(migrationOrigin.importedAt()) || !locator.messageId().equals(receipt.delayMessageId())
-                    || !Arrays.equals(reservationId, receipt.reservationId()) || expiryEpochMs != receipt.reservationExpiryEpochMs()) {
-                throw new IllegalArgumentException("migration reservation changed original immutable receipt/explicit import anchor");
+            if (!prepareAnchor.equals(migrationOrigin.importedAt())
+                    || !locator.messageId().equals(receipt.delayMessageId())
+                    || !Arrays.equals(reservationId, receipt.reservationId())
+                    || expiryEpochMs != receipt.reservationExpiryEpochMs()) {
+                throw new IllegalArgumentException(
+                        "migration reservation changed original immutable receipt/explicit import anchor");
             }
         }
         if (committedPayload != null) {
@@ -224,17 +266,27 @@ public record TargetReservationRecord(
                 orderingContract);
     }
 
-    public static TargetReservationRecord imported(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            TargetMigrationRecordReference originalRow, PayloadReservation original, PreparedCommand originalPrepare,
-            TargetMigrationRecordReference receiptRecord, PayloadReservationReceipt originalReceipt,
+    public static TargetReservationRecord imported(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            TargetMigrationRecordReference originalRow,
+            PayloadReservation original,
+            PreparedCommand originalPrepare,
+            TargetMigrationRecordReference receiptRecord,
+            PayloadReservationReceipt originalReceipt,
             TargetOrderState.OrderingContract orderingContract) {
-        Objects.requireNonNull(original); Objects.requireNonNull(originalPrepare);
-        if (!binding.imported() || original.status() != PayloadReservationStatus.RESERVED && original.status() != PayloadReservationStatus.COMMITTED
+        Objects.requireNonNull(original);
+        Objects.requireNonNull(originalPrepare);
+        if (!binding.imported()
+                || original.status() != PayloadReservationStatus.RESERVED
+                        && original.status() != PayloadReservationStatus.COMMITTED
                 || originalPrepare.type() != CommandType.PREPARE_LARGE_SCHEDULE
-                || !original.commandId().equals(originalPrepare.commandId()) || !original.delayMessageId().equals(binding.messageId())
+                || !original.commandId().equals(originalPrepare.commandId())
+                || !original.delayMessageId().equals(binding.messageId())
                 || !Arrays.equals(original.commandHash(), originalPrepare.commandHash())
                 || !Arrays.equals(binding.canonicalBody(), originalPrepare.canonicalBody())) {
-            throw new IllegalArgumentException("imported reservation changed complete original accepted Prepare identity");
+            throw new IllegalArgumentException(
+                    "imported reservation changed complete original accepted Prepare identity");
         }
         final var body = PrepareLargeScheduleBody.decode(binding.canonicalBody());
         final var oldIntent = original.intent();
@@ -243,26 +295,69 @@ public record TargetReservationRecord(
                 || oldIntent.orderingMode() != body.intentWithoutPayload().orderingMode()
                 || oldIntent.expectedPayloadLength() != body.expectedPayloadLength()
                 || !Arrays.equals(oldIntent.payloadSha256(), body.payloadSha256())
-                || oldIntent.reservationTtlMs() != body.reservationTtlMs() || oldIntent.payloadProofTrustSetVersion() != body.trustSet().version()) {
+                || oldIntent.reservationTtlMs() != body.reservationTtlMs()
+                || oldIntent.payloadProofTrustSetVersion() != body.trustSet().version()) {
             throw new IllegalArgumentException("imported reservation changed original complete large-payload intent");
         }
         final var at = binding.schemaVersion() == 2 ? TargetMigrationRoot.baselineFor(plan) : binding.migrationSource();
-        final var origin = new TargetMigrationReservationOrigin(plan.digest(), plan.migrationId(), originalRow,
-                binding.bindingSource(), original.receiptAnchorStateVersion(), SourcePositionCodec.decode(original.receiptAnchorSourcePosition()),
-                at, receiptRecord, originalReceipt, original.stateVersion(), original.status(), SourcePositionCodec.decode(original.sourcePosition()));
+        final var origin = new TargetMigrationReservationOrigin(
+                plan.digest(),
+                plan.migrationId(),
+                originalRow,
+                binding.bindingSource(),
+                original.receiptAnchorStateVersion(),
+                SourcePositionCodec.decode(original.receiptAnchorSourcePosition()),
+                at,
+                receiptRecord,
+                originalReceipt,
+                original.stateVersion(),
+                original.status(),
+                SourcePositionCodec.decode(original.sourcePosition()));
         origin.requirePlan(plan, binding);
-        final var locator = new TargetMessageLocator(binding.messageId(), 0, binding.target(), binding.domain(),
-                binding.accountingIncarnation(), binding.intent().orderingMode(), binding.orderingDomain(), binding.digest());
-        final var record = new TargetReservationRecord(locator, original.reservationId(), original.commandId(), originalPrepare.protocolTuple(),
-                original.commandHash(), original.reservationExpiryEpochMs(), original.status(), original.stateVersion(),
-                at, at, original.committedPayload(), plan.newLineage(), orderingContract, null, origin);
-        record.requireBinding(binding); return record;
+        final var locator = new TargetMessageLocator(
+                binding.messageId(),
+                0,
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                binding.intent().orderingMode(),
+                binding.orderingDomain(),
+                binding.digest());
+        final var record = new TargetReservationRecord(
+                locator,
+                original.reservationId(),
+                original.commandId(),
+                originalPrepare.protocolTuple(),
+                original.commandHash(),
+                original.reservationExpiryEpochMs(),
+                original.status(),
+                original.stateVersion(),
+                at,
+                at,
+                original.committedPayload(),
+                plan.newLineage(),
+                orderingContract,
+                null,
+                origin);
+        record.requireBinding(binding);
+        return record;
     }
 
-    public int schemaVersion() { return migrationOrigin == null ? 1 : 2; }
-    public SourcePosition originalPrepareSource() { return migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.originalPrepareSource(); }
-    public long receiptAnchorStateVersion() { return migrationOrigin == null ? 1 : migrationOrigin.receiptAnchorStateVersion(); }
-    public SourcePosition receiptAnchorSource() { return migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.receiptAnchorSource(); }
+    public int schemaVersion() {
+        return migrationOrigin == null ? 1 : 2;
+    }
+
+    public SourcePosition originalPrepareSource() {
+        return migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.originalPrepareSource();
+    }
+
+    public long receiptAnchorStateVersion() {
+        return migrationOrigin == null ? 1 : migrationOrigin.receiptAnchorStateVersion();
+    }
+
+    public SourcePosition receiptAnchorSource() {
+        return migrationOrigin == null ? prepareAnchor.source() : migrationOrigin.receiptAnchorSource();
+    }
 
     private static byte[] id(CommandId command, TargetMessageLocator locator, byte[] hash) {
         return Bytes.sha256(
@@ -301,7 +396,9 @@ public record TargetReservationRecord(
                 stamp,
                 payload,
                 recoveryLineage,
-                orderingContract, null, migrationOrigin);
+                orderingContract,
+                null,
+                migrationOrigin);
     }
 
     public TargetReservationRecord finishClosed(TargetQuotaMutation stamp, TargetReservationControls.Closure evidence) {
@@ -324,7 +421,8 @@ public record TargetReservationRecord(
                 null,
                 recoveryLineage,
                 orderingContract,
-                Objects.requireNonNull(evidence, "closure"), migrationOrigin);
+                Objects.requireNonNull(evidence, "closure"),
+                migrationOrigin);
     }
 
     public byte[] key() {
@@ -374,7 +472,8 @@ public record TargetReservationRecord(
                                 locator.messageId(),
                                 body.retryUntilEpochMs(),
                                 binding.canonicalBody()))
-                || (migrationOrigin == null && !Arrays.equals(prepareAnchor.mutationDigest(), command.canonicalFrameDigest()))
+                || (migrationOrigin == null
+                        && !Arrays.equals(prepareAnchor.mutationDigest(), command.canonicalFrameDigest()))
                 || expiryEpochMs
                         != Math.addExact(
                                 binding.bindingSource().brokerPersistenceTimeEpochMs(), body.reservationTtlMs())) {
@@ -382,12 +481,17 @@ public record TargetReservationRecord(
         }
         if (migrationOrigin != null) {
             final var receipt = migrationOrigin.originalReceipt();
-            if (!binding.imported() || !Arrays.equals(binding.migrationPlanDigest(), migrationOrigin.planDigest())
-                    || !receipt.objectStoreProfile().equals(body.objectStoreProfile()) || receipt.expectedLength() != body.expectedPayloadLength()
-                    || !Arrays.equals(receipt.payloadSha256(), body.payloadSha256()) || !receipt.trustSet().equals(body.trustSet())) {
+            if (!binding.imported()
+                    || !Arrays.equals(binding.migrationPlanDigest(), migrationOrigin.planDigest())
+                    || !receipt.objectStoreProfile().equals(body.objectStoreProfile())
+                    || receipt.expectedLength() != body.expectedPayloadLength()
+                    || !Arrays.equals(receipt.payloadSha256(), body.payloadSha256())
+                    || !receipt.trustSet().equals(body.trustSet())) {
                 throw new IllegalStateException("imported reservation changed original full receipt/Profile/trust-set");
             }
-        } else if (binding.imported()) throw new IllegalStateException("imported reservation lacks explicit immutable receipt origin");
+        } else if (binding.imported()) {
+            throw new IllegalStateException("imported reservation lacks explicit immutable receipt origin");
+        }
     }
 
     public void requireOwner(TargetQuotaPayloadOwner owner) {
@@ -436,12 +540,15 @@ public record TargetReservationRecord(
         if (migrationOrigin != null) {
             final byte[] core = CanonicalProtobuf.message(out -> {
                 out.writeBytes(fields);
-                if (closure != null) CanonicalProtobuf.bytes(out, 16, closure.canonicalBytes());
+                if (closure != null) {
+                    CanonicalProtobuf.bytes(out, 16, closure.canonicalBytes());
+                }
                 CanonicalProtobuf.bytes(out, 17, migrationOrigin.canonicalBytes());
             });
             return CanonicalProtobuf.message(out -> {
-                out.writeBytes(core); CanonicalProtobuf.bytes(out, 18,
-                        Bytes.sha256(Bytes.utf8("nereus-delay-target-migration-reservation-v2\0"), core));
+                out.writeBytes(core);
+                CanonicalProtobuf.bytes(
+                        out, 18, Bytes.sha256(Bytes.utf8("nereus-delay-target-migration-reservation-v2\0"), core));
             });
         }
         return CanonicalProtobuf.message(out -> {
@@ -461,7 +568,9 @@ public record TargetReservationRecord(
         }
         final var f = QueryCodecSupport.read(encoded, "TargetReservationRecord");
         final int schema = QueryCodecSupport.uint32(f.getFirst(), 1);
-        if (schema == 2) return decodeImported(encoded, f);
+        if (schema == 2) {
+            return decodeImported(encoded, f);
+        }
         QueryCodecSupport.requireNumbers(
                 f,
                 f.size() == 16
@@ -497,23 +606,37 @@ public record TargetReservationRecord(
         return result;
     }
 
-    private static TargetReservationRecord decodeImported(byte[] encoded, java.util.List<CanonicalProtobuf.Reader.Field> f) {
+    private static TargetReservationRecord decodeImported(
+            byte[] encoded, java.util.List<CanonicalProtobuf.Reader.Field> f) {
         final boolean closed = f.size() == 17;
-        QueryCodecSupport.requireNumbers(f, closed ? new int[] {1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18}
-                : new int[] {1,2,3,4,5,6,7,8,9,10,11,12,13,14,17,18}, "imported Target reservation");
+        QueryCodecSupport.requireNumbers(
+                f,
+                closed
+                        ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18}
+                        : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17, 18},
+                "imported Target reservation");
         final byte[] object = QueryCodecSupport.bytes(f.get(11), 12);
-        final var result = new TargetReservationRecord(TargetMessageLocator.decode(QueryCodecSupport.bytes(f.get(1), 2)),
-                QueryCodecSupport.fixed(f.get(2), 3, 32), new CommandId(QueryCodecSupport.fixed(f.get(3), 4, CommandId.LENGTH)),
-                ProtocolTuple.decode(QueryCodecSupport.bytes(f.get(4), 5)), QueryCodecSupport.fixed(f.get(5), 6, 32),
-                QueryCodecSupport.uint(f.get(6), 7), PayloadReservationStatus.fromWire(QueryCodecSupport.uint32(f.get(7), 8)),
-                QueryCodecSupport.uint64Bits(f.get(8), 9), TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(9), 10)),
-                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10), 11)), object.length == 0 ? null : TargetPayloadReference.decode(object),
-                QueryCodecSupport.fixed(f.get(12), 13, 16), switch (QueryCodecSupport.uint32(f.get(13), 14)) {
+        final var result = new TargetReservationRecord(
+                TargetMessageLocator.decode(QueryCodecSupport.bytes(f.get(1), 2)),
+                QueryCodecSupport.fixed(f.get(2), 3, 32),
+                new CommandId(QueryCodecSupport.fixed(f.get(3), 4, CommandId.LENGTH)),
+                ProtocolTuple.decode(QueryCodecSupport.bytes(f.get(4), 5)),
+                QueryCodecSupport.fixed(f.get(5), 6, 32),
+                QueryCodecSupport.uint(f.get(6), 7),
+                PayloadReservationStatus.fromWire(QueryCodecSupport.uint32(f.get(7), 8)),
+                QueryCodecSupport.uint64Bits(f.get(8), 9),
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(9), 10)),
+                TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(10), 11)),
+                object.length == 0 ? null : TargetPayloadReference.decode(object),
+                QueryCodecSupport.fixed(f.get(12), 13, 16),
+                switch (QueryCodecSupport.uint32(f.get(13), 14)) {
                     case 1 -> TargetOrderState.OrderingContract.LEGACY_DELIVERY_TIME_FIFO;
                     case 2 -> TargetOrderState.OrderingContract.ADMISSION_WATERMARK;
-                    default -> throw new IllegalArgumentException("unknown imported reservation ordering contract"); },
+                    default -> throw new IllegalArgumentException("unknown imported reservation ordering contract");
+                },
                 closed ? TargetReservationControls.Closure.decode(QueryCodecSupport.bytes(f.get(14), 16)) : null,
                 TargetMigrationReservationOrigin.decode(QueryCodecSupport.bytes(f.get(closed ? 15 : 14), 17)));
-        QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "imported Target reservation"); return result;
+        QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "imported Target reservation");
+        return result;
     }
 }

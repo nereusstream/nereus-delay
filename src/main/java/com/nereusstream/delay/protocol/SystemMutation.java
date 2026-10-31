@@ -122,13 +122,17 @@ public final class SystemMutation {
         return Bytes.copy(canonicalBody);
     }
     /** Exact retained length for bounded input preflight, without allocating another body image. */
-    public int canonicalBodyLength() { return canonicalBody.length; }
+    public int canonicalBodyLength() {
+        return canonicalBody.length;
+    }
 
     public byte[] authorIdentity() {
         return Bytes.copy(authorIdentity);
     }
     /** Exact retained length for input preflight, without copying the original author image. */
-    public int authorIdentityLength() { return authorIdentity.length; }
+    public int authorIdentityLength() {
+        return authorIdentity.length;
+    }
 
     public int signingKeyVersion() {
         return signingKeyVersion;
@@ -196,42 +200,58 @@ public final class SystemMutation {
         if (envelope.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
             throw new IllegalArgumentException("Target Control reader received another mutation type");
         }
-        return decodeEnvelope(decoded.canonicalEnvelope(),targetControlIdentity(envelope));
+        return decodeEnvelope(decoded.canonicalEnvelope(), targetControlIdentity(envelope));
     }
 
     private static byte[] targetControlIdentity(EnvelopeFields envelope) {
         final var fields = SystemMutationBodyCodec.fields(envelope.type(), envelope.body());
-        final var kindField = fields.stream().filter(field -> field.number() == 11).findFirst().orElseThrow();
+        final var kindField = fields.stream()
+                .filter(field -> field.number() == 11)
+                .findFirst()
+                .orElseThrow();
         final int kind = QueryCodecSupport.uint32(kindField, 11);
         final byte[] logicalIdentity;
         if (kind == TargetPayloadSummaryInitializationRequest.CONTROL_KIND) {
-            logicalIdentity = TargetPayloadSummaryInitializationBody.decode(envelope.body()).logicalIdentity();
-        } else if (kind == TargetMigrationActivateRequest.CONTROL_KIND || kind == TargetMigrationSettlementRequest.CONTROL_KIND
-                || kind == TargetMigrationRetirementIntentRequest.CONTROL_KIND || kind == TargetMigrationRetirementConfirmRequest.CONTROL_KIND || kind == TargetMigrationArchiveRequest.CONTROL_KIND) {
+            logicalIdentity = TargetPayloadSummaryInitializationBody.decode(envelope.body())
+                    .logicalIdentity();
+        } else if (kind == TargetMigrationActivateRequest.CONTROL_KIND
+                || kind == TargetMigrationSettlementRequest.CONTROL_KIND
+                || kind == TargetMigrationRetirementIntentRequest.CONTROL_KIND
+                || kind == TargetMigrationRetirementConfirmRequest.CONTROL_KIND
+                || kind == TargetMigrationArchiveRequest.CONTROL_KIND) {
             logicalIdentity = TargetMigrationControlBody.decode(envelope.body()).logicalIdentity();
-        } else if (kind == TargetProtocolActivatePayload.CONTROL_KIND && TargetProtocolActivationBody.hasTargetPayload(envelope.body())) {
-            logicalIdentity = TargetProtocolActivationBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetProtocolActivatePayload.CONTROL_KIND
+                && TargetProtocolActivationBody.hasTargetPayload(envelope.body())) {
+            logicalIdentity =
+                    TargetProtocolActivationBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == 15 || kind == 16) {
-            logicalIdentity = TargetMembershipControlBody.decode(envelope.body()).logicalIdentity();
+            logicalIdentity =
+                    TargetMembershipControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == TargetQuotaGrantControlRequest.CONTROL_KIND) {
-            logicalIdentity = TargetQuotaGrantControlBody.decode(envelope.body()).logicalIdentity();
+            logicalIdentity =
+                    TargetQuotaGrantControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == TargetCloseRequest.CONTROL_KIND) {
             logicalIdentity = TargetCloseBody.decode(envelope.body()).logicalIdentity();
         } else if (kind >= TargetNativePolicyControlRequest.INSTALL_PUBLISHER_CONTROL_KIND
                 && kind <= TargetNativePolicyControlRequest.CLOSE_MEMBER_CONTROL_KIND) {
-            logicalIdentity = TargetNativePolicyControlBody.decode(envelope.body()).logicalIdentity();
+            logicalIdentity =
+                    TargetNativePolicyControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind >= TargetChannelControlRequest.CREATE_CONTROL_KIND
                 && kind <= TargetChannelControlRequest.STOP_CONTROL_KIND) {
             logicalIdentity = TargetChannelControlBody.decode(envelope.body()).logicalIdentity();
         } else if (kind == TargetSloObservationControlRequest.ENABLE_CONTROL_KIND
                 || kind == TargetSloObservationControlRequest.STOP_CONTROL_KIND) {
-            logicalIdentity = TargetSloObservationControlBody.decode(envelope.body()).logicalIdentity();
-        } else if(kind==TargetScopeControlObligationRequest.CONTROL_KIND){
-            logicalIdentity=TargetScopeControlObligationBody.decode(envelope.body()).logicalIdentity();
-        } else if(kind==TargetParentControlCreditRequest.CONTROL_KIND){
-            logicalIdentity=TargetParentControlCreditBody.decode(envelope.body()).logicalIdentity();
-        } else if(kind==TargetSloWriterControlRequest.REGISTER_CONTROL_KIND||kind==TargetSloWriterControlRequest.CLOSE_CONTROL_KIND){
-            logicalIdentity=TargetSloWriterControlBody.decode(envelope.body()).logicalIdentity();
+            logicalIdentity =
+                    TargetSloObservationControlBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetScopeControlObligationRequest.CONTROL_KIND) {
+            logicalIdentity =
+                    TargetScopeControlObligationBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetParentControlCreditRequest.CONTROL_KIND) {
+            logicalIdentity =
+                    TargetParentControlCreditBody.decode(envelope.body()).logicalIdentity();
+        } else if (kind == TargetSloWriterControlRequest.REGISTER_CONTROL_KIND
+                || kind == TargetSloWriterControlRequest.CLOSE_CONTROL_KIND) {
+            logicalIdentity = TargetSloWriterControlBody.decode(envelope.body()).logicalIdentity();
         } else {
             logicalIdentity = SystemMutationIdentity.resolve(envelope.shardId(), envelope.type(), envelope.body());
         }
@@ -249,19 +269,23 @@ public final class SystemMutation {
 
     /** Target Native/Source reader derives identity from the same closed typed branches as Target frames. */
     public static SystemMutation decodeTargetEnvelope(final byte[] envelope) {
-        final var fields=readEnvelope(envelope);
-        final byte[] logicalIdentity=fields.type()==SystemMutationType.APPLY_SHARD_CONTROL
-                ? targetControlIdentity(fields) : SystemMutationIdentity.resolve(fields.shardId(),fields.type(),fields.body());
-        return decodeEnvelope(envelope,logicalIdentity);
+        final var fields = readEnvelope(envelope);
+        final byte[] logicalIdentity = fields.type() == SystemMutationType.APPLY_SHARD_CONTROL
+                ? targetControlIdentity(fields)
+                : SystemMutationIdentity.resolve(fields.shardId(), fields.type(), fields.body());
+        return decodeEnvelope(envelope, logicalIdentity);
     }
 
     /** Checks a nested protocol branch before decoding its body, preventing recursive type substitution. */
-    public static SystemMutation decodeTargetEnvelope(final byte[] envelope,final SystemMutationType expected) {
-        final var fields=readEnvelope(envelope);
-        if(fields.type()!=Objects.requireNonNull(expected))throw new IllegalArgumentException("nested Target mutation has another protocol type");
-        final byte[] identity=fields.type()==SystemMutationType.APPLY_SHARD_CONTROL
-                ?targetControlIdentity(fields):SystemMutationIdentity.resolve(fields.shardId(),fields.type(),fields.body());
-        return decodeEnvelope(envelope,identity);
+    public static SystemMutation decodeTargetEnvelope(final byte[] envelope, final SystemMutationType expected) {
+        final var fields = readEnvelope(envelope);
+        if (fields.type() != Objects.requireNonNull(expected)) {
+            throw new IllegalArgumentException("nested Target mutation has another protocol type");
+        }
+        final byte[] identity = fields.type() == SystemMutationType.APPLY_SHARD_CONTROL
+                ? targetControlIdentity(fields)
+                : SystemMutationIdentity.resolve(fields.shardId(), fields.type(), fields.body());
+        return decodeEnvelope(envelope, identity);
     }
 
     /**

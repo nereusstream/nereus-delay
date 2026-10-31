@@ -74,7 +74,9 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         final byte[] frame = submission.managedFrame();
         final PreparedCommand command = decodeCanonical(frame);
         final RouteSnapshot route = exactRoute(tenant, command);
-        if (sourceIngress != null) { sourceIngress.requireAllowed(command, route, frame.length); }
+        if (sourceIngress != null) {
+            sourceIngress.requireAllowed(command, route, frame.length);
+        }
         final int partition = command.shardId().partition();
         final CredentialBindingKey binding = credentialBinding(route.credentialBinding());
         if (route.ingress() instanceof KafkaIngressRouteResource kafka) {

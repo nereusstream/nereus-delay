@@ -97,13 +97,8 @@ class ShardReadPlanTest {
             assertEquals(1, pointBudget.deniedReads());
 
             final BoundedReadBudget iteratorBudget = new BoundedReadBudget(2, 35, 1_000, () -> 0);
-            final var iteratorResult = store.visitResult(
-                    ColumnFamily.ID,
-                    firstKey,
-                    null,
-                    3,
-                    iteratorBudget,
-                    (entry, ignored) -> {
+            final var iteratorResult =
+                    store.visitResult(ColumnFamily.ID, firstKey, null, 3, iteratorBudget, (entry, ignored) -> {
                         assertArrayEquals(firstValue, entry.value());
                         return true;
                     });
@@ -134,17 +129,11 @@ class ShardReadPlanTest {
             });
 
             final BoundedReadBudget budget = new BoundedReadBudget(2, 50, 1_000, () -> 0);
-            final var result = store.visitResult(
-                    ColumnFamily.ID,
-                    firstKey,
-                    null,
-                    3,
-                    budget,
-                    (entry, ignored) -> {
-                        assertArrayEquals(firstKey, entry.key());
-                        assertArrayEquals(firstValue, entry.value());
-                        return true;
-                    });
+            final var result = store.visitResult(ColumnFamily.ID, firstKey, null, 3, budget, (entry, ignored) -> {
+                assertArrayEquals(firstKey, entry.key());
+                assertArrayEquals(firstValue, entry.value());
+                return true;
+            });
 
             assertEquals(ShardStore.VisitStop.INCOMPLETE, result.stop());
             assertEquals(BoundedReadBudget.Exhaustion.BYTES, result.reason());

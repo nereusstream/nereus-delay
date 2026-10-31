@@ -325,12 +325,8 @@ class SourceApplyCoordinatorTest {
     void incompleteHeadReadRetainsExactSourceWithoutAckAndRetriesAgainstAFreshStoreView() throws Exception {
         final java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong();
         final java.util.concurrent.atomic.AtomicBoolean exhausted = new java.util.concurrent.atomic.AtomicBoolean(true);
-        final HeadReadPolicy policy =
-                new HeadReadPolicy(
-                        Integer.MAX_VALUE - 1,
-                        1_000_000,
-                        10,
-                        () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
+        final HeadReadPolicy policy = new HeadReadPolicy(
+                Integer.MAX_VALUE - 1, 1_000_000, 10, () -> exhausted.get() ? clock.addAndGet(100) : clock.get());
         try (Fixture fixture = new Fixture(tempDir.resolve("head-read-retry"), policy)) {
             final SourceReplayRecord entry = fixture.entry("read-retry");
             final AtomicInteger acknowledgements = new AtomicInteger();

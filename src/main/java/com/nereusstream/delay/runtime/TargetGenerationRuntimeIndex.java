@@ -331,21 +331,34 @@ public final class TargetGenerationRuntimeIndex {
             throw new IllegalStateException("late terminal result must settle exactly one obligation");
         }
         return new TargetGenerationRuntimeIndex(
-                generation, aggregateState, CurrentSendWorkKind.NONE, null, null, null, remaining,
-                admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate || published,
+                generation,
+                aggregateState,
+                CurrentSendWorkKind.NONE,
+                null,
+                null,
+                null,
+                remaining,
+                admissionsUsed,
+                uncertainRetryAdmissionsUsed,
+                possibleDestinationDuplicate || published,
                 TargetQueueState.nextRevision(runtimeRevision));
     }
 
     /** Settles only an UNCERTAIN ref; already-admitted newer publishers remain explicit obligations. */
     TargetGenerationRuntimeIndex evidenceOutcome(
-            final byte[] attemptId, final boolean published, final boolean permanent,
+            final byte[] attemptId,
+            final boolean published,
+            final boolean permanent,
             final TargetTimelineWorkRef retry) {
         return evidenceOutcome(attemptId, published, permanent, retry, false);
     }
 
     TargetGenerationRuntimeIndex evidenceOutcome(
-            final byte[] attemptId, final boolean published, final boolean permanent,
-            final TargetTimelineWorkRef retry, final boolean nativeHandoff) {
+            final byte[] attemptId,
+            final boolean published,
+            final boolean permanent,
+            final TargetTimelineWorkRef retry,
+            final boolean nativeHandoff) {
         if (nativeHandoff && !published) {
             throw new IllegalArgumentException("Native handoff requires verified publication");
         }
@@ -371,25 +384,36 @@ public final class TargetGenerationRuntimeIndex {
         final boolean uncertain = remaining.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
         final GenerationAggregateState next = published
                 ? nativeHandoff ? GenerationAggregateState.HANDED_OFF : GenerationAggregateState.PUBLISHED
-                : preservePublisher ? uncertain
-                        ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.PUBLISHING
-                : permanent ? GenerationAggregateState.DEAD_LETTER
-                : uncertain ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.RETRY_WAIT;
+                : preservePublisher
+                        ? uncertain ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.PUBLISHING
+                        : permanent
+                                ? GenerationAggregateState.DEAD_LETTER
+                                : uncertain ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.RETRY_WAIT;
         if ((published || permanent || preservePublisher) && retry != null) {
             throw new IllegalArgumentException("evidence retry cannot bypass a terminal decision or current publisher");
         }
-        return new TargetGenerationRuntimeIndex(generation, next,
-                preservePublisher ? CurrentSendWorkKind.PUBLISHING
+        return new TargetGenerationRuntimeIndex(
+                generation,
+                next,
+                preservePublisher
+                        ? CurrentSendWorkKind.PUBLISHING
                         : retry == null ? CurrentSendWorkKind.NONE : CurrentSendWorkKind.TIMELINE,
-                retry, null, preservePublisher ? publishAttemptId : null, remaining,
-                admissionsUsed, uncertainRetryAdmissionsUsed, possibleDestinationDuplicate || published,
+                retry,
+                null,
+                preservePublisher ? publishAttemptId : null,
+                remaining,
+                admissionsUsed,
+                uncertainRetryAdmissionsUsed,
+                possibleDestinationDuplicate || published,
                 TargetQueueState.nextRevision(runtimeRevision));
     }
 
     TargetGenerationRuntimeIndex notPublishedOutcome(
             final byte[] attemptId, final boolean permanent, final TargetTimelineWorkRef retry) {
-        return definitiveOutcome(attemptId,
-                permanent ? GenerationAggregateState.DEAD_LETTER
+        return definitiveOutcome(
+                attemptId,
+                permanent
+                        ? GenerationAggregateState.DEAD_LETTER
                         : retry == null ? GenerationAggregateState.UNCERTAIN : GenerationAggregateState.RETRY_WAIT,
                 retry);
     }

@@ -41,7 +41,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         return publish(manifest, expectedCatalogGeneration, false);
     }
 
-    private Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration,
+    private Publication publish(
+            final CheckpointManifest manifest,
+            final long expectedCatalogGeneration,
             final boolean authenticatedTarget) {
         Objects.requireNonNull(manifest, "manifest");
         if (manifest.storeFormatVersion() != (authenticatedTarget ? 2 : 1)) {
@@ -68,7 +70,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (initialization != null && !authenticatedTarget) {
             throw new IllegalArgumentException("initialized Target Catalog requires authenticated Target publication");
         }
-        if (initialization != null && manifests.isEmpty()) { initialization.requireFirstManifest(manifest); }
+        if (initialization != null && manifests.isEmpty()) {
+            initialization.requireFirstManifest(manifest);
+        }
         if (catalogShard == null) {
             catalogShard = manifest.shardId();
         }
@@ -78,13 +82,18 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public Initialization initializeTargetCatalog(CheckpointUploadIntent pending,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, CatalogInitializationAuthority authority) {
+    public Initialization initializeTargetCatalog(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            CatalogInitializationAuthority authority) {
         Objects.requireNonNull(image, "image").authenticate();
         final var marker = CatalogInitialization.from(pending, image.manifest());
-        try (var guard = Objects.requireNonNull(Objects.requireNonNull(authority, "authority")
-                .acquire(marker, image), "initialization guard")) {
-            return initializeAuthenticated(marker, () -> { image.requireCurrent(); guard.requireCurrent(); });
+        try (var guard = Objects.requireNonNull(
+                Objects.requireNonNull(authority, "authority").acquire(marker, image), "initialization guard")) {
+            return initializeAuthenticated(marker, () -> {
+                image.requireCurrent();
+                guard.requireCurrent();
+            });
         }
     }
 
@@ -97,8 +106,12 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             }
             return new Initialization(initialization, catalogGeneration);
         }
-        if (catalogGeneration != 0 || !manifests.isEmpty() || floor != null || typedFloorRef != null
-                || activeRecoveryPin != null || catalogShard != null
+        if (catalogGeneration != 0
+                || !manifests.isEmpty()
+                || floor != null
+                || typedFloorRef != null
+                || activeRecoveryPin != null
+                || catalogShard != null
                         && !catalogShard.equals(requested.pending().shard().shardId())) {
             throw new IllegalStateException("Catalog initialization requires an empty compatible namespace");
         }
@@ -260,8 +273,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public Publication publishTargetUploadedCheckpoint(CheckpointUploadIntent published,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration) {
+    public Publication publishTargetUploadedCheckpoint(
+            CheckpointUploadIntent published,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long expectedCatalogGeneration) {
         Objects.requireNonNull(image, "image").authenticate();
         synchronized (this) {
             image.requireCurrent();
@@ -271,8 +286,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
-    private Publication publishUploadedCheckpoint(final CheckpointUploadIntent publishedIntent,
-            final CheckpointManifest manifest, final long expectedCatalogGeneration,
+    private Publication publishUploadedCheckpoint(
+            final CheckpointUploadIntent publishedIntent,
+            final CheckpointManifest manifest,
+            final long expectedCatalogGeneration,
             final boolean authenticatedTarget) {
         Objects.requireNonNull(publishedIntent, "publishedIntent");
         Objects.requireNonNull(manifest, "manifest");
@@ -538,15 +555,21 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (snapshot.catalogGeneration() == 0 && hasPublishedState) {
             throw new IllegalArgumentException("snapshot has published state at catalog generation zero");
         }
-        if (snapshot.initialization() != null && (snapshot.catalogGeneration() == 0
-                || snapshot.catalogShard() == null
-                || !snapshot.catalogShard().equals(snapshot.initialization().pending().shard().shardId()))) {
+        if (snapshot.initialization() != null
+                && (snapshot.catalogGeneration() == 0
+                        || snapshot.catalogShard() == null
+                        || !snapshot.catalogShard()
+                                .equals(snapshot.initialization()
+                                        .pending()
+                                        .shard()
+                                        .shardId()))) {
             throw new IllegalArgumentException("snapshot Catalog initialization shard/generation mismatch");
         }
-        if (snapshot.catalogGeneration() != 0 && snapshot.manifests().isEmpty()
+        if (snapshot.catalogGeneration() != 0
+                && snapshot.manifests().isEmpty()
                 && (snapshot.catalogGeneration() != 1 || snapshot.initialization() == null || hasPublishedState)) {
-            throw new IllegalArgumentException("snapshot has a catalog generation without authenticated "
-                    + "initialization");
+            throw new IllegalArgumentException(
+                    "snapshot has a catalog generation without authenticated " + "initialization");
         }
         manifests.clear();
         manifestResources.clear();
@@ -574,10 +597,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                     || manifests.values().stream().anyMatch(manifest -> manifest.storeFormatVersion() != 2)) {
                 throw new IllegalArgumentException("initialized Catalog has invalid published generation/format");
             }
-            final var genesis = manifests.values().stream().filter(manifest -> manifest.lineageGeneration() == 0
-                    && Arrays.equals(manifest.recoveryLineageId(), initialization.pending().recoveryLineageId()))
-                    .findFirst().orElseThrow(() -> new IllegalArgumentException(
-                            "initialized Catalog lacks its genesis"));
+            final var genesis = manifests.values().stream()
+                    .filter(manifest -> manifest.lineageGeneration() == 0
+                            && Arrays.equals(
+                                    manifest.recoveryLineageId(),
+                                    initialization.pending().recoveryLineageId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("initialized Catalog lacks its genesis"));
             initialization.requireFirstManifest(genesis);
         }
         for (CheckpointManifest manifest : manifests.values()) {
@@ -643,25 +669,33 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     /** Read-only full published parent-hash proof for a retained original native-reclaim Floor. */
-    synchronized void requirePublishedFloorAncestor(RecoveryFloorRef ancestor,RecoveryFloorRef descendant){
-        validateTypedFloorProjection(ancestor);validateTypedFloorProjection(descendant);
-        final var ancestry=fullAncestry(descendant.checkpointId());
-        final int index=indexOf(ancestry,ancestor.checkpointId());
-        if(index<0||!Bytes.constantTimeEquals(ancestry.get(index).manifestSha256(),ancestor.manifestSha256()))
+    synchronized void requirePublishedFloorAncestor(RecoveryFloorRef ancestor, RecoveryFloorRef descendant) {
+        validateTypedFloorProjection(ancestor);
+        validateTypedFloorProjection(descendant);
+        final var ancestry = fullAncestry(descendant.checkpointId());
+        final int index = indexOf(ancestry, ancestor.checkpointId());
+        if (index < 0 || !Bytes.constantTimeEquals(ancestry.get(index).manifestSha256(), ancestor.manifestSha256())) {
             throw new IllegalStateException("declared reclaim Floor is outside actual published ancestry");
+        }
     }
 
-    void validateRetainedRecoveryPin(RecoveryPin pin){validatePinProjection(Objects.requireNonNull(pin));}
-    /** Historical retained image, excluded by the unchanged current-Floor restore candidate gate. */
-    synchronized boolean isStrictCurrentFloorAncestor(CheckpointManifest candidate){
-        if(floor==null)throw new IllegalStateException("historical prefix requires current Recovery Floor");
-        final var published=manifests.get(key(candidate.checkpointId()));
-        if(published==null||!Arrays.equals(published.canonicalJsonBytes(),candidate.canonicalJsonBytes()))
-            throw new IllegalArgumentException("historical prefix changed actual published manifest");
-        final var ancestry=fullAncestry(floor.checkpointId());
-        final int index=indexOf(ancestry,candidate.checkpointId());
-        return index>=0&&index<ancestry.size()-1;
+    void validateRetainedRecoveryPin(RecoveryPin pin) {
+        validatePinProjection(Objects.requireNonNull(pin));
     }
+    /** Historical retained image, excluded by the unchanged current-Floor restore candidate gate. */
+    synchronized boolean isStrictCurrentFloorAncestor(CheckpointManifest candidate) {
+        if (floor == null) {
+            throw new IllegalStateException("historical prefix requires current Recovery Floor");
+        }
+        final var published = manifests.get(key(candidate.checkpointId()));
+        if (published == null || !Arrays.equals(published.canonicalJsonBytes(), candidate.canonicalJsonBytes())) {
+            throw new IllegalArgumentException("historical prefix changed actual published manifest");
+        }
+        final var ancestry = fullAncestry(floor.checkpointId());
+        final int index = indexOf(ancestry, candidate.checkpointId());
+        return index >= 0 && index < ancestry.size() - 1;
+    }
+
     private void validatePinProjection(final RecoveryPin pin) {
         if (catalogShard == null
                 || !new ShardSubject(catalogShard).equals(pin.shard())
@@ -820,10 +854,14 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (parent.targetLocalOrdinal() != null && manifest.targetLocalOrdinal() == null) {
             throw new IllegalArgumentException("checkpoint cannot discard the authenticated Target local cut");
         }
-        if (manifest.storeFormatVersion() == 2 && parent.storeFormatVersion() == 2
-                && manifest.targetLocalOrdinal() != null && parent.targetLocalOrdinal() != null
+        if (manifest.storeFormatVersion() == 2
+                && parent.storeFormatVersion() == 2
+                && manifest.targetLocalOrdinal() != null
+                && parent.targetLocalOrdinal() != null
                 && position.compareTo(parent.appliedShardLogPosition()) == 0) {
-            if (!Bytes.constantTimeEquals(position.canonicalBytes(), parent.appliedShardLogPosition().canonicalBytes())
+            if (!Bytes.constantTimeEquals(
+                            position.canonicalBytes(),
+                            parent.appliedShardLogPosition().canonicalBytes())
                     || manifest.shardMutationSequence() != parent.shardMutationSequence()
                     || Long.compareUnsigned(manifest.targetLocalOrdinal(), parent.targetLocalOrdinal()) <= 0) {
                 throw new IllegalArgumentException("Target local checkpoint cut does not advance parent");
@@ -890,8 +928,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             RecoveryFloorRef typedFloorRef,
             RecoveryPin activeRecoveryPin,
             CatalogInitialization initialization) {
-        Snapshot(long generation, ShardId shard, List<CheckpointManifest> manifests,
-                Map<String, CheckpointResource> resources, RecoveryFloor floor, RecoveryFloorRef typedFloor,
+        Snapshot(
+                long generation,
+                ShardId shard,
+                List<CheckpointManifest> manifests,
+                Map<String, CheckpointResource> resources,
+                RecoveryFloor floor,
+                RecoveryFloorRef typedFloor,
                 RecoveryPin pin) {
             this(generation, shard, manifests, resources, floor, typedFloor, pin, null);
         }
@@ -903,7 +946,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     public record Initialization(CatalogInitialization marker, long catalogGeneration) {
-        public Initialization { Objects.requireNonNull(marker, "marker"); }
+        public Initialization {
+            Objects.requireNonNull(marker, "marker");
+        }
     }
 
     public record Publication(CheckpointManifest manifest, long catalogGeneration, RecoveryFloor floor) {

@@ -76,8 +76,7 @@ class TargetKeyCodecTest {
         assertEquals(vectors.getProperty("native.pulsar.key"), Bytes.hex(nativeKey));
         assertEquals(vectors.getProperty("expiry.key"), Bytes.hex(TargetKeyCodec.expiry(200, target, message, 2)));
         assertArrayEquals(
-                Bytes.concat(TargetKeyCodec.expiryPrefix(), Bytes.u64be(201)),
-                TargetKeyCodec.expiryUpperBound(200));
+                Bytes.concat(TargetKeyCodec.expiryPrefix(), Bytes.u64be(201)), TargetKeyCodec.expiryUpperBound(200));
         assertArrayEquals(
                 Bytes.concat(TargetKeyCodec.expiryPrefix(), new byte[] {(byte) 0x80}),
                 TargetKeyCodec.expiryUpperBound(Long.MAX_VALUE));

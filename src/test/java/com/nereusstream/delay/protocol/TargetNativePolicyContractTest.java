@@ -150,8 +150,10 @@ class TargetNativePolicyContractTest {
                     9,
                     keys.getPrivate());
             assertEquals(SystemMutationType.APPLY_SHARD_CONTROL, signed.type());
-            assertArrayEquals(signed.canonicalEnvelope(),
-                    SystemMutation.decodeTargetControlFrame(signed.encodeFrame()).canonicalEnvelope());
+            assertArrayEquals(
+                    signed.canonicalEnvelope(),
+                    SystemMutation.decodeTargetControlFrame(signed.encodeFrame())
+                            .canonicalEnvelope());
             assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(signed.encodeFrame()));
         }
     }

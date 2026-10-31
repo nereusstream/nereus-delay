@@ -17,8 +17,8 @@ import org.junit.jupiter.api.Test;
 
 class TargetPublishAdmissionBodyTest {
     private static final ShardId SHARD = new ShardId(new RouteIncarnation(repeated(16, 0x21)), 3);
-    private static final OwnerIdentity OWNER = new OwnerIdentity(
-            Bytes.utf8("target-deployment"), Bytes.utf8("worker-run"), 7, repeated(32, 0x22));
+    private static final OwnerIdentity OWNER =
+            new OwnerIdentity(Bytes.utf8("target-deployment"), Bytes.utf8("worker-run"), 7, repeated(32, 0x22));
 
     @Test
     void targetAdmissionHasItsOwnCanonicalBodyAndActivatedTuple() throws Exception {
@@ -28,7 +28,8 @@ class TargetPublishAdmissionBodyTest {
         final var decoded = TargetPublishAdmissionBody.decode(encoded);
         assertArrayEquals(encoded, decoded.canonicalBytes());
         assertArrayEquals(body.publishAttemptId(), decoded.publishAttemptId());
-        assertArrayEquals(body.commitment().canonicalBytes(), decoded.commitment().canonicalBytes());
+        assertArrayEquals(
+                body.commitment().canonicalBytes(), decoded.commitment().canonicalBytes());
         assertEquals(3, ProtocolTuple.targetPublishAdmission().bodyVersion());
         assertNotEquals(ProtocolTuple.currentSystemMutation(), ProtocolTuple.targetPublishAdmission());
 
@@ -139,12 +140,7 @@ class TargetPublishAdmissionBodyTest {
             assertEquals(mutation, entry);
             assertEquals(source, position);
             return new TargetPublishAdmissionVerifier.Authorization(
-                    key.getPublic(),
-                    ProtocolTuple.targetPublishAdmission(),
-                    10,
-                    10,
-                    100,
-                    (a, b, c, evidence) -> true);
+                    key.getPublic(), ProtocolTuple.targetPublishAdmission(), 10, 10, 100, (a, b, c, evidence) -> true);
         };
         final var accepted = TargetPublishAdmissionVerifier.decideFirstApplication(scope, mutation, source, exact);
         assertNull(accepted.rejection());

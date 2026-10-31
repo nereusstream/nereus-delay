@@ -29,11 +29,17 @@ class TargetWorkerRuntimeConfigTest {
         final var settings = values();
         final var loaded = TargetWorkerRuntimeConfigLoader.load(settings);
         assertEquals(loaded.store().maxOwnedShards(), loaded.inventory().maximumShards());
-        assertEquals(Integer.parseInt(settings.get("target.sourceReadRecords")), loaded.source().records());
-        assertEquals(Long.parseLong(settings.get("target.sourceReadBytes")), loaded.source().bytes());
-        assertEquals(1, loaded.workClasses().policies().get(WorkClass.SOURCE_APPLY).maxRecordsPerTurn());
+        assertEquals(
+                Integer.parseInt(settings.get("target.sourceReadRecords")),
+                loaded.source().records());
+        assertEquals(
+                Long.parseLong(settings.get("target.sourceReadBytes")),
+                loaded.source().bytes());
+        assertEquals(
+                1, loaded.workClasses().policies().get(WorkClass.SOURCE_APPLY).maxRecordsPerTurn());
         assertEquals(1, loaded.sourceTurn().maxMessages());
-        assertEquals(loaded.maximumSourceFrameBytes() + TargetSourcePosition.MAX_CANONICAL_BYTES,
+        assertEquals(
+                loaded.maximumSourceFrameBytes() + TargetSourcePosition.MAX_CANONICAL_BYTES,
                 loaded.sourceTurn().maxBytes());
         assertTrue(loaded.source().records() > loaded.sourceTurn().maxMessages());
         assertTrue(loaded.source().bytes() > loaded.sourceTurn().maxBytes());
@@ -42,18 +48,25 @@ class TargetWorkerRuntimeConfigTest {
         assertEquals(1024, loaded.maximumDomainHeads());
         loaded.newWorkClasses(() -> 0);
         loaded.requireCapacity(java.util.List.of(), CapacityVector.empty(), CapacityVector.empty());
-        assertThrows(TargetSourceAuthorityPreparation.InputUnavailable.class,
+        assertThrows(
+                TargetSourceAuthorityPreparation.InputUnavailable.class,
                 () -> loaded.requireSourceOperationEnvelope(FIXED_SOURCE));
         assertEquals(false, Files.exists(root.resolve("db")));
     }
 
     @Test
     void missingUnknownUnlimitedAndOvercommittedConfigurationRejectsBeforeIo() {
-        for (String missing : java.util.List.of("worker.heapBytes", "worker.hardCap.ZOMBIE_BYTES",
-                "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords", "target.maximumSourceFrameBytes",
+        for (String missing : java.util.List.of(
+                "worker.heapBytes",
+                "worker.hardCap.ZOMBIE_BYTES",
+                "scheduling.class.OUTCOME_AND_CONTROL.minimumRecords",
+                "target.maximumSourceFrameBytes",
                 "worker.systemWriterRecords",
-                "recovery.maintenanceTurnBytes", "recovery.maintenanceIntervalNanos", "checkpoint.intervalMillis",
-                "checkpoint.registryLookupTimeoutNanos", "checkpoint.ledgerPointBytes")) {
+                "recovery.maintenanceTurnBytes",
+                "recovery.maintenanceIntervalNanos",
+                "checkpoint.intervalMillis",
+                "checkpoint.registryLookupTimeoutNanos",
+                "checkpoint.ledgerPointBytes")) {
             final var map = values();
             map.remove(missing);
             assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map));
@@ -77,16 +90,23 @@ class TargetWorkerRuntimeConfigTest {
 
     @Test
     void schedulerCannotAdmitAnEnvelopeItCanNeverServe() {
-        for (String key : java.util.List.of("target.sourceReadRecords", "target.sourceReadBytes",
-                "target.maximumAffectedCounters", "target.maximumDomains", "target.maximumSourceFrameBytes")) {
+        for (String key : java.util.List.of(
+                "target.sourceReadRecords",
+                "target.sourceReadBytes",
+                "target.maximumAffectedCounters",
+                "target.maximumDomains",
+                "target.maximumSourceFrameBytes")) {
             final var map = values();
             map.put(key, key.equals("target.maximumAffectedCounters") ? "2" : "1");
-            assertEquals("Source limits cannot serve the complete legal Native operation family",
-                    assertThrows(IllegalArgumentException.class,
-                            () -> TargetWorkerRuntimeConfigLoader.load(map)).getMessage());
+            assertEquals(
+                    "Source limits cannot serve the complete legal Native operation family",
+                    assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map))
+                            .getMessage());
         }
-        for (String key : java.util.List.of("scheduling.class.SOURCE_APPLY.turnBytes",
-                "scheduling.class.DUE_SCHEDULER.turnBytes", "scheduling.turnBytes")) {
+        for (String key : java.util.List.of(
+                "scheduling.class.SOURCE_APPLY.turnBytes",
+                "scheduling.class.DUE_SCHEDULER.turnBytes",
+                "scheduling.turnBytes")) {
             final var map = values();
             map.put(key, "1");
             assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(map));
@@ -97,13 +117,16 @@ class TargetWorkerRuntimeConfigTest {
         final var noMaintenance = values();
         noMaintenance.put("recovery.maintenanceIntervalNanos", "0");
         assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(noMaintenance));
-        for (String key : java.util.List.of("worker.systemWriterBytes",
-                "worker.hardCap.SYSTEM_WRITER_RESERVED_RECORDS", "worker.hardCap.PHYSICAL_REQUESTS",
-                "worker.hardCap.ZOMBIE_REQUESTS", "worker.hardCap.ADAPTER_PRODUCERS")) {
+        for (String key : java.util.List.of(
+                "worker.systemWriterBytes",
+                "worker.hardCap.SYSTEM_WRITER_RESERVED_RECORDS",
+                "worker.hardCap.PHYSICAL_REQUESTS",
+                "worker.hardCap.ZOMBIE_REQUESTS",
+                "worker.hardCap.ADAPTER_PRODUCERS")) {
             final var insufficientWriter = values();
             insufficientWriter.put(key, "1");
-            assertThrows(IllegalArgumentException.class,
-                    () -> TargetWorkerRuntimeConfigLoader.load(insufficientWriter));
+            assertThrows(
+                    IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(insufficientWriter));
         }
     }
 
@@ -113,41 +136,64 @@ class TargetWorkerRuntimeConfigTest {
         final var classes = loaded.newWorkClasses(() -> 0);
         // The injected observation is synthetic; this test makes no current-host probe claim.
         final var observation = new WorkerRuntimeResourceObservation(
-                loaded.resources().certifiedJvmHeapBytes(), 128, 128,
-                loaded.resources().effectiveCgroupMemoryLimitBytes(), 32, 1, 4096, 4096);
+                loaded.resources().certifiedJvmHeapBytes(),
+                128,
+                128,
+                loaded.resources().effectiveCgroupMemoryLimitBytes(),
+                32,
+                1,
+                4096,
+                4096);
         try (var resources = new SharedRocksDbResources(loaded.store(), loaded.resources(), observation)) {
             loaded.requireRuntime(classes, resources);
             final var differentPolicies = values();
             differentPolicies.put("scheduling.maxClassDelayNanos", "1001");
             final var different = TargetWorkerRuntimeConfigLoader.load(differentPolicies);
-            assertEquals("work-class dispatcher configuration differs from the Target Worker",
-                    assertThrows(IllegalArgumentException.class, () -> TargetWorkerHostRuntime.start(
-                            loaded, different.newWorkClasses(() -> 0), resources, java.util.List.of(), ignored -> {}))
+            assertEquals(
+                    "work-class dispatcher configuration differs from the Target Worker",
+                    assertThrows(
+                                    IllegalArgumentException.class,
+                                    () -> TargetWorkerHostRuntime.start(
+                                            loaded,
+                                            different.newWorkClasses(() -> 0),
+                                            resources,
+                                            java.util.List.of(),
+                                            ignored -> {}))
                             .getMessage());
             final var differentRoot = values();
             differentRoot.put("worker.rootPath", root.resolve("other-db").toString());
-            assertThrows(IllegalArgumentException.class,
-                    () -> TargetWorkerRuntimeConfigLoader.load(differentRoot).requireRuntime(classes, resources));
+            assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(differentRoot)
+                    .requireRuntime(classes, resources));
             final var differentEnvelope = values();
             differentEnvelope.put("worker.filesystemBytes", "8192");
-            assertEquals("certified resource envelope differs from the Target Worker",
+            assertEquals(
+                    "certified resource envelope differs from the Target Worker",
                     assertThrows(IllegalArgumentException.class, () -> TargetWorkerRuntimeConfigLoader.load(
-                            differentEnvelope).requireRuntime(classes, resources)).getMessage());
+                                            differentEnvelope)
+                                    .requireRuntime(classes, resources))
+                            .getMessage());
             resources.recordRuntimeProbeFailure(new IllegalStateException("fixture probe failed"));
             assertThrows(IllegalStateException.class, () -> loaded.requireRuntime(classes, resources));
         }
         try (var unprobed = new SharedRocksDbResources(loaded.store(), loaded.resources())) {
-            assertEquals("Worker activation requires a runtime-probed resource envelope",
-                    assertThrows(IllegalStateException.class, () -> TargetWorkerHostRuntime.start(
-                            loaded, classes, unprobed, java.util.List.of(), ignored -> {})).getMessage());
+            assertEquals(
+                    "Worker activation requires a runtime-probed resource envelope",
+                    assertThrows(
+                                    IllegalStateException.class,
+                                    () -> TargetWorkerHostRuntime.start(
+                                            loaded, classes, unprobed, java.util.List.of(), ignored -> {}))
+                            .getMessage());
         }
         assertEquals(false, Files.exists(root.resolve("other-db")));
     }
 
     @Test
     void checkpointEnvelopeAndScheduleRejectMixedSettingsBeforeAdmission() {
-        for (String key : java.util.List.of("checkpoint.turnBytes", "checkpoint.semanticRecords",
-                "checkpoint.semanticAdmissionFrameBytes", "scheduling.class.CHECKPOINT.turnBytes",
+        for (String key : java.util.List.of(
+                "checkpoint.turnBytes",
+                "checkpoint.semanticRecords",
+                "checkpoint.semanticAdmissionFrameBytes",
+                "scheduling.class.CHECKPOINT.turnBytes",
                 "scheduling.poolBytes")) {
             final var map = values();
             map.put(key, "1");
@@ -160,13 +206,22 @@ class TargetWorkerRuntimeConfigTest {
         final var checkpoint = loaded.checkpoint();
         assertEquals(8192, checkpoint.settlementTurn().maxBytes());
         assertEquals(100, checkpoint.readRecords());
-        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
-                checkpoint.newScheduler(1), loaded.store().maxOwnedShards(), checkpoint.settlementTurn()));
-        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
-                new com.nereusstream.delay.store.CheckpointScheduler(1001, 10, 2), 2,
-                checkpoint.settlementTurn()));
-        assertThrows(IllegalArgumentException.class, () -> checkpoint.requireSchedule(
-                checkpoint.newScheduler(2), 2, new com.nereusstream.delay.scheduler.SchedulerBudget(1, 8193, 1000)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> checkpoint.requireSchedule(
+                        checkpoint.newScheduler(1), loaded.store().maxOwnedShards(), checkpoint.settlementTurn()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> checkpoint.requireSchedule(
+                        new com.nereusstream.delay.store.CheckpointScheduler(1001, 10, 2),
+                        2,
+                        checkpoint.settlementTurn()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> checkpoint.requireSchedule(
+                        checkpoint.newScheduler(2),
+                        2,
+                        new com.nereusstream.delay.scheduler.SchedulerBudget(1, 8193, 1000)));
         checkpoint.requireSchedule(checkpoint.newScheduler(2), 2, checkpoint.settlementTurn());
         assertEquals(false, Files.exists(root.resolve("db")));
     }
@@ -176,15 +231,17 @@ class TargetWorkerRuntimeConfigTest {
         // Satisfy the current fixed Native calculation only; the original Source frame hold is still absent.
         final long frameBytes = FIXED_SOURCE.fixedMaximumFrameBytes();
         final long sourceTaskBytes = Math.addExact(frameBytes, TargetSourcePosition.MAX_CANONICAL_BYTES);
-        final long sourceReadRecords = Math.addExact(64, Math.max(
-                FIXED_SOURCE.readRecords(), FIXED_SOURCE.writeRecords()));
-        final long sourceReadBytes = Math.max(Math.multiplyExact(2, sourceTaskBytes),
+        final long sourceReadRecords =
+                Math.addExact(64, Math.max(FIXED_SOURCE.readRecords(), FIXED_SOURCE.writeRecords()));
+        final long sourceReadBytes = Math.max(
+                Math.multiplyExact(2, sourceTaskBytes),
                 Math.max(FIXED_SOURCE.fixedReadBytes(), FIXED_SOURCE.fixedWriteBytes()));
         // One Source action remains serviceable while the other seven classes retain their 128-byte minima.
         final long poolBytes = Math.addExact(sourceTaskBytes, 7 * 128);
         final long writerBytes = Math.multiplyExact(2, frameBytes);
         final long perShardInputBytes = Math.addExact(FIXED_SOURCE.fixedRetainedBytes(), sourceReadBytes);
-        final long heapBytes = Math.addExact(65536, Math.addExact(poolBytes, Math.multiplyExact(2, perShardInputBytes)));
+        final long heapBytes =
+                Math.addExact(65536, Math.addExact(poolBytes, Math.multiplyExact(2, perShardInputBytes)));
         final long rssBytes = Math.addExact(heapBytes, 3 * 128 + 64);
         final var v = new HashMap<String, String>();
         v.put("worker.rootPath", root.resolve("db").toString());
@@ -219,16 +276,36 @@ class TargetWorkerRuntimeConfigTest {
         v.put("worker.systemWriterGenerations", "2");
         for (final var dimension : CapacityDimension.values()) {
             long value = 1024;
-            if (dimension == CapacityDimension.CONTROL_RESERVE_BYTES) { value = 64; }
-            if (dimension == CapacityDimension.CONTROL_RESERVE_RECORDS) { value = 8; }
-            if (java.util.List.of(CapacityDimension.ROCKSDB_NATIVE_BYTES, CapacityDimension.DIRECT_BUFFER_BYTES,
-                    CapacityDimension.OTHER_NATIVE_BYTES).contains(dimension)) { value = 128; }
-            if (java.util.List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES, CapacityDimension.PHYSICAL_BYTES,
-                    CapacityDimension.ZOMBIE_BYTES).contains(dimension)) { value = writerBytes; }
+            if (dimension == CapacityDimension.CONTROL_RESERVE_BYTES) {
+                value = 64;
+            }
+            if (dimension == CapacityDimension.CONTROL_RESERVE_RECORDS) {
+                value = 8;
+            }
+            if (java.util.List.of(
+                            CapacityDimension.ROCKSDB_NATIVE_BYTES,
+                            CapacityDimension.DIRECT_BUFFER_BYTES,
+                            CapacityDimension.OTHER_NATIVE_BYTES)
+                    .contains(dimension)) {
+                value = 128;
+            }
+            if (java.util.List.of(
+                            CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES,
+                            CapacityDimension.PHYSICAL_BYTES,
+                            CapacityDimension.ZOMBIE_BYTES)
+                    .contains(dimension)) {
+                value = writerBytes;
+            }
             v.put("worker.hardCap." + dimension.name(), Long.toString(value));
         }
-        for (String key : java.util.List.of("checkpointCreates", "checkpointUploads", "checkpointDownloads",
-                "drains", "checkpointIoBytesPerSecond")) { v.put("recovery." + key, "1"); }
+        for (String key : java.util.List.of(
+                "checkpointCreates",
+                "checkpointUploads",
+                "checkpointDownloads",
+                "drains",
+                "checkpointIoBytesPerSecond")) {
+            v.put("recovery." + key, "1");
+        }
         v.put("recovery.checkpointRestoreTempBytes", "64");
         v.put("recovery.compactionTempBytes", "64");
         v.put("recovery.maintenanceTurnMessages", "1");

@@ -27,9 +27,7 @@ public final class TargetCheckpointCandidateSchedule {
     @FunctionalInterface
     public interface RequestFactory {
         Request create(
-                TargetWorkerShardRuntime shard,
-                ScheduledCheckpoint claim,
-                SourceRecordConsumer.CheckpointCut cut);
+                TargetWorkerShardRuntime shard, ScheduledCheckpoint claim, SourceRecordConsumer.CheckpointCut cut);
     }
 
     public record Request(
@@ -53,15 +51,18 @@ public final class TargetCheckpointCandidateSchedule {
 
     @FunctionalInterface
     public interface SemanticRequestFactory {
-        SemanticRequest create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
-                SourceRecordConsumer.CheckpointCut cut);
+        SemanticRequest create(
+                TargetWorkerShardRuntime shard, ScheduledCheckpoint claim, SourceRecordConsumer.CheckpointCut cut);
     }
 
-    public record SemanticRequest(Request candidate,
+    public record SemanticRequest(
+            Request candidate,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
-        public SemanticRequest(Request candidate,
+            Runnable protection,
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+        public SemanticRequest(
+                Request candidate,
                 com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
                 com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
                 Runnable protection) {
@@ -78,58 +79,73 @@ public final class TargetCheckpointCandidateSchedule {
 
     @FunctionalInterface
     public interface CollectedSemanticRequestFactory {
-        CollectedSemanticRequest create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
-                SourceRecordConsumer.CheckpointCut cut);
+        CollectedSemanticRequest create(
+                TargetWorkerShardRuntime shard, ScheduledCheckpoint claim, SourceRecordConsumer.CheckpointCut cut);
     }
 
     @FunctionalInterface
     public interface DeferredCollectedSemanticRequestFactory {
         /** Captures only local identity and the original claim/cut; external reads start on the retained task. */
-        DeferredPreparation create(TargetWorkerShardRuntime shard, ScheduledCheckpoint claim,
-                SourceRecordConsumer.CheckpointCut cut);
+        DeferredPreparation create(
+                TargetWorkerShardRuntime shard, ScheduledCheckpoint claim, SourceRecordConsumer.CheckpointCut cut);
     }
 
     public interface DeferredPreparation extends TargetCheckpointCandidateWorkClassExecutor.PreparationIo {
         String localTaskIdentity();
+
         long maximumTaskBytes();
+
         java.util.concurrent.ThreadPoolExecutor checkpointExecutor();
         /** Empty is normal preparation progress. The first complete request is frozen by the original task. */
         Optional<CollectedSemanticRequest> preparedRequest();
         /** Local ownership handoff, before queue admission or the first external read. */
         default void accepted(TargetCheckpointCandidateWorkClassExecutor.Submission original) {}
-        default PublishedValidationHold acquirePublishedValidation(PublishedValidationRequest request,
-                Runnable current) {
+
+        default PublishedValidationHold acquirePublishedValidation(
+                PublishedValidationRequest request, Runnable current) {
             throw new UnsupportedOperationException("original checkpoint publication validation hold is unavailable");
         }
     }
 
-    public record PublishedValidationRequest(TargetCheckpointCandidateWorkClassExecutor.Submission original,
-            long validationGeneration) {
-        public PublishedValidationRequest { Objects.requireNonNull(original, "original"); }
+    public record PublishedValidationRequest(
+            TargetCheckpointCandidateWorkClassExecutor.Submission original, long validationGeneration) {
+        public PublishedValidationRequest {
+            Objects.requireNonNull(original, "original");
+        }
     }
 
-    public interface PublishedValidationHold extends TargetCheckpointCandidateWorkClassExecutor.PublicationValidationLoan {
+    public interface PublishedValidationHold
+            extends TargetCheckpointCandidateWorkClassExecutor.PublicationValidationLoan {
         PublishedValidationRequest request();
         /** Checks the exact still-held original authority allocation; no external reads are permitted. */
         void requireLocalCurrent();
     }
 
-    public enum PublishedCutState { VALID, PENDING, NO_MATCH }
+    public enum PublishedCutState {
+        VALID,
+        PENDING,
+        NO_MATCH
+    }
 
-    public record PublishedCutValidation(PublishedCutState state, WorkClassTask task, long generation,
-            Object originalCut) {}
+    public record PublishedCutValidation(
+            PublishedCutState state, WorkClassTask task, long generation, Object originalCut) {}
 
-    public record CollectedSemanticRequest(Request candidate,
+    public record CollectedSemanticRequest(
+            Request candidate,
             Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
             com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-            Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication,
+            Runnable protection,
+            TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication,
             TargetCheckpointCandidateWorkClassExecutor.IntentRegistration registration) {
-        public CollectedSemanticRequest(Request candidate,
+        public CollectedSemanticRequest(
+                Request candidate,
                 Supplier<Optional<com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot>> inputs,
                 com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-                Runnable protection, TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
+                Runnable protection,
+                TargetCheckpointCandidateWorkClassExecutor.PublicationPlan publication) {
             this(candidate, inputs, semanticLimits, protection, publication, null);
         }
+
         public CollectedSemanticRequest {
             Objects.requireNonNull(candidate, "candidate");
             Objects.requireNonNull(inputs, "inputs");
@@ -139,67 +155,101 @@ public final class TargetCheckpointCandidateSchedule {
     }
 
     /** Queues bounded history preparation under the same pending task and due claim as image/publication. */
-    public static TargetCheckpointCandidateSchedule collectedSemantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, CollectedSemanticRequestFactory factory) {
+    public static TargetCheckpointCandidateSchedule collectedSemantic(
+            TargetWorkerHostRuntime host, CheckpointScheduler scheduler, CollectedSemanticRequestFactory factory) {
         return collectedSemantic(host, scheduler, factory, null);
     }
 
-    public static TargetCheckpointCandidateSchedule collectedSemantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, CollectedSemanticRequestFactory factory, SchedulerBudget settlementBudget) {
+    public static TargetCheckpointCandidateSchedule collectedSemantic(
+            TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler,
+            CollectedSemanticRequestFactory factory,
+            SchedulerBudget settlementBudget) {
         Objects.requireNonNull(factory, "factory");
         return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
             final var worker = (TargetWorkerShardRuntime) shard;
             final var cut = worker.protectCheckpointCut();
             final var request = Objects.requireNonNull(factory.create(worker, claim, cut), "collected request");
             final var submission = worker.submitCollectedSemanticCheckpointCandidate(request, cut, settlementBudget);
-            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
-                    submission::publicationStoreSequence, submission::requirePublicationCurrent);
+            return new Candidate(
+                    submission.task(),
+                    submission::outcome,
+                    () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence,
+                    submission::requirePublicationCurrent);
         });
     }
 
-    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, DeferredCollectedSemanticRequestFactory factory) {
+    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(
+            TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler,
+            DeferredCollectedSemanticRequestFactory factory) {
         return deferredCollectedSemantic(host, scheduler, factory, null);
     }
 
-    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, DeferredCollectedSemanticRequestFactory factory,
+    public static TargetCheckpointCandidateSchedule deferredCollectedSemantic(
+            TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler,
+            DeferredCollectedSemanticRequestFactory factory,
             SchedulerBudget settlementBudget) {
         Objects.requireNonNull(factory, "factory");
         return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
             final var worker = (TargetWorkerShardRuntime) shard;
             final var cut = worker.protectCheckpointCut();
-            final var preparation = Objects.requireNonNull(factory.create(worker, claim, cut),
-                    "deferred collected preparation");
-            final var submission = worker.submitDeferredCollectedSemanticCheckpointCandidate(
-                    preparation, cut, settlementBudget);
-            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
-                    submission::publicationStoreSequence, submission::requirePublicationCurrent,
-                    preparation, submission, cut::requireCurrent,
+            final var preparation =
+                    Objects.requireNonNull(factory.create(worker, claim, cut), "deferred collected preparation");
+            final var submission =
+                    worker.submitDeferredCollectedSemanticCheckpointCandidate(preparation, cut, settlementBudget);
+            return new Candidate(
+                    submission.task(),
+                    submission::outcome,
+                    () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence,
+                    submission::requirePublicationCurrent,
+                    preparation,
+                    submission,
+                    cut::requireCurrent,
                     () -> worker.requirePublishedCheckpointOwnerCurrent(submission));
         });
     }
 
     /** Schedules complete semantic candidates under the same native cut captured before request construction. */
-    public static TargetCheckpointCandidateSchedule semantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, SemanticRequestFactory factory) {
+    public static TargetCheckpointCandidateSchedule semantic(
+            TargetWorkerHostRuntime host, CheckpointScheduler scheduler, SemanticRequestFactory factory) {
         return semantic(host, scheduler, factory, null);
     }
 
-    public static TargetCheckpointCandidateSchedule semantic(TargetWorkerHostRuntime host,
-            CheckpointScheduler scheduler, SemanticRequestFactory factory, SchedulerBudget settlementBudget) {
+    public static TargetCheckpointCandidateSchedule semantic(
+            TargetWorkerHostRuntime host,
+            CheckpointScheduler scheduler,
+            SemanticRequestFactory factory,
+            SchedulerBudget settlementBudget) {
         Objects.requireNonNull(factory, "factory");
         return new TargetCheckpointCandidateSchedule(host, scheduler, (Dispatcher) (shard, claim) -> {
             final var worker = (TargetWorkerShardRuntime) shard;
             final var cut = worker.protectCheckpointCut();
             final var semantic = Objects.requireNonNull(factory.create(worker, claim, cut), "semantic request");
             final var request = semantic.candidate();
-            final var submission = worker.submitProtectedSemanticCheckpointCandidate(request.intents(),
-                    request.ownerClock(), request.checkpointPath(), request.pending(), request.physicalLimits(),
-                    request.quotaLimits(), request.ledgerLimits(), semantic.snapshot(), semantic.semanticLimits(),
-                    semantic.protection(), cut, semantic.publication(), settlementBudget);
-            return new Candidate(submission.task(), submission::outcome, () -> submission.publication().isPresent(),
-                    submission::publicationStoreSequence, submission::requirePublicationCurrent);
+            final var submission = worker.submitProtectedSemanticCheckpointCandidate(
+                    request.intents(),
+                    request.ownerClock(),
+                    request.checkpointPath(),
+                    request.pending(),
+                    request.physicalLimits(),
+                    request.quotaLimits(),
+                    request.ledgerLimits(),
+                    semantic.snapshot(),
+                    semantic.semanticLimits(),
+                    semantic.protection(),
+                    cut,
+                    semantic.publication(),
+                    settlementBudget);
+            return new Candidate(
+                    submission.task(),
+                    submission::outcome,
+                    () -> submission.publication().isPresent(),
+                    submission::publicationStoreSequence,
+                    submission::requirePublicationCurrent);
         });
     }
 
@@ -208,26 +258,52 @@ public final class TargetCheckpointCandidateSchedule {
     }
 
     record Candidate(
-            WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
-            BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent,
-            DeferredPreparation deferred, TargetCheckpointCandidateWorkClassExecutor.Submission submission,
-            Runnable requireLocalCutCurrent, Runnable requireLocalOwnerCurrent) {
-        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
-                BooleanSupplier published, LongSupplier publicationStoreSequence, Runnable requirePublicationCurrent) {
-            this(task, outcome, published, publicationStoreSequence, requirePublicationCurrent,
-                    null, null, () -> {}, () -> {});
+            WorkClassTask task,
+            Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+            BooleanSupplier published,
+            LongSupplier publicationStoreSequence,
+            Runnable requirePublicationCurrent,
+            DeferredPreparation deferred,
+            TargetCheckpointCandidateWorkClassExecutor.Submission submission,
+            Runnable requireLocalCutCurrent,
+            Runnable requireLocalOwnerCurrent) {
+        Candidate(
+                WorkClassTask task,
+                Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+                BooleanSupplier published,
+                LongSupplier publicationStoreSequence,
+                Runnable requirePublicationCurrent) {
+            this(
+                    task,
+                    outcome,
+                    published,
+                    publicationStoreSequence,
+                    requirePublicationCurrent,
+                    null,
+                    null,
+                    () -> {},
+                    () -> {});
         }
+
         Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome) {
             this(task, outcome, () -> false, () -> 0, () -> {});
         }
-        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+
+        Candidate(
+                WorkClassTask task,
+                Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
                 BooleanSupplier published) {
             this(task, outcome, published, () -> 0, () -> {});
         }
-        Candidate(WorkClassTask task, Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
-                BooleanSupplier published, LongSupplier publicationStoreSequence) {
+
+        Candidate(
+                WorkClassTask task,
+                Supplier<Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome>> outcome,
+                BooleanSupplier published,
+                LongSupplier publicationStoreSequence) {
             this(task, outcome, published, publicationStoreSequence, () -> {});
         }
+
         Candidate {
             Objects.requireNonNull(task, "task");
             Objects.requireNonNull(outcome, "outcome");
@@ -237,8 +313,8 @@ public final class TargetCheckpointCandidateSchedule {
         }
     }
 
-    private record Flight(TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim, Candidate candidate,
-            boolean finalDrain) {}
+    private record Flight(
+            TargetWorkerHostRuntime.Shard shard, ScheduledCheckpoint claim, Candidate candidate, boolean finalDrain) {}
 
     private static final class PublishedCut {
         private final TargetWorkerHostRuntime.Shard shard;
@@ -246,14 +322,32 @@ public final class TargetCheckpointCandidateSchedule {
         private final Candidate candidate;
         private long generation;
         private PublishedValidationRequest request;
-        private TargetCheckpointCandidateWorkClassExecutor.PublicationValidationAttempt<PublishedValidationHold> validation;
+        private TargetCheckpointCandidateWorkClassExecutor.PublicationValidationAttempt<PublishedValidationHold>
+                validation;
         private boolean stopping;
+
         PublishedCut(TargetWorkerHostRuntime.Shard shard, long nativeSequence, Candidate candidate) {
-            this.shard = shard; this.nativeSequence = nativeSequence; this.candidate = candidate;
+            this.shard = shard;
+            this.nativeSequence = nativeSequence;
+            this.candidate = candidate;
         }
-        void stop() { stopping = true; if (validation != null) { validation.requestStop(); } }
-        void retryCleanup() { if (validation != null) { validation.retryCleanup(); } }
-        boolean exited() { return validation == null || validation.ioExited(); }
+
+        void stop() {
+            stopping = true;
+            if (validation != null) {
+                validation.requestStop();
+            }
+        }
+
+        void retryCleanup() {
+            if (validation != null) {
+                validation.retryCleanup();
+            }
+        }
+
+        boolean exited() {
+            return validation == null || validation.ioExited();
+        }
     }
 
     private final TargetWorkerHostRuntime host;
@@ -315,7 +409,9 @@ public final class TargetCheckpointCandidateSchedule {
         scheduler.unregister(shardId);
         registered.remove(shardId);
         final var removed = publishedCuts.remove(shardId);
-        if (removed != null) { retire(removed); }
+        if (removed != null) {
+            retire(removed);
+        }
     }
 
     /**
@@ -336,7 +432,9 @@ public final class TargetCheckpointCandidateSchedule {
     void ensureRegistered(TargetWorkerHostRuntime.Shard shard, long now, SchedulerBudget budget) {
         final Flight oldFlight;
         synchronized (this) {
-            if (registered.get(shard.shardId()) == shard) { return; }
+            if (registered.get(shard.shardId()) == shard) {
+                return;
+            }
             oldFlight = flights.get(shard.shardId());
         }
         if (oldFlight != null) {
@@ -346,13 +444,17 @@ public final class TargetCheckpointCandidateSchedule {
             settle(shard.shardId(), Objects.requireNonNull(budget, "budget"), now);
         }
         synchronized (this) {
-            if (registered.containsKey(shard.shardId())) { unregister(shard.shardId()); }
+            if (registered.containsKey(shard.shardId())) {
+                unregister(shard.shardId());
+            }
         }
         registerShard(shard, now);
     }
 
     void requireHost(TargetWorkerHostRuntime expected) {
-        if (host != expected) { throw new IllegalArgumentException("checkpoint schedule belongs to another Host"); }
+        if (host != expected) {
+            throw new IllegalArgumentException("checkpoint schedule belongs to another Host");
+        }
     }
 
     private List<WorkClassTask> claimDueAndSubmit(ShardId selectedShard, long nowEpochMs, int limit) {
@@ -364,7 +466,8 @@ public final class TargetCheckpointCandidateSchedule {
             final ScheduledCheckpoint claim;
             final TargetWorkerHostRuntime.Shard shard;
             synchronized (this) {
-                final List<ScheduledCheckpoint> due = selectedShard == null ? scheduler.claimDue(nowEpochMs, 1)
+                final List<ScheduledCheckpoint> due = selectedShard == null
+                        ? scheduler.claimDue(nowEpochMs, 1)
                         : scheduler.claimDueForShard(selectedShard, nowEpochMs, 1);
                 if (due.isEmpty()) {
                     break;
@@ -376,8 +479,7 @@ public final class TargetCheckpointCandidateSchedule {
                 }
             }
             try {
-                final Candidate candidate = host.withCheckpointAdmission(
-                        shard, () -> dispatcher.submit(shard, claim));
+                final Candidate candidate = host.withCheckpointAdmission(shard, () -> dispatcher.submit(shard, claim));
                 synchronized (this) {
                     scheduler.requireCurrentClaim(claim);
                     flights.put(claim.shardId(), new Flight(shard, claim, candidate, false));
@@ -411,7 +513,8 @@ public final class TargetCheckpointCandidateSchedule {
             scheduler.requireCurrentClaim(flight.claim());
         }
         // An independent host settlement may already have made the candidate terminal.
-        Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> outcome = flight.candidate().outcome().get();
+        Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> outcome =
+                flight.candidate().outcome().get();
         if (outcome.isEmpty()) {
             // The host fences an exact Shard and permits settlement after whole-host stop.
             host.settlePendingCheckpointTurn(flight.shard(), flight.candidate().task(), budget);
@@ -431,7 +534,9 @@ public final class TargetCheckpointCandidateSchedule {
 
     public synchronized Optional<WorkClassTask> pendingTask(final ShardId shardId) {
         final Flight flight = flights.get(Objects.requireNonNull(shardId, "shardId"));
-        return flight == null ? Optional.empty() : Optional.of(flight.candidate().task());
+        return flight == null
+                ? Optional.empty()
+                : Optional.of(flight.candidate().task());
     }
 
     synchronized boolean hasFinalDrainFlight(TargetWorkerHostRuntime.Shard shard) {
@@ -441,7 +546,9 @@ public final class TargetCheckpointCandidateSchedule {
 
     boolean hasCurrentPublishedCut(TargetWorkerHostRuntime.Shard shard) {
         final PublishedCut cut;
-        synchronized (this) { cut = publishedCuts.get(shard.shardId()); }
+        synchronized (this) {
+            cut = publishedCuts.get(shard.shardId());
+        }
         if (cut == null || cut.shard != shard || cut.nativeSequence != shard.checkpointStoreSequence()) {
             return false;
         }
@@ -452,14 +559,19 @@ public final class TargetCheckpointCandidateSchedule {
     PublishedCutValidation validateCurrentPublishedCutForDrain(TargetWorkerHostRuntime.Shard shard) {
         final PublishedCut cut;
         synchronized (this) {
-            if (publicationValidationStopping) throw new IllegalStateException("checkpoint validation is stopping");
+            if (publicationValidationStopping) {
+                throw new IllegalStateException("checkpoint validation is stopping");
+            }
             cut = publishedCuts.get(shard.shardId());
         }
         cleanupRetiredPublications();
-        if (cut == null) return new PublishedCutValidation(PublishedCutState.NO_MATCH, null, 0, null);
+        if (cut == null) {
+            return new PublishedCutValidation(PublishedCutState.NO_MATCH, null, 0, null);
+        }
         if (cut.shard != shard) {
             synchronized (cut) {
-                cut.stop(); cut.retryCleanup();
+                cut.stop();
+                cut.retryCleanup();
                 requireNoValidationFailure(cut);
                 return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
             }
@@ -468,7 +580,8 @@ public final class TargetCheckpointCandidateSchedule {
         final boolean initialMatch = matchesLocalCut(cut, shard);
         synchronized (cut) {
             if (!initialMatch) {
-                cut.stop(); cut.retryCleanup();
+                cut.stop();
+                cut.retryCleanup();
                 requireNoValidationFailure(cut);
                 return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
             }
@@ -485,11 +598,13 @@ public final class TargetCheckpointCandidateSchedule {
             if (cut.validation == null) {
                 cut.request = new PublishedValidationRequest(cut.candidate.submission(), ++cut.generation);
                 cut.validation = cut.candidate.submission().beginPublishedValidation((current, retain) -> {
-                    final var hold = Objects.requireNonNull(cut.candidate.deferred()
-                            .acquirePublishedValidation(cut.request, current), "original publication validation loan");
+                    final var hold = Objects.requireNonNull(
+                            cut.candidate.deferred().acquirePublishedValidation(cut.request, current),
+                            "original publication validation loan");
                     retain.accept(hold);
-                    if (hold.request() != cut.request)
+                    if (hold.request() != cut.request) {
                         throw new IllegalStateException("publication validation changed its original request");
+                    }
                     current.run();
                     cut.candidate.requirePublicationCurrent().run();
                     hold.requireLocalCurrent();
@@ -500,7 +615,9 @@ public final class TargetCheckpointCandidateSchedule {
         }
         cut.candidate.submission().advancePublishedValidation();
         final boolean currentCut;
-        synchronized (this) { currentCut = publishedCuts.get(shard.shardId()) == cut; }
+        synchronized (this) {
+            currentCut = publishedCuts.get(shard.shardId()) == cut;
+        }
         cut.candidate.requireLocalOwnerCurrent().run();
         final boolean finalMatch = matchesLocalCut(cut, shard);
         synchronized (cut) {
@@ -510,27 +627,41 @@ public final class TargetCheckpointCandidateSchedule {
                 return validationResult(cut, PublishedCutState.PENDING);
             }
             if (!finalMatch) {
-                cut.stop(); cut.retryCleanup();
+                cut.stop();
+                cut.retryCleanup();
                 requireNoValidationFailure(cut);
                 return validationResult(cut, cut.exited() ? PublishedCutState.NO_MATCH : PublishedCutState.PENDING);
             }
             final Optional<PublishedValidationHold> ready;
-            try { ready = cut.validation.ready(); }
-            catch (RuntimeException | Error failure) { cut.stop(); throw failure; }
-            if (ready.isEmpty()) return validationResult(cut, PublishedCutState.PENDING);
+            try {
+                ready = cut.validation.ready();
+            } catch (RuntimeException | Error failure) {
+                cut.stop();
+                throw failure;
+            }
+            if (ready.isEmpty()) {
+                return validationResult(cut, PublishedCutState.PENDING);
+            }
             final var hold = ready.orElseThrow();
-            if (hold.request() != cut.request)
+            if (hold.request() != cut.request) {
                 throw new IllegalStateException("publication validation loan changed its original generation");
+            }
             hold.requireLocalCurrent();
             return validationResult(cut, PublishedCutState.VALID);
         }
     }
 
     boolean consumeCurrentPublishedCutForDrain(TargetWorkerHostRuntime.Shard shard, PublishedCutValidation result) {
-        if (result.state() != PublishedCutState.VALID) return false;
+        if (result.state() != PublishedCutState.VALID) {
+            return false;
+        }
         final PublishedCut cut;
-        synchronized (this) { cut = publishedCuts.get(shard.shardId()); }
-        if (cut == null || result.originalCut() != cut) return false;
+        synchronized (this) {
+            cut = publishedCuts.get(shard.shardId());
+        }
+        if (cut == null || result.originalCut() != cut) {
+            return false;
+        }
         cut.candidate.requireLocalOwnerCurrent().run();
         final boolean sameLocalCut = matchesLocalCut(cut, shard);
         synchronized (cut) {
@@ -539,12 +670,17 @@ public final class TargetCheckpointCandidateSchedule {
                 cut.stop();
                 return false;
             }
-            if (cut.candidate.deferred() != null && cut.validation == null) return false;
+            if (cut.candidate.deferred() != null && cut.validation == null) {
+                return false;
+            }
             if (cut.validation != null) {
-                final var hold = cut.validation.ready().orElseThrow(
-                        () -> new IllegalStateException("validated publication lost its held authority loan"));
-                if (hold.request() != cut.request)
+                final var hold = cut.validation
+                        .ready()
+                        .orElseThrow(
+                                () -> new IllegalStateException("validated publication lost its held authority loan"));
+                if (hold.request() != cut.request) {
                     throw new IllegalStateException("consumed publication validation changed generation");
+                }
                 hold.requireLocalCurrent();
             }
             return true;
@@ -552,9 +688,15 @@ public final class TargetCheckpointCandidateSchedule {
     }
 
     private boolean matchesLocalCut(PublishedCut cut, TargetWorkerHostRuntime.Shard shard) {
-        if (cut.shard != shard || cut.nativeSequence != shard.checkpointStoreSequence()) return false;
-        try { cut.candidate.requireLocalCutCurrent().run(); return true; }
-        catch (IllegalStateException changed) { return false; }
+        if (cut.shard != shard || cut.nativeSequence != shard.checkpointStoreSequence()) {
+            return false;
+        }
+        try {
+            cut.candidate.requireLocalCutCurrent().run();
+            return true;
+        } catch (IllegalStateException changed) {
+            return false;
+        }
     }
 
     private PublishedCutValidation validationResult(PublishedCut cut, PublishedCutState state) {
@@ -562,38 +704,62 @@ public final class TargetCheckpointCandidateSchedule {
     }
 
     private void requireNoValidationFailure(PublishedCut cut) {
-        if (cut.validation == null) return;
+        if (cut.validation == null) {
+            return;
+        }
         final var failure = cut.validation.pendingIoFailure();
-        if (failure == null || cut.stopping && failure instanceof OwnedCheckpointIo.StoppedException) return;
+        if (failure == null || cut.stopping && failure instanceof OwnedCheckpointIo.StoppedException) {
+            return;
+        }
         cut.stop();
         throw new IllegalStateException("original published checkpoint validation or cleanup failed", failure);
     }
 
     private synchronized void retire(PublishedCut cut) {
-        synchronized (cut) { cut.stop(); }
-        if (!retiredPublishedCuts.contains(cut)) retiredPublishedCuts.add(cut);
+        synchronized (cut) {
+            cut.stop();
+        }
+        if (!retiredPublishedCuts.contains(cut)) {
+            retiredPublishedCuts.add(cut);
+        }
     }
 
     private void cleanupRetiredPublications() {
         final List<PublishedCut> retired;
-        synchronized (this) { retired = List.copyOf(retiredPublishedCuts); }
-        for (var cut : retired) { cut.retryCleanup(); }
-        synchronized (this) { retiredPublishedCuts.removeIf(PublishedCut::exited); }
+        synchronized (this) {
+            retired = List.copyOf(retiredPublishedCuts);
+        }
+        for (var cut : retired) {
+            cut.retryCleanup();
+        }
+        synchronized (this) {
+            retiredPublishedCuts.removeIf(PublishedCut::exited);
+        }
     }
 
     public void requestPublishedValidationStop() {
         final List<PublishedCut> cuts;
         synchronized (this) {
             publicationValidationStopping = true;
-            cuts = new ArrayList<>(publishedCuts.values()); cuts.addAll(retiredPublishedCuts);
+            cuts = new ArrayList<>(publishedCuts.values());
+            cuts.addAll(retiredPublishedCuts);
         }
-        for (var cut : cuts) { synchronized (cut) { cut.stop(); } }
+        for (var cut : cuts) {
+            synchronized (cut) {
+                cut.stop();
+            }
+        }
     }
 
     public boolean settlePublishedValidationCleanup() {
         final List<PublishedCut> cuts;
-        synchronized (this) { cuts = new ArrayList<>(publishedCuts.values()); cuts.addAll(retiredPublishedCuts); }
-        for (var cut : cuts) { cut.retryCleanup(); }
+        synchronized (this) {
+            cuts = new ArrayList<>(publishedCuts.values());
+            cuts.addAll(retiredPublishedCuts);
+        }
+        for (var cut : cuts) {
+            cut.retryCleanup();
+        }
         cleanupRetiredPublications();
         return cuts.stream().allMatch(PublishedCut::exited);
     }
@@ -602,9 +768,11 @@ public final class TargetCheckpointCandidateSchedule {
         if (outcome.failure() == null && flight.candidate().published().getAsBoolean()) {
             final long sequence = flight.candidate().publicationStoreSequence().getAsLong();
             synchronized (this) {
-                final var previous = publishedCuts.put(flight.shard().shardId(),
-                        new PublishedCut(flight.shard(), sequence, flight.candidate()));
-                if (previous != null) { retire(previous); }
+                final var previous = publishedCuts.put(
+                        flight.shard().shardId(), new PublishedCut(flight.shard(), sequence, flight.candidate()));
+                if (previous != null) {
+                    retire(previous);
+                }
             }
         }
     }
@@ -617,7 +785,9 @@ public final class TargetCheckpointCandidateSchedule {
                 throw new IllegalStateException("final checkpoint cannot discard an earlier claim");
             }
             if (registered.get(shard.shardId()) != shard) {
-                if (registered.containsKey(shard.shardId())) { unregister(shard.shardId()); }
+                if (registered.containsKey(shard.shardId())) {
+                    unregister(shard.shardId());
+                }
                 scheduler.register(shard.shardId(), now);
                 registered.put(shard.shardId(), shard);
             }
@@ -631,7 +801,9 @@ public final class TargetCheckpointCandidateSchedule {
             }
             return candidate.task();
         } catch (RuntimeException | Error failure) {
-            synchronized (this) { scheduler.complete(claim, now); }
+            synchronized (this) {
+                scheduler.complete(claim, now);
+            }
             throw failure;
         }
     }
@@ -642,8 +814,12 @@ public final class TargetCheckpointCandidateSchedule {
         final Flight flight;
         synchronized (this) {
             flight = flights.get(shard.shardId());
-            if (flight == null) { return Optional.empty(); }
-            if (flight.shard() != shard) { throw new IllegalStateException("drain checkpoint Shard was replaced"); }
+            if (flight == null) {
+                return Optional.empty();
+            }
+            if (flight.shard() != shard) {
+                throw new IllegalStateException("drain checkpoint Shard was replaced");
+            }
             scheduler.requireCurrentClaim(flight.claim());
         }
         var outcome = flight.candidate().outcome().get();

@@ -163,8 +163,7 @@ class TargetClaimRecordTest {
                 KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), attemptId));
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> claim.admitted(claimed, wrongOwner, work.candidateAttemptNo()));
+                IllegalArgumentException.class, () -> claim.admitted(claimed, wrongOwner, work.candidateAttemptNo()));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> claim.admitted(claimed, wrongGeneration, work.candidateAttemptNo()));
@@ -252,7 +251,8 @@ class TargetClaimRecordTest {
         assertTrue(obligations.stream().anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), retryAttemptId)));
         assertTrue(obligations.stream().anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), oldAttemptId)));
         assertTrue(Arrays.compareUnsigned(
-                        obligations.get(0).publishAttemptId(), obligations.get(1).publishAttemptId())
+                        obligations.get(0).publishAttemptId(),
+                        obligations.get(1).publishAttemptId())
                 < 0);
         assertTrue(admitted.runtime().possibleDestinationDuplicate());
     }

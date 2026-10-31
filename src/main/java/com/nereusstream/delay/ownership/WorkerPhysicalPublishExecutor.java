@@ -440,7 +440,9 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                                 exactAttempt, request, StableCode.CAPABILITY_UNAVAILABLE);
                                     }
                                     try {
-                                        if (exactJournal.markOwnershipStarted(mapping).idempotent()) {
+                                        if (exactJournal
+                                                .markOwnershipStarted(mapping)
+                                                .idempotent()) {
                                             return DestinationPublishResult.unknown(
                                                     StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null);
                                         }

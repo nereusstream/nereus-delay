@@ -98,7 +98,8 @@ public final class TargetKeyCodec {
 
     public static byte[] channelSlot(final byte[] stableProducerIdentity) {
         Objects.requireNonNull(stableProducerIdentity, "stableProducerIdentity");
-        return Bytes.concat(new byte[] {CHANNEL_SLOT_TAG, KEY_FORMAT},
+        return Bytes.concat(
+                new byte[] {CHANNEL_SLOT_TAG, KEY_FORMAT},
                 Bytes.sha256(Bytes.utf8("nereus-delay-target-channel-slot\0"), stableProducerIdentity));
     }
 

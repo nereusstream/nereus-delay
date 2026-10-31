@@ -31,7 +31,8 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
     void configureSourceApplyTurn(Runnable turn) {
         synchronized (this) {
             if (closed || scheduled != null || sourceApplyTurn != null) {
-                throw new IllegalStateException("Target maintenance Source apply is started, closed or already configured");
+                throw new IllegalStateException(
+                        "Target maintenance Source apply is started, closed or already configured");
             }
             sourceApplyTurn = Objects.requireNonNull(turn, "turn");
         }
@@ -169,14 +170,17 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
             activeTurnThread = Thread.currentThread();
             try {
                 if (sourceApplyTurn != null) {
-                    try { sourceApplyTurn.run(); }
-                    catch (RuntimeException | Error caught) {
+                    try {
+                        sourceApplyTurn.run();
+                    } catch (RuntimeException | Error caught) {
                         failure = caught;
                         firstFailure.compareAndSet(null, caught);
                     }
                 }
                 try {
-                    if (!(failure instanceof Error)) { fleet.runNextMaintenanceTurnIfPresent(budget); }
+                    if (!(failure instanceof Error)) {
+                        fleet.runNextMaintenanceTurnIfPresent(budget);
+                    }
                 } catch (RuntimeException | Error caught) {
                     failure = combineFailures(failure, caught);
                     firstFailure.compareAndSet(null, caught);
@@ -193,7 +197,8 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                     if (!(failure instanceof Error)) {
                         try {
                             final var publication = fleet.runNextPublishTurnIfPresent();
-                            if (publication.isPresent() && publication.orElseThrow().failure() != null) {
+                            if (publication.isPresent()
+                                    && publication.orElseThrow().failure() != null) {
                                 final var caught = publication.orElseThrow().failure();
                                 firstFailure.compareAndSet(null, caught);
                                 failure = combineFailures(failure, caught);
@@ -206,7 +211,8 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                     if (!(failure instanceof Error)) {
                         try {
                             final var recovery = fleet.runNextPublishRecoveryTurnIfPresent();
-                            if (recovery.isPresent() && recovery.orElseThrow().turn().isPresent()) {
+                            if (recovery.isPresent()
+                                    && recovery.orElseThrow().turn().isPresent()) {
                                 final var turn = recovery.orElseThrow().turn().orElseThrow();
                                 if (turn.failure() != null) {
                                     firstFailure.compareAndSet(null, turn.failure());
@@ -232,8 +238,9 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                         }
                     }
                     if (!(failure instanceof Error)) {
-                        try { fleet.runNextPublicationResourceTurnIfPresent(); }
-                        catch (RuntimeException | Error caught) {
+                        try {
+                            fleet.runNextPublicationResourceTurnIfPresent();
+                        } catch (RuntimeException | Error caught) {
                             firstFailure.compareAndSet(null, caught);
                             failure = combineFailures(failure, caught);
                         }
@@ -243,22 +250,26 @@ public final class TargetWorkerMaintenanceLoop implements AutoCloseable {
                             final var reclaim = fleet.runNextResourceReclaimTurnIfPresent();
                             if (reclaim.isPresent() && reclaim.orElseThrow().failure() != null) {
                                 final var caught = reclaim.orElseThrow().failure();
-                                firstFailure.compareAndSet(null, caught); failure = combineFailures(failure, caught);
+                                firstFailure.compareAndSet(null, caught);
+                                failure = combineFailures(failure, caught);
                             }
                         } catch (RuntimeException | Error caught) {
-                            firstFailure.compareAndSet(null, caught); failure = combineFailures(failure, caught);
+                            firstFailure.compareAndSet(null, caught);
+                            failure = combineFailures(failure, caught);
                         }
                     }
                     if (!(failure instanceof Error) && checkpointTurn != null) {
-                        try { checkpointTurn.run(); }
-                        catch (RuntimeException | Error caught) {
+                        try {
+                            checkpointTurn.run();
+                        } catch (RuntimeException | Error caught) {
                             firstFailure.compareAndSet(null, caught);
                             failure = combineFailures(failure, caught);
                         }
                     }
                     if (!(failure instanceof Error) && sourceObservationTurn != null) {
-                        try { sourceObservationTurn.run(); }
-                        catch (RuntimeException | Error caught) {
+                        try {
+                            sourceObservationTurn.run();
+                        } catch (RuntimeException | Error caught) {
                             firstFailure.compareAndSet(null, caught);
                             failure = combineFailures(failure, caught);
                         }

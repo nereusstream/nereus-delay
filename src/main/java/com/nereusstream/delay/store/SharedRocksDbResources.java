@@ -64,6 +64,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Actual isolated Native copies, never a second logical owned Shard. Identity is the original Store supplier. */
     private final Map<Supplier<RocksDbUsageSnapshot>, PhysicalUsageSource> privateCopyPhysicalUsageSources =
             new java.util.IdentityHashMap<>();
+
     private int shardAcquireCount;
     private int ownedShardCount;
     private int openDbCount;
@@ -152,12 +153,19 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public static final class NativeOpeningFailure extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         private final transient NativeOpening opening;
+
         private NativeOpeningFailure(Throwable cause, NativeOpening opening) {
             super("shared RocksDB allocation failed; original native cleanup is retained", cause);
             this.opening = opening;
         }
-        public void retryCleanup() { opening.retryCleanup(this); }
-        public boolean cleanupComplete() { return opening.cleanupComplete(); }
+
+        public void retryCleanup() {
+            opening.retryCleanup(this);
+        }
+
+        public boolean cleanupComplete() {
+            return opening.cleanupComplete();
+        }
     }
 
     private static final class NativeOpening {
@@ -167,41 +175,68 @@ public final class SharedRocksDbResources implements AutoCloseable {
         private WriteBufferManager buffers;
         private RateLimiter limiter;
         private final Throwable[] firstFailures = new Throwable[5];
-        private NativeOpening(WorkerNativeResourceLedger.Reservation cacheCost,
-                WorkerNativeResourceLedger.Reservation bufferCost) {
-            this.cacheCost = cacheCost; this.bufferCost = bufferCost;
+
+        private NativeOpening(
+                WorkerNativeResourceLedger.Reservation cacheCost, WorkerNativeResourceLedger.Reservation bufferCost) {
+            this.cacheCost = cacheCost;
+            this.bufferCost = bufferCost;
         }
+
         private void failed(NativeOpeningFailure original, int resource, Throwable failure) {
             if (firstFailures[resource] == null) {
                 firstFailures[resource] = failure;
-                if (failure != original && failure != original.getCause()) original.addSuppressed(failure);
+                if (failure != original && failure != original.getCause()) {
+                    original.addSuppressed(failure);
+                }
             }
         }
+
         private synchronized void retryCleanup(NativeOpeningFailure original) {
             if (limiter != null) {
-                try { limiter.close(); limiter = null; }
-                catch (RuntimeException | Error failure) { failed(original, 0, failure); }
+                try {
+                    limiter.close();
+                    limiter = null;
+                } catch (RuntimeException | Error failure) {
+                    failed(original, 0, failure);
+                }
             }
             if (buffers != null) {
-                try { buffers.close(); buffers = null; }
-                catch (RuntimeException | Error failure) { failed(original, 1, failure); }
+                try {
+                    buffers.close();
+                    buffers = null;
+                } catch (RuntimeException | Error failure) {
+                    failed(original, 1, failure);
+                }
             }
             if (buffers == null && bufferCost != null && !bufferCost.isReleased()) {
-                try { bufferCost.close(); }
-                catch (RuntimeException | Error failure) { failed(original, 2, failure); }
+                try {
+                    bufferCost.close();
+                } catch (RuntimeException | Error failure) {
+                    failed(original, 2, failure);
+                }
             }
             // The original write-buffer manager may still reference the cache after a failed close.
             if (buffers == null && cache != null) {
-                try { cache.close(); cache = null; }
-                catch (RuntimeException | Error failure) { failed(original, 3, failure); }
+                try {
+                    cache.close();
+                    cache = null;
+                } catch (RuntimeException | Error failure) {
+                    failed(original, 3, failure);
+                }
             }
             if (cache == null && cacheCost != null && !cacheCost.isReleased()) {
-                try { cacheCost.close(); }
-                catch (RuntimeException | Error failure) { failed(original, 4, failure); }
+                try {
+                    cacheCost.close();
+                } catch (RuntimeException | Error failure) {
+                    failed(original, 4, failure);
+                }
             }
         }
+
         private synchronized boolean cleanupComplete() {
-            return limiter == null && buffers == null && cache == null
+            return limiter == null
+                    && buffers == null
+                    && cache == null
                     && (cacheCost == null || cacheCost.isReleased())
                     && (bufferCost == null || bufferCost.isReleased());
         }
@@ -242,7 +277,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
             final ShardStoreConfig expectedConfig, final WorkerResourceEnvelope expectedEnvelope) {
         requireConfig(expectedConfig);
         requireWorkerActivationReady();
-        if (!java.util.Arrays.equals(runtimeSafetyGate.certifiedEnvelopeDigest(),
+        if (!java.util.Arrays.equals(
+                runtimeSafetyGate.certifiedEnvelopeDigest(),
                 Objects.requireNonNull(expectedEnvelope, "expectedEnvelope").digest())) {
             throw new IllegalArgumentException("certified resource envelope differs from the Target Worker");
         }
@@ -282,7 +318,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Starts the owner-managed fixed-delay runtime probe after startup validation. */
     public synchronized WorkerRuntimeResourceMonitor startRuntimeResourceMonitor(final Duration interval) {
         ensureOpen();
-        if (resourceMonitorsStopping) throw new IllegalStateException("original resource monitors are stopping");
+        if (resourceMonitorsStopping) {
+            throw new IllegalStateException("original resource monitors are stopping");
+        }
         if (runtimeSafetyGate == null) {
             throw new IllegalStateException("runtime safety monitor requires a Worker resource envelope");
         }
@@ -304,7 +342,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
     public synchronized WorkerRocksDbUsageMonitor startRocksDbUsageMonitor(
             final RocksDbUsageLimits limits, final Duration interval) {
         ensureOpen();
-        if (resourceMonitorsStopping) throw new IllegalStateException("original resource monitors are stopping");
+        if (resourceMonitorsStopping) {
+            throw new IllegalStateException("original resource monitors are stopping");
+        }
         Objects.requireNonNull(limits, "limits");
         if (runtimeSafetyGate == null) {
             throw new IllegalStateException("RocksDB usage monitor requires a Worker resource envelope");
@@ -325,14 +365,22 @@ public final class SharedRocksDbResources implements AutoCloseable {
         resourceMonitorsStopping = true;
         Throwable failure = null;
         if (runtimeResourceMonitor != null) {
-            try { runtimeResourceMonitor.close(); }
-            catch (RuntimeException | Error closeFailure) { failure = appendCloseFailure(failure, closeFailure); }
+            try {
+                runtimeResourceMonitor.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure = appendCloseFailure(failure, closeFailure);
+            }
         }
         if (rocksDbUsageMonitor != null) {
-            try { rocksDbUsageMonitor.close(); }
-            catch (RuntimeException | Error closeFailure) { failure = appendCloseFailure(failure, closeFailure); }
+            try {
+                rocksDbUsageMonitor.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure = appendCloseFailure(failure, closeFailure);
+            }
         }
-        if (failure != null) throwUnchecked(failure);
+        if (failure != null) {
+            throwUnchecked(failure);
+        }
         return resourceMonitorsTerminated();
     }
 
@@ -378,9 +426,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
         }
         final long workerEnvelopeMinimumFilesystemFreeBytes;
         synchronized (this) {
-            workerEnvelopeMinimumFilesystemFreeBytes = runtimeSafetyGate == null
-                    ? 0
-                    : runtimeSafetyGate.minimumRuntimeUsableFilesystemBytes();
+            workerEnvelopeMinimumFilesystemFreeBytes =
+                    runtimeSafetyGate == null ? 0 : runtimeSafetyGate.minimumRuntimeUsableFilesystemBytes();
         }
         limits.validateRegisteredDatabases(snapshots, config.rootPath(), workerEnvelopeMinimumFilesystemFreeBytes);
         return List.copyOf(snapshots);
@@ -399,8 +446,10 @@ public final class SharedRocksDbResources implements AutoCloseable {
             if (physicalUsageSources.containsKey(shardId)) {
                 throw new IllegalStateException("physical usage source already registered for " + shardId);
             }
-            if (privateCopyPhysicalUsageSources.containsKey(source))
-                throw new IllegalStateException("Native physical usage supplier is already registered as a private copy");
+            if (privateCopyPhysicalUsageSources.containsKey(source)) {
+                throw new IllegalStateException(
+                        "Native physical usage supplier is already registered as a private copy");
+            }
             physicalUsageSources.put(shardId, new PhysicalUsageSource(shardId, source));
         }
     }
@@ -408,12 +457,16 @@ public final class SharedRocksDbResources implements AutoCloseable {
     /** Only the actual private Native open path calls this; configured DB/open/resource bounds remain in force. */
     void registerPrivateCopyPhysicalUsage(final ShardId shardId, final Supplier<RocksDbUsageSnapshot> source) {
         synchronized (this) {
-            ensureOpen(); Objects.requireNonNull(shardId); Objects.requireNonNull(source);
+            ensureOpen();
+            Objects.requireNonNull(shardId);
+            Objects.requireNonNull(source);
             if (privateCopyPhysicalUsageSources.containsKey(source)
-                    || physicalUsageSources.values().stream().anyMatch(value -> value.snapshot() == source))
+                    || physicalUsageSources.values().stream().anyMatch(value -> value.snapshot() == source)) {
                 throw new IllegalStateException("private Native DB supplier already registered");
-            if (registeredPhysicalUsageSources() >= openDbCount)
+            }
+            if (registeredPhysicalUsageSources() >= openDbCount) {
                 throw new IllegalStateException("private physical usage has no actual admitted Native DB slot");
+            }
             privateCopyPhysicalUsageSources.put(source, new PhysicalUsageSource(shardId, source));
         }
     }
@@ -425,7 +478,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 physicalUsageSources.remove(shardId);
             }
             final var copy = privateCopyPhysicalUsageSources.get(source);
-            if (copy != null && copy.shardId().equals(shardId)) privateCopyPhysicalUsageSources.remove(source);
+            if (copy != null && copy.shardId().equals(shardId)) {
+                privateCopyPhysicalUsageSources.remove(source);
+            }
         }
     }
 
@@ -725,10 +780,14 @@ public final class SharedRocksDbResources implements AutoCloseable {
         // A running observation can still hold original DB/native references. Retain this close attempt,
         // fence new admission, and let the owner retry after the actual original monitor threads return.
         try {
-            if (!stopResourceMonitors()) return;
+            if (!stopResourceMonitors()) {
+                return;
+            }
         } catch (RuntimeException | Error failure) {
             closeFailure = appendCloseFailure(closeFailure, failure);
-            if (!resourceMonitorsTerminated()) throwUnchecked(closeFailure);
+            if (!resourceMonitorsTerminated()) {
+                throwUnchecked(closeFailure);
+            }
         }
         // Every process-level native resource must be attempted even if an
         // earlier close reports a JNI/runtime failure. Otherwise a failed

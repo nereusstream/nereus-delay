@@ -66,10 +66,11 @@ class BoundedDestinationPublishAdapterTest {
         final List<MetricEvent> events = new CopyOnWriteArrayList<>();
 
         try (var metrics = new BoundedAsyncMetricExporter(new Limits(4, 36), events::add)) {
-            final BoundedDestinationPublishAdapter adapter = new BoundedDestinationPublishAdapter(
-                    delegate, admission, workClasses(), Runnable::run, metrics);
+            final BoundedDestinationPublishAdapter adapter =
+                    new BoundedDestinationPublishAdapter(delegate, admission, workClasses(), Runnable::run, metrics);
             final DestinationPublishResult fenced = adapter.submit(
-                            request(lane, 10), ignored -> DestinationPublishResult.definitelyNotPublished(
+                            request(lane, 10),
+                            ignored -> DestinationPublishResult.definitelyNotPublished(
                                     StableCode.CAPABILITY_UNAVAILABLE, null))
                     .outcome()
                     .toCompletableFuture()
@@ -93,17 +94,22 @@ class BoundedDestinationPublishAdapterTest {
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
 
             assertEquals(2, events.size());
-            assertEquals(1, events.stream()
-                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
-                    .count());
-            assertEquals(1, events.stream()
-                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE)
-                    .count());
+            assertEquals(
+                    1,
+                    events.stream()
+                            .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
+                            .count());
+            assertEquals(
+                    1,
+                    events.stream()
+                            .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_UNAVAILABLE)
+                            .count());
             assertTrue(events.stream()
-                    .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
-                    .findFirst()
-                    .orElseThrow()
-                    .value() >= 0);
+                            .filter(event -> event.metric() == Metric.TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS)
+                            .findFirst()
+                            .orElseThrow()
+                            .value()
+                    >= 0);
         }
     }
 

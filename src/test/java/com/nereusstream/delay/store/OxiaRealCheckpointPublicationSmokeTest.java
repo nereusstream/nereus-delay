@@ -77,40 +77,71 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-async-checkpoint-intent/" + UUID.randomUUID();
         final var shard = new ShardId(RouteIncarnation.random(), 29);
-        final var assignment = new SourceAssignment(shard, id32(70), 1,
-                new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
-        try (var first = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "async-checkpoint-writer",
-                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix);
-                var second = OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", "async-checkpoint-reader",
-                    Duration.ofSeconds(15), Duration.ofSeconds(5), prefix);
-                var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
-                    new ThreadPoolExecutor.AbortPolicy())) {
+        final var assignment = new SourceAssignment(
+                shard, id32(70), 1, new KafkaActivationBarrier(shard, "cluster", UUID.randomUUID(), 0));
+        try (var first = OxiaSyncOwnerLeaseBackend.connect(
+                        endpoint,
+                        "default",
+                        "async-checkpoint-writer",
+                        Duration.ofSeconds(15),
+                        Duration.ofSeconds(5),
+                        prefix);
+                var second = OxiaSyncOwnerLeaseBackend.connect(
+                        endpoint,
+                        "default",
+                        "async-checkpoint-reader",
+                        Duration.ofSeconds(15),
+                        Duration.ofSeconds(5),
+                        prefix);
+                var executor = new ThreadPoolExecutor(
+                        1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2), new ThreadPoolExecutor.AbortPolicy())) {
             final var leases = new OxiaOwnerLeaseStore(first.backend());
             final long now = System.currentTimeMillis();
             final var acquired = leases.acquire(assignment, "worker", first.sessionIdentity(), now, 60_000)
                     .orElseThrow();
             final var active = leases.transitionOrRead(acquired, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
-            final var pending = new CheckpointUploadIntent(new ShardSubject(shard), id16(71), id16(72),
-                    new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"),
-                            active.ownerEpoch(), active.leaseToken()), id16(73), id32(74), 1, null, null,
+            final var pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
+                    id16(71),
+                    id16(72),
+                    new OwnerIdentity(
+                            Bytes.utf8("deployment"), Bytes.utf8("worker"), active.ownerEpoch(), active.leaseToken()),
+                    id16(73),
+                    id32(74),
+                    1,
+                    null,
+                    null,
                     new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(75), ProfileKind.OBJECT_STORE),
-                    evidence(now), now + 60_000, CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+                    evidence(now),
+                    now + 60_000,
+                    CheckpointUploadState.PENDING_UPLOAD,
+                    1,
+                    null,
+                    null);
             final var writer = new OxiaSyncCheckpointPublicationBackend(first, prefix, LIMITS);
             final var reader = new OxiaSyncCheckpointPublicationBackend(second, prefix, LIMITS);
-            final var provider = new OxiaCheckpointIntentRegistration(writer, Duration.ofSeconds(10), () -> {
-                final var current = leases.current(shard).orElseThrow();
-                if (!active.sameIdentity(current) || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
-                        || !current.validAt(System.currentTimeMillis())) {
-                    throw new IllegalStateException("checkpoint registration Owner changed");
-                }
-            }, executor);
+            final var provider = new OxiaCheckpointIntentRegistration(
+                    writer,
+                    Duration.ofSeconds(10),
+                    () -> {
+                        final var current = leases.current(shard).orElseThrow();
+                        if (!active.sameIdentity(current)
+                                || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || !current.validAt(System.currentTimeMillis())) {
+                            throw new IllegalStateException("checkpoint registration Owner changed");
+                        }
+                    },
+                    executor);
             final var entered = new CountDownLatch(1);
             final var release = new CountDownLatch(1);
             executor.execute(() -> {
                 entered.countDown();
-                try { release.await(); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
             });
             try {
                 assertTrue(entered.await(5, TimeUnit.SECONDS));
@@ -118,8 +149,10 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 assertFalse(queued.ioExited());
                 queued.requestStop();
                 assertTrue(queued.ioExited());
-                assertTrue(assertThrows(ExecutionException.class,
-                        () -> queued.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage()
+                assertTrue(assertThrows(
+                                ExecutionException.class, () -> queued.receipt().get(5, TimeUnit.SECONDS))
+                        .getCause()
+                        .getMessage()
                         .contains("stopped before I/O"));
                 assertTrue(reader.current(pending).isEmpty());
             } finally {

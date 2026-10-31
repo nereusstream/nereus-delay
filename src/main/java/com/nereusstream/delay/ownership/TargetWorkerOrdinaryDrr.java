@@ -824,7 +824,8 @@ public final class TargetWorkerOrdinaryDrr {
                             guarded.operationDigest(),
                             guarded.quota(),
                             guarded.physicalWrites(),
-                            ownerClock, decision.policyHeadRef())),
+                            ownerClock,
+                            decision.policyHeadRef())),
                     OptionalLong.empty());
         };
     }
@@ -1050,12 +1051,13 @@ public final class TargetWorkerOrdinaryDrr {
             metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
                     BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS, 1));
         }
-        final BoundedAsyncMetricExporter.Metric stopMetric = switch (turn.stop()) {
-            case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
-            case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
-            case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
-            case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
-        };
+        final BoundedAsyncMetricExporter.Metric stopMetric =
+                switch (turn.stop()) {
+                    case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
+                    case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
+                    case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
+                    case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
+                };
         metrics.record(new BoundedAsyncMetricExporter.MetricEvent(stopMetric, 1));
         return turn;
     }

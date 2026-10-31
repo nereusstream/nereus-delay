@@ -104,8 +104,8 @@ public final class KafkaClientArtifactOffsetCommitResponseLossProxy {
             try {
                 final Socket client = server.accept();
                 sockets.add(client);
-                executor.submit(() -> relay(
-                        client, targetPort, holdFile, releaseFile, droppedFile, droppedCount, sockets, executor));
+                executor.submit(() ->
+                        relay(client, targetPort, holdFile, releaseFile, droppedFile, droppedCount, sockets, executor));
             } catch (IOException closed) {
                 if (!stopped.get()) {
                     System.err.println("Kafka OffsetCommit proxy listener failed: " + closed.getMessage());
@@ -131,10 +131,12 @@ public final class KafkaClientArtifactOffsetCommitResponseLossProxy {
             sockets.add(target);
             try {
                 final var requestApiKeys = new ConcurrentHashMap<Integer, Integer>();
-                final Thread requests = daemon("kafka-offset-proxy-client-to-broker", () -> transferRequests(
-                        client, target, requestApiKeys));
-                final Thread responses = daemon("kafka-offset-proxy-broker-to-client", () -> transferResponses(
-                        client, target, requestApiKeys, holdFile, releaseFile, droppedFile, droppedCount));
+                final Thread requests = daemon(
+                        "kafka-offset-proxy-client-to-broker", () -> transferRequests(client, target, requestApiKeys));
+                final Thread responses = daemon(
+                        "kafka-offset-proxy-broker-to-client",
+                        () -> transferResponses(
+                                client, target, requestApiKeys, holdFile, releaseFile, droppedFile, droppedCount));
                 requests.start();
                 responses.start();
                 try {
@@ -161,8 +163,10 @@ public final class KafkaClientArtifactOffsetCommitResponseLossProxy {
             final OutputStream output = target.getOutputStream();
             byte[] frame;
             while ((frame = readFrame(input, true)) != null) {
-                final int apiKey = Short.toUnsignedInt(ByteBuffer.wrap(frame, 4, Short.BYTES).getShort());
-                final int correlationId = ByteBuffer.wrap(frame, 8, Integer.BYTES).getInt();
+                final int apiKey = Short.toUnsignedInt(
+                        ByteBuffer.wrap(frame, 4, Short.BYTES).getShort());
+                final int correlationId =
+                        ByteBuffer.wrap(frame, 8, Integer.BYTES).getInt();
                 if (requestApiKeys.putIfAbsent(correlationId, apiKey) != null) {
                     throw new IOException("duplicate in-flight Kafka correlation ID");
                 }
@@ -190,7 +194,8 @@ public final class KafkaClientArtifactOffsetCommitResponseLossProxy {
             final OutputStream output = client.getOutputStream();
             byte[] frame;
             while ((frame = readFrame(input, false)) != null) {
-                final int correlationId = ByteBuffer.wrap(frame, 4, Integer.BYTES).getInt();
+                final int correlationId =
+                        ByteBuffer.wrap(frame, 4, Integer.BYTES).getInt();
                 final Integer apiKey = requestApiKeys.remove(correlationId);
                 if (apiKey == null) {
                     throw new IOException("Kafka response has no matching request correlation ID");
@@ -282,11 +287,7 @@ public final class KafkaClientArtifactOffsetCommitResponseLossProxy {
             Files.createDirectories(parent);
         }
         Files.writeString(
-                path,
-                contents,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND);
+                path, contents, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
     }
 
     private static void closeAll(final Iterable<? extends AutoCloseable> closeables) {

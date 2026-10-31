@@ -13,34 +13,52 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
          * Register the actual Journal SDK owner on the original startup before opening native resources.
          * The composition root owns this provider; the startup owns each returned hold through Host exit.
          */
-        TargetSourceRecoveryInputs load(TargetWorkerSourceStartup.RecoveryInputsOpening opening,
-                OwnerIdentity owner, SourceAssignment assignment,
-                long maximumRetainedBytes, Runnable guard);
+        TargetSourceRecoveryInputs load(
+                TargetWorkerSourceStartup.RecoveryInputsOpening opening,
+                OwnerIdentity owner,
+                SourceAssignment assignment,
+                long maximumRetainedBytes,
+                Runnable guard);
     }
 
     /** Actual SDK writer retained before opening; independent of this hold and the shared client lifetime. */
     interface JournalWriter {
         void requireBinding(TargetWorkerSourceStartup.RecoveryInputsOpening opening);
+
         PulsarAttemptJournal journal();
+
         TargetOwnedBackendGroup backend();
+
         com.nereusstream.delay.adapter.PulsarJournalResource resource();
+
         String producerName();
         /** Observe one original native close; backend termination cannot satisfy normal handoff. */
         boolean closeForHandoff(TargetWorkerSourceStartup.JournalHandoff permit);
     }
 
     OwnerIdentity owner();
+
     LocalBrokerMtlsResolver.SourceReceipt credential();
+
     int maximumFrameBytes();
     /** Already captured on this original hold's acquisition flight; local access only, no numeric upgrade. */
-    default TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames(){
-        throw new TargetSourceAuthorityPreparation.InputUnavailable("original recovery hold has no complete Source frame qualification");
+    default TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrames() {
+        throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                "original recovery hold has no complete Source frame qualification");
     }
+
     PulsarAttemptJournal journal();
+
     TargetOwnedBackendGroup journalBackend();
-    default JournalWriter journalWriter() { return null; }
+
+    default JournalWriter journalWriter() {
+        return null;
+    }
     /** May be created by the original strict prepare callback, after the actual Source reader is bound. */
-    default TargetRecoveryFenceWriter fenceWriter() { return null; }
+    default TargetRecoveryFenceWriter fenceWriter() {
+        return null;
+    }
+
     long retainedBytes();
     /**
      * Stable declaration that this original hold requests E4 recovery responsibilities, including an
@@ -48,7 +66,9 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
      * it grants no qualification. Retained E4 facts also require that branch even when this returns false.
      * Ordinary recovery with complete empty pre/post E4 censuses does not call the strict hooks below.
      */
-    default boolean requiresSloRecoveryQualification() { return false; }
+    default boolean requiresSloRecoveryQualification() {
+        return false;
+    }
     /**
      * Prepares one exact recovery Fence using this already-held input, on the original graph I/O
      * executor and outside Store locks. Before preparing it, retain the actual old local writers,
@@ -73,7 +93,8 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
      */
     default TargetTimeFenceMutationFactory.Prepared prepareSloRecoveryFence(
             TargetStoreBootstrap.SloRecoveryAudit original, Runnable guard) {
-        throw new IllegalStateException("complete original SLO recovery and independent FENCE qualification is not configured");
+        throw new IllegalStateException(
+                "complete original SLO recovery and independent FENCE qualification is not configured");
     }
     /**
      * Independently requalifies this same hold's complete original ranges/material and the actual
@@ -88,8 +109,10 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
      * successor Source apply of a CLOSE, gap or timeout event that it newly writes, and an open Native62
      * record does not invalidate an already APPLIED cumulative IngressFence covering that domain's D.</p>
      */
-    default void requireSloRecoveryComplete(TargetStoreBootstrap.SloRecoveryAudit original,
-            TargetStoreBootstrap.SloRecoveryAudit replayed, TargetTimeFenceMutationFactory.Prepared exactFence,
+    default void requireSloRecoveryComplete(
+            TargetStoreBootstrap.SloRecoveryAudit original,
+            TargetStoreBootstrap.SloRecoveryAudit replayed,
+            TargetTimeFenceMutationFactory.Prepared exactFence,
             Runnable guard) {
         throw new IllegalStateException("independent complete original SLO recovery qualification is not configured");
     }
@@ -102,5 +125,6 @@ public interface TargetSourceRecoveryInputs extends AutoCloseable {
     /** Retained protection remains current after writer close; this method does not grant write authority. */
     void requireJournalCurrent();
     /** Release this original protection hold after Source/Store/SDK obligations exit; failure retains it for retry. */
-    @Override void close();
+    @Override
+    void close();
 }

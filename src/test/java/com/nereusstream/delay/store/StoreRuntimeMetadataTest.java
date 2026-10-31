@@ -49,19 +49,27 @@ class StoreRuntimeMetadataTest {
     @Test
     void targetEvidenceSeedsPersistOnlyInTheirExactFormatTwoStore() {
         final var shard = new ShardId(RouteIncarnation.random(), 2);
-        final var scope = new EvidenceCursor.TargetScope(shard, new TargetPartitionId(fixedBytes(3, 32)),
-                new TargetKeyCodec.Domain(1, 2), fixedBytes(4, 16), fixedBytes(5, 32));
-        final var cursor = EvidenceCursor.targetPulsar(scope, fixedBytes(6, 32), 2, 1, 200,
-                "persistent://tenant/ns/target-journal", 1, 2, 3, 0, 1);
+        final var scope = new EvidenceCursor.TargetScope(
+                shard,
+                new TargetPartitionId(fixedBytes(3, 32)),
+                new TargetKeyCodec.Domain(1, 2),
+                fixedBytes(4, 16),
+                fixedBytes(5, 32));
+        final var cursor = EvidenceCursor.targetPulsar(
+                scope, fixedBytes(6, 32), 2, 1, 200, "persistent://tenant/ns/target-journal", 1, 2, 3, 0, 1);
         final var config = ShardStoreConfig.defaults(tempDir.resolve("target-evidence"));
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.createTarget(config, shard, resources)) {
             store.recordEvidenceCursors(List.of(cursor));
             assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
-            final var foreignScope = new EvidenceCursor.TargetScope(new ShardId(RouteIncarnation.random(), 2),
-                    scope.target(), scope.domain(), scope.accountingIncarnation(), scope.producerNameHash());
-            final var foreign = EvidenceCursor.targetPulsar(foreignScope, fixedBytes(6, 32), 2, 1, 200,
-                    cursor.physicalTopic(), 1, 2, 3, 0, 1);
+            final var foreignScope = new EvidenceCursor.TargetScope(
+                    new ShardId(RouteIncarnation.random(), 2),
+                    scope.target(),
+                    scope.domain(),
+                    scope.accountingIncarnation(),
+                    scope.producerNameHash());
+            final var foreign = EvidenceCursor.targetPulsar(
+                    foreignScope, fixedBytes(6, 32), 2, 1, 200, cursor.physicalTopic(), 1, 2, 3, 0, 1);
             final long before = store.latestSequenceNumber();
             assertThrows(IllegalArgumentException.class, () -> store.recordEvidenceCursors(List.of(foreign)));
             assertEquals(before, store.latestSequenceNumber());
@@ -69,8 +77,11 @@ class StoreRuntimeMetadataTest {
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, shard, resources)) {
             assertEquals(List.of(cursor), reopened.runtimeMetadata().evidenceCursors());
-            assertEquals(List.of(cursor), StoreRuntimeMetadata.decodeEvidenceCursors(
-                    TargetValueEnvelope.decode(reopened.get(ColumnFamily.META, KeyCodec.metaFixed(6)), 1).payload()));
+            assertEquals(
+                    List.of(cursor),
+                    StoreRuntimeMetadata.decodeEvidenceCursors(
+                            TargetValueEnvelope.decode(reopened.get(ColumnFamily.META, KeyCodec.metaFixed(6)), 1)
+                                    .payload()));
         }
         final var legacyConfig = ShardStoreConfig.defaults(tempDir.resolve("legacy-evidence"));
         try (var resources = new SharedRocksDbResources(legacyConfig);

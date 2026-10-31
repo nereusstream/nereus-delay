@@ -87,18 +87,21 @@ class TargetWorkerTargetInventoryTest {
             assertEquals(
                     1,
                     metricEvents.stream()
-                            .filter(event -> event.metric()
-                                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES
-                                    && event.value() == 5)
+                            .filter(event ->
+                                    event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES
+                                            && event.value() == 5)
                             .count());
-            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
-                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_RECORDS
-                    && event.value() > 0));
-            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
-                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_BYTES
-                    && event.value() > 0));
-            assertTrue(metricEvents.stream().anyMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS));
+            assertTrue(metricEvents.stream()
+                    .anyMatch(event ->
+                            event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_RECORDS
+                                    && event.value() > 0));
+            assertTrue(metricEvents.stream()
+                    .anyMatch(event ->
+                            event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_BUDGET_BYTES
+                                    && event.value() > 0));
+            assertTrue(metricEvents.stream()
+                    .anyMatch(event -> event.metric()
+                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_REBUILD_DURATION_NANOS));
             assertEquals(
                     List.of(3L, 7L),
                     metricEvents.stream()
@@ -107,8 +110,9 @@ class TargetWorkerTargetInventoryTest {
                             .map(BoundedAsyncMetricExporter.MetricEvent::value)
                             .sorted()
                             .toList());
-            assertTrue(metricEvents.stream().noneMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE));
+            assertTrue(metricEvents.stream()
+                    .noneMatch(event -> event.metric()
+                            == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE));
 
             final var beforeWrite = firstSource.readCut(budget());
             final var changed = new TargetWorkerTargetInventory.ShardSource() {
@@ -234,72 +238,76 @@ class TargetWorkerTargetInventoryTest {
         final var stableCut = cut(1, 7);
         final var changedCut = cut(1, 8);
         final var events = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
-        try (var metrics = new BoundedAsyncMetricExporter(
-                new BoundedAsyncMetricExporter.Limits(20, 180), events::add)) {
-            final var incompleteDepth = new FakeSource(
-                    shard(1),
-                    List.of(page(
-                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
-                    stableCut) {
-                @Override
-                public OptionalLong readActiveMessages(
-                        final BoundedReadBudget budget, final TargetPartitionId target) {
-                    for (int index = 0; index <= 10; index++) {
-                        budget.tryCharge(1, 1);
-                    }
-                    throw budget.incomplete();
-                }
-            };
+        try (var metrics =
+                new BoundedAsyncMetricExporter(new BoundedAsyncMetricExporter.Limits(20, 180), events::add)) {
+            final var incompleteDepth =
+                    new FakeSource(
+                            shard(1),
+                            List.of(page(
+                                    List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                            stableCut) {
+                        @Override
+                        public OptionalLong readActiveMessages(
+                                final BoundedReadBudget budget, final TargetPartitionId target) {
+                            for (int index = 0; index <= 10; index++) {
+                                budget.tryCharge(1, 1);
+                            }
+                            throw budget.incomplete();
+                        }
+                    };
             final var unavailable = TargetWorkerTargetInventory.rebuild(
                     List.of(incompleteDepth), LIMITS, this::budget, () -> true, metrics);
             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, unavailable.stop());
             assertEquals(1, unavailable.snapshot().targets().size());
 
-            final var changedDuringDepthRead = new FakeSource(
-                    shard(1),
-                    List.of(page(
-                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
-                    stableCut) {
-                private int cuts;
+            final var changedDuringDepthRead =
+                    new FakeSource(
+                            shard(1),
+                            List.of(page(
+                                    List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                            stableCut) {
+                        private int cuts;
 
-                @Override
-                public TargetQueueSnapshotReader.Cut readCut(final BoundedReadBudget budget) {
-                    return ++cuts == 1 ? stableCut : changedCut;
-                }
+                        @Override
+                        public TargetQueueSnapshotReader.Cut readCut(final BoundedReadBudget budget) {
+                            return ++cuts == 1 ? stableCut : changedCut;
+                        }
 
-                @Override
-                public OptionalLong readActiveMessages(
-                        final BoundedReadBudget budget, final TargetPartitionId target) {
-                    return OptionalLong.of(4);
-                }
-            };
+                        @Override
+                        public OptionalLong readActiveMessages(
+                                final BoundedReadBudget budget, final TargetPartitionId target) {
+                            return OptionalLong.of(4);
+                        }
+                    };
             final var staleObservation = TargetWorkerTargetInventory.rebuild(
                     List.of(changedDuringDepthRead), LIMITS, this::budget, () -> true, metrics);
             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, staleObservation.stop());
             assertEquals(1, staleObservation.snapshot().targets().size());
 
-            final var firstOverflowShard = new FakeSource(
-                    shard(1),
-                    List.of(page(
-                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
-                    stableCut) {
-                @Override
-                public OptionalLong readActiveMessages(
-                        final BoundedReadBudget budget, final TargetPartitionId target) {
-                    return OptionalLong.of(Long.MAX_VALUE);
-                }
-            };
-            final var secondOverflowShard = new FakeSource(
-                    shard(2),
-                    List.of(page(
-                            List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, cut(2, 11))),
-                    cut(2, 11)) {
-                @Override
-                public OptionalLong readActiveMessages(
-                        final BoundedReadBudget budget, final TargetPartitionId target) {
-                    return OptionalLong.of(1);
-                }
-            };
+            final var firstOverflowShard =
+                    new FakeSource(
+                            shard(1),
+                            List.of(page(
+                                    List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, stableCut)),
+                            stableCut) {
+                        @Override
+                        public OptionalLong readActiveMessages(
+                                final BoundedReadBudget budget, final TargetPartitionId target) {
+                            return OptionalLong.of(Long.MAX_VALUE);
+                        }
+                    };
+            final var secondOverflowShard =
+                    new FakeSource(
+                            shard(2),
+                            List.of(page(
+                                    List.of(entry(physical)), TargetQueueSnapshotReader.Stop.RANGE_END, cut(2, 11))),
+                            cut(2, 11)) {
+                        @Override
+                        public OptionalLong readActiveMessages(
+                                final BoundedReadBudget budget, final TargetPartitionId target) {
+                            return OptionalLong.of(1);
+                        }
+                    };
             final var overflowedDepth = TargetWorkerTargetInventory.rebuild(
                     List.of(firstOverflowShard, secondOverflowShard), LIMITS, this::budget, () -> true, metrics);
             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, overflowedDepth.stop());
@@ -310,8 +318,9 @@ class TargetWorkerTargetInventoryTest {
             assertEquals(15, metrics.snapshot().exported());
             final var unavailableMetric =
                     BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE;
-            assertTrue(events.stream().noneMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH));
+            assertTrue(events.stream()
+                    .noneMatch(event ->
+                            event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH));
             assertEquals(
                     List.of(1L, 1L, 1L),
                     events.stream()
@@ -337,8 +346,7 @@ class TargetWorkerTargetInventoryTest {
         amounts[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = activeMessages;
         final var mutation = new TargetQuotaMutation(
                 1,
-                new KafkaSourcePosition(
-                        store.shardId(), "inventory-metrics", new UUID(11, 22), 0, null, 1),
+                new KafkaSourcePosition(store.shardId(), "inventory-metrics", new UUID(11, 22), 0, null, 1),
                 bytes(32, 9));
         final var total = new TargetQuotaTotal(
                 shardScope.forTarget(physical.id()),
@@ -395,8 +403,7 @@ class TargetWorkerTargetInventoryTest {
             }
 
             @Override
-            public OptionalLong readActiveMessages(
-                    final BoundedReadBudget budget, final TargetPartitionId target) {
+            public OptionalLong readActiveMessages(final BoundedReadBudget budget, final TargetPartitionId target) {
                 return reader.readActiveMessages(budget, target, authority);
             }
         };

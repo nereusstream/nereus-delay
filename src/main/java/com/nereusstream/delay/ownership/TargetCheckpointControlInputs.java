@@ -16,7 +16,14 @@ import java.util.function.Supplier;
 
 /** Bounded original-Control collection on one actual Worker cut; providers own I/O, cleanup and protection. */
 public final class TargetCheckpointControlInputs {
-    public enum Status { CAPTURED, LOADING, ACCEPTED, READ_YIELD, COMPLETE, FAILED }
+    public enum Status {
+        CAPTURED,
+        LOADING,
+        ACCEPTED,
+        READ_YIELD,
+        COMPLETE,
+        FAILED
+    }
 
     @FunctionalInterface
     public interface History {
@@ -26,8 +33,10 @@ public final class TargetCheckpointControlInputs {
 
     public record Limits(int maximumInputs, long maximumFrameBytes) {
         public Limits {
-            if (maximumInputs <= 0 || maximumInputs == Integer.MAX_VALUE
-                    || maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE) {
+            if (maximumInputs <= 0
+                    || maximumInputs == Integer.MAX_VALUE
+                    || maximumFrameBytes <= 0
+                    || maximumFrameBytes == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Control history collection requires finite positive limits");
             }
         }
@@ -42,7 +51,9 @@ public final class TargetCheckpointControlInputs {
         private final TargetCheckpointDependencies dependencies;
         private final List<TargetCheckpointDependencies.ControlReference> references;
 
-        Cut(TargetSourceApplyRuntime owner, TargetQueueSnapshotReader.Cut view,
+        Cut(
+                TargetSourceApplyRuntime owner,
+                TargetQueueSnapshotReader.Cut view,
                 TargetCheckpointDependencies dependencies) {
             this.owner = owner;
             this.view = view;
@@ -50,11 +61,15 @@ public final class TargetCheckpointControlInputs {
             references = dependencies.controlReferences();
         }
 
-        public TargetCheckpointDependencies dependencies() { return dependencies; }
+        public TargetCheckpointDependencies dependencies() {
+            return dependencies;
+        }
     }
 
     public record Result(Cut cut, List<TargetCheckpointDependencies.ControlImage> inputs) {
-        public Result { inputs = List.copyOf(inputs); }
+        public Result {
+            inputs = List.copyOf(inputs);
+        }
     }
 
     private final TargetWorkerShardRuntime worker;
@@ -70,8 +85,12 @@ public final class TargetCheckpointControlInputs {
     private Throwable failure;
     private boolean complete;
 
-    public TargetCheckpointControlInputs(TargetWorkerShardRuntime worker, Supplier<BoundedReadBudget> reads,
-            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits, History history, Limits limits,
+    public TargetCheckpointControlInputs(
+            TargetWorkerShardRuntime worker,
+            Supplier<BoundedReadBudget> reads,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            History history,
+            Limits limits,
             LongSupplier ownerClock) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.reads = Objects.requireNonNull(reads, "reads");
@@ -82,10 +101,14 @@ public final class TargetCheckpointControlInputs {
     }
 
     public synchronized Turn runTurn() {
-        if (failure != null) { return new Turn(Status.FAILED, failure); }
+        if (failure != null) {
+            return new Turn(Status.FAILED, failure);
+        }
         try {
             requireCurrent();
-            if (complete) { return new Turn(Status.COMPLETE, null); }
+            if (complete) {
+                return new Turn(Status.COMPLETE, null);
+            }
             if (cut == null) {
                 final var captured = worker.captureCheckpointControlInputs(readBudget(), ledgerLimits, ownerClock);
                 if (captured.references.size() > limits.maximumInputs()) {
@@ -104,10 +127,14 @@ public final class TargetCheckpointControlInputs {
                 requireCurrent();
                 return new Turn(Status.LOADING, null);
             }
-            if (!loading.isDone()) { return new Turn(Status.LOADING, null); }
-            final var image = selected.requireImage(Objects.requireNonNull(loading.join(), "Control image"),
-                    selected.source());
-            if (!CheckpointInputFuture.ioExited(loading)) { return new Turn(Status.LOADING, null); }
+            if (!loading.isDone()) {
+                return new Turn(Status.LOADING, null);
+            }
+            final var image =
+                    selected.requireImage(Objects.requireNonNull(loading.join(), "Control image"), selected.source());
+            if (!CheckpointInputFuture.ioExited(loading)) {
+                return new Turn(Status.LOADING, null);
+            }
             final long nextBytes = Math.addExact(bytes, image.encodeFrame().length);
             if (nextBytes > limits.maximumFrameBytes()) {
                 throw new IllegalArgumentException("Control history frames exceed their byte bound");
@@ -126,7 +153,9 @@ public final class TargetCheckpointControlInputs {
 
     /** Results remain bound to this active exact Worker/Store cut, including after history completion. */
     public synchronized Optional<Result> result() {
-        if (failure != null || !complete) { return Optional.empty(); }
+        if (failure != null || !complete) {
+            return Optional.empty();
+        }
         try {
             requireCurrent();
             return Optional.of(new Result(cut, inputs));
@@ -140,18 +169,30 @@ public final class TargetCheckpointControlInputs {
 
     private void requireCurrent() {
         worker.requireCheckpointHistoryOwner(ownerClock);
-        if (cut != null) { worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock); }
+        if (cut != null) {
+            worker.requireCheckpointControlInputsCurrent(readBudget(), cut, ownerClock);
+        }
     }
 
-    public synchronized void retryCleanup() { CheckpointInputFuture.retryCleanup(loading); }
+    public synchronized void retryCleanup() {
+        CheckpointInputFuture.retryCleanup(loading);
+    }
 
-    public synchronized void requestStop() { CheckpointInputFuture.requestStop(loading); }
+    public synchronized void requestStop() {
+        CheckpointInputFuture.requestStop(loading);
+    }
 
-    public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
+    public synchronized boolean ioExited() {
+        return CheckpointInputFuture.ioExited(loading);
+    }
 
-    public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }
+    public synchronized Throwable pendingIoFailure() {
+        return CheckpointInputFuture.ownedFailure(loading);
+    }
 
-    private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
+    private BoundedReadBudget readBudget() {
+        return Objects.requireNonNull(reads.get(), "read budget");
+    }
 
     private Turn fail(Throwable invalid) {
         failure = invalid;

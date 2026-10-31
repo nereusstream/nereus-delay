@@ -27,32 +27,48 @@ import org.apache.pulsar.client.impl.MessageIdImpl;
 public final class PulsarClientArtifactTargetSourceBacklog {
     private PulsarClientArtifactTargetSourceBacklog() {}
 
-    public static Query openVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetSourceBacklog.Cut cut, TargetSourceBacklog.Limits limits, Runnable protection,
+    public static Query openVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetSourceBacklog.Cut cut,
+            TargetSourceBacklog.Limits limits,
+            Runnable protection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
         group.requireSourceReadResource(credential, resource);
         final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.OBSERVATION;
         final String name = credential.authorization().newReaderName(role);
-        final var guard = credential.guardRead(role, cut.applied(), credential.authorization().physicalTopic(), name, time, protection);
+        final var guard = credential.guardRead(
+                role, cut.applied(), credential.authorization().physicalTopic(), name, time, protection);
         return new Query(group.nativeClientForFactory(), resource, cut, limits, guard, name);
     }
 
-    public static Query open(final PulsarClient client, final TopicResourceGuard resource,
-            final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+    public static Query open(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetSourceBacklog.Cut cut,
+            final TargetSourceBacklog.Limits limits,
+            final Runnable protection) {
         return new Query(client, resource, cut, limits, protection);
     }
 
-    public static TargetSourceBacklog.Snapshot read(final PulsarClient client, final TopicResourceGuard resource,
-            final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+    public static TargetSourceBacklog.Snapshot read(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetSourceBacklog.Cut cut,
+            final TargetSourceBacklog.Limits limits,
+            final Runnable protection) {
         final var operation = open(client, resource, cut, limits, protection);
         try {
             final var result = operation.read();
-            operation.requestClose().get(Math.max(1, Duration.ofNanos(limits.elapsedNanos()).toMillis()),
-                    TimeUnit.MILLISECONDS);
+            operation
+                    .requestClose()
+                    .get(Math.max(1, Duration.ofNanos(limits.elapsedNanos()).toMillis()), TimeUnit.MILLISECONDS);
             return result;
         } catch (Exception failure) {
-            if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+            if (failure instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             operation.requestClose();
             throw new TargetSourceBacklogRead.Failure(operation, failure);
         }
@@ -72,49 +88,76 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         private boolean openStarted;
         private boolean closing;
 
-        private Query(final PulsarClient client, final TopicResourceGuard resource,
-                final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+        private Query(
+                final PulsarClient client,
+                final TopicResourceGuard resource,
+                final TargetSourceBacklog.Cut cut,
+                final TargetSourceBacklog.Limits limits,
+                final Runnable protection) {
             this(client, resource, cut, limits, protection, "nereus-target-source-backlog-" + UUID.randomUUID());
         }
-        private Query(final PulsarClient client, final TopicResourceGuard resource,
-                final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection,
+
+        private Query(
+                final PulsarClient client,
+                final TopicResourceGuard resource,
+                final TargetSourceBacklog.Cut cut,
+                final TargetSourceBacklog.Limits limits,
+                final Runnable protection,
                 final String subscription) {
             this.subscription = subscription;
             this.client = Objects.requireNonNull(client, "client");
             this.resource = Objects.requireNonNull(resource, "resource");
             if (!(Objects.requireNonNull(cut, "cut").applied() instanceof PulsarSourcePosition position)
-                    || !Bytes.constantTimeEquals(position.brokerResourceIncarnation(), resource.resourceIncarnation())) {
+                    || !Bytes.constantTimeEquals(
+                            position.brokerResourceIncarnation(), resource.resourceIncarnation())) {
                 throw new IllegalArgumentException("P1 backlog requires exact applied Source/resource incarnation");
             }
             applied = position;
             collector = new TargetSourceBacklog.Collector(cut, limits, System::nanoTime, protection);
             backend = PulsarClientArtifactOwnedBackendGroup.find(client);
             owned = new OwnedSourceCursor<>(opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
-            if (backend != null) { backend.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
-                proof.requireClient(client); requestClose(); owned.backendShutdownCompleted(backend);
-            }); }
+            if (backend != null) {
+                backend.registerCleanup(owned, owned::operationExited, owned::cleanupComplete, proof -> {
+                    proof.requireClient(client);
+                    requestClose();
+                    owned.backendShutdownCompleted(backend);
+                });
+            }
         }
 
         @Override
         public TargetSourceBacklog.Snapshot read() {
             try {
                 synchronized (this) {
-                    if (closing || readStarted) { throw new IllegalStateException("P1 backlog read already used/closed"); }
+                    if (closing || readStarted) {
+                        throw new IllegalStateException("P1 backlog read already used/closed");
+                    }
                     readStarted = true;
                 }
                 collector.requireCurrent();
                 synchronized (this) {
-                    if (closing) { throw new IllegalStateException("P1 backlog read was closed before subscribe"); }
+                    if (closing) {
+                        throw new IllegalStateException("P1 backlog read was closed before subscribe");
+                    }
                     openStarted = true;
                     try {
-                        final var builder = client.newConsumer(Schema.BYTES).topic(applied.physicalTopic())
+                        final var builder = client.newConsumer(Schema.BYTES)
+                                .topic(applied.physicalTopic())
                                 .subscriptionName(subscription)
-                                .subscriptionType(SubscriptionType.Exclusive).subscriptionMode(SubscriptionMode.NonDurable)
-                                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest).receiverQueueSize(1)
-                                .autoUpdatePartitions(false).startMessageIdInclusive().resourceGuard(resource);
-                        PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder).whenComplete((cursor, failure) -> {
-                                    if (failure == null) { opening.complete(cursor); }
-                                    else { opening.completeExceptionally(failure); }
+                                .subscriptionType(SubscriptionType.Exclusive)
+                                .subscriptionMode(SubscriptionMode.NonDurable)
+                                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+                                .receiverQueueSize(1)
+                                .autoUpdatePartitions(false)
+                                .startMessageIdInclusive()
+                                .resourceGuard(resource);
+                        PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder)
+                                .whenComplete((cursor, failure) -> {
+                                    if (failure == null) {
+                                        opening.complete(cursor);
+                                    } else {
+                                        opening.completeExceptionally(failure);
+                                    }
                                 });
                     } catch (RuntimeException | Error failure) {
                         opening.completeExceptionally(failure);
@@ -123,11 +166,15 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                 }
                 return owned.read(remainingMs(collector), this::readCursor);
             } catch (Exception failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                if (failure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 throw new TargetSourceBacklogRead.Failure(this, failure);
             } finally {
                 requestClose();
-                if (backend != null) { backend.cleanupProgress(); }
+                if (backend != null) {
+                    backend.cleanupProgress();
+                }
             }
         }
 
@@ -139,31 +186,47 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                 @SuppressWarnings("unchecked")
                 final var consumer = (GuardedConsumer<byte[]>) nativeCursor;
                 consumer.seekAsync(messageId(applied)).get(remainingMs(collector), TimeUnit.MILLISECONDS);
-                final var before = PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(consumer,
-                        resource, applied.physicalTopic(), applied.shardId().partition(),
+                final var before = PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
+                        consumer,
+                        resource,
+                        applied.physicalTopic(),
+                        applied.shardId().partition(),
                         Duration.ofMillis(remainingMs(collector)));
-                // This RPC is addressed to the consumer ID on its guarded SUBSCRIBE connection, not a topic-name lookup.
-                final var lastIds = consumer.getLastMessageIdsAsync().get(remainingMs(collector), TimeUnit.MILLISECONDS);
-                if (lastIds.size() != 1 || !applied.physicalTopic().equals(lastIds.getFirst().getOwnerTopic())
+                // This RPC is addressed to the consumer ID on its guarded SUBSCRIBE connection, not a topic-name
+                // lookup.
+                final var lastIds =
+                        consumer.getLastMessageIdsAsync().get(remainingMs(collector), TimeUnit.MILLISECONDS);
+                if (lastIds.size() != 1
+                        || !applied.physicalTopic().equals(lastIds.getFirst().getOwnerTopic())
                         || !(lastIds.getFirst() instanceof MessageIdAdv tail)
-                        || tail.getLedgerId() < 0 || tail.getEntryId() < 0) {
+                        || tail.getLedgerId() < 0
+                        || tail.getEntryId() < 0) {
                     throw new IllegalStateException("P1 backlog lacks its native retained tail");
                 }
                 while (true) {
                     collector.requireCurrent();
-                    final var message = consumer.receive(Math.toIntExact(remainingMs(collector)), TimeUnit.MILLISECONDS);
+                    final var message =
+                            consumer.receive(Math.toIntExact(remainingMs(collector)), TimeUnit.MILLISECONDS);
                     collector.requireCurrent();
-                    final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(consumer,
-                            resource, applied.physicalTopic(), applied.shardId().partition());
+                    final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(
+                            consumer,
+                            resource,
+                            applied.physicalTopic(),
+                            applied.shardId().partition());
                     if (before.connectionGeneration() != after.connectionGeneration()
                             || !Bytes.constantTimeEquals(before.attestationDigest(), after.attestationDigest())) {
                         throw new IllegalStateException("P1 backlog connection changed across its tail/receive RPC");
                     }
                     if (message == null || message.getData() == null) {
-                        throw new IllegalStateException("P1 backlog retained prefix was unavailable before its deadline");
+                        throw new IllegalStateException(
+                                "P1 backlog retained prefix was unavailable before its deadline");
                     }
-                    final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message,
-                            applied.shardId(), applied.physicalTopic(), after.attestation(), after.connectionGeneration(),
+                    final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(
+                            message,
+                            applied.shardId(),
+                            applied.physicalTopic(),
+                            after.attestation(),
+                            after.connectionGeneration(),
                             after.attestationDigest());
                     final var position = (PulsarSourcePosition) decoded.position();
                     collector.add(position, message.getData().length);
@@ -171,10 +234,14 @@ public final class PulsarClientArtifactTargetSourceBacklog {
                     if (relative > 0) {
                         throw new IllegalStateException("P1 backlog skipped its captured native tail");
                     }
-                    if (relative == 0) { return collector.finish(position); }
+                    if (relative == 0) {
+                        return collector.finish(position);
+                    }
                 }
             } catch (Exception failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                if (failure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 throw new IllegalStateException("P1 backlog cursor read failed", failure);
             }
         }
@@ -182,20 +249,30 @@ public final class PulsarClientArtifactTargetSourceBacklog {
         @Override
         public synchronized CompletableFuture<Void> requestClose() {
             closing = true;
-            if (!openStarted && !owned.cleanupComplete()) { owned.abandonBeforeOpen(); }
+            if (!openStarted && !owned.cleanupComplete()) {
+                owned.abandonBeforeOpen();
+            }
             final var completion = owned.requestClose();
-            if (backend != null) { backend.cleanupProgress(); }
+            if (backend != null) {
+                backend.cleanupProgress();
+            }
             return completion;
         }
 
         @Override
-        public CompletableFuture<Void> retryClose() { return owned.retryClose(); }
+        public CompletableFuture<Void> retryClose() {
+            return owned.retryClose();
+        }
 
         @Override
-        public boolean cleanupComplete() { return owned.cleanupComplete(); }
+        public boolean cleanupComplete() {
+            return owned.cleanupComplete();
+        }
 
         @Override
-        public Throwable cleanupFailure() { return owned.cleanupFailure(); }
+        public Throwable cleanupFailure() {
+            return owned.cleanupFailure();
+        }
 
         /** Explicit backend-owner shutdown; never invoked by read timeout or cache cleanup. Closes this SDK client. */
         public CompletableFuture<Void> closeClientBackendAfterFailedOpen() {
@@ -203,7 +280,9 @@ public final class PulsarClientArtifactTargetSourceBacklog {
             if (!owned.failedOpenNeedsBackendShutdown()) {
                 throw new IllegalStateException("P1 Source observer has no failed-open backend shutdown obligation");
             }
-            if (backend == null) { return CompletableFuture.failedFuture(new IllegalStateException("P1 observer client is borrowed")); }
+            if (backend == null) {
+                return CompletableFuture.failedFuture(new IllegalStateException("P1 observer client is borrowed"));
+            }
             return backend.requestHostQuarantine();
         }
     }
@@ -218,15 +297,22 @@ public final class PulsarClientArtifactTargetSourceBacklog {
 
     private static int compare(final PulsarSourcePosition position, final MessageIdAdv tail) {
         final int ledger = Long.compare(position.ledgerId(), tail.getLedgerId());
-        if (ledger != 0) { return ledger; }
+        if (ledger != 0) {
+            return ledger;
+        }
         final int entry = Long.compare(position.entryId(), tail.getEntryId());
         return entry == 0 ? Integer.compare(position.normalizedBatchIndex(), Math.max(0, tail.getBatchIndex())) : entry;
     }
 
     private static MessageId messageId(final PulsarSourcePosition position) {
         return position.batchSize() > 1
-                ? new BatchMessageIdImpl(position.ledgerId(), position.entryId(), -1,
-                        position.normalizedBatchIndex(), position.batchSize(), null)
+                ? new BatchMessageIdImpl(
+                        position.ledgerId(),
+                        position.entryId(),
+                        -1,
+                        position.normalizedBatchIndex(),
+                        position.batchSize(),
+                        null)
                 : new MessageIdImpl(position.ledgerId(), position.entryId(), -1);
     }
 }

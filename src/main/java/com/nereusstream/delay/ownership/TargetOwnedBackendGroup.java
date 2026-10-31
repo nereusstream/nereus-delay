@@ -15,7 +15,9 @@ public interface TargetOwnedBackendGroup {
     void requireWorkerGraph(WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
 
     boolean applicationReady();
+
     boolean workerReady(TargetWorkerShardRuntime worker);
+
     void admitWorker(TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker);
 
     /** Fences native acquire/SEND and returns the immutable identities of already registered native operations. */
@@ -30,12 +32,24 @@ public interface TargetOwnedBackendGroup {
     }
 
     boolean resourcesTerminated();
+
     boolean nativeResourcesTerminated();
 
     Throwable cleanupFailure();
 
-    default LocalBrokerMtlsResolver.Receipt credentialReceipt() { return null; }
-    default LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt() { return null; }
-    default boolean holdsSourceCredential(LocalBrokerMtlsResolver.SourceReceipt receipt) { return sourceCredentialReceipt() == receipt; }
-    default boolean sourceCredentialsReady(TargetWorkerShardRuntime worker) { return false; }
+    default LocalBrokerMtlsResolver.Receipt credentialReceipt() {
+        return null;
+    }
+
+    default LocalBrokerMtlsResolver.SourceReceipt sourceCredentialReceipt() {
+        return null;
+    }
+
+    default boolean holdsSourceCredential(LocalBrokerMtlsResolver.SourceReceipt receipt) {
+        return sourceCredentialReceipt() == receipt;
+    }
+
+    default boolean sourceCredentialsReady(TargetWorkerShardRuntime worker) {
+        return false;
+    }
 }

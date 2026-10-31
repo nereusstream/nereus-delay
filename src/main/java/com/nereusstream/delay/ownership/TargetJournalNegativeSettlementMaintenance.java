@@ -20,7 +20,17 @@ import java.util.function.Supplier;
 
 /** Restarts Source-decided/Journal-unsettled negative cleanup from retained actual Source facts, one row per turn. */
 public final class TargetJournalNegativeSettlementMaintenance {
-    public enum Status { IDLE, SCANNED, LOADING, SETTLING, SETTLED, YIELD, RESTART, FAILED }
+    public enum Status {
+        IDLE,
+        SCANNED,
+        LOADING,
+        SETTLING,
+        SETTLED,
+        YIELD,
+        RESTART,
+        FAILED
+    }
+
     public record Turn(Status status, Throwable failure) {}
 
     public record Original(SystemMutation admission, SystemMutation outcome, PulsarRecordTemplate template) {
@@ -53,9 +63,15 @@ public final class TargetJournalNegativeSettlementMaintenance {
     private CompletableFuture<Original> loading;
     private volatile CompletableFuture<Void> settling;
 
-    public TargetJournalNegativeSettlementMaintenance(TargetWorkerShardRuntime worker, PulsarAttemptJournal journal,
-            PulsarAttemptJournal.NegativeSettlementAuthority authority, Runnable protection,
-            Supplier<BoundedReadBudget> reads, History history, Executor io, LongSupplier clock) {
+    public TargetJournalNegativeSettlementMaintenance(
+            TargetWorkerShardRuntime worker,
+            PulsarAttemptJournal journal,
+            PulsarAttemptJournal.NegativeSettlementAuthority authority,
+            Runnable protection,
+            Supplier<BoundedReadBudget> reads,
+            History history,
+            Executor io,
+            LongSupplier clock) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.journal = Objects.requireNonNull(journal, "real Target Journal");
         this.authority = Objects.requireNonNull(authority, "actual negative authentication");
@@ -68,7 +84,9 @@ public final class TargetJournalNegativeSettlementMaintenance {
 
     /** Serialized caller-driven turn; external futures never block a fleet tick. */
     public Turn runTurn() {
-        if (!active.compareAndSet(false, true)) { return new Turn(Status.YIELD, null); }
+        if (!active.compareAndSet(false, true)) {
+            return new Turn(Status.YIELD, null);
+        }
         try {
             worker.requirePublishRecoveryOwner(clock);
             protection.run();
@@ -79,7 +97,9 @@ public final class TargetJournalNegativeSettlementMaintenance {
                 completedCut = null;
             }
             if (settling != null) {
-                if (!settling.isDone()) { return new Turn(Status.SETTLING, null); }
+                if (!settling.isDone()) {
+                    return new Turn(Status.SETTLING, null);
+                }
                 settling.join();
                 clear();
                 cursor = null;
@@ -106,22 +126,30 @@ public final class TargetJournalNegativeSettlementMaintenance {
                 selected = ref;
                 return new Turn(Status.SCANNED, null);
             }
-            if (loading == null) { loading = Objects.requireNonNull(history.load(selected), "history future"); }
-            if (!loading.isDone()) { return new Turn(Status.LOADING, null); }
+            if (loading == null) {
+                loading = Objects.requireNonNull(history.load(selected), "history future");
+            }
+            if (!loading.isDone()) {
+                return new Turn(Status.LOADING, null);
+            }
             final var original = Objects.requireNonNull(loading.join(), "original Source images");
             selected.requireImage(original.admission(), selected.source());
-            final var admission = TargetPublishAdmissionBody.decode(original.admission().canonicalBody());
+            final var admission =
+                    TargetPublishAdmissionBody.decode(original.admission().canonicalBody());
             final var body = original.outcome().type() == SystemMutationType.EVIDENCE_RESOLUTION
-                    ? PublishOutcomeBody.decodeEvidenceResolution(original.outcome().canonicalBody())
+                    ? PublishOutcomeBody.decodeEvidenceResolution(
+                            original.outcome().canonicalBody())
                     : PublishOutcomeBody.decode(original.outcome().canonicalBody());
-            if (!admission.materialized() || admission.channel().context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER
+            if (!admission.materialized()
+                    || admission.channel().context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER
                     || original.template().targetResource().kind() != BrokerResourceIdentity.Kind.PULSAR
                     || body.sideEffect() != 2) {
                 clear();
                 return new Turn(Status.SCANNED, null);
             }
             final var mapping = journal.targetMapping(admission.publishAttemptId())
-                    .orElseThrow(() -> new IllegalStateException("Source-decided managed Attempt lost its retained Journal mapping"));
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Source-decided managed Attempt lost its retained Journal mapping"));
             protection.run();
             final var state = journal.state(mapping.mappingId());
             if (state == PulsarAttemptJournal.AttemptState.RETIRED_NOT_PUBLISHED) {
@@ -134,14 +162,24 @@ public final class TargetJournalNegativeSettlementMaintenance {
                 io.execute(() -> {
                     try {
                         protection.run();
-                        final var proof = worker.readNegativeOutcome(readBudget(), mapping.mappingId(),
-                                original.admission(), original.outcome(), original.template(), clock);
+                        final var proof = worker.readNegativeOutcome(
+                                readBudget(),
+                                mapping.mappingId(),
+                                original.admission(),
+                                original.outcome(),
+                                original.template(),
+                                clock);
                         journal.resolveNotPublished(mapping, proof, authority);
                         protection.run();
                         future.complete(null);
-                    } catch (RuntimeException | Error failed) { future.completeExceptionally(failed); }
+                    } catch (RuntimeException | Error failed) {
+                        future.completeExceptionally(failed);
+                    }
                 });
-            } catch (RuntimeException rejected) { settling = null; throw rejected; }
+            } catch (RuntimeException rejected) {
+                settling = null;
+                throw rejected;
+            }
             return new Turn(Status.SETTLING, null);
         } catch (TargetPublishRecoveryDiscovery.StaleCursor changed) {
             cursor = null;
@@ -150,23 +188,41 @@ public final class TargetJournalNegativeSettlementMaintenance {
             return new Turn(Status.YIELD, null);
         } catch (RuntimeException failed) {
             final var cause = failed.getCause() == null ? failed : failed.getCause();
-            if (cause instanceof ReadIncompleteException || cause instanceof java.util.concurrent.RejectedExecutionException) {
+            if (cause instanceof ReadIncompleteException
+                    || cause instanceof java.util.concurrent.RejectedExecutionException) {
                 settling = null;
             }
             return new Turn(Status.FAILED, cause);
-        } finally { active.set(false); }
+        } finally {
+            active.set(false);
+        }
     }
 
     void requireJournal(PulsarAttemptJournal expected) {
-        if (journal != expected) { throw new IllegalArgumentException("cleanup belongs to another protected Journal"); }
+        if (journal != expected) {
+            throw new IllegalArgumentException("cleanup belongs to another protected Journal");
+        }
     }
 
     boolean completedForSource(long sequence) {
         return completedCut != null && completedSourceSequence == sequence && !pending();
     }
 
-    public boolean pending() { return completedCut == null || selected != null || settling != null || active.get(); }
-    public com.nereusstream.delay.runtime.TargetQueueSnapshotReader.Cut completedCut() { return completedCut; }
-    private void clear() { selected = null; loading = null; settling = null; }
-    private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
+    public boolean pending() {
+        return completedCut == null || selected != null || settling != null || active.get();
+    }
+
+    public com.nereusstream.delay.runtime.TargetQueueSnapshotReader.Cut completedCut() {
+        return completedCut;
+    }
+
+    private void clear() {
+        selected = null;
+        loading = null;
+        settling = null;
+    }
+
+    private BoundedReadBudget readBudget() {
+        return Objects.requireNonNull(reads.get(), "read budget");
+    }
 }

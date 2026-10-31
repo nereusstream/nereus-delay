@@ -39,11 +39,15 @@ class OxiaSyncPayloadProofTrustSetCatalogTest {
     void uncertainPublicationRequiresExactDurableReread() throws Exception {
         final var semantic = semantic(1);
         final var lostResponse = new Records();
-        lostResponse.afterPut = () -> { throw new IllegalStateException("response lost"); };
+        lostResponse.afterPut = () -> {
+            throw new IllegalStateException("response lost");
+        };
         catalog(lostResponse).publish(semantic, () -> {});
         assertEquals(semantic, catalog(lostResponse).resolve(semantic.ref()));
         final var absent = new Records();
-        absent.beforePut = () -> { throw new IllegalStateException("write failed"); };
+        absent.beforePut = () -> {
+            throw new IllegalStateException("write failed");
+        };
         assertThrows(IllegalStateException.class, () -> catalog(absent).publish(semantic, () -> {}));
         assertNull(catalog(absent).resolve(semantic.ref()));
         final var race = new Records();
@@ -58,7 +62,9 @@ class OxiaSyncPayloadProofTrustSetCatalogTest {
         final var records = new Records();
         final var live = new AtomicBoolean(true);
         final Runnable guard = () -> {
-            if (!live.get()) { throw new IllegalStateException("protection lost"); }
+            if (!live.get()) {
+                throw new IllegalStateException("protection lost");
+            }
         };
         records.afterPut = () -> live.set(false);
         assertThrows(IllegalStateException.class, () -> catalog(records).publish(semantic, guard));
@@ -71,9 +77,10 @@ class OxiaSyncPayloadProofTrustSetCatalogTest {
     }
 
     static PayloadProofTrustSetSemantic semantic(long version) throws Exception {
-        final var key = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
-        return new PayloadProofTrustSetSemantic(version,
-                List.of(PayloadProofVerifierKey.fromPublicKey(1, key, 0, 10_000)));
+        final var key =
+                KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+        return new PayloadProofTrustSetSemantic(
+                version, List.of(PayloadProofVerifierKey.fromPublicKey(1, key, 0, 10_000)));
     }
 
     private static OxiaSyncPayloadProofTrustSetCatalog catalog(Records records) {
@@ -87,7 +94,9 @@ class OxiaSyncPayloadProofTrustSetCatalogTest {
         private boolean insertRace;
 
         @Override
-        public byte[] get(String key) { return values.get(key); }
+        public byte[] get(String key) {
+            return values.get(key);
+        }
 
         @Override
         public void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException {

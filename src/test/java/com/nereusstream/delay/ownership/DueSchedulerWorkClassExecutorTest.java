@@ -134,9 +134,8 @@ class DueSchedulerWorkClassExecutorTest {
                     Bytes.utf8("due-work-worker"),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("due-work-owner-fence")));
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);

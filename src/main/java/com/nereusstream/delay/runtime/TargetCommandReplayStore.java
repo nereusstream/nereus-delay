@@ -74,26 +74,36 @@ public final class TargetCommandReplayStore {
     /** Empty selects live first application; retained replays and standalone expiry complete here. */
     public Optional<Prepared> prepareReplayOrExpired(
             final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source) {
-        return prepareReplayOrExpired(budget,mutation,source,()->TargetSloObservationSamples.UNAVAILABLE);
+        return prepareReplayOrExpired(budget, mutation, source, () -> TargetSloObservationSamples.UNAVAILABLE);
     }
 
     /** The held sample authority is requested only for a new required expired-Command Start. */
     public Optional<Prepared> prepareReplayOrExpired(
-            final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source,
+            final BoundedReadBudget budget,
+            final PreparedCommand mutation,
+            final SourcePosition source,
             final java.util.function.Supplier<TargetSloObservationSamples.Authority> samples) {
         return prepareReplayOrExpiredAuthenticated(budget, mutation, source, samples, null);
     }
 
     public Optional<Prepared> prepareMigrationReplayOrExpired(
-            BoundedReadBudget budget, PreparedCommand mutation, SourcePosition source,
+            BoundedReadBudget budget,
+            PreparedCommand mutation,
+            SourcePosition source,
             java.util.function.Supplier<TargetSloObservationSamples.Authority> samples,
             com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
-        return prepareReplayOrExpiredAuthenticated(budget, mutation, source, samples,
+        return prepareReplayOrExpiredAuthenticated(
+                budget,
+                mutation,
+                source,
+                samples,
                 Objects.requireNonNull(migration, "actual migration-owned legacy Command"));
     }
 
     private Optional<Prepared> prepareReplayOrExpiredAuthenticated(
-            final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source,
+            final BoundedReadBudget budget,
+            final PreparedCommand mutation,
+            final SourcePosition source,
             final java.util.function.Supplier<TargetSloObservationSamples.Authority> samples,
             com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
         Objects.requireNonNull(mutation, "mutation");
@@ -103,29 +113,31 @@ public final class TargetCommandReplayStore {
             throw new IllegalArgumentException("Command replay belongs to another Shard");
         }
         final var probe = backend.prepareRead(budget, reader -> {
-            if (migration != null) migration.requireCurrent(reader, mutation, source);
+            if (migration != null) {
+                migration.requireCurrent(reader, mutation, source);
+            }
             return inspect(reader, mutation, source);
         });
         if (probe.value().result() == null) {
             return Optional.empty();
         }
         if (probe.value().samePosition()) {
-            return Optional.of(new Prepared(this, probe, null, probe.value().result(),()->{}));
+            return Optional.of(new Prepared(this, probe, null, probe.value().result(), () -> {}));
         }
         final var result = new CommandResult[1];
-        final Runnable[] qualification={()->{}};
+        final Runnable[] qualification = {() -> {}};
         // The probe chooses a branch only. The actual write plan rereads all facts using the same shared budget.
         final var batch = backend.prepare(budget, reader -> {
-            if (migration != null) migration.requireCurrent(reader, mutation, source);
+            if (migration != null) {
+                migration.requireCurrent(reader, mutation, source);
+            }
             final var actual = inspect(reader, mutation, source);
             if (actual.result() == null || actual.samePosition()) {
                 throw new IllegalStateException(
                         "Command replay branch changed; prepare again from the actual source view");
             }
             final var stamp = new TargetQuotaMutation(
-                    TargetQuotaMutation.increment(reader.sourceSequence()),
-                    source,
-                    mutation.canonicalFrameDigest());
+                    TargetQuotaMutation.increment(reader.sourceSequence()), source, mutation.canonicalFrameDigest());
             final var rootId = new TargetQuotaIdentity(
                     TargetQuotaIdentity.Kind.SHARD,
                     scope.shard(),
@@ -154,21 +166,25 @@ public final class TargetCommandReplayStore {
             final var position = actual.first() == null
                     ? TargetResultRecord.expiredCommandPosition(root, mutation, stamp, authority)
                     : TargetResultRecord.position(root, actual.first(), stamp, authority);
-            final var edits=new ArrayList<TargetStoreBackend.Edit>();
-            TargetScopeFeeAuthority scopeFees=TargetScopeFeeAuthority.UNAVAILABLE;
-            edits.add(reader.replace(ColumnFamily.DEDUPE,position.key(),TargetResultRecord.VALUE_TYPE,position.canonicalBytes()));
-            if(actual.first()==null){
-                final var observation=TargetSloObservationSamples.expiredCommand(reader,scope,lineage,mutation,stamp,position,samples);
-                edits.addAll(observation.edits());qualification[0]=observation.qualification();
-                scopeFees=observation.scopeFees();
+            final var edits = new ArrayList<TargetStoreBackend.Edit>();
+            TargetScopeFeeAuthority scopeFees = TargetScopeFeeAuthority.UNAVAILABLE;
+            edits.add(reader.replace(
+                    ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
+            if (actual.first() == null) {
+                final var observation = TargetSloObservationSamples.expiredCommand(
+                        reader, scope, lineage, mutation, stamp, position, samples);
+                edits.addAll(observation.edits());
+                qualification[0] = observation.qualification();
+                scopeFees = observation.scopeFees();
             }
             final var accounted = new TargetSourceAccounting(
                             scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
-                    .withScopeFees(scopeFees).assemble(reader,edits);
+                    .withScopeFees(scopeFees)
+                    .assemble(reader, edits);
             result[0] = actual.result();
             return accounted;
         });
-        return Optional.of(new Prepared(this, null, batch, result[0],qualification[0]));
+        return Optional.of(new Prepared(this, null, batch, result[0], qualification[0]));
     }
 
     public CommandResult commit(
@@ -184,12 +200,19 @@ public final class TargetCommandReplayStore {
                     .result();
         }
         prepared.qualification.run();
-        final var original=Objects.requireNonNull(writes, "writeAuthority");
-        backend.commit(prepared.batch,(metadata,actualScope,mutation)->{
-            final var held=original.acquire(metadata,actualScope,mutation);
-            return new TargetStoreBackend.CommitGuard(){
-                public void requireCurrent(){prepared.qualification.run();held.requireCurrent();prepared.qualification.run();}
-                public void close(){held.close();}
+        final var original = Objects.requireNonNull(writes, "writeAuthority");
+        backend.commit(prepared.batch, (metadata, actualScope, mutation) -> {
+            final var held = original.acquire(metadata, actualScope, mutation);
+            return new TargetStoreBackend.CommitGuard() {
+                public void requireCurrent() {
+                    prepared.qualification.run();
+                    held.requireCurrent();
+                    prepared.qualification.run();
+                }
+
+                public void close() {
+                    held.close();
+                }
             };
         });
         return prepared.result;
@@ -256,8 +279,7 @@ public final class TargetCommandReplayStore {
             if (position == null
                     || position.kind() != TargetResultRecord.Kind.POSITION_COMMAND
                     || position.mutation().sequence() != reader.sourceSequence()
-                    || !Arrays.equals(
-                            position.mutation().mutationDigest(), mutation.canonicalFrameDigest())) {
+                    || !Arrays.equals(position.mutation().mutationDigest(), mutation.canonicalFrameDigest())) {
                 throw new IllegalStateException(
                         "same physical Command replay lacks its exact committed envelope audit");
             }

@@ -15,7 +15,9 @@ abstract class SourceApplyTarget {
         /** Schedules or polls one bounded step; remote work must use the existing owned I/O executor. */
         void schedule(LongSupplier clock);
 
-        default Throwable failure() { return null; }
+        default Throwable failure() {
+            return null;
+        }
     }
 
     abstract void bind(WorkClassExecutionRegistry registry);
@@ -26,16 +28,22 @@ abstract class SourceApplyTarget {
 
     abstract void fence();
 
-    boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) { return true; }
+    boolean prepareAuthorities(SourceReplayEntry entry, LongSupplier clock, boolean recovery) {
+        return true;
+    }
 
-    boolean completeAuthorities(SourceReplayEntry entry) { return true; }
+    boolean completeAuthorities(SourceReplayEntry entry) {
+        return true;
+    }
 
     /** Called only after successful business apply, before releasing its original authority protections. */
     FinalContinuation beginFinalContinuation(SourceReplayEntry entry, SourceReplayOutcome outcome, LongSupplier clock) {
         return null;
     }
 
-    boolean isAuthorityPreparationRequired(Throwable failure) { return false; }
+    boolean isAuthorityPreparationRequired(Throwable failure) {
+        return false;
+    }
 
     void beforeAcknowledgement(SourceReplayEntry entry, SourceReplayOutcome outcome, LongSupplier clock) {
         // Legacy targets retain their existing broker-ack boundary; Target additionally rechecks its live lease.

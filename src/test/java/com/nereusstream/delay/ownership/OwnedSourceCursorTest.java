@@ -55,7 +55,9 @@ class OwnedSourceCursorTest {
             final var read = executor.submit(() -> owned.read(1000, cursor -> {
                 entered.countDown();
                 try {
-                    if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("read not released"); }
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("read not released");
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException(interrupted);
@@ -86,7 +88,9 @@ class OwnedSourceCursorTest {
         assertThrows(IllegalStateException.class, owned::backendShutdownCompleted);
         owned.requestClose();
         assertFalse(owned.cleanupComplete());
-        assertEquals("SDK subscribe failed before internal close", owned.cleanupFailure().getMessage());
+        assertEquals(
+                "SDK subscribe failed before internal close",
+                owned.cleanupFailure().getMessage());
         owned.backendShutdownCompleted(); // Test-only exact backend-owner shutdown evidence.
         assertTrue(owned.cleanupComplete());
         final var skipped = new OwnedSourceCursor<>(new CompletableFuture<>(), cursor -> {

@@ -280,7 +280,8 @@ public final class PulsarLegacyCheckpointReplaySmoke {
                     nativeConsumer, guard, assignment, physicalTopic, Duration.ofSeconds(2))) {
                 cursorOwnsNative = true;
                 final SourceReplayEntry next = SourceReplayCursor.of(cursor).peek();
-                if (!(next instanceof SourceReplayRecord record) || !record.command().equals(expected)) {
+                if (!(next instanceof SourceReplayRecord record)
+                        || !record.command().equals(expected)) {
                     throw new IllegalStateException("Pulsar B6 post-cut record was not available after the cut");
                 }
                 return position(record);
@@ -309,13 +310,11 @@ public final class PulsarLegacyCheckpointReplaySmoke {
     }
 
     private static void applyThenAcknowledge(
-            final DelayShard applier,
-            final SourceRecordConsumer.PolledSourceRecord polled,
-            final String label) {
+            final DelayShard applier, final SourceRecordConsumer.PolledSourceRecord polled, final String label) {
         final SourceReplayRecord replay = sourceRecord(polled);
         final var result = applier.apply(replay.command(), replay.position());
-        final SourceAcknowledgement.AcknowledgementResult acknowledged = polled.acknowledgement()
-                .acknowledge(replay, SourceReplayOutcome.command(replay.position(), result));
+        final SourceAcknowledgement.AcknowledgementResult acknowledged =
+                polled.acknowledgement().acknowledge(replay, SourceReplayOutcome.command(replay.position(), result));
         if (acknowledged.disposition() != SourceAcknowledgement.Disposition.ACKED) {
             throw new IllegalStateException(label + " did not receive a durable Pulsar ACK", acknowledged.failure());
         }
@@ -327,16 +326,16 @@ public final class PulsarLegacyCheckpointReplaySmoke {
             final ShardStore store,
             final byte[] checkpointId,
             final PulsarSourcePosition sourcePosition) {
-        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(image, MANIFEST_LIMITS)
-                .stream()
-                .map(file -> new CheckpointManifest.FileEntry(
-                        file.name(),
-                        file.length(),
-                        file.checksum(),
-                        Bytes.utf8("legacy/" + file.name()),
-                        Bytes.utf8("version-1"),
-                        null))
-                .toList();
+        final List<CheckpointManifest.FileEntry> files =
+                CheckpointFileInventory.collect(image, MANIFEST_LIMITS).stream()
+                        .map(file -> new CheckpointManifest.FileEntry(
+                                file.name(),
+                                file.length(),
+                                file.checksum(),
+                                Bytes.utf8("legacy/" + file.name()),
+                                Bytes.utf8("version-1"),
+                                null))
+                        .toList();
         return new CheckpointManifest(
                 checkpointId,
                 uuidBytes(UUID.randomUUID()),
@@ -413,5 +412,4 @@ public final class PulsarLegacyCheckpointReplaySmoke {
     public interface CommandSender {
         void send(PreparedCommand command, String producerName) throws Exception;
     }
-
 }

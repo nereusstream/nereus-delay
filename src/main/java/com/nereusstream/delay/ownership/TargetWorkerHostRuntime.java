@@ -44,8 +44,11 @@ public final class TargetWorkerHostRuntime {
         private final long generation;
         private final List<Object> registrations;
 
-        private BackendClosePermit(TargetWorkerHostRuntime host, TargetOwnedBackendGroup backend,
-                long generation, List<Object> registrations) {
+        private BackendClosePermit(
+                TargetWorkerHostRuntime host,
+                TargetOwnedBackendGroup backend,
+                long generation,
+                List<Object> registrations) {
             this.host = host;
             this.backend = backend;
             this.generation = generation;
@@ -54,8 +57,11 @@ public final class TargetWorkerHostRuntime {
 
         public void requireOriginalGroup(TargetOwnedBackendGroup expected, List<Object> frozen) {
             synchronized (host) {
-                if (backend != expected || host.quarantineGeneration != generation || !host.backendBarrierEstablished
-                        || !host.ownedBackends.contains(expected) || registrations.size() != frozen.size()) {
+                if (backend != expected
+                        || host.quarantineGeneration != generation
+                        || !host.backendBarrierEstablished
+                        || !host.ownedBackends.contains(expected)
+                        || registrations.size() != frozen.size()) {
                     throw new IllegalStateException("backend close lacks its original Host quarantine barrier");
                 }
                 for (int i = 0; i < registrations.size(); i++) {
@@ -67,10 +73,15 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    public enum BackendQuarantineStatus { QUARANTINED, BACKEND_TERMINATED }
+    public enum BackendQuarantineStatus {
+        QUARANTINED,
+        BACKEND_TERMINATED
+    }
 
     public record BackendQuarantineResult(BackendQuarantineStatus status, List<Throwable> failures) {
-        public BackendQuarantineResult { failures = List.copyOf(failures); }
+        public BackendQuarantineResult {
+            failures = List.copyOf(failures);
+        }
     }
 
     /** A concurrent Host turn owns this Shard; the attempted action has not started. */
@@ -103,36 +114,65 @@ public final class TargetWorkerHostRuntime {
 
         default void requestCheckpointRegistrationStop() {}
 
-        default void requestCheckpointPreparationStop() { requestCheckpointRegistrationStop(); }
+        default void requestCheckpointPreparationStop() {
+            requestCheckpointRegistrationStop();
+        }
 
-        default Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) { return Optional.empty(); }
+        default Optional<WorkClassTask> settlePendingGcForDrain(SchedulerBudget budget) {
+            return Optional.empty();
+        }
 
-        default Optional<WorkClassTask> settlePendingChannelControlForDrain(SchedulerBudget workBudget,
-                SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
+        default Optional<WorkClassTask> settlePendingChannelControlForDrain(
+                SchedulerBudget workBudget, SchedulerBudget sourceBudget, LongSupplier clock) {
+            return Optional.empty();
+        }
 
-        default Optional<WorkClassTask> settlePendingRetirementForDrain(SchedulerBudget workBudget,
-                SchedulerBudget sourceBudget,LongSupplier clock){return Optional.empty();}
-        default Optional<WorkClassTask> settlePendingSloCustodyForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){return Optional.empty();}
-        default Optional<WorkClassTask> settlePendingSloFinalForDrain(SchedulerBudget workBudget,SchedulerBudget sourceBudget,LongSupplier clock){return Optional.empty();}
+        default Optional<WorkClassTask> settlePendingRetirementForDrain(
+                SchedulerBudget workBudget, SchedulerBudget sourceBudget, LongSupplier clock) {
+            return Optional.empty();
+        }
+
+        default Optional<WorkClassTask> settlePendingSloCustodyForDrain(
+                SchedulerBudget workBudget, SchedulerBudget sourceBudget, LongSupplier clock) {
+            return Optional.empty();
+        }
+
+        default Optional<WorkClassTask> settlePendingSloFinalForDrain(
+                SchedulerBudget workBudget, SchedulerBudget sourceBudget, LongSupplier clock) {
+            return Optional.empty();
+        }
+
         default void requestResourceReclaimStop() {}
-        default Optional<WorkClassTask> settlePendingResourceReclaimForDrain(){return Optional.empty();}
 
-        default Optional<WorkClassTask> settlePendingPublicationForDrain(SchedulerBudget workBudget,
-                SchedulerBudget sourceBudget, LongSupplier clock) { return Optional.empty(); }
+        default Optional<WorkClassTask> settlePendingResourceReclaimForDrain() {
+            return Optional.empty();
+        }
 
-        default Optional<WorkClassTask> settlePendingPublicationResourcesForDrain(){return Optional.empty();}
-        default Optional<WorkClassTask> settlePendingJournalResourcesForDrain(){return Optional.empty();}
+        default Optional<WorkClassTask> settlePendingPublicationForDrain(
+                SchedulerBudget workBudget, SchedulerBudget sourceBudget, LongSupplier clock) {
+            return Optional.empty();
+        }
 
-        default boolean canPublishFinalCheckpoint() { return true; }
+        default Optional<WorkClassTask> settlePendingPublicationResourcesForDrain() {
+            return Optional.empty();
+        }
 
-        default long checkpointStoreSequence() { return 0; }
+        default Optional<WorkClassTask> settlePendingJournalResourcesForDrain() {
+            return Optional.empty();
+        }
+
+        default boolean canPublishFinalCheckpoint() {
+            return true;
+        }
+
+        default long checkpointStoreSequence() {
+            return 0;
+        }
 
         Optional<TargetCheckpointCandidateWorkClassExecutor.Outcome> runCheckpointTurn(SchedulerBudget budget);
 
         default Optional<WorkClassTask> settlePendingMessageExpiryForDrain(
-                final SchedulerBudget workBudget,
-                final SchedulerBudget sourceBudget,
-                final LongSupplier ownerClock) {
+                final SchedulerBudget workBudget, final SchedulerBudget sourceBudget, final LongSupplier ownerClock) {
             return Optional.empty();
         }
 
@@ -163,20 +203,46 @@ public final class TargetWorkerHostRuntime {
             WorkClassTask pendingMessageExpiryTask,
             WorkClassTask pendingChannelControlTask,
             WorkClassTask pendingPublicationTask) {
-        public ShardDrain(final ShardId shardId, final Status status,
-                final SourceApplyCoordinator.TurnResult sourceTurn, final WorkClassTask pendingCheckpointTask,
-                final WorkClassTask pendingGcTask, final RuntimeException failure,
-                final WorkClassTask pendingMessageExpiryTask, final WorkClassTask pendingChannelControlTask) {
-            this(shardId, status, sourceTurn, pendingCheckpointTask, pendingGcTask, failure,
-                    pendingMessageExpiryTask, pendingChannelControlTask, null);
+        public ShardDrain(
+                final ShardId shardId,
+                final Status status,
+                final SourceApplyCoordinator.TurnResult sourceTurn,
+                final WorkClassTask pendingCheckpointTask,
+                final WorkClassTask pendingGcTask,
+                final RuntimeException failure,
+                final WorkClassTask pendingMessageExpiryTask,
+                final WorkClassTask pendingChannelControlTask) {
+            this(
+                    shardId,
+                    status,
+                    sourceTurn,
+                    pendingCheckpointTask,
+                    pendingGcTask,
+                    failure,
+                    pendingMessageExpiryTask,
+                    pendingChannelControlTask,
+                    null);
         }
-        public ShardDrain(final ShardId shardId, final Status status,
-                final SourceApplyCoordinator.TurnResult sourceTurn, final WorkClassTask pendingCheckpointTask,
-                final WorkClassTask pendingGcTask, final RuntimeException failure,
+
+        public ShardDrain(
+                final ShardId shardId,
+                final Status status,
+                final SourceApplyCoordinator.TurnResult sourceTurn,
+                final WorkClassTask pendingCheckpointTask,
+                final WorkClassTask pendingGcTask,
+                final RuntimeException failure,
                 final WorkClassTask pendingMessageExpiryTask) {
-            this(shardId, status, sourceTurn, pendingCheckpointTask, pendingGcTask, failure,
-                    pendingMessageExpiryTask, null);
+            this(
+                    shardId,
+                    status,
+                    sourceTurn,
+                    pendingCheckpointTask,
+                    pendingGcTask,
+                    failure,
+                    pendingMessageExpiryTask,
+                    null);
         }
+
         public ShardDrain(
                 final ShardId shardId,
                 final Status status,
@@ -208,8 +274,14 @@ public final class TargetWorkerHostRuntime {
     }
 
     public record Result(List<ShardDrain> shards, boolean ownedBackendsTerminated, boolean oxiaTerminated) {
-        public Result(List<ShardDrain> shards) { this(shards, true, true); }
-        public Result(List<ShardDrain> shards, boolean ownedBackendsTerminated) { this(shards, ownedBackendsTerminated, true); }
+        public Result(List<ShardDrain> shards) {
+            this(shards, true, true);
+        }
+
+        public Result(List<ShardDrain> shards, boolean ownedBackendsTerminated) {
+            this(shards, ownedBackendsTerminated, true);
+        }
+
         public Result {
             shards = List.copyOf(Objects.requireNonNull(shards, "shards"));
             if (shards.isEmpty()) {
@@ -229,6 +301,7 @@ public final class TargetWorkerHostRuntime {
     private TargetWorkerOrdinaryLoop ordinaryLoop;
     /** Bound applied to Workers admitted after ordinary scheduling has started. */
     private int ordinaryTargetCacheLimit;
+
     private final TargetStoreBackend.TargetQueueChangeSignal targetQueueChangeSignal =
             new TargetStoreBackend.TargetQueueChangeSignal();
     private final Set<ShardId> withdrawn = new HashSet<>();
@@ -259,16 +332,17 @@ public final class TargetWorkerHostRuntime {
     private boolean compositionBackendTransferAttempted;
     private boolean compositionTransferRetryActive;
     private final List<TargetOwnedBackendGroup> untransferredCompositionBackends = new ArrayList<>();
-    private final Map<TargetOwnedBackendGroup, java.util.concurrent.CompletableFuture<Void>> untransferredCompositionCloses =
-            new java.util.IdentityHashMap<>();
+    private final Map<TargetOwnedBackendGroup, java.util.concurrent.CompletableFuture<Void>>
+            untransferredCompositionCloses = new java.util.IdentityHashMap<>();
     private boolean untransferredCompositionCloseActive;
     private Throwable compositionFailure;
     private final List<Shard> compositionSignalBindings = new ArrayList<>();
     private final List<Shard> compositionPublicationBindings = new ArrayList<>();
-    private final Map<TargetOwnedBackendGroup, BackendClosePermit> backendClosePermits = new java.util.IdentityHashMap<>();
+    private final Map<TargetOwnedBackendGroup, BackendClosePermit> backendClosePermits =
+            new java.util.IdentityHashMap<>();
     private TargetSourceBacklogCache sourceObservationCache;
-    private java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
-            TargetSourceBacklogRead> sourceObservationFactory;
+    private java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut, TargetSourceBacklogRead>
+            sourceObservationFactory;
     private LongSupplier sourceObservationOwnerClock;
     private int sourceObservationCursor;
 
@@ -285,22 +359,30 @@ public final class TargetWorkerHostRuntime {
             throw new IllegalStateException("Target host has no unified runtime configuration");
         }
         final var checkpoint = runtimeConfig.checkpoint();
-        return configurePeriodicSemanticCheckpoints(checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()),
-                factory, clock, checkpoint.settlementTurn());
+        return configurePeriodicSemanticCheckpoints(
+                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()),
+                factory,
+                clock,
+                checkpoint.settlementTurn());
     }
 
     /** Registers the admitted fleet once and uses the existing maintenance loop for bounded claim/settlement. */
     public synchronized TargetCheckpointCandidateSchedule configurePeriodicSemanticCheckpoints(
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
-            TargetCheckpointCandidateSchedule.SemanticRequestFactory factory, LongSupplier clock,
+            TargetCheckpointCandidateSchedule.SemanticRequestFactory factory,
+            LongSupplier clock,
             SchedulerBudget budget) {
         final var supplied = Objects.requireNonNull(factory, "factory");
         if (runtimeConfig != null) {
-            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+            runtimeConfig
+                    .checkpoint()
+                    .requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
         }
         final TargetCheckpointCandidateSchedule.SemanticRequestFactory checked = (worker, claim, cut) -> {
             final var request = supplied.create(worker, claim, cut);
-            if (runtimeConfig != null) { runtimeConfig.checkpoint().requireRequest(request); }
+            if (runtimeConfig != null) {
+                runtimeConfig.checkpoint().requireRequest(request);
+            }
             return request;
         };
         return registerPeriodicCheckpointSchedule(
@@ -315,22 +397,29 @@ public final class TargetWorkerHostRuntime {
         }
         final var checkpoint = runtimeConfig.checkpoint();
         return configurePeriodicCollectedSemanticCheckpoints(
-                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()), factory, clock,
+                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()),
+                factory,
+                clock,
                 checkpoint.settlementTurn());
     }
 
     /** Uses the same maintenance loop while original history is collected in bounded CHECKPOINT steps. */
     public synchronized TargetCheckpointCandidateSchedule configurePeriodicCollectedSemanticCheckpoints(
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
-            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier clock,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory,
+            LongSupplier clock,
             SchedulerBudget budget) {
         final var supplied = Objects.requireNonNull(factory, "factory");
         if (runtimeConfig != null) {
-            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+            runtimeConfig
+                    .checkpoint()
+                    .requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
         }
         final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checked = (worker, claim, cut) -> {
             final var request = supplied.create(worker, claim, cut);
-            if (runtimeConfig != null) { runtimeConfig.checkpoint().requireRequest(request); }
+            if (runtimeConfig != null) {
+                runtimeConfig.checkpoint().requireRequest(request);
+            }
             return request;
         };
         return registerPeriodicCheckpointSchedule(
@@ -345,48 +434,88 @@ public final class TargetWorkerHostRuntime {
         }
         final var checkpoint = runtimeConfig.checkpoint();
         return configurePeriodicDeferredCollectedSemanticCheckpoints(
-                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()), factory, clock,
+                checkpoint.newScheduler(runtimeConfig.store().maxOwnedShards()),
+                factory,
+                clock,
                 checkpoint.settlementTurn());
     }
 
     public synchronized TargetCheckpointCandidateSchedule configurePeriodicDeferredCollectedSemanticCheckpoints(
             com.nereusstream.delay.store.CheckpointScheduler scheduler,
-            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory factory, LongSupplier clock,
+            TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory factory,
+            LongSupplier clock,
             SchedulerBudget budget) {
         final var supplied = Objects.requireNonNull(factory, "factory");
         if (runtimeConfig != null) {
-            runtimeConfig.checkpoint().requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
+            runtimeConfig
+                    .checkpoint()
+                    .requireSchedule(scheduler, runtimeConfig.store().maxOwnedShards(), budget);
         }
         final TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checked =
                 (worker, claim, cut) -> {
                     final var preparation = Objects.requireNonNull(supplied.create(worker, claim, cut), "preparation");
                     return new TargetCheckpointCandidateSchedule.DeferredPreparation() {
-                        @Override public String localTaskIdentity() { return preparation.localTaskIdentity(); }
-                        @Override public long maximumTaskBytes() { return preparation.maximumTaskBytes(); }
-                        @Override public java.util.concurrent.ThreadPoolExecutor checkpointExecutor() {
+                        @Override
+                        public String localTaskIdentity() {
+                            return preparation.localTaskIdentity();
+                        }
+
+                        @Override
+                        public long maximumTaskBytes() {
+                            return preparation.maximumTaskBytes();
+                        }
+
+                        @Override
+                        public java.util.concurrent.ThreadPoolExecutor checkpointExecutor() {
                             return preparation.checkpointExecutor();
                         }
-                        @Override public Optional<TargetCheckpointCandidateSchedule.CollectedSemanticRequest> preparedRequest() {
+
+                        @Override
+                        public Optional<TargetCheckpointCandidateSchedule.CollectedSemanticRequest> preparedRequest() {
                             final var request = preparation.preparedRequest();
-                            if (runtimeConfig != null) request.ifPresent(runtimeConfig.checkpoint()::requireRequest);
+                            if (runtimeConfig != null) {
+                                request.ifPresent(runtimeConfig.checkpoint()::requireRequest);
+                            }
                             return request;
                         }
-                        @Override public void accepted(TargetCheckpointCandidateWorkClassExecutor.Submission original) {
+
+                        @Override
+                        public void accepted(TargetCheckpointCandidateWorkClassExecutor.Submission original) {
                             preparation.accepted(original);
                         }
-                        @Override public TargetCheckpointCandidateSchedule.PublishedValidationHold acquirePublishedValidation(
-                                TargetCheckpointCandidateSchedule.PublishedValidationRequest request, Runnable current) {
+
+                        @Override
+                        public TargetCheckpointCandidateSchedule.PublishedValidationHold acquirePublishedValidation(
+                                TargetCheckpointCandidateSchedule.PublishedValidationRequest request,
+                                Runnable current) {
                             return preparation.acquirePublishedValidation(request, current);
                         }
-                        @Override public boolean ioExited() { return preparation.ioExited(); }
-                        @Override public Throwable pendingIoFailure() { return preparation.pendingIoFailure(); }
-                        @Override public void requestStop() { preparation.requestStop(); }
-                        @Override public void retryCleanup() { preparation.retryCleanup(); }
+
+                        @Override
+                        public boolean ioExited() {
+                            return preparation.ioExited();
+                        }
+
+                        @Override
+                        public Throwable pendingIoFailure() {
+                            return preparation.pendingIoFailure();
+                        }
+
+                        @Override
+                        public void requestStop() {
+                            preparation.requestStop();
+                        }
+
+                        @Override
+                        public void retryCleanup() {
+                            preparation.retryCleanup();
+                        }
                     };
                 };
         return registerPeriodicCheckpointSchedule(
                 TargetCheckpointCandidateSchedule.deferredCollectedSemantic(this, scheduler, checked, budget),
-                clock, budget);
+                clock,
+                budget);
     }
 
     private TargetCheckpointCandidateSchedule registerPeriodicCheckpointSchedule(
@@ -411,21 +540,27 @@ public final class TargetWorkerHostRuntime {
             return schedule;
         } catch (RuntimeException | Error failure) {
             for (var shard : admitted) {
-                try { schedule.unregister(shard); }
-                catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    schedule.unregister(shard);
+                } catch (RuntimeException | Error cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
             throw failure;
         }
     }
 
     /** Deterministic lifecycle seam; callers register the exact admitted test Shards first. */
-    synchronized void configurePeriodicCheckpoints(TargetCheckpointCandidateSchedule schedule, LongSupplier clock,
-            SchedulerBudget budget) {
+    synchronized void configurePeriodicCheckpoints(
+            TargetCheckpointCandidateSchedule schedule, LongSupplier clock, SchedulerBudget budget) {
         configurePeriodicCheckpoints(schedule, clock, budget, false);
     }
 
-    synchronized void configurePeriodicCheckpoints(TargetCheckpointCandidateSchedule schedule, LongSupplier clock,
-            SchedulerBudget budget, boolean finalPublication) {
+    synchronized void configurePeriodicCheckpoints(
+            TargetCheckpointCandidateSchedule schedule,
+            LongSupplier clock,
+            SchedulerBudget budget,
+            boolean finalPublication) {
         if (stopping || checkpointSchedule != null) {
             throw new IllegalStateException("Target Host checkpoint scheduling is stopping or already configured");
         }
@@ -446,7 +581,9 @@ public final class TargetWorkerHostRuntime {
         final SchedulerBudget budget;
         final int count;
         synchronized (this) {
-            if (stopping || checkpointSchedule == null) { return false; }
+            if (stopping || checkpointSchedule == null) {
+                return false;
+            }
             schedule = checkpointSchedule;
             clock = checkpointClock;
             budget = checkpointBudget;
@@ -457,39 +594,57 @@ public final class TargetWorkerHostRuntime {
             final Shard shard;
             final boolean withdrawnShard;
             synchronized (this) {
-                if (stopping) { return false; }
-                if (checkpointCursor >= shards.size()) { checkpointCursor = 0; }
+                if (stopping) {
+                    return false;
+                }
+                if (checkpointCursor >= shards.size()) {
+                    checkpointCursor = 0;
+                }
                 shard = shards.get(checkpointCursor++);
-                if (completed.containsKey(shard.shardId()) || draining.contains(shard.shardId())) { continue; }
+                if (completed.containsKey(shard.shardId()) || draining.contains(shard.shardId())) {
+                    continue;
+                }
                 withdrawnShard = withdrawn.contains(shard.shardId());
             }
-            if (!withdrawnShard) { schedule.ensureRegistered(shard, now, budget); }
-            if (schedule.hasFinalDrainFlight(shard)) { continue; }
+            if (!withdrawnShard) {
+                schedule.ensureRegistered(shard, now, budget);
+            }
+            if (schedule.hasFinalDrainFlight(shard)) {
+                continue;
+            }
             if (schedule.pendingTask(shard.shardId()).isPresent()) {
                 final var settled = schedule.settle(shard.shardId(), budget, now);
                 if (settled.isPresent() && settled.orElseThrow().failure() != null) {
-                    throw new IllegalStateException("periodic Target checkpoint failed",
+                    throw new IllegalStateException(
+                            "periodic Target checkpoint failed",
                             settled.orElseThrow().failure());
                 }
                 return true;
             }
-            if (!withdrawnShard && shard.pendingSourceEntry().isEmpty()
-                    && !schedule.claimDueForShard(shard.shardId(), now, 1).isEmpty()) { return true; }
+            if (!withdrawnShard
+                    && shard.pendingSourceEntry().isEmpty()
+                    && !schedule.claimDueForShard(shard.shardId(), now, 1).isEmpty()) {
+                return true;
+            }
         }
         return false;
     }
 
     /** One shared cache/provider for the admitted fleet; maintenance only queues one bounded refresh per tick. */
-    public synchronized void configureSourceObservations(final TargetSourceBacklogCache cache,
-            final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
-                    TargetSourceBacklogRead> factory, final LongSupplier ownerClock) {
+    public synchronized void configureSourceObservations(
+            final TargetSourceBacklogCache cache,
+            final java.util.function.BiFunction<
+                            TargetWorkerShardRuntime, TargetSourceBacklog.Cut, TargetSourceBacklogRead>
+                    factory,
+            final LongSupplier ownerClock) {
         requireServiceActivationCaller();
         if (stopping || sourceObservationCache != null) {
             throw new IllegalStateException("Target Host Source observer is stopping or already configured");
         }
         final var selected = Objects.requireNonNull(cache, "cache");
         if (runtimeConfig != null) {
-            selected.requireBounds(runtimeConfig.store().maxOwnedShards(),
+            selected.requireBounds(
+                    runtimeConfig.store().maxOwnedShards(),
                     runtimeConfig.backlogGrowth().maximumObservationAgeNanos());
         }
         final var selectedFactory = Objects.requireNonNull(factory, "factory");
@@ -503,12 +658,14 @@ public final class TargetWorkerHostRuntime {
 
     public boolean runNextSourceObservationTurn() {
         final TargetSourceBacklogCache cache;
-        final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
-                TargetSourceBacklogRead> factory;
+        final java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut, TargetSourceBacklogRead>
+                factory;
         final LongSupplier clock;
         final int count;
         synchronized (this) {
-            if (stopping || sourceObservationCache == null) { return false; }
+            if (stopping || sourceObservationCache == null) {
+                return false;
+            }
             cache = sourceObservationCache;
             factory = sourceObservationFactory;
             clock = sourceObservationOwnerClock;
@@ -517,15 +674,25 @@ public final class TargetWorkerHostRuntime {
         for (int visited = 0; visited < count; visited++) {
             final Shard shard;
             synchronized (this) {
-                if (stopping) { return false; }
-                if (sourceObservationCursor >= shards.size()) { sourceObservationCursor = 0; }
+                if (stopping) {
+                    return false;
+                }
+                if (sourceObservationCursor >= shards.size()) {
+                    sourceObservationCursor = 0;
+                }
                 shard = shards.get(sourceObservationCursor++);
-                if (withdrawn.contains(shard.shardId()) || completed.containsKey(shard.shardId())
-                        || draining.contains(shard.shardId())) { continue; }
+                if (withdrawn.contains(shard.shardId())
+                        || completed.containsKey(shard.shardId())
+                        || draining.contains(shard.shardId())) {
+                    continue;
+                }
             }
             if (shard instanceof TargetWorkerShardRuntime worker) {
-                return tryWithShardAdmission(worker, () -> worker.pendingCheckpointTask().isEmpty()
-                        && cache.refresh(worker, clock, cut -> factory.apply(worker, cut))).orElse(false);
+                return tryWithShardAdmission(
+                                worker,
+                                () -> worker.pendingCheckpointTask().isEmpty()
+                                        && cache.refresh(worker, clock, cut -> factory.apply(worker, cut)))
+                        .orElse(false);
             }
         }
         return false;
@@ -536,14 +703,20 @@ public final class TargetWorkerHostRuntime {
     }
 
     public synchronized void retrySourceObservationCleanup(final ShardId shard) {
-        if (sourceObservationCache == null) { throw new IllegalStateException("Target Host has no Source observer"); }
+        if (sourceObservationCache == null) {
+            throw new IllegalStateException("Target Host has no Source observer");
+        }
         sourceObservationCache.retryCleanup(shard);
     }
 
     private ShardDrain stopSourceObservationForDrain(final Shard shard) {
         final TargetSourceBacklogCache cache;
-        synchronized (this) { cache = sourceObservationCache; }
-        if (cache == null) { return null; }
+        synchronized (this) {
+            cache = sourceObservationCache;
+        }
+        if (cache == null) {
+            return null;
+        }
         cache.withdraw(shard.shardId());
         if (!cache.cleanupComplete(shard.shardId())) {
             return new ShardDrain(shard.shardId(), Status.PENDING_SOURCE_OBSERVATION, null, null, null, null);
@@ -559,8 +732,16 @@ public final class TargetWorkerHostRuntime {
             final SchedulerBudget maintenanceBudget,
             final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer) {
-        return start(null, workClasses, resources, shards, maintenanceBudget, maintenanceInterval, failureConsumer,
-                null, null);
+        return start(
+                null,
+                workClasses,
+                resources,
+                shards,
+                maintenanceBudget,
+                maintenanceInterval,
+                failureConsumer,
+                null,
+                null);
     }
 
     /** Starts the configured Host after checking the exact resource, dispatcher and Source limits. */
@@ -571,80 +752,136 @@ public final class TargetWorkerHostRuntime {
             final List<TargetWorkerShardRuntime> shards,
             final Consumer<Throwable> failureConsumer) {
         final var selected = Objects.requireNonNull(config, "config");
-        return start(selected, workClasses, resources, shards,
-                selected.maintenanceTurn(), selected.maintenanceInterval(), failureConsumer, null, null);
+        return start(
+                selected,
+                workClasses,
+                resources,
+                shards,
+                selected.maintenanceTurn(),
+                selected.maintenanceInterval(),
+                failureConsumer,
+                null,
+                null);
     }
 
     /** Installs the configured formal checkpoint schedule before admitting the first maintenance tick. */
     public static TargetWorkerHostRuntime startWithCollectedCheckpoints(
-            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry workClasses, SharedRocksDbResources resources,
+            TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry workClasses,
+            SharedRocksDbResources resources,
             List<TargetWorkerShardRuntime> shards,
-            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory, LongSupplier checkpointClock,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory factory,
+            LongSupplier checkpointClock,
             Consumer<Throwable> failureConsumer) {
         final var selected = Objects.requireNonNull(config, "config");
-        return start(selected, workClasses, resources, shards, selected.maintenanceTurn(),
-                selected.maintenanceInterval(), failureConsumer, Objects.requireNonNull(factory, "factory"),
+        return start(
+                selected,
+                workClasses,
+                resources,
+                shards,
+                selected.maintenanceTurn(),
+                selected.maintenanceInterval(),
+                failureConsumer,
+                Objects.requireNonNull(factory, "factory"),
                 Objects.requireNonNull(checkpointClock, "checkpointClock"));
     }
 
     /** Compose the actual Host and bind Source backends without admitting any background tick. */
     public static TargetWorkerHostRuntime prepareWithCollectedCheckpoints(
-            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
             List<TargetWorkerShardRuntime> shards,
-            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints, LongSupplier checkpointClock,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock,
             Consumer<Throwable> failureConsumer) {
         final var selected = Objects.requireNonNull(config, "config");
-        return compose(selected, classes, resources, shards, selected.maintenanceTurn(), selected.maintenanceInterval(),
-                failureConsumer, Objects.requireNonNull(checkpoints, "checkpoints"),
-                Objects.requireNonNull(checkpointClock, "checkpointClock"), false);
+        return compose(
+                selected,
+                classes,
+                resources,
+                shards,
+                selected.maintenanceTurn(),
+                selected.maintenanceInterval(),
+                failureConsumer,
+                Objects.requireNonNull(checkpoints, "checkpoints"),
+                Objects.requireNonNull(checkpointClock, "checkpointClock"),
+                false);
     }
 
     /** Activate the existing maintenance loop only after service-specific backends/providers have been installed. */
     public synchronized void startMaintenance() {
         requireServiceActivationCaller();
-        if (stopping || backendQuarantined || maintenanceStarted)
+        if (stopping || backendQuarantined || maintenanceStarted) {
             throw new IllegalStateException("Target Host maintenance is stopping or already started");
+        }
         maintenanceLoop.start();
         maintenanceStarted = true;
     }
 
     private static TargetWorkerHostRuntime start(
             final TargetWorkerRuntimeConfig config,
-            final WorkClassExecutionRegistry classes, final SharedRocksDbResources resources,
-            final List<TargetWorkerShardRuntime> shards, final SchedulerBudget budget, final Duration interval,
+            final WorkClassExecutionRegistry classes,
+            final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget budget,
+            final Duration interval,
             final Consumer<Throwable> failures,
             final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
             final LongSupplier checkpointClock) {
-        return compose(config, classes, resources, shards, budget, interval, failures, checkpoints, checkpointClock, true);
+        return compose(
+                config, classes, resources, shards, budget, interval, failures, checkpoints, checkpointClock, true);
     }
 
     /** Compose the same prepared Host with history preparation deferred to its original bounded task. */
     public static TargetWorkerHostRuntime prepareWithDeferredCollectedCheckpoints(
-            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+            TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
             List<TargetWorkerShardRuntime> shards,
             TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
-            LongSupplier checkpointClock, Consumer<Throwable> failureConsumer) {
+            LongSupplier checkpointClock,
+            Consumer<Throwable> failureConsumer) {
         final var selected = Objects.requireNonNull(config, "config");
-        return compose(selected, classes, resources, shards, selected.maintenanceTurn(), selected.maintenanceInterval(),
-                failureConsumer, null, Objects.requireNonNull(checkpoints, "checkpoints"),
-                Objects.requireNonNull(checkpointClock, "checkpointClock"), false, null);
+        return compose(
+                selected,
+                classes,
+                resources,
+                shards,
+                selected.maintenanceTurn(),
+                selected.maintenanceInterval(),
+                failureConsumer,
+                null,
+                Objects.requireNonNull(checkpoints, "checkpoints"),
+                Objects.requireNonNull(checkpointClock, "checkpointClock"),
+                false,
+                null);
     }
 
-    static PreparationAttempt newPreparationAttempt(TargetWorkerProcessRuntime process, TargetWorkerRuntimeConfig config,
-            WorkClassExecutionRegistry classes, SharedRocksDbResources resources, List<TargetWorkerShardRuntime> workers,
-            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints, LongSupplier checkpointClock,
+    static PreparationAttempt newPreparationAttempt(
+            TargetWorkerProcessRuntime process,
+            TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
+            List<TargetWorkerShardRuntime> workers,
+            TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
+            LongSupplier checkpointClock,
             Consumer<Throwable> failures) {
-        return new PreparationAttempt(process, config, classes, resources, workers, checkpoints, null,
-                checkpointClock, failures);
+        return new PreparationAttempt(
+                process, config, classes, resources, workers, checkpoints, null, checkpointClock, failures);
     }
 
-    static PreparationAttempt newDeferredPreparationAttempt(TargetWorkerProcessRuntime process,
-            TargetWorkerRuntimeConfig config, WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+    static PreparationAttempt newDeferredPreparationAttempt(
+            TargetWorkerProcessRuntime process,
+            TargetWorkerRuntimeConfig config,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources,
             List<TargetWorkerShardRuntime> workers,
             TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
-            LongSupplier checkpointClock, Consumer<Throwable> failures) {
-        return new PreparationAttempt(process, config, classes, resources, workers, null, checkpoints,
-                checkpointClock, failures);
+            LongSupplier checkpointClock,
+            Consumer<Throwable> failures) {
+        return new PreparationAttempt(
+                process, config, classes, resources, workers, null, checkpoints, checkpointClock, failures);
     }
 
     /** The original process attempt retains even a Host that has acquired only local bindings. */
@@ -670,12 +907,16 @@ public final class TargetWorkerHostRuntime {
         private Throwable failure;
         private NoTransferCompletion noTransfer;
 
-        private PreparationAttempt(TargetWorkerProcessRuntime process, TargetWorkerRuntimeConfig config,
-                WorkClassExecutionRegistry classes, SharedRocksDbResources resources,
+        private PreparationAttempt(
+                TargetWorkerProcessRuntime process,
+                TargetWorkerRuntimeConfig config,
+                WorkClassExecutionRegistry classes,
+                SharedRocksDbResources resources,
                 List<TargetWorkerShardRuntime> workers,
                 TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
                 TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpoints,
-                LongSupplier checkpointClock, Consumer<Throwable> failures) {
+                LongSupplier checkpointClock,
+                Consumer<Throwable> failures) {
             this.process = process;
             this.config = config;
             this.classes = classes;
@@ -689,8 +930,11 @@ public final class TargetWorkerHostRuntime {
 
         TargetWorkerHostRuntime prepare() {
             synchronized (this) {
-                if (invoked) throw new IllegalStateException("original Host preparation was already invoked");
-                invoked = true; active = true;
+                if (invoked) {
+                    throw new IllegalStateException("original Host preparation was already invoked");
+                }
+                invoked = true;
+                active = true;
             }
             try {
                 requireContinue();
@@ -699,54 +943,85 @@ public final class TargetWorkerHostRuntime {
                     throw new NullPointerException("checkpoints");
                 }
                 Objects.requireNonNull(checkpointClock, "checkpointClock");
-                final var prepared = compose(selected, classes, resources, workers, selected.maintenanceTurn(),
-                        selected.maintenanceInterval(), failures, checkpoints, deferredCheckpoints, checkpointClock,
-                        false, this);
-                synchronized (this) { requireContinue(); succeeded = true; }
+                final var prepared = compose(
+                        selected,
+                        classes,
+                        resources,
+                        workers,
+                        selected.maintenanceTurn(),
+                        selected.maintenanceInterval(),
+                        failures,
+                        checkpoints,
+                        deferredCheckpoints,
+                        checkpointClock,
+                        false,
+                        this);
+                synchronized (this) {
+                    requireContinue();
+                    succeeded = true;
+                }
                 prepared.forgetCompositionBindingCleanup();
                 return prepared;
             } catch (RuntimeException | Error caught) {
                 final TargetWorkerHostRuntime retained;
-                synchronized (this) { retained = partialHost; }
+                synchronized (this) {
+                    retained = partialHost;
+                }
                 boolean stopBackends = false;
                 if (retained != null) {
                     synchronized (retained) {
                         retained.stopping = true;
                         if (retained.compositionBackendTransferAttempted && retained.compositionFailure == null) {
-                            retained.compositionFailure = caught; stopBackends = true;
+                            retained.compositionFailure = caught;
+                            stopBackends = true;
                         }
                     }
                 }
                 if (stopBackends) {
                     retained.advanceUntransferredCompositionClose();
                     if (retained.hasOwnedBackends()) {
-                        try { retained.quarantineOwnedBackends(); }
-                        catch (RuntimeException | Error cleanup) { retained.retainCompositionFailure(cleanup); }
+                        try {
+                            retained.quarantineOwnedBackends();
+                        } catch (RuntimeException | Error cleanup) {
+                            retained.retainCompositionFailure(cleanup);
+                        }
                     }
                     retained.observeUntransferredCompositionCloseFailures();
                 }
                 retainFailure(caught);
                 throw caught;
             } finally {
-                synchronized (this) { active = false; exited = true; }
+                synchronized (this) {
+                    active = false;
+                    exited = true;
+                }
             }
         }
 
-        void requestStop() { stopRequested = true; }
-
-        private void requireContinue() {
-            if (stopRequested) throw new IllegalStateException("original Host preparation was stopped");
+        void requestStop() {
+            stopRequested = true;
         }
 
-        synchronized Optional<TargetWorkerHostRuntime> failedHost() { return Optional.ofNullable(partialHost); }
+        private void requireContinue() {
+            if (stopRequested) {
+                throw new IllegalStateException("original Host preparation was stopped");
+            }
+        }
+
+        synchronized Optional<TargetWorkerHostRuntime> failedHost() {
+            return Optional.ofNullable(partialHost);
+        }
 
         synchronized boolean backendTransferAttempted() {
             return partialHost != null && partialHost.compositionBackendTransferAttempted;
         }
 
         private synchronized void retainFailure(Throwable caught) {
-            if (failure == null) failure = caught;
-            else if (failure != caught) failure.addSuppressed(caught);
+            if (failure == null) {
+                failure = caught;
+            } else if (failure != caught) {
+                failure.addSuppressed(caught);
+            }
         }
 
         /** One finite retry of the original local cleanup; never authorizes cleanup while preparation still runs. */
@@ -755,21 +1030,32 @@ public final class TargetWorkerHostRuntime {
             final TargetWorkerMaintenanceLoop localLoop;
             final Throwable original;
             synchronized (this) {
-                if (noTransfer != null) return Optional.of(noTransfer);
-                if (active || !exited || succeeded || cleanupActive || backendTransferAttempted()) return Optional.empty();
+                if (noTransfer != null) {
+                    return Optional.of(noTransfer);
+                }
+                if (active || !exited || succeeded || cleanupActive || backendTransferAttempted()) {
+                    return Optional.empty();
+                }
                 cleanupActive = true;
-                localHost = partialHost; localLoop = loop; original = failure;
+                localHost = partialHost;
+                localLoop = loop;
+                original = failure;
             }
             try {
                 if (!loopExited) {
-                    if (localLoop == null) loopExited = true;
-                    else {
-                        try { localLoop.close(); loopExited = true; }
-                        catch (RuntimeException | Error cleanup) { retainFailure(cleanup); }
+                    if (localLoop == null) {
+                        loopExited = true;
+                    } else {
+                        try {
+                            localLoop.close();
+                            loopExited = true;
+                        } catch (RuntimeException | Error cleanup) {
+                            retainFailure(cleanup);
+                        }
                     }
                 }
-                final boolean bindingsExited = loopExited
-                        && (localHost == null || localHost.rollbackCompositionBindings(original));
+                final boolean bindingsExited =
+                        loopExited && (localHost == null || localHost.rollbackCompositionBindings(original));
                 synchronized (this) {
                     if (bindingsExited && loopExited && !backendTransferAttempted()) {
                         noTransfer = new NoTransferCompletion(this);
@@ -778,7 +1064,9 @@ public final class TargetWorkerHostRuntime {
                     return Optional.empty();
                 }
             } finally {
-                synchronized (this) { cleanupActive = false; }
+                synchronized (this) {
+                    cleanupActive = false;
+                }
             }
         }
     }
@@ -786,13 +1074,25 @@ public final class TargetWorkerHostRuntime {
     /** Minted only by the original Host attempt after every locally acquired binding and loop has exited. */
     static final class NoTransferCompletion {
         private final PreparationAttempt attempt;
-        private NoTransferCompletion(PreparationAttempt attempt) { this.attempt = attempt; }
-        void requireOriginal(TargetWorkerProcessRuntime process, PreparationAttempt original,
+
+        private NoTransferCompletion(PreparationAttempt attempt) {
+            this.attempt = attempt;
+        }
+
+        void requireOriginal(
+                TargetWorkerProcessRuntime process,
+                PreparationAttempt original,
                 List<TargetWorkerShardRuntime> workers) {
             synchronized (attempt) {
-                if (attempt != original || attempt.process != process || attempt.noTransfer != this
-                        || attempt.active || !attempt.exited || attempt.succeeded || !attempt.loopExited
-                        || attempt.backendTransferAttempted() || workers.size() != attempt.workers.size()) {
+                if (attempt != original
+                        || attempt.process != process
+                        || attempt.noTransfer != this
+                        || attempt.active
+                        || !attempt.exited
+                        || attempt.succeeded
+                        || !attempt.loopExited
+                        || attempt.backendTransferAttempted()
+                        || workers.size() != attempt.workers.size()) {
                     throw new IllegalStateException("pre-Host cleanup lacks its original no-transfer completion");
                 }
                 for (int index = 0; index < workers.size(); index++) {
@@ -805,28 +1105,50 @@ public final class TargetWorkerHostRuntime {
     }
 
     private static TargetWorkerHostRuntime compose(
-            final TargetWorkerRuntimeConfig config, final WorkClassExecutionRegistry workClasses,
-            final SharedRocksDbResources resources, final List<TargetWorkerShardRuntime> shards,
-            final SchedulerBudget maintenanceBudget, final Duration maintenanceInterval,
+            final TargetWorkerRuntimeConfig config,
+            final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget maintenanceBudget,
+            final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer,
             final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
-            final LongSupplier checkpointClock, final boolean activateMaintenance) {
-        return compose(config, workClasses, resources, shards, maintenanceBudget, maintenanceInterval,
-                failureConsumer, checkpointFactory, null, checkpointClock, activateMaintenance, null);
+            final LongSupplier checkpointClock,
+            final boolean activateMaintenance) {
+        return compose(
+                config,
+                workClasses,
+                resources,
+                shards,
+                maintenanceBudget,
+                maintenanceInterval,
+                failureConsumer,
+                checkpointFactory,
+                null,
+                checkpointClock,
+                activateMaintenance,
+                null);
     }
 
     private static TargetWorkerHostRuntime compose(
-            final TargetWorkerRuntimeConfig config, final WorkClassExecutionRegistry workClasses,
-            final SharedRocksDbResources resources, final List<TargetWorkerShardRuntime> shards,
-            final SchedulerBudget maintenanceBudget, final Duration maintenanceInterval,
+            final TargetWorkerRuntimeConfig config,
+            final WorkClassExecutionRegistry workClasses,
+            final SharedRocksDbResources resources,
+            final List<TargetWorkerShardRuntime> shards,
+            final SchedulerBudget maintenanceBudget,
+            final Duration maintenanceInterval,
             final Consumer<Throwable> failureConsumer,
             final TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpointFactory,
             final TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory deferredCheckpointFactory,
-            final LongSupplier checkpointClock, final boolean activateMaintenance, final PreparationAttempt attempt) {
+            final LongSupplier checkpointClock,
+            final boolean activateMaintenance,
+            final PreparationAttempt attempt) {
         TargetWorkerMaintenanceLoop loop = null;
         TargetWorkerHostRuntime host = null;
         try {
-            if (config != null) config.requireRuntime(workClasses, resources);
+            if (config != null) {
+                config.requireRuntime(workClasses, resources);
+            }
             final var exactShards = List.copyOf(Objects.requireNonNull(shards, "shards"));
             if (config != null) {
                 if (exactShards.size() > config.store().maxOwnedShards()) {
@@ -842,20 +1164,31 @@ public final class TargetWorkerHostRuntime {
             if (interval.isNegative() || interval.isZero()) {
                 throw new IllegalArgumentException("Target maintenance interval must be positive");
             }
-            try { interval.toNanos(); }
-            catch (ArithmeticException overflow) {
+            try {
+                interval.toNanos();
+            } catch (ArithmeticException overflow) {
                 throw new IllegalArgumentException("Target maintenance interval exceeds nanoseconds", overflow);
             }
-            if (attempt != null) attempt.requireContinue();
+            if (attempt != null) {
+                attempt.requireContinue();
+            }
             loop = TargetWorkerMaintenanceLoop.create(fleet, maintenanceBudget, interval, failureConsumer);
-            if (attempt != null) { synchronized (attempt) { attempt.loop = loop; } }
+            if (attempt != null) {
+                synchronized (attempt) {
+                    attempt.loop = loop;
+                }
+            }
             host = new TargetWorkerHostRuntime(fleet, loop, exactShards, config);
             if (attempt != null) {
                 host.preparationAttempt = attempt;
-                synchronized (attempt) { attempt.partialHost = host; }
+                synchronized (attempt) {
+                    attempt.partialHost = host;
+                }
             }
             host.bindCompositionShards(attempt);
-            if (attempt != null) attempt.requireContinue();
+            if (attempt != null) {
+                attempt.requireContinue();
+            }
             if (checkpointFactory != null) {
                 host.configurePeriodicCollectedSemanticCheckpoints(checkpointFactory, checkpointClock);
             } else if (deferredCheckpointFactory != null) {
@@ -863,37 +1196,62 @@ public final class TargetWorkerHostRuntime {
             }
             final var backends = new ArrayList<TargetOwnedBackendGroup>();
             for (var worker : exactShards) {
-                if (attempt != null) attempt.requireContinue();
+                if (attempt != null) {
+                    attempt.requireContinue();
+                }
                 final var backend = worker.sourceBackendGroup();
-                if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) backends.add(backend);
+                if (backend != null && backends.stream().noneMatch(existing -> existing == backend)) {
+                    backends.add(backend);
+                }
                 for (var publication : worker.publicationBackendGroups()) {
-                    if (backends.stream().noneMatch(existing -> existing == publication)) backends.add(publication);
+                    if (backends.stream().noneMatch(existing -> existing == publication)) {
+                        backends.add(publication);
+                    }
                 }
             }
             host.originalCompositionBackends = List.copyOf(backends);
             host.untransferredCompositionBackends.addAll(backends);
             for (var backend : backends) {
-                if (attempt != null) attempt.requireContinue();
+                if (attempt != null) {
+                    attempt.requireContinue();
+                }
                 backend.requireWorkerGraph(workClasses, resources);
                 backend.requireHostComposition(host, exactShards);
             }
             for (var backend : backends) {
-                if (attempt != null) attempt.requireContinue();
+                if (attempt != null) {
+                    attempt.requireContinue();
+                }
                 host.registerOwnedBackend(backend);
             }
-            if (attempt != null) attempt.requireContinue();
-            if (activateMaintenance) host.startMaintenance();
-            if (attempt == null) host.forgetCompositionBindingCleanup();
+            if (attempt != null) {
+                attempt.requireContinue();
+            }
+            if (activateMaintenance) {
+                host.startMaintenance();
+            }
+            if (attempt == null) {
+                host.forgetCompositionBindingCleanup();
+            }
             return host;
         } catch (RuntimeException | Error failure) {
-            if (host != null) { synchronized (host) { host.stopping = true; } }
+            if (host != null) {
+                synchronized (host) {
+                    host.stopping = true;
+                }
+            }
             if (host != null && host.compositionBackendTransferAttempted) {
                 // Unknown binds and never-attempted groups retain different original cleanup authority.
-                synchronized (host) { host.compositionFailure = failure; }
+                synchronized (host) {
+                    host.compositionFailure = failure;
+                }
                 host.advanceUntransferredCompositionClose();
                 if (host.hasOwnedBackends()) {
-                    try { host.quarantineOwnedBackends(); }
-                    catch (RuntimeException | Error cleanup) { host.retainCompositionFailure(cleanup); }
+                    try {
+                        host.quarantineOwnedBackends();
+                    } catch (RuntimeException | Error cleanup) {
+                        host.retainCompositionFailure(cleanup);
+                    }
                 }
                 host.observeUntransferredCompositionCloseFailures();
                 throw new CompositionFailure(failure, host);
@@ -901,11 +1259,20 @@ public final class TargetWorkerHostRuntime {
             if (attempt == null) {
                 boolean loopExited = loop == null;
                 if (loop != null) {
-                    try { loop.close(); loopExited = true; }
-                    catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+                    try {
+                        loop.close();
+                        loopExited = true;
+                    } catch (RuntimeException | Error cleanup) {
+                        if (cleanup != failure) {
+                            failure.addSuppressed(cleanup);
+                        }
+                    }
                 }
-                final boolean bindingsExited = loopExited && (host == null || host.rollbackCompositionBindings(failure));
-                if (host != null && (!bindingsExited || !loopExited)) throw new CompositionFailure(failure, host);
+                final boolean bindingsExited =
+                        loopExited && (host == null || host.rollbackCompositionBindings(failure));
+                if (host != null && (!bindingsExited || !loopExited)) {
+                    throw new CompositionFailure(failure, host);
+                }
             }
             throw failure;
         }
@@ -915,23 +1282,37 @@ public final class TargetWorkerHostRuntime {
     public static final class CompositionFailure extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         private final transient TargetWorkerHostRuntime failedHost;
+
         private CompositionFailure(Throwable original, TargetWorkerHostRuntime failedHost) {
             super("Target Host composition failed with retained original ownership", original);
             this.failedHost = failedHost;
         }
-        public TargetWorkerHostRuntime failedHost() { return failedHost; }
+
+        public TargetWorkerHostRuntime failedHost() {
+            return failedHost;
+        }
     }
 
     /** Test seam; production retains the Host before installing its first Store binding. */
-    TargetWorkerHostRuntime(TargetWorkerShardFleetRuntime fleet, TargetWorkerMaintenanceLoop maintenanceLoop,
+    TargetWorkerHostRuntime(
+            TargetWorkerShardFleetRuntime fleet,
+            TargetWorkerMaintenanceLoop maintenanceLoop,
             List<? extends Shard> shards) {
         this(fleet, maintenanceLoop, shards, null);
-        try { bindCompositionShards(null); forgetCompositionBindingCleanup(); }
-        catch (RuntimeException | Error failure) { rollbackCompositionBindings(failure); throw failure; }
+        try {
+            bindCompositionShards(null);
+            forgetCompositionBindingCleanup();
+        } catch (RuntimeException | Error failure) {
+            rollbackCompositionBindings(failure);
+            throw failure;
+        }
     }
 
-    private TargetWorkerHostRuntime(TargetWorkerShardFleetRuntime fleet, TargetWorkerMaintenanceLoop maintenanceLoop,
-            List<? extends Shard> shards, TargetWorkerRuntimeConfig runtimeConfig) {
+    private TargetWorkerHostRuntime(
+            TargetWorkerShardFleetRuntime fleet,
+            TargetWorkerMaintenanceLoop maintenanceLoop,
+            List<? extends Shard> shards,
+            TargetWorkerRuntimeConfig runtimeConfig) {
         this.fleet = Objects.requireNonNull(fleet, "fleet");
         this.maintenanceLoop = Objects.requireNonNull(maintenanceLoop, "maintenanceLoop");
         this.runtimeConfig = runtimeConfig;
@@ -943,12 +1324,16 @@ public final class TargetWorkerHostRuntime {
 
     private void bindCompositionShards(PreparationAttempt attempt) {
         for (Shard shard : shards) {
-            if (attempt != null) attempt.requireContinue();
+            if (attempt != null) {
+                attempt.requireContinue();
+            }
             compositionSignalBindings.add(shard);
             bindTargetQueueChangeSignal(shard);
         }
         for (Shard shard : shards) {
-            if (attempt != null) attempt.requireContinue();
+            if (attempt != null) {
+                attempt.requireContinue();
+            }
             if (shard instanceof TargetWorkerShardRuntime worker) {
                 compositionPublicationBindings.add(shard);
                 worker.bindPublicationHost(this);
@@ -988,8 +1373,8 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Waits for one transiently busy Shard admission to release before retrying a bounded read. */
-    public synchronized boolean awaitShardAdmission(
-            final ShardId shardId, final Duration timeout) throws InterruptedException {
+    public synchronized boolean awaitShardAdmission(final ShardId shardId, final Duration timeout)
+            throws InterruptedException {
         final var requested = Objects.requireNonNull(shardId, "shardId");
         final var exactTimeout = Objects.requireNonNull(timeout, "timeout");
         if (exactTimeout.isNegative()) {
@@ -1008,8 +1393,7 @@ public final class TargetWorkerHostRuntime {
                 return false;
             }
             final long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining);
-            final int nanos = (int) (remaining
-                    - java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis));
+            final int nanos = (int) (remaining - java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis));
             wait(millis, nanos);
             remaining = timeoutNanos - (System.nanoTime() - started);
         }
@@ -1018,18 +1402,24 @@ public final class TargetWorkerHostRuntime {
 
     /** Configured ordinary/Native Claim consumption and per-Shard backpressure for actual publisher runtimes. */
     public synchronized TargetWorkerOrdinaryLoop startPulsarPublishing(
-            final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
-            final LongSupplier schedulerClock, final LongSupplier monotonicClock,
-            final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
+            final Consumer<Throwable> failureConsumer) {
         currentTargetWorkers().forEach(TargetWorkerShardRuntime::requirePulsarStartupClosure);
         return startPublishing(requests, ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
     }
 
     /** Starts the configured ordinary baseline and Managed Journal endpoints on the same finite Host loop. */
     public synchronized TargetWorkerOrdinaryLoop startPublishing(
-            final TargetWorkerOrdinaryDrr.Requests requests, final LongSupplier ownerClock,
-            final LongSupplier schedulerClock, final LongSupplier monotonicClock,
-            final BoundedAsyncMetricExporter metrics, final Consumer<Throwable> failureConsumer) {
+            final TargetWorkerOrdinaryDrr.Requests requests,
+            final LongSupplier ownerClock,
+            final LongSupplier schedulerClock,
+            final LongSupplier monotonicClock,
+            final BoundedAsyncMetricExporter metrics,
+            final Consumer<Throwable> failureConsumer) {
         requireServiceActivationCaller();
         final var delegate = Objects.requireNonNull(requests, "requests");
         final var workers = currentTargetWorkers();
@@ -1039,27 +1429,40 @@ public final class TargetWorkerHostRuntime {
         }
         final var guarded = new TargetWorkerOrdinaryDrr.Requests() {
             @Override
-            public Optional<TargetWorkerOrdinaryDrr.Request> resolve(TargetWorkerShardRuntime worker,
-                    TargetHeadCostProbe.Cost cost) {
+            public Optional<TargetWorkerOrdinaryDrr.Request> resolve(
+                    TargetWorkerShardRuntime worker, TargetHeadCostProbe.Cost cost) {
                 return worker.publisherAvailable() ? delegate.resolve(worker, cost) : Optional.empty();
             }
+
             @Override
             public Optional<TargetWorkerOrdinaryDrr.NativePolicyContext> resolveNativePolicyContext(
                     TargetWorkerShardRuntime worker, TargetHeadCostProbe.Cost cost) {
                 return worker.publisherAvailable() && worker.publisherSupportsNative()
-                        ? delegate.resolveNativePolicyContext(worker, cost) : Optional.empty();
+                        ? delegate.resolveNativePolicyContext(worker, cost)
+                        : Optional.empty();
             }
+
             @Override
             public java.io.Closeable subscribeNativePolicyChanges(Runnable listener) {
                 return delegate.subscribeNativePolicyChanges(listener);
             }
         };
-        return startOrdinaryScheduling(guarded, claim -> {
-            final var shard = claim.work().locator().messageId().routingId().shardId();
-            final var worker = workers.stream().filter(candidate -> candidate.shardId().equals(shard))
-                    .findFirst().orElseThrow(() -> new IllegalStateException("Claim belongs to an unconfigured Worker"));
-            worker.acceptPublicationClaim(claim);
-        }, ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
+        return startOrdinaryScheduling(
+                guarded,
+                claim -> {
+                    final var shard =
+                            claim.work().locator().messageId().routingId().shardId();
+                    final var worker = workers.stream()
+                            .filter(candidate -> candidate.shardId().equals(shard))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException("Claim belongs to an unconfigured Worker"));
+                    worker.acceptPublicationClaim(claim);
+                },
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                metrics,
+                failureConsumer);
     }
 
     /** Starts the single bounded ordinary-first Claim loop for this Host. */
@@ -1074,9 +1477,18 @@ public final class TargetWorkerHostRuntime {
         if (runtimeConfig == null) {
             throw new IllegalStateException("Target host has no unified runtime configuration");
         }
-        return startOrdinaryScheduling(runtimeConfig.inventory(), runtimeConfig.ordinary(),
-                runtimeConfig.ordinaryTurn(), runtimeConfig.ordinaryRecheckInterval(), requests, claimConsumer,
-                ownerClock, schedulerClock, monotonicClock, metrics, failureConsumer);
+        return startOrdinaryScheduling(
+                runtimeConfig.inventory(),
+                runtimeConfig.ordinary(),
+                runtimeConfig.ordinaryTurn(),
+                runtimeConfig.ordinaryRecheckInterval(),
+                requests,
+                claimConsumer,
+                ownerClock,
+                schedulerClock,
+                monotonicClock,
+                metrics,
+                failureConsumer);
     }
 
     /** Starts the single bounded ordinary-first Claim loop for this Host. */
@@ -1119,10 +1531,11 @@ public final class TargetWorkerHostRuntime {
             final BoundedAsyncMetricExporter metrics,
             final Consumer<Throwable> failureConsumer) {
         requireServiceActivationCaller();
-        if (runtimeConfig != null && (!runtimeConfig.inventory().equals(inventoryLimits)
-                || !runtimeConfig.ordinary().equals(drrLimits)
-                || !runtimeConfig.ordinaryTurn().equals(turnBudget)
-                || !runtimeConfig.ordinaryRecheckInterval().equals(recheckInterval))) {
+        if (runtimeConfig != null
+                && (!runtimeConfig.inventory().equals(inventoryLimits)
+                        || !runtimeConfig.ordinary().equals(drrLimits)
+                        || !runtimeConfig.ordinaryTurn().equals(turnBudget)
+                        || !runtimeConfig.ordinaryRecheckInterval().equals(recheckInterval))) {
             throw new IllegalArgumentException("ordinary scheduler limits differ from the configured Target Host");
         }
         if (stopping) {
@@ -1198,7 +1611,9 @@ public final class TargetWorkerHostRuntime {
                 ((TargetWorkerShardRuntime) compositionPublicationBindings.get(index)).unbindPublicationHost(this);
                 compositionPublicationBindings.remove(index);
             } catch (RuntimeException | Error cleanup) {
-                if (failure != null && cleanup != failure) failure.addSuppressed(cleanup);
+                if (failure != null && cleanup != failure) {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         for (int index = compositionSignalBindings.size() - 1; index >= 0; index--) {
@@ -1209,7 +1624,9 @@ public final class TargetWorkerHostRuntime {
                 }
                 compositionSignalBindings.remove(index);
             } catch (RuntimeException | Error cleanup) {
-                if (failure != null && cleanup != failure) failure.addSuppressed(cleanup);
+                if (failure != null && cleanup != failure) {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         return compositionPublicationBindings.isEmpty() && compositionSignalBindings.isEmpty();
@@ -1228,7 +1645,9 @@ public final class TargetWorkerHostRuntime {
             final SchedulerBudget budget, final LongSupplier ownerClock) {
         synchronized (this) {
             requireServiceActivationCaller();
-            if (stopping) { throw new IllegalStateException("Target host source admission is stopping"); }
+            if (stopping) {
+                throw new IllegalStateException("Target host source admission is stopping");
+            }
         }
         return runNextSourceTurnIfPresent(budget, ownerClock)
                 .orElseThrow(() -> new IllegalStateException("Target host has no admitted Source turn"));
@@ -1242,15 +1661,20 @@ public final class TargetWorkerHostRuntime {
             throw new IllegalArgumentException("Source turn budget differs from the configured Target Host");
         }
         synchronized (this) {
-            if (stopping || serviceActivationThread != null) { return Optional.empty(); }
+            if (stopping || serviceActivationThread != null) {
+                return Optional.empty();
+            }
         }
         return fleet.runNextSourceTurnIfPresent(selected -> {
             if (!(selected instanceof Shard shard)) {
                 throw new IllegalStateException("Target Source selection lacks the exact Host Shard");
             }
-            return tryWithShardAdmission(shard, () -> selected.pendingCheckpointTask().isPresent()
-                    ? Optional.<SourceApplyCoordinator.TurnResult>empty()
-                    : Optional.of(selected.runSourceTurn(budget, ownerClock))).flatMap(result -> result);
+            return tryWithShardAdmission(
+                            shard,
+                            () -> selected.pendingCheckpointTask().isPresent()
+                                    ? Optional.<SourceApplyCoordinator.TurnResult>empty()
+                                    : Optional.of(selected.runSourceTurn(budget, ownerClock)))
+                    .flatMap(result -> result);
         });
     }
 
@@ -1264,17 +1688,30 @@ public final class TargetWorkerHostRuntime {
         final var budget = runtimeConfig.sourceTurn();
         maintenanceLoop.configureSourceApplyTurn(() -> {
             final TargetWorkerProcessRuntime process;
-            synchronized (TargetWorkerHostRuntime.this) { process = processRuntime; }
-            if (process != null) process.runNextMigrationMaintenanceTurn();
-            if (process != null) process.runNextPayloadSummaryMaintenanceTurn();
+            synchronized (TargetWorkerHostRuntime.this) {
+                process = processRuntime;
+            }
+            if (process != null) {
+                process.runNextMigrationMaintenanceTurn();
+            }
+            if (process != null) {
+                process.runNextPayloadSummaryMaintenanceTurn();
+            }
             final var selected = runNextSourceTurnIfPresent(budget, clock);
-            if (selected.isEmpty()) { return; }
+            if (selected.isEmpty()) {
+                return;
+            }
             final var result = selected.orElseThrow().result();
-            if (result.failure() != null && result.status() != SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE
+            if (result.failure() != null
+                    && result.status() != SourceApplyCoordinator.TurnStatus.READ_INCOMPLETE
                     && result.status() != SourceApplyCoordinator.TurnStatus.AUTHORITY_RETRY) {
-                if (result.failure() instanceof Error fatal) { throw fatal; }
-                throw new IllegalStateException("Target Source turn failed for " + selected.orElseThrow().shardId()
-                        + " at " + result.status(), result.failure());
+                if (result.failure() instanceof Error fatal) {
+                    throw fatal;
+                }
+                throw new IllegalStateException(
+                        "Target Source turn failed for "
+                                + selected.orElseThrow().shardId() + " at " + result.status(),
+                        result.failure());
             }
         });
         sourceProcessingConfigured = true;
@@ -1282,18 +1719,26 @@ public final class TargetWorkerHostRuntime {
 
     /** Pure local Host admission for its actual registered daily-maintenance Worker; never an assembly bypass. */
     synchronized boolean migrationMaintenanceAdmitted(TargetWorkerShardRuntime actual) {
-        return serviceActivated && maintenanceStarted && !stopping && !backendQuarantined
-                && !withdrawn.contains(actual.shardId()) && !draining.contains(actual.shardId())
+        return serviceActivated
+                && maintenanceStarted
+                && !stopping
+                && !backendQuarantined
+                && !withdrawn.contains(actual.shardId())
+                && !draining.contains(actual.shardId())
                 && shards.stream().anyMatch(shard -> shard == actual);
     }
 
     /** Enables the original configured Source, observer, checkpoint and Claim/publisher graph in one startup turn. */
     public TargetWorkerOrdinaryLoop activateConfiguredService(
             TargetSourceBacklogCache observations,
-            java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut,
-                    TargetSourceBacklogRead> observationFactory,
-            TargetWorkerOrdinaryDrr.Requests requests, LongSupplier ownerClock, LongSupplier schedulerClock,
-            LongSupplier monotonicClock, BoundedAsyncMetricExporter metrics, Consumer<Throwable> failures) {
+            java.util.function.BiFunction<TargetWorkerShardRuntime, TargetSourceBacklog.Cut, TargetSourceBacklogRead>
+                    observationFactory,
+            TargetWorkerOrdinaryDrr.Requests requests,
+            LongSupplier ownerClock,
+            LongSupplier schedulerClock,
+            LongSupplier monotonicClock,
+            BoundedAsyncMetricExporter metrics,
+            Consumer<Throwable> failures) {
         Objects.requireNonNull(observations, "observations");
         Objects.requireNonNull(observationFactory, "actual Source observation factory");
         Objects.requireNonNull(requests, "actual Claim requests");
@@ -1303,11 +1748,22 @@ public final class TargetWorkerHostRuntime {
         Objects.requireNonNull(failures, "failureConsumer");
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
-            if (runtimeConfig == null || stopping || backendQuarantined || serviceActivationThread != null
-                    || serviceActivated || oxiaRuntime == null || ordinaryLoop != null || maintenanceStarted || sourceProcessingConfigured
-                    || sourceObservationCache != null || checkpointSchedule == null || !finalCheckpointOnDrain
-                    || !draining.isEmpty() || !withdrawn.isEmpty()) {
-                throw new IllegalStateException("configured service requires an idle prepared Host with formal checkpoints");
+            if (runtimeConfig == null
+                    || stopping
+                    || backendQuarantined
+                    || serviceActivationThread != null
+                    || serviceActivated
+                    || oxiaRuntime == null
+                    || ordinaryLoop != null
+                    || maintenanceStarted
+                    || sourceProcessingConfigured
+                    || sourceObservationCache != null
+                    || checkpointSchedule == null
+                    || !finalCheckpointOnDrain
+                    || !draining.isEmpty()
+                    || !withdrawn.isEmpty()) {
+                throw new IllegalStateException(
+                        "configured service requires an idle prepared Host with formal checkpoints");
             }
             workers = currentTargetWorkers();
             serviceActivationThread = Thread.currentThread();
@@ -1315,13 +1771,17 @@ public final class TargetWorkerHostRuntime {
         boolean installing = false;
         try {
             // These checks may await Worker/authority reads; keep them outside the Host monitor.
-            observations.requireBounds(runtimeConfig.store().maxOwnedShards(),
+            observations.requireBounds(
+                    runtimeConfig.store().maxOwnedShards(),
                     runtimeConfig.backlogGrowth().maximumObservationAgeNanos());
-            for (var worker : workers) { worker.requireConfiguredServiceReady(this, ownerClock); }
+            for (var worker : workers) {
+                worker.requireConfiguredServiceReady(this, ownerClock);
+            }
             installing = true;
             configureSourceObservations(observations, observationFactory, ownerClock);
             configureSourceProcessing(ownerClock);
-            final var publishing = startPublishing(requests, ownerClock, schedulerClock, monotonicClock, metrics, failures);
+            final var publishing =
+                    startPublishing(requests, ownerClock, schedulerClock, monotonicClock, metrics, failures);
             startMaintenance();
             synchronized (this) {
                 if (stopping || backendQuarantined) {
@@ -1332,12 +1792,20 @@ public final class TargetWorkerHostRuntime {
             return publishing;
         } catch (RuntimeException | Error failure) {
             if (installing) {
-                try { quarantineOwnedBackends(); }
-                catch (RuntimeException | Error cleanup) { if (cleanup != failure) { failure.addSuppressed(cleanup); } }
+                try {
+                    quarantineOwnedBackends();
+                } catch (RuntimeException | Error cleanup) {
+                    if (cleanup != failure) {
+                        failure.addSuppressed(cleanup);
+                    }
+                }
             }
             throw failure;
         } finally {
-            synchronized (this) { serviceActivationThread = null; notifyAll(); }
+            synchronized (this) {
+                serviceActivationThread = null;
+                notifyAll();
+            }
         }
     }
 
@@ -1346,21 +1814,38 @@ public final class TargetWorkerHostRuntime {
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
             requireServiceActivationCaller();
-            if (oxiaRuntime == root) return;
-            if (oxiaRuntime != null || maintenanceStarted || serviceActivated || sourceProcessingConfigured
-                    || ordinaryLoop != null || drainAllActive || faultExitActive || !draining.isEmpty()) {
+            if (oxiaRuntime == root) {
+                return;
+            }
+            if (oxiaRuntime != null
+                    || maintenanceStarted
+                    || serviceActivated
+                    || sourceProcessingConfigured
+                    || ordinaryLoop != null
+                    || drainAllActive
+                    || faultExitActive
+                    || !draining.isEmpty()) {
                 throw new IllegalStateException("Oxia root must transfer before Host execution/drain");
             }
             workers = currentTargetWorkers();
         }
-        for (var worker : workers) root.requireWorker(worker);
+        for (var worker : workers) {
+            root.requireWorker(worker);
+        }
         synchronized (this) {
-            if (oxiaRuntime != null || maintenanceStarted || serviceActivated || sourceProcessingConfigured
-                    || ordinaryLoop != null || drainAllActive || faultExitActive || !draining.isEmpty()
+            if (oxiaRuntime != null
+                    || maintenanceStarted
+                    || serviceActivated
+                    || sourceProcessingConfigured
+                    || ordinaryLoop != null
+                    || drainAllActive
+                    || faultExitActive
+                    || !draining.isEmpty()
                     || !workers.equals(currentTargetWorkers())) {
                 throw new IllegalStateException("Host changed during original Oxia root transfer");
             }
-            root.bindHost(this); oxiaRuntime = root;
+            root.bindHost(this);
+            oxiaRuntime = root;
         }
     }
 
@@ -1370,19 +1855,37 @@ public final class TargetWorkerHostRuntime {
         final TargetWorkerOxiaRuntime authority;
         synchronized (this) {
             requireServiceActivationCaller();
-            if (processRuntime == root) return;
-            if (processRuntime != null || oxiaRuntime == null || maintenanceStarted || serviceActivated
-                    || sourceProcessingConfigured || ordinaryLoop != null || drainAllActive || faultExitActive
-                    || !draining.isEmpty() || oxiaClosePermit != null) {
+            if (processRuntime == root) {
+                return;
+            }
+            if (processRuntime != null
+                    || oxiaRuntime == null
+                    || maintenanceStarted
+                    || serviceActivated
+                    || sourceProcessingConfigured
+                    || ordinaryLoop != null
+                    || drainAllActive
+                    || faultExitActive
+                    || !draining.isEmpty()
+                    || oxiaClosePermit != null) {
                 throw new IllegalStateException("process resources must transfer to their prepared original Host");
             }
-            workers = currentTargetWorkers(); authority = oxiaRuntime;
+            workers = currentTargetWorkers();
+            authority = oxiaRuntime;
         }
         root.requireHost(authority, this, workers);
         synchronized (this) {
-            if (processRuntime != null || oxiaRuntime != authority || maintenanceStarted || serviceActivated
-                    || sourceProcessingConfigured || ordinaryLoop != null || drainAllActive || faultExitActive
-                    || !draining.isEmpty() || oxiaClosePermit != null || !workers.equals(currentTargetWorkers())) {
+            if (processRuntime != null
+                    || oxiaRuntime != authority
+                    || maintenanceStarted
+                    || serviceActivated
+                    || sourceProcessingConfigured
+                    || ordinaryLoop != null
+                    || drainAllActive
+                    || faultExitActive
+                    || !draining.isEmpty()
+                    || oxiaClosePermit != null
+                    || !workers.equals(currentTargetWorkers())) {
                 throw new IllegalStateException("Host changed during process resource transfer");
             }
             processRuntime = root;
@@ -1393,12 +1896,18 @@ public final class TargetWorkerHostRuntime {
     public static final class OxiaClosePermit {
         private final TargetWorkerHostRuntime host;
         private final TargetWorkerOxiaRuntime root;
+
         private OxiaClosePermit(TargetWorkerHostRuntime host, TargetWorkerOxiaRuntime root) {
-            this.host = host; this.root = root;
+            this.host = host;
+            this.root = root;
         }
+
         void requireOriginalRoot(TargetWorkerOxiaRuntime expected) {
             synchronized (host) {
-                if (root != expected || host.oxiaRuntime != expected || host.oxiaClosePermit != this || !host.stopping) {
+                if (root != expected
+                        || host.oxiaRuntime != expected
+                        || host.oxiaClosePermit != this
+                        || !host.stopping) {
                     throw new IllegalStateException("Oxia close lacks its original stopped Host permit");
                 }
             }
@@ -1410,44 +1919,76 @@ public final class TargetWorkerHostRuntime {
         final OxiaClosePermit permit;
         synchronized (this) {
             root = oxiaRuntime;
-            if (!stopping || compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
+            if (!stopping
+                    || compositionTransferRetryActive
+                    || !pendingCompositionBackendTransfers.isEmpty()
                     || !untransferredCompositionBackendsTerminated()
                     || !terminatedUnresolvedCompositionBackendsExited()
-                    || ownedBackends.stream().anyMatch(backend ->
-                            !backend.resourcesTerminated() || !backend.nativeResourcesTerminated())
-                    || shards.stream().anyMatch(shard -> fault ? !faultExited.containsKey(shard.shardId())
-                            : !completed.containsKey(shard.shardId()))) {
+                    || ownedBackends.stream()
+                            .anyMatch(backend -> !backend.resourcesTerminated() || !backend.nativeResourcesTerminated())
+                    || shards.stream()
+                            .anyMatch(shard -> fault
+                                    ? !faultExited.containsKey(shard.shardId())
+                                    : !completed.containsKey(shard.shardId()))) {
                 return false;
             }
-            if (fault != backendQuarantined) throw new IllegalStateException("Oxia close normal/fault lineage changed");
-            if (root == null) permit = null;
-            else {
-                if (oxiaClosePermit == null) oxiaClosePermit = new OxiaClosePermit(this, root);
+            if (fault != backendQuarantined) {
+                throw new IllegalStateException("Oxia close normal/fault lineage changed");
+            }
+            if (root == null) {
+                permit = null;
+            } else {
+                if (oxiaClosePermit == null) {
+                    oxiaClosePermit = new OxiaClosePermit(this, root);
+                }
                 permit = oxiaClosePermit;
             }
         }
         final TargetWorkerProcessRuntime process;
         final TargetCheckpointCandidateSchedule schedule;
-        synchronized (this) { process = processRuntime; schedule = checkpointSchedule; }
+        synchronized (this) {
+            process = processRuntime;
+            schedule = checkpointSchedule;
+        }
         if (schedule != null) {
             schedule.requestPublishedValidationStop();
-            if (!schedule.settlePublishedValidationCleanup()) return false;
+            if (!schedule.settlePublishedValidationCleanup()) {
+                return false;
+            }
         }
-        if (root == null) return true;
-        if (process != null && !process.closePayloadSummaryMaintenanceForHost(permit)) return false;
-        if (process != null && !process.closeCheckpointCompositionsForHost(permit)) return false;
-        if (process != null && !process.releaseRecoveryPinsForHost(permit)) return false;
-        if (process != null && !process.closeReceiptManagementForHost(permit)) return false;
-        if (process != null && !process.closeScopeResourcesForHost(permit)) return false;
+        if (root == null) {
+            return true;
+        }
+        if (process != null && !process.closePayloadSummaryMaintenanceForHost(permit)) {
+            return false;
+        }
+        if (process != null && !process.closeCheckpointCompositionsForHost(permit)) {
+            return false;
+        }
+        if (process != null && !process.releaseRecoveryPinsForHost(permit)) {
+            return false;
+        }
+        if (process != null && !process.closeReceiptManagementForHost(permit)) {
+            return false;
+        }
+        if (process != null && !process.closeScopeResourcesForHost(permit)) {
+            return false;
+        }
         root.closeForHost(permit);
-        if (!root.cleanupComplete()) return false;
-        if (process != null) process.closeForHost(permit);
+        if (!root.cleanupComplete()) {
+            return false;
+        }
+        if (process != null) {
+            process.closeForHost(permit);
+        }
         return true;
     }
 
     public boolean oxiaCleanupComplete() {
         final TargetWorkerOxiaRuntime root;
-        synchronized (this) { root = oxiaRuntime; }
+        synchronized (this) {
+            root = oxiaRuntime;
+        }
         return root == null || root.cleanupComplete();
     }
 
@@ -1476,17 +2017,30 @@ public final class TargetWorkerHostRuntime {
 
     /** Admits semantic companion creation through the exact host Shard lifecycle and protected Worker cut. */
     public TargetCheckpointCandidateWorkClassExecutor.Submission submitSemanticCheckpointCandidate(
-            final TargetWorkerShardRuntime expectedShard, final CheckpointUploadIntentAuthority intents,
-            final LongSupplier ownerClock, final Path checkpointPath, final CheckpointUploadIntent pending,
+            final TargetWorkerShardRuntime expectedShard,
+            final CheckpointUploadIntentAuthority intents,
+            final LongSupplier ownerClock,
+            final Path checkpointPath,
+            final CheckpointUploadIntent pending,
             final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot snapshot,
             final com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits semanticLimits,
             final Runnable protectionGuard) {
-        return withCheckpointAdmission(expectedShard, () -> expectedShard.submitProtectedSemanticCheckpointCandidate(
-                intents, ownerClock, checkpointPath, pending, physicalLimits, quotaLimits, ledgerLimits,
-                snapshot, semanticLimits, protectionGuard));
+        return withCheckpointAdmission(
+                expectedShard,
+                () -> expectedShard.submitProtectedSemanticCheckpointCandidate(
+                        intents,
+                        ownerClock,
+                        checkpointPath,
+                        pending,
+                        physicalLimits,
+                        quotaLimits,
+                        ledgerLimits,
+                        snapshot,
+                        semanticLimits,
+                        protectionGuard));
     }
 
     /** Claims a selected Target head only on a currently admitted exact Shard instance. */
@@ -1502,8 +2056,19 @@ public final class TargetWorkerHostRuntime {
             final TargetQuotaDelta.LocalClaimAuthority quota,
             final TargetStoreBackend.CommitAuthority physicalWrites,
             final LongSupplier ownerClock) {
-        return claim(expectedShard, budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest,
-                quota, physicalWrites, ownerClock, null);
+        return claim(
+                expectedShard,
+                budget,
+                selected,
+                owner,
+                nowEpochMs,
+                deadlineEpochMs,
+                executionBytes,
+                operationDigest,
+                quota,
+                physicalWrites,
+                ownerClock,
+                null);
     }
 
     public TargetClaimRecord claim(
@@ -1531,7 +2096,8 @@ public final class TargetWorkerHostRuntime {
                         operationDigest,
                         quota,
                         physicalWrites,
-                        ownerClock, policyHead));
+                        ownerClock,
+                        policyHead));
     }
 
     /** Revokes one unadmitted Claim only through its currently admitted exact Shard instance. */
@@ -1576,8 +2142,7 @@ public final class TargetWorkerHostRuntime {
             final TargetPartitionId targetId,
             final LongSupplier ownerClock) {
         return withShardAdmission(
-                expectedShard,
-                () -> expectedShard.readTargetActiveMessages(budget, targetId, ownerClock));
+                expectedShard, () -> expectedShard.readTargetActiveMessages(budget, targetId, ownerClock));
     }
 
     /** Fences a completed page sequence on the same exact source Shard. */
@@ -1673,10 +2238,14 @@ public final class TargetWorkerHostRuntime {
 
     /** Configures the exact admitted Worker; asynchronous history is owned and bounded by the supplied provider. */
     public TargetPublishRecoveryMaintenance configurePublishRecoveryMaintenance(
-            final TargetWorkerShardRuntime expectedShard, final TargetPublishOutcomeMutationFactory outcomes,
-            final ShardLogMutationAppender appender, final Supplier<BoundedReadBudget> reads,
-            final TargetPublishRecoveryMaintenance.History history, final LongSupplier ownerClock) {
-        return withShardAdmission(expectedShard,
+            final TargetWorkerShardRuntime expectedShard,
+            final TargetPublishOutcomeMutationFactory outcomes,
+            final ShardLogMutationAppender appender,
+            final Supplier<BoundedReadBudget> reads,
+            final TargetPublishRecoveryMaintenance.History history,
+            final LongSupplier ownerClock) {
+        return withShardAdmission(
+                expectedShard,
                 () -> expectedShard.configurePublishRecoveryMaintenance(
                         outcomes, appender, reads, history, ownerClock));
     }
@@ -1726,12 +2295,23 @@ public final class TargetWorkerHostRuntime {
     }
 
     /** Keeps the original Shard admitted while actual publication resources are prepared and registered. */
-    public synchronized Optional<PublicationConstruction> tryBeginPublicationConstruction(TargetWorkerShardRuntime worker) {
+    public synchronized Optional<PublicationConstruction> tryBeginPublicationConstruction(
+            TargetWorkerShardRuntime worker) {
         final var id = Objects.requireNonNull(worker).shardId();
-        if (!serviceActivated || serviceActivationThread != null || stopping || backendQuarantined
-                || withdrawn.contains(id) || completed.containsKey(id)) return Optional.empty();
-        if (requireShard(id) != worker) throw new IllegalArgumentException("publication construction changed its original Host Worker");
-        if (!draining.add(id)) return Optional.empty();
+        if (!serviceActivated
+                || serviceActivationThread != null
+                || stopping
+                || backendQuarantined
+                || withdrawn.contains(id)
+                || completed.containsKey(id)) {
+            return Optional.empty();
+        }
+        if (requireShard(id) != worker) {
+            throw new IllegalArgumentException("publication construction changed its original Host Worker");
+        }
+        if (!draining.add(id)) {
+            return Optional.empty();
+        }
         return Optional.of(new PublicationConstruction(this, worker, Thread.currentThread()));
     }
 
@@ -1740,30 +2320,53 @@ public final class TargetWorkerHostRuntime {
         private final TargetWorkerShardRuntime worker;
         private final Thread caller;
         private boolean closed;
+
         public static final class Unavailable extends IllegalStateException {
             private static final long serialVersionUID = 1L;
-            private Unavailable() { super("original Host publication construction is no longer admitted"); }
+
+            private Unavailable() {
+                super("original Host publication construction is no longer admitted");
+            }
         }
+
         private PublicationConstruction(TargetWorkerHostRuntime host, TargetWorkerShardRuntime worker, Thread caller) {
-            this.host = host; this.worker = worker; this.caller = caller;
+            this.host = host;
+            this.worker = worker;
+            this.caller = caller;
         }
+
         public void requireCurrent() {
             synchronized (host) {
-                if (caller != Thread.currentThread()) throw new IllegalStateException("publication construction changed its original thread");
-                if (closed || !host.draining.contains(worker.shardId())
-                        || !host.serviceActivated || host.stopping || host.backendQuarantined
-                        || host.requireShard(worker.shardId()) != worker || host.withdrawn.contains(worker.shardId())
+                if (caller != Thread.currentThread()) {
+                    throw new IllegalStateException("publication construction changed its original thread");
+                }
+                if (closed
+                        || !host.draining.contains(worker.shardId())
+                        || !host.serviceActivated
+                        || host.stopping
+                        || host.backendQuarantined
+                        || host.requireShard(worker.shardId()) != worker
+                        || host.withdrawn.contains(worker.shardId())
                         || host.completed.containsKey(worker.shardId())) {
                     throw new Unavailable();
                 }
             }
         }
-        @Override public void close() {
+
+        @Override
+        public void close() {
             synchronized (host) {
-                if (caller != Thread.currentThread()) throw new IllegalStateException("publication construction changed its original thread");
-                if (closed) return;
-                if (!host.draining.remove(worker.shardId())) throw new IllegalStateException("original publication admission was lost");
-                closed = true; host.notifyAll();
+                if (caller != Thread.currentThread()) {
+                    throw new IllegalStateException("publication construction changed its original thread");
+                }
+                if (closed) {
+                    return;
+                }
+                if (!host.draining.remove(worker.shardId())) {
+                    throw new IllegalStateException("original publication admission was lost");
+                }
+                closed = true;
+                host.notifyAll();
             }
         }
     }
@@ -1775,14 +2378,25 @@ public final class TargetWorkerHostRuntime {
         final var id = expectedShard.shardId();
         synchronized (this) {
             final int index = indexOfShard(id);
-            if (stopping || serviceActivationThread != null && serviceActivationThread != Thread.currentThread()
-                    || index < 0 || shards.get(index) != expectedShard || withdrawn.contains(id)
-                    || completed.containsKey(id) || !draining.add(id)) { return Optional.empty(); }
+            if (stopping
+                    || serviceActivationThread != null && serviceActivationThread != Thread.currentThread()
+                    || index < 0
+                    || shards.get(index) != expectedShard
+                    || withdrawn.contains(id)
+                    || completed.containsKey(id)
+                    || !draining.add(id)) {
+                return Optional.empty();
+            }
         }
         try {
-            synchronized (expectedShard) { return Optional.of(admission.get()); }
+            synchronized (expectedShard) {
+                return Optional.of(admission.get());
+            }
         } finally {
-            synchronized (this) { draining.remove(id); notifyAll(); }
+            synchronized (this) {
+                draining.remove(id);
+                notifyAll();
+            }
         }
     }
 
@@ -1840,7 +2454,9 @@ public final class TargetWorkerHostRuntime {
     void admitShard(final Shard shard, final TargetWorkerShardFleetRuntime.ShardTurns turns) {
         // Wait for any selected native turn without blocking Host quarantine/stop admission.
         synchronized (fleet) {
-            synchronized (this) { admitShardAfterFleetTurn(shard, turns); }
+            synchronized (this) {
+                admitShardAfterFleetTurn(shard, turns);
+            }
         }
     }
 
@@ -1857,7 +2473,9 @@ public final class TargetWorkerHostRuntime {
                 throw new IllegalArgumentException("configured Target Host requires a Target Worker Shard");
             }
             worker.requireRuntimeConfiguration(runtimeConfig);
-            if (oxiaRuntime != null) oxiaRuntime.requireWorker(worker);
+            if (oxiaRuntime != null) {
+                oxiaRuntime.requireWorker(worker);
+            }
         }
         final ShardId shardId = Objects.requireNonNull(shard.shardId(), "shardId");
         final int previousIndex = indexOfShard(shardId);
@@ -1868,24 +2486,32 @@ public final class TargetWorkerHostRuntime {
                 && (!withdrawn.contains(shardId) || draining.contains(shardId) || !completed.containsKey(shardId))) {
             throw new IllegalStateException("Target host cannot replace a live or incompletely drained shard");
         }
-        if (sourceObservationCache != null) { sourceObservationCache.remove(shardId); }
+        if (sourceObservationCache != null) {
+            sourceObservationCache.remove(shardId);
+        }
         bindTargetQueueChangeSignal(shard);
         if (shard instanceof TargetWorkerShardRuntime worker && ordinaryTargetCacheLimit > 0) {
             worker.configureTargetQueueHeadCache(ordinaryTargetCacheLimit);
         }
-        if (shard instanceof TargetWorkerShardRuntime worker) { worker.bindPublicationHost(this); }
+        if (shard instanceof TargetWorkerShardRuntime worker) {
+            worker.bindPublicationHost(this);
+        }
         fleet.admit(turns, () -> {
             if (shard instanceof TargetWorkerShardRuntime worker && worker.sourceBackendGroup() != null) {
                 final var backend = worker.sourceBackendGroup();
                 if (!ownedBackends.contains(backend)) {
                     final var next = new ArrayList<TargetWorkerShardRuntime>();
                     for (var existing : shards) {
-                        if (!existing.shardId().equals(shardId)) { next.add((TargetWorkerShardRuntime) existing); }
+                        if (!existing.shardId().equals(shardId)) {
+                            next.add((TargetWorkerShardRuntime) existing);
+                        }
                     }
                     next.add(worker);
                     backend.bindHost(this, List.copyOf(next));
                     ownedBackends.add(backend);
-                } else { backend.admitWorker(this, worker); }
+                } else {
+                    backend.admitWorker(this, worker);
+                }
             }
         });
         if (previousIndex < 0) {
@@ -1911,7 +2537,8 @@ public final class TargetWorkerHostRuntime {
         final TargetWorkerOrdinaryLoop currentOrdinaryLoop;
         synchronized (this) {
             if (backendQuarantined) {
-                throw new IllegalStateException("quarantined Host requires fault exit, not normal final-checkpoint drain");
+                throw new IllegalStateException(
+                        "quarantined Host requires fault exit, not normal final-checkpoint drain");
             }
             if (drainAllActive) {
                 throw new IllegalStateException("Target host whole-fleet drain is already active");
@@ -1926,7 +2553,9 @@ public final class TargetWorkerHostRuntime {
                 currentOrdinaryLoop.close();
             }
             maintenanceLoop.close();
-            if (sourceObservationCache != null) { sourceObservationCache.stop(); }
+            if (sourceObservationCache != null) {
+                sourceObservationCache.stop();
+            }
             final List<Shard> drainShards;
             synchronized (this) {
                 while (!draining.isEmpty()) {
@@ -1947,8 +2576,9 @@ public final class TargetWorkerHostRuntime {
                     prior = completed.get(shard.shardId());
                 }
                 final ShardDrain observation = prior == null ? stopSourceObservationForDrain(shard) : null;
-                final ShardDrain result = prior != null ? prior : observation != null ? observation
-                        : drainOne(shard, request, sourceBudget, ownerClock);
+                final ShardDrain result = prior != null
+                        ? prior
+                        : observation != null ? observation : drainOne(shard, request, sourceBudget, ownerClock);
                 if (result.complete()) {
                     synchronized (this) {
                         completed.put(shard.shardId(), result);
@@ -1956,8 +2586,8 @@ public final class TargetWorkerHostRuntime {
                 }
                 results.add(result);
             }
-            final boolean backendsClosed = results.stream().allMatch(ShardDrain::complete)
-                    && closeOwnedBackendsAfterNormalDrain();
+            final boolean backendsClosed =
+                    results.stream().allMatch(ShardDrain::complete) && closeOwnedBackendsAfterNormalDrain();
             final boolean authorityClosed = backendsClosed && closeOxiaAfterDependencies(false);
             return new Result(results, backendsClosed, authorityClosed);
         } finally {
@@ -1995,12 +2625,15 @@ public final class TargetWorkerHostRuntime {
         synchronized (fleet) {
             synchronized (this) {
                 requireServiceActivationCaller();
-                shard = requireShard(Objects.requireNonNull(expectedShard, "shard").shardId());
+                shard = requireShard(
+                        Objects.requireNonNull(expectedShard, "shard").shardId());
                 if (shard != expectedShard) {
                     throw new IllegalArgumentException("Target host shard instance has been replaced");
                 }
                 final ShardDrain prior = completed.get(shard.shardId());
-                if (prior != null) { return prior; }
+                if (prior != null) {
+                    return prior;
+                }
                 final ShardId shardId = shard.shardId();
                 if (stopping) {
                     throw new IllegalStateException("Target host whole-fleet drain is stopping");
@@ -2024,7 +2657,9 @@ public final class TargetWorkerHostRuntime {
         ShardDrain result = null;
         try {
             result = stopSourceObservationForDrain(shard);
-            if (result != null) { return result; }
+            if (result != null) {
+                return result;
+            }
             result = drainOne(shard, request, sourceBudget, ownerClock);
             return result;
         } finally {
@@ -2064,27 +2699,39 @@ public final class TargetWorkerHostRuntime {
         try {
             requireNormalDrain();
             final TargetWorkerProcessRuntime process;
-            synchronized (this) { process = processRuntime; }
-            if (process != null && shard instanceof TargetWorkerShardRuntime worker
-                    && !process.stopMigrationMaintenanceForWorker(worker))
+            synchronized (this) {
+                process = processRuntime;
+            }
+            if (process != null
+                    && shard instanceof TargetWorkerShardRuntime worker
+                    && !process.stopMigrationMaintenanceForWorker(worker)) {
                 return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null, null, null, null);
+            }
             final var schedule = checkpointSchedule;
             final boolean finalFlight;
             final Optional<WorkClassTask> checkpoint;
             synchronized (shard) {
                 shard.requestResourceReclaimStop();
                 finalFlight = schedule != null && schedule.hasFinalDrainFlight(shard);
-                if (!finalFlight) { shard.requestCheckpointPreparationStop(); }
+                if (!finalFlight) {
+                    shard.requestCheckpointPreparationStop();
+                }
                 checkpoint = shard.pendingCheckpointTask();
             }
             if (finalFlight) {
                 final var settled = schedule.settleForDrain(shard, checkpointBudget, checkpointClock.getAsLong());
                 if (settled.isEmpty()) {
-                    return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, null,
-                            schedule.pendingTask(shard.shardId()).orElseThrow(), null, null);
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_CHECKPOINT,
+                            null,
+                            schedule.pendingTask(shard.shardId()).orElseThrow(),
+                            null,
+                            null);
                 }
                 if (settled.orElseThrow().failure() != null) {
-                    throw new IllegalStateException("final Target checkpoint failed",
+                    throw new IllegalStateException(
+                            "final Target checkpoint failed",
                             settled.orElseThrow().failure());
                 }
             } else if (checkpoint.isPresent()) {
@@ -2098,28 +2745,56 @@ public final class TargetWorkerHostRuntime {
             final boolean finalCheckpointRequired;
             synchronized (shard) {
                 requireNormalDrain();
-                final Optional<WorkClassTask> channel = shard.settlePendingChannelControlForDrain(
-                        request.gcBudget(), sourceBudget, ownerClock);
+                final Optional<WorkClassTask> channel =
+                        shard.settlePendingChannelControlForDrain(request.gcBudget(), sourceBudget, ownerClock);
                 if (channel.isPresent()) {
-                    return new ShardDrain(shard.shardId(), Status.PENDING_CHANNEL_CONTROL, null,
-                            null, null, null, null, channel.orElseThrow());
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_CHANNEL_CONTROL,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            channel.orElseThrow());
                 }
-                final var sloFinal=shard.settlePendingSloFinalForDrain(request.gcBudget(),sourceBudget,ownerClock);
-                if(sloFinal.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_GC,null,null,sloFinal.orElseThrow(),null);
-                final var sloCustody=shard.settlePendingSloCustodyForDrain(request.gcBudget(),sourceBudget,ownerClock);
-                if(sloCustody.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_GC,null,null,sloCustody.orElseThrow(),null);
-                final var retirement=shard.settlePendingRetirementForDrain(request.gcBudget(),sourceBudget,ownerClock);
-                if(retirement.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_GC,null,null,retirement.orElseThrow(),null);
+                final var sloFinal = shard.settlePendingSloFinalForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                if (sloFinal.isPresent()) {
+                    return new ShardDrain(shard.shardId(), Status.PENDING_GC, null, null, sloFinal.orElseThrow(), null);
+                }
+                final var sloCustody =
+                        shard.settlePendingSloCustodyForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                if (sloCustody.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(), Status.PENDING_GC, null, null, sloCustody.orElseThrow(), null);
+                }
+                final var retirement =
+                        shard.settlePendingRetirementForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                if (retirement.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(), Status.PENDING_GC, null, null, retirement.orElseThrow(), null);
+                }
                 final var reclaimInputs = shard.settlePendingResourceReclaimForDrain();
-                if (reclaimInputs.isPresent()) return new ShardDrain(shard.shardId(), Status.PENDING_GC, null, null, reclaimInputs.orElseThrow(), null);
-                final Optional<WorkClassTask> publication = shard.settlePendingPublicationForDrain(
-                        request.gcBudget(), sourceBudget, ownerClock);
-                if (publication.isPresent()) {
-                    return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION, null,
-                            null, null, null, null, null, publication.orElseThrow());
+                if (reclaimInputs.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(), Status.PENDING_GC, null, null, reclaimInputs.orElseThrow(), null);
                 }
-                final Optional<WorkClassTask> pendingExpiry = shard.settlePendingMessageExpiryForDrain(
-                        request.gcBudget(), sourceBudget, ownerClock);
+                final Optional<WorkClassTask> publication =
+                        shard.settlePendingPublicationForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                if (publication.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_PUBLICATION,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            publication.orElseThrow());
+                }
+                final Optional<WorkClassTask> pendingExpiry =
+                        shard.settlePendingMessageExpiryForDrain(request.gcBudget(), sourceBudget, ownerClock);
                 if (pendingExpiry.isPresent()) {
                     return new ShardDrain(
                             shard.shardId(),
@@ -2138,20 +2813,39 @@ public final class TargetWorkerHostRuntime {
                     }
                 }
                 requireNormalDrain();
-                final var resources=shard.settlePendingPublicationResourcesForDrain();
-                if(resources.isPresent())return new ShardDrain(shard.shardId(),Status.PENDING_PUBLICATION,sourceTurn,
-                        null,null,null,null,null,resources.orElseThrow());
+                final var resources = shard.settlePendingPublicationResourcesForDrain();
+                if (resources.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_PUBLICATION,
+                            sourceTurn,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            resources.orElseThrow());
+                }
                 finalCheckpointRequired = finalCheckpointOnDrain && shard.canPublishFinalCheckpoint();
                 if (finalCheckpointRequired) {
                     final var gc = shard.settlePendingGcForDrain(request.gcBudget());
                     if (gc.isPresent()) {
-                        return new ShardDrain(shard.shardId(), Status.PENDING_GC, sourceTurn, null,
-                                gc.orElseThrow(), null);
+                        return new ShardDrain(
+                                shard.shardId(), Status.PENDING_GC, sourceTurn, null, gc.orElseThrow(), null);
                     }
-                    final var settledJournal = shard.settlePendingPublicationForDrain(request.gcBudget(), sourceBudget, ownerClock);
+                    final var settledJournal =
+                            shard.settlePendingPublicationForDrain(request.gcBudget(), sourceBudget, ownerClock);
                     if (settledJournal.isPresent()) {
-                        return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION, sourceTurn,
-                                null, null, null, null, null, settledJournal.orElseThrow());
+                        return new ShardDrain(
+                                shard.shardId(),
+                                Status.PENDING_PUBLICATION,
+                                sourceTurn,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                settledJournal.orElseThrow());
                     }
                 }
             }
@@ -2160,12 +2854,14 @@ public final class TargetWorkerHostRuntime {
                 validation = schedule.validateCurrentPublishedCutForDrain(shard);
                 switch (validation.state()) {
                     case PENDING -> {
-                        return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn,
-                                validation.task(), null, null);
+                        return new ShardDrain(
+                                shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn, validation.task(), null, null);
                     }
-                    case VALID, NO_MATCH -> { }
+                    case VALID, NO_MATCH -> {}
                 }
-            } else { validation = null; }
+            } else {
+                validation = null;
+            }
             synchronized (shard) {
                 requireNormalDrain();
                 if (finalCheckpointRequired) {
@@ -2174,12 +2870,18 @@ public final class TargetWorkerHostRuntime {
                         case VALID -> {
                             current = schedule.consumeCurrentPublishedCutForDrain(shard, validation);
                             if (!current) {
-                                return new ShardDrain(shard.shardId(), Status.PENDING_CHECKPOINT, sourceTurn,
-                                        validation.task(), null, null);
+                                return new ShardDrain(
+                                        shard.shardId(),
+                                        Status.PENDING_CHECKPOINT,
+                                        sourceTurn,
+                                        validation.task(),
+                                        null,
+                                        null);
                             }
                         }
                         case NO_MATCH -> current = false;
-                        case PENDING -> throw new IllegalStateException("Target checkpoint validation is still pending");
+                        case PENDING ->
+                            throw new IllegalStateException("Target checkpoint validation is still pending");
                         default -> throw new IllegalStateException("unknown Target checkpoint validation state");
                     }
                     if (!current) {
@@ -2188,8 +2890,18 @@ public final class TargetWorkerHostRuntime {
                     }
                 }
                 final var journalResources = shard.settlePendingJournalResourcesForDrain();
-                if (journalResources.isPresent()) return new ShardDrain(shard.shardId(), Status.PENDING_PUBLICATION,
-                        sourceTurn, null, null, null, null, null, journalResources.orElseThrow());
+                if (journalResources.isPresent()) {
+                    return new ShardDrain(
+                            shard.shardId(),
+                            Status.PENDING_PUBLICATION,
+                            sourceTurn,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            journalResources.orElseThrow());
+                }
                 final TargetOwnerDrainCoordinator.Result drained = shard.drain(request, ownerClock);
                 return new ShardDrain(
                         shard.shardId(), map(drained.status()), sourceTurn, null, drained.pendingGcTask(), null);
@@ -2204,7 +2916,9 @@ public final class TargetWorkerHostRuntime {
     }
 
     private void requireNormalDrain() {
-        if (backendQuarantined) { throw new IllegalStateException("normal drain was fenced by backend quarantine"); }
+        if (backendQuarantined) {
+            throw new IllegalStateException("normal drain was fenced by backend quarantine");
+        }
     }
 
     /** Normal final-checkpoint/Source/Owner drain has already completed for the exact admitted fleet. */
@@ -2215,25 +2929,31 @@ public final class TargetWorkerHostRuntime {
             if (!stopping || shards.stream().anyMatch(shard -> !completed.containsKey(shard.shardId()))) {
                 throw new IllegalStateException("owned SDK close requires the completed normal Host drain");
             }
-            if (compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
-                    || !untransferredCompositionBackendsTerminated() || !terminatedUnresolvedCompositionBackendsExited()) {
+            if (compositionTransferRetryActive
+                    || !pendingCompositionBackendTransfers.isEmpty()
+                    || !untransferredCompositionBackendsTerminated()
+                    || !terminatedUnresolvedCompositionBackendsExited()) {
                 return false;
             }
             backends = List.copyOf(ownedBackends);
-            if (backends.isEmpty()) { return true; }
-            if (quarantineGeneration == 0) { quarantineGeneration++; }
+            if (backends.isEmpty()) {
+                return true;
+            }
+            if (quarantineGeneration == 0) {
+                quarantineGeneration++;
+            }
         }
         for (var backend : backends) {
             final var frozen = backend.freezeRegistrations();
             synchronized (this) {
                 backendBarrierEstablished = true;
-                backendClosePermits.computeIfAbsent(backend, ignored ->
-                        new BackendClosePermit(this, backend, quarantineGeneration, frozen));
+                backendClosePermits.computeIfAbsent(
+                        backend, ignored -> new BackendClosePermit(this, backend, quarantineGeneration, frozen));
             }
         }
         advanceOwnedBackendClose(backends);
-        return backends.stream().allMatch(backend ->
-                backend.resourcesTerminated() && backend.nativeResourcesTerminated());
+        return backends.stream()
+                .allMatch(backend -> backend.resourcesTerminated() && backend.nativeResourcesTerminated());
     }
 
     /** Reuses only permits already issued after this Host's actual barriers; does not fence or authorize a new group. */
@@ -2246,10 +2966,16 @@ public final class TargetWorkerHostRuntime {
                     closing = Objects.requireNonNull(backendClosePermits.get(backend), "original backend close permit");
                 }
                 backend.closeOwnedBackend(closing);
-            } catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
+            }
         }
-        if (failure instanceof RuntimeException runtime) throw runtime;
-        if (failure instanceof Error fatal) throw fatal;
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error fatal) {
+            throw fatal;
+        }
     }
 
     /** Binds an actual backend once to the admitted Worker graph, before its first application use. */
@@ -2258,14 +2984,20 @@ public final class TargetWorkerHostRuntime {
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
             requireServiceActivationCaller();
-            if (stopping || backendQuarantined) { throw new IllegalStateException("Host backend registration is closed"); }
-            if (ownedBackends.stream().anyMatch(existing -> existing == backend)) { return; }
-            workers = shards.stream().map(shard -> {
-                if (!(shard instanceof TargetWorkerShardRuntime worker)) {
-                    throw new IllegalStateException("owned backend requires actual Worker Shards");
-                }
-                return worker;
-            }).toList();
+            if (stopping || backendQuarantined) {
+                throw new IllegalStateException("Host backend registration is closed");
+            }
+            if (ownedBackends.stream().anyMatch(existing -> existing == backend)) {
+                return;
+            }
+            workers = shards.stream()
+                    .map(shard -> {
+                        if (!(shard instanceof TargetWorkerShardRuntime worker)) {
+                            throw new IllegalStateException("owned backend requires actual Worker Shards");
+                        }
+                        return worker;
+                    })
+                    .toList();
             compositionBackendTransferAttempted = true;
             forgetCompositionBindingCleanup();
             untransferredCompositionBackends.removeIf(original -> original == backend);
@@ -2284,17 +3016,27 @@ public final class TargetWorkerHostRuntime {
         final List<TargetWorkerShardRuntime> workers;
         final PreparationAttempt original;
         synchronized (this) {
-            if (compositionTransferRetryActive) return false;
-            if (pendingCompositionBackendTransfers.isEmpty()) return true;
-            if (!stopping) throw new IllegalStateException("original Host composition is still active");
+            if (compositionTransferRetryActive) {
+                return false;
+            }
+            if (pendingCompositionBackendTransfers.isEmpty()) {
+                return true;
+            }
+            if (!stopping) {
+                throw new IllegalStateException("original Host composition is still active");
+            }
             original = preparationAttempt;
         }
         if (original != null) {
-            if (original.process.hostPreparationPending()) return false;
+            if (original.process.hostPreparationPending()) {
+                return false;
+            }
             requireOriginalFailedComposition(original.process);
         }
         synchronized (this) {
-            if (compositionTransferRetryActive) return false;
+            if (compositionTransferRetryActive) {
+                return false;
+            }
             compositionTransferRetryActive = true;
             pending = List.copyOf(pendingCompositionBackendTransfers);
             workers = currentTargetWorkers();
@@ -2308,7 +3050,8 @@ public final class TargetWorkerHostRuntime {
                         if (backend.resourcesTerminated() && backend.nativeResourcesTerminated()) {
                             synchronized (this) {
                                 pendingCompositionBackendTransfers.removeIf(member -> member == backend);
-                                if (terminatedUnresolvedCompositionTransfers.stream().noneMatch(member -> member == backend)) {
+                                if (terminatedUnresolvedCompositionTransfers.stream()
+                                        .noneMatch(member -> member == backend)) {
                                     terminatedUnresolvedCompositionTransfers.add(backend);
                                 }
                             }
@@ -2317,27 +3060,44 @@ public final class TargetWorkerHostRuntime {
                     }
                     backend.bindHost(this, workers);
                     synchronized (this) {
-                        if (ownedBackends.stream().noneMatch(owned -> owned == backend)) ownedBackends.add(backend);
+                        if (ownedBackends.stream().noneMatch(owned -> owned == backend)) {
+                            ownedBackends.add(backend);
+                        }
                         pendingCompositionBackendTransfers.removeIf(member -> member == backend);
                     }
-                } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+                } catch (RuntimeException | Error failure) {
+                    retainCompositionFailure(failure);
+                }
             }
         } finally {
-            synchronized (this) { compositionTransferRetryActive = false; notifyAll(); }
+            synchronized (this) {
+                compositionTransferRetryActive = false;
+                notifyAll();
+            }
         }
         if (hasOwnedBackends()) {
-            try { quarantineOwnedBackends(); }
-            catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+            try {
+                quarantineOwnedBackends();
+            } catch (RuntimeException | Error failure) {
+                retainCompositionFailure(failure);
+            }
         } else if (original != null) {
             final boolean terminatedUnknown;
-            synchronized (this) { terminatedUnknown = !terminatedUnresolvedCompositionTransfers.isEmpty(); }
+            synchronized (this) {
+                terminatedUnknown = !terminatedUnresolvedCompositionTransfers.isEmpty();
+            }
             if (terminatedUnknown) {
-                try { quarantineRetainedCompositionForReplay(original.process); }
-                catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+                try {
+                    quarantineRetainedCompositionForReplay(original.process);
+                } catch (RuntimeException | Error failure) {
+                    retainCompositionFailure(failure);
+                }
             }
         }
         observeUntransferredCompositionCloseFailures();
-        synchronized (this) { return pendingCompositionBackendTransfers.isEmpty(); }
+        synchronized (this) {
+            return pendingCompositionBackendTransfers.isEmpty();
+        }
     }
 
     private PreparationAttempt requireOriginalFailedComposition(TargetWorkerProcessRuntime process) {
@@ -2347,13 +3107,17 @@ public final class TargetWorkerHostRuntime {
             if (!compositionBackendTransferAttempted || compositionFailure == null) {
                 throw new IllegalStateException("Host has no retained failed composition transfer");
             }
-            original = preparationAttempt; workers = currentTargetWorkers();
+            original = preparationAttempt;
+            workers = currentTargetWorkers();
         }
         if (original == null || original.process != process) {
             throw new IllegalStateException("failed composition has no original controlled Process attempt");
         }
         synchronized (original) {
-            if (original.partialHost != this || original.active || !original.exited || original.succeeded
+            if (original.partialHost != this
+                    || original.active
+                    || !original.exited
+                    || original.succeeded
                     || workers.size() != original.workers.size()) {
                 throw new IllegalStateException("original Host composition call has not exited with its exact graph");
             }
@@ -2364,15 +3128,22 @@ public final class TargetWorkerHostRuntime {
             }
         }
         final boolean originalAuthorityChecked;
-        synchronized (this) { originalAuthorityChecked = retainedCompositionBarrierAttempt == original; }
+        synchronized (this) {
+            originalAuthorityChecked = retainedCompositionBarrierAttempt == original;
+        }
         // The same private attempt retains this binding after the original Oxia root starts closing.
         // Host admission already forbids a second assembly/Worker graph; do not reopen stopped providers.
-        if (!originalAuthorityChecked) process.requireRetainedHostComposition(this, original, workers);
-        for (var worker : workers) worker.requireFleetComposition(original.classes, original.resources);
+        if (!originalAuthorityChecked) {
+            process.requireRetainedHostComposition(this, original, workers);
+        }
+        for (var worker : workers) {
+            worker.requireFleetComposition(original.classes, original.resources);
+        }
         synchronized (this) {
             for (var backend : pendingCompositionBackendTransfers) {
                 if (originalCompositionBackends.stream().noneMatch(member -> member == backend)) {
-                    throw new IllegalStateException("unresolved transfer was not registered by the original composition");
+                    throw new IllegalStateException(
+                            "unresolved transfer was not registered by the original composition");
                 }
             }
             for (var backend : terminatedUnresolvedCompositionTransfers) {
@@ -2385,20 +3156,24 @@ public final class TargetWorkerHostRuntime {
     }
 
     private boolean terminatedUnresolvedCompositionBackendsExited() {
-        return terminatedUnresolvedCompositionTransfers.stream().allMatch(backend ->
-                backend.resourcesTerminated() && backend.nativeResourcesTerminated());
+        return terminatedUnresolvedCompositionTransfers.stream()
+                .allMatch(backend -> backend.resourcesTerminated() && backend.nativeResourcesTerminated());
     }
 
     /** Retained cleanup responsibility is not backend ownership or a no-transfer completion. */
     BackendQuarantineResult quarantineRetainedCompositionForReplay(TargetWorkerProcessRuntime process) {
-        if (hasOwnedBackends()) return quarantineOwnedBackends();
+        if (hasOwnedBackends()) {
+            return quarantineOwnedBackends();
+        }
         requireOriginalFailedComposition(process);
         synchronized (this) {
             if (compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()) {
                 return backendQuarantineStatus();
             }
-            if (terminatedUnresolvedCompositionTransfers.isEmpty() || !terminatedUnresolvedCompositionBackendsExited()) {
-                throw new IllegalStateException("failed composition lacks actual termination of its original unknown SDK");
+            if (terminatedUnresolvedCompositionTransfers.isEmpty()
+                    || !terminatedUnresolvedCompositionBackendsExited()) {
+                throw new IllegalStateException(
+                        "failed composition lacks actual termination of its original unknown SDK");
             }
             retainedCompositionBarrierAttempt = preparationAttempt;
         }
@@ -2410,9 +3185,15 @@ public final class TargetWorkerHostRuntime {
     }
 
     private static Throwable appendFailure(Throwable first, Throwable next) {
-        if (first == null) return next;
+        if (first == null) {
+            return next;
+        }
         if (first != next) {
-            for (var suppressed : first.getSuppressed()) if (suppressed == next) return first;
+            for (var suppressed : first.getSuppressed()) {
+                if (suppressed == next) {
+                    return first;
+                }
+            }
             first.addSuppressed(next);
         }
         return first;
@@ -2422,7 +3203,9 @@ public final class TargetWorkerHostRuntime {
     private void advanceUntransferredCompositionClose() {
         final List<TargetOwnedBackendGroup> original;
         synchronized (this) {
-            if (!compositionBackendTransferAttempted || untransferredCompositionCloseActive) return;
+            if (!compositionBackendTransferAttempted || untransferredCompositionCloseActive) {
+                return;
+            }
             untransferredCompositionCloseActive = true;
             original = List.copyOf(untransferredCompositionBackends);
         }
@@ -2430,34 +3213,53 @@ public final class TargetWorkerHostRuntime {
             // Issue every original stop before observing any group's termination.
             for (var backend : original) {
                 try {
-                    final var close = Objects.requireNonNull(backend.closeBeforeHostBinding(), "original unbound close");
-                    synchronized (this) { untransferredCompositionCloses.putIfAbsent(backend, close); }
-                } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+                    final var close =
+                            Objects.requireNonNull(backend.closeBeforeHostBinding(), "original unbound close");
+                    synchronized (this) {
+                        untransferredCompositionCloses.putIfAbsent(backend, close);
+                    }
+                } catch (RuntimeException | Error failure) {
+                    retainCompositionFailure(failure);
+                }
             }
         } finally {
-            synchronized (this) { untransferredCompositionCloseActive = false; notifyAll(); }
+            synchronized (this) {
+                untransferredCompositionCloseActive = false;
+                notifyAll();
+            }
         }
     }
 
     private void observeUntransferredCompositionCloseFailures() {
         final List<java.util.concurrent.CompletableFuture<Void>> closes;
-        synchronized (this) { closes = List.copyOf(untransferredCompositionCloses.values()); }
+        synchronized (this) {
+            closes = List.copyOf(untransferredCompositionCloses.values());
+        }
         for (var close : closes) {
-            if (!close.isDone()) continue;
-            try { close.join(); }
-            catch (java.util.concurrent.CompletionException failure) {
+            if (!close.isDone()) {
+                continue;
+            }
+            try {
+                close.join();
+            } catch (java.util.concurrent.CompletionException failure) {
                 retainCompositionFailure(failure.getCause() == null ? failure : failure.getCause());
-            } catch (RuntimeException | Error failure) { retainCompositionFailure(failure); }
+            } catch (RuntimeException | Error failure) {
+                retainCompositionFailure(failure);
+            }
         }
     }
 
     private boolean untransferredCompositionBackendsTerminated() {
-        return !untransferredCompositionCloseActive && untransferredCompositionBackends.stream().allMatch(backend ->
-                untransferredCompositionCloses.containsKey(backend)
-                        && backend.resourcesTerminated() && backend.nativeResourcesTerminated());
+        return !untransferredCompositionCloseActive
+                && untransferredCompositionBackends.stream()
+                        .allMatch(backend -> untransferredCompositionCloses.containsKey(backend)
+                                && backend.resourcesTerminated()
+                                && backend.nativeResourcesTerminated());
     }
 
-    synchronized boolean hasOwnedBackends() { return !ownedBackends.isEmpty(); }
+    synchronized boolean hasOwnedBackends() {
+        return !ownedBackends.isEmpty();
+    }
 
     synchronized boolean hasPendingCompositionBackendTransfers() {
         return compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty();
@@ -2465,7 +3267,8 @@ public final class TargetWorkerHostRuntime {
 
     /** Publication ownership transfers before its asynchronous SDK opening may start. */
     synchronized void registerPublicationBackend(TargetWorkerShardRuntime expected, TargetOwnedBackendGroup backend) {
-        if (requireShard(expected.shardId()) != expected || withdrawn.contains(expected.shardId())
+        if (requireShard(expected.shardId()) != expected
+                || withdrawn.contains(expected.shardId())
                 || completed.containsKey(expected.shardId())) {
             throw new IllegalStateException("publication backend lacks its exact admitted Host Worker");
         }
@@ -2486,15 +3289,20 @@ public final class TargetWorkerHostRuntime {
         final TargetWorkerOrdinaryLoop ordinary;
         final TargetCheckpointCandidateSchedule schedule;
         synchronized (this) {
-            if (quarantineActive || faultExitActive || compositionTransferRetryActive) return backendQuarantineStatus();
-            if (ownedBackends.isEmpty() && (!retainedTerminatedComposition
-                    || terminatedUnresolvedCompositionTransfers.isEmpty()
-                    || !pendingCompositionBackendTransfers.isEmpty()
-                    || !terminatedUnresolvedCompositionBackendsExited())) {
+            if (quarantineActive || faultExitActive || compositionTransferRetryActive) {
+                return backendQuarantineStatus();
+            }
+            if (ownedBackends.isEmpty()
+                    && (!retainedTerminatedComposition
+                            || terminatedUnresolvedCompositionTransfers.isEmpty()
+                            || !pendingCompositionBackendTransfers.isEmpty()
+                            || !terminatedUnresolvedCompositionBackendsExited())) {
                 throw new IllegalStateException("Host has no actually owned backend group");
             }
             quarantineActive = true;
-            if (!backendQuarantined && backendClosePermits.isEmpty()) { quarantineGeneration++; }
+            if (!backendQuarantined && backendClosePermits.isEmpty()) {
+                quarantineGeneration++;
+            }
             backendQuarantined = true;
             stopping = true;
             ordinary = ordinaryLoop;
@@ -2507,12 +3315,18 @@ public final class TargetWorkerHostRuntime {
             final Map<TargetOwnedBackendGroup, List<Object>> frozen = new java.util.IdentityHashMap<>();
             Throwable failure = null;
             if (schedule != null) {
-                try { schedule.requestPublishedValidationStop(); }
-                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+                try {
+                    schedule.requestPublishedValidationStop();
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
             }
             for (var backend : backends) {
-                try { frozen.put(backend, backend.freezeRegistrations()); }
-                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+                try {
+                    frozen.put(backend, backend.freezeRegistrations());
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
             }
             // Store and runtime fences are independent of Worker monitors held by a native receive/ACK wait.
             boolean storesFenced = true;
@@ -2523,18 +3337,28 @@ public final class TargetWorkerHostRuntime {
                     }
                     worker.quarantineBackendWrites();
                 } catch (RuntimeException | Error cleanup) {
-                    storesFenced = false; failure = appendFailure(failure, cleanup);
+                    storesFenced = false;
+                    failure = appendFailure(failure, cleanup);
                 }
             }
             if (ordinary != null) {
-                try { ordinary.requestStop(); }
-                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+                try {
+                    ordinary.requestStop();
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
             }
-            try { maintenanceLoop.requestStop(); }
-            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            try {
+                maintenanceLoop.requestStop();
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
+            }
             if (sourceObservationCache != null) {
-                try { sourceObservationCache.stop(); }
-                catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+                try {
+                    sourceObservationCache.stop();
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
             }
             final var closing = new ArrayList<TargetOwnedBackendGroup>();
             synchronized (this) {
@@ -2542,61 +3366,98 @@ public final class TargetWorkerHostRuntime {
                     backendBarrierEstablished = true;
                     for (var backend : backends) {
                         if (frozen.containsKey(backend)) {
-                            backendClosePermits.computeIfAbsent(backend, ignored ->
-                                    new BackendClosePermit(this, backend, quarantineGeneration, frozen.get(backend)));
+                            backendClosePermits.computeIfAbsent(
+                                    backend,
+                                    ignored -> new BackendClosePermit(
+                                            this, backend, quarantineGeneration, frozen.get(backend)));
                         }
                     }
                 }
-                for (var backend : backends) if (backendClosePermits.containsKey(backend)) closing.add(backend);
+                for (var backend : backends) {
+                    if (backendClosePermits.containsKey(backend)) {
+                        closing.add(backend);
+                    }
+                }
             }
-            try { advanceOwnedBackendClose(closing); }
-            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            try {
+                advanceOwnedBackendClose(closing);
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
+            }
             observeUntransferredCompositionCloseFailures();
-            if (failure != null) retainCompositionFailure(failure);
-            if (failure instanceof RuntimeException runtime) throw runtime;
-            if (failure instanceof Error fatal) throw fatal;
+            if (failure != null) {
+                retainCompositionFailure(failure);
+            }
+            if (failure instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (failure instanceof Error fatal) {
+                throw fatal;
+            }
             return backendQuarantineStatus();
         } finally {
-            synchronized (this) { quarantineActive = false; notifyAll(); }
+            synchronized (this) {
+                quarantineActive = false;
+                notifyAll();
+            }
         }
     }
 
     public synchronized BackendQuarantineResult backendQuarantineStatus() {
         final var failures = new ArrayList<Throwable>();
-        boolean terminated = backendBarrierEstablished && !compositionTransferRetryActive
-                && pendingCompositionBackendTransfers.isEmpty() && untransferredCompositionBackendsTerminated()
+        boolean terminated = backendBarrierEstablished
+                && !compositionTransferRetryActive
+                && pendingCompositionBackendTransfers.isEmpty()
+                && untransferredCompositionBackendsTerminated()
                 && terminatedUnresolvedCompositionBackendsExited();
-        if (compositionFailure != null) failures.add(compositionFailure);
+        if (compositionFailure != null) {
+            failures.add(compositionFailure);
+        }
         for (var backend : terminatedUnresolvedCompositionTransfers) {
-            if (backend.cleanupFailure() != null) failures.add(backend.cleanupFailure());
+            if (backend.cleanupFailure() != null) {
+                failures.add(backend.cleanupFailure());
+            }
         }
         for (var backend : ownedBackends) {
             terminated &= backend.resourcesTerminated() && backend.nativeResourcesTerminated();
-            if (backend.cleanupFailure() != null) { failures.add(backend.cleanupFailure()); }
+            if (backend.cleanupFailure() != null) {
+                failures.add(backend.cleanupFailure());
+            }
         }
-        return new BackendQuarantineResult(terminated ? BackendQuarantineStatus.BACKEND_TERMINATED
-                : BackendQuarantineStatus.QUARANTINED, failures);
+        return new BackendQuarantineResult(
+                terminated ? BackendQuarantineStatus.BACKEND_TERMINATED : BackendQuarantineStatus.QUARANTINED,
+                failures);
     }
 
-    public record QuarantinedShardExit(ShardId shard, TargetOwnerDrainCoordinator.ReplayExit exited,
-            RuntimeException failure) {}
+    public record QuarantinedShardExit(
+            ShardId shard, TargetOwnerDrainCoordinator.ReplayExit exited, RuntimeException failure) {}
 
     /** Retries only the quarantined old process exit; pending ACK/UNKNOWN and protected candidates remain for replay. */
-    public List<QuarantinedShardExit> exitQuarantinedForReplay(TargetOwnerDrainCoordinator.Request request,
-            LongSupplier clock) {
+    public List<QuarantinedShardExit> exitQuarantinedForReplay(
+            TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         final List<Shard> current;
         final List<TargetOwnedBackendGroup> closing;
         final TargetWorkerOrdinaryLoop ordinary;
         final TargetCheckpointCandidateSchedule schedule;
         synchronized (this) {
-            if (!backendQuarantined || quarantineActive || faultExitActive || drainAllActive || !draining.isEmpty()
-                    || compositionTransferRetryActive || !pendingCompositionBackendTransfers.isEmpty()
+            if (!backendQuarantined
+                    || quarantineActive
+                    || faultExitActive
+                    || drainAllActive
+                    || !draining.isEmpty()
+                    || compositionTransferRetryActive
+                    || !pendingCompositionBackendTransfers.isEmpty()
                     || untransferredCompositionCloseActive) {
                 throw new IllegalStateException("quarantined fault exit still has a concurrent Host lifecycle owner");
             }
-            current = List.copyOf(shards); ordinary = ordinaryLoop; schedule = checkpointSchedule;
+            current = List.copyOf(shards);
+            ordinary = ordinaryLoop;
+            schedule = checkpointSchedule;
             closing = backendBarrierEstablished
-                    ? ownedBackends.stream().filter(backendClosePermits::containsKey).toList() : List.of();
+                    ? ownedBackends.stream()
+                            .filter(backendClosePermits::containsKey)
+                            .toList()
+                    : List.of();
             faultExitActive = true;
         }
         try {
@@ -2604,13 +3465,19 @@ public final class TargetWorkerHostRuntime {
             if (schedule != null) {
                 schedule.requestPublishedValidationStop();
                 if (!schedule.settlePublishedValidationCleanup()) {
-                    return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
+                    return current.stream()
+                            .map(shard -> new QuarantinedShardExit(shard.shardId(), null, null))
+                            .toList();
                 }
             }
             if (backendQuarantineStatus().status() != BackendQuarantineStatus.BACKEND_TERMINATED) {
-                return current.stream().map(shard -> new QuarantinedShardExit(shard.shardId(), null, null)).toList();
+                return current.stream()
+                        .map(shard -> new QuarantinedShardExit(shard.shardId(), null, null))
+                        .toList();
             }
-            if (ordinary != null) { ordinary.close(); }
+            if (ordinary != null) {
+                ordinary.close();
+            }
             maintenanceLoop.close();
             final var result = new ArrayList<QuarantinedShardExit>();
             for (var shard : current) {
@@ -2619,14 +3486,25 @@ public final class TargetWorkerHostRuntime {
                 }
                 try {
                     final TargetWorkerProcessRuntime process;
-                    synchronized (this) { process = processRuntime; }
+                    synchronized (this) {
+                        process = processRuntime;
+                    }
                     if (process != null && !process.stopMigrationMaintenanceForWorker(worker)) {
-                        result.add(new QuarantinedShardExit(shard.shardId(), null, null)); continue;
+                        result.add(new QuarantinedShardExit(shard.shardId(), null, null));
+                        continue;
                     }
                     final TargetOwnerDrainCoordinator.ReplayExit prior;
-                    synchronized (this) { prior = faultExited.get(shard.shardId()); }
-                    final var exited = prior != null ? prior : worker.exitQuarantinedForReplay(request, clock).orElse(null);
-                    if (exited != null) { synchronized (this) { faultExited.put(shard.shardId(), exited); } }
+                    synchronized (this) {
+                        prior = faultExited.get(shard.shardId());
+                    }
+                    final var exited = prior != null
+                            ? prior
+                            : worker.exitQuarantinedForReplay(request, clock).orElse(null);
+                    if (exited != null) {
+                        synchronized (this) {
+                            faultExited.put(shard.shardId(), exited);
+                        }
+                    }
                     result.add(new QuarantinedShardExit(shard.shardId(), exited, null));
                 } catch (RuntimeException failure) {
                     result.add(new QuarantinedShardExit(shard.shardId(), null, failure));
@@ -2637,7 +3515,10 @@ public final class TargetWorkerHostRuntime {
             }
             return List.copyOf(result);
         } finally {
-            synchronized (this) { faultExitActive = false; notifyAll(); }
+            synchronized (this) {
+                faultExitActive = false;
+                notifyAll();
+            }
         }
     }
 

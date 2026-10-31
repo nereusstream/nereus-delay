@@ -97,7 +97,9 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
     /** Runs one bounded probe immediately, without waiting for the scheduler. */
     public void pollNow() {
         synchronized (this) {
-            if (closed.get()) throw new IllegalStateException("monitor is closed");
+            if (closed.get()) {
+                throw new IllegalStateException("monitor is closed");
+            }
             activePolls++;
         }
         try {
@@ -107,7 +109,9 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
         } catch (RuntimeException | Error failure) {
             recordFailure(failure);
         } finally {
-            synchronized (this) { activePolls--; }
+            synchronized (this) {
+                activePolls--;
+            }
         }
     }
 
@@ -121,8 +125,12 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
 
     /** Admission closure is distinct from original probe and owned thread exit; never waits on itself. */
     public synchronized boolean terminationComplete() {
-        if (!closeCompleted || activePolls != 0 || !executor.isTerminated() || ownedThreads == null) return false;
-        synchronized (ownedThreads) { return ownedThreads.stream().noneMatch(Thread::isAlive); }
+        if (!closeCompleted || activePolls != 0 || !executor.isTerminated() || ownedThreads == null) {
+            return false;
+        }
+        synchronized (ownedThreads) {
+            return ownedThreads.stream().noneMatch(Thread::isAlive);
+        }
     }
 
     @Override

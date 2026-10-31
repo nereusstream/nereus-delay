@@ -194,10 +194,7 @@ class WorkerManagedPulsarNativePublishTest {
         final DestinationPhysicalAdmission physicalAdmission =
                 Fixture.admission(fixture.lane, fixture.laneIncarnation, 1);
         final WorkerPhysicalPublishExecutor executor = fixture.queuedExecutor(
-                preparedAdapter(preparedCalls, sent),
-                physicalAdmission,
-                queuedPhysicalTasks::add,
-                physicalTime::get);
+                preparedAdapter(preparedCalls, sent), physicalAdmission, queuedPhysicalTasks::add, physicalTime::get);
 
         try (executor) {
             final DestinationPublishRequest request =
@@ -406,9 +403,7 @@ class WorkerManagedPulsarNativePublishTest {
 
             assertEquals(1, preparedCalls.get());
             assertEquals(
-                    List.of(
-                            PulsarAttemptJournal.RecordKind.MAPPED,
-                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    List.of(PulsarAttemptJournal.RecordKind.MAPPED, PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
                     fixture.journal.records().stream()
                             .map(PulsarAttemptJournal.JournalRecord::kind)
                             .toList());
@@ -443,9 +438,7 @@ class WorkerManagedPulsarNativePublishTest {
             assertEquals(0, replacementCalls.get());
             assertEquals(1, preparedCalls.get());
             assertEquals(
-                    List.of(
-                            PulsarAttemptJournal.RecordKind.MAPPED,
-                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    List.of(PulsarAttemptJournal.RecordKind.MAPPED, PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
                     fixture.journal.records().stream()
                             .map(PulsarAttemptJournal.JournalRecord::kind)
                             .toList());
@@ -456,7 +449,8 @@ class WorkerManagedPulsarNativePublishTest {
                     first.physicalResult().orElseThrow().disposition());
             assertEquals(
                     PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED,
-                    fixture.journal.state(fixture.journal.records().getFirst().mapping().mappingId()));
+                    fixture.journal.state(
+                            fixture.journal.records().getFirst().mapping().mappingId()));
         }
     }
 
@@ -483,8 +477,8 @@ class WorkerManagedPulsarNativePublishTest {
         final Executor physicalExecutor = queuedPhysicalTasks::add;
         final DestinationPhysicalAdmission physicalAdmission =
                 Fixture.admission(fixture.lane, fixture.laneIncarnation, 2);
-        final WorkerPhysicalPublishExecutor executor = fixture.queuedExecutor(
-                unresolvedAdapter, physicalAdmission, physicalExecutor);
+        final WorkerPhysicalPublishExecutor executor =
+                fixture.queuedExecutor(unresolvedAdapter, physicalAdmission, physicalExecutor);
 
         try (executor) {
             final DestinationPublishRequest request =
@@ -504,9 +498,7 @@ class WorkerManagedPulsarNativePublishTest {
 
             assertEquals(1, preparedCalls.get());
             assertEquals(
-                    List.of(
-                            PulsarAttemptJournal.RecordKind.MAPPED,
-                            PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
+                    List.of(PulsarAttemptJournal.RecordKind.MAPPED, PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED),
                     fixture.journal.records().stream()
                             .map(PulsarAttemptJournal.JournalRecord::kind)
                             .toList());

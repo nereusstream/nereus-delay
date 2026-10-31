@@ -13,24 +13,31 @@ import java.util.Objects;
 public final class TargetWorkerPublicationDispatch {
     public record Cluster(long requests, long bytes) {
         public Cluster {
-            finite(requests); finite(bytes);
+            finite(requests);
+            finite(bytes);
         }
     }
 
     public record Configuration(int maximumChannels, long requests, long bytes, Map<String, Cluster> clusters) {
         public Configuration {
-            finite(requests); finite(bytes); Objects.requireNonNull(clusters);
-            if (maximumChannels < 1 || maximumChannels == Integer.MAX_VALUE
-                    || clusters.isEmpty()) {
-                throw new IllegalArgumentException("publication dispatch requires finite channels and explicit clusters");
+            finite(requests);
+            finite(bytes);
+            Objects.requireNonNull(clusters);
+            if (maximumChannels < 1 || maximumChannels == Integer.MAX_VALUE || clusters.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "publication dispatch requires finite channels and explicit clusters");
             }
             for (var entry : clusters.entrySet()) {
                 final var id = Objects.requireNonNull(entry.getKey());
                 final var limit = Objects.requireNonNull(entry.getValue());
-                if (id.isBlank() || id.length() > 1024 || id.indexOf('\0') >= 0
+                if (id.isBlank()
+                        || id.length() > 1024
+                        || id.indexOf('\0') >= 0
                         || !Normalizer.isNormalized(id, Normalizer.Form.NFC)
-                        || limit.requests() > requests || limit.bytes() > bytes) {
-                    throw new IllegalArgumentException("publication cluster exceeds its original identity/physical bound");
+                        || limit.requests() > requests
+                        || limit.bytes() > bytes) {
+                    throw new IllegalArgumentException(
+                            "publication cluster exceeds its original identity/physical bound");
                 }
             }
             clusters = Map.copyOf(clusters);
@@ -50,15 +57,24 @@ public final class TargetWorkerPublicationDispatch {
                 final String prefix = "cluster." + i + '.';
                 final String id = Objects.requireNonNull(fields.remove(prefix + "id"), "missing cluster id");
                 final var limit = new Cluster(number(fields, prefix + "requests"), number(fields, prefix + "bytes"));
-                if (clusters.putIfAbsent(id, limit) != null) throw new IllegalArgumentException("duplicate publication cluster");
+                if (clusters.putIfAbsent(id, limit) != null) {
+                    throw new IllegalArgumentException("duplicate publication cluster");
+                }
             }
-            if (!fields.isEmpty()) throw new IllegalArgumentException("unknown publication dispatch fields: " + fields.keySet());
+            if (!fields.isEmpty()) {
+                throw new IllegalArgumentException("unknown publication dispatch fields: " + fields.keySet());
+            }
             return new Configuration(channels, requests, bytes, clusters);
         }
+
         private static long number(Map<String, String> fields, String name) {
             final String value = Objects.requireNonNull(fields.remove(name), "missing dispatch bound: " + name);
-            if (!value.matches("[0-9]{1,19}")) throw new IllegalArgumentException("dispatch bound must be a finite decimal");
-            final long result = Long.parseLong(value); finite(result); return result;
+            if (!value.matches("[0-9]{1,19}")) {
+                throw new IllegalArgumentException("dispatch bound must be a finite decimal");
+            }
+            final long result = Long.parseLong(value);
+            finite(result);
+            return result;
         }
     }
 
@@ -70,46 +86,80 @@ public final class TargetWorkerPublicationDispatch {
     private final com.nereusstream.delay.store.SharedRocksDbResources resources;
     private boolean closed;
 
-    TargetWorkerPublicationDispatch(Configuration configuration, TargetWorkerProcessRuntime.Assembly graph,
+    TargetWorkerPublicationDispatch(
+            Configuration configuration,
+            TargetWorkerProcessRuntime.Assembly graph,
             com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter metrics) {
         this.configuration = Objects.requireNonNull(configuration);
-        classes = graph.classes(); resources = graph.resources();
+        classes = graph.classes();
+        resources = graph.resources();
         final var worker = graph.config();
         worker.requireRuntime(graph.classes(), graph.resources());
-        for (var dimension : java.util.List.of(CapacityDimension.PHYSICAL_REQUESTS, CapacityDimension.ZOMBIE_REQUESTS)) {
-            if (Math.addExact(configuration.requests(), worker.systemWriter().records()) > worker.hardCaps().amount(dimension)) {
-                throw new IllegalArgumentException("publication requests consume the independent Source writer reserve");
+        for (var dimension :
+                java.util.List.of(CapacityDimension.PHYSICAL_REQUESTS, CapacityDimension.ZOMBIE_REQUESTS)) {
+            if (Math.addExact(configuration.requests(), worker.systemWriter().records())
+                    > worker.hardCaps().amount(dimension)) {
+                throw new IllegalArgumentException(
+                        "publication requests consume the independent Source writer reserve");
             }
         }
         for (var dimension : java.util.List.of(CapacityDimension.PHYSICAL_BYTES, CapacityDimension.ZOMBIE_BYTES)) {
-            if (Math.addExact(configuration.bytes(), worker.systemWriter().bytes()) > worker.hardCaps().amount(dimension)) {
+            if (Math.addExact(configuration.bytes(), worker.systemWriter().bytes())
+                    > worker.hardCaps().amount(dimension)) {
                 throw new IllegalArgumentException("publication bytes consume the independent Source writer reserve");
             }
         }
         physical = new DestinationPhysicalAdmission(configuration.requests(), configuration.bytes());
-        configuration.clusters().forEach((id, limit) -> physical.registerTargetCluster(id, limit.requests(), limit.bytes()));
+        configuration
+                .clusters()
+                .forEach((id, limit) -> physical.registerTargetCluster(id, limit.requests(), limit.bytes()));
         mux = new TargetDestinationMux(configuration.maximumChannels());
         adapter = new BoundedDestinationPublishAdapter(mux, physical, graph.classes(), graph.io(), metrics);
     }
 
     void requireConfiguration(Configuration expected) {
-        if (closed || !configuration.equals(expected)) throw new IllegalStateException("original publication dispatch cannot be replaced");
+        if (closed || !configuration.equals(expected)) {
+            throw new IllegalStateException("original publication dispatch cannot be replaced");
+        }
     }
-    public DestinationPhysicalAdmission physical() { return physical; }
-    public TargetDestinationMux mux() { return mux; }
-    public BoundedDestinationPublishAdapter adapter() { return adapter; }
-    public void requireWorker(TargetWorkerShardRuntime expected) { expected.requireFleetComposition(classes, resources); }
+
+    public DestinationPhysicalAdmission physical() {
+        return physical;
+    }
+
+    public TargetDestinationMux mux() {
+        return mux;
+    }
+
+    public BoundedDestinationPublishAdapter adapter() {
+        return adapter;
+    }
+
+    public void requireWorker(TargetWorkerShardRuntime expected) {
+        expected.requireFleetComposition(classes, resources);
+    }
 
     /** Called only after this original process has proved its Host/SDK/Store dependencies exited. */
     synchronized boolean closeIfDrained() {
-        if (closed) return true;
+        if (closed) {
+            return true;
+        }
         final var usage = physical.workerSnapshot();
-        if (!mux.empty() || usage.activeRequests() != 0 || usage.activeBytes() != 0
-                || usage.protectedReadyRequests() != 0 || usage.protectedReadyBytes() != 0) return false;
-        adapter.close(); closed = true; return true;
+        if (!mux.empty()
+                || usage.activeRequests() != 0
+                || usage.activeBytes() != 0
+                || usage.protectedReadyRequests() != 0
+                || usage.protectedReadyBytes() != 0) {
+            return false;
+        }
+        adapter.close();
+        closed = true;
+        return true;
     }
 
     private static void finite(long value) {
-        if (value < 1 || value == Long.MAX_VALUE) throw new IllegalArgumentException("publication bound must be finite and positive");
+        if (value < 1 || value == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("publication bound must be finite and positive");
+        }
     }
 }

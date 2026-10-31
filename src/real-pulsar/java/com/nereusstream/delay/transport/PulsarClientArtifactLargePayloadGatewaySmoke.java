@@ -1716,8 +1716,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                         new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
                 boolean assignmentsWithdrawn = false;
-                try (SharedRocksDbResources resources = PulsarSmokeWorkerResources.open(
-                        ShardStoreConfig.defaults(root));
+                try (SharedRocksDbResources resources =
+                                PulsarSmokeWorkerResources.open(ShardStoreConfig.defaults(root));
                         InMemoryCommandTransportRegistry transports = new InMemoryCommandTransportRegistry()) {
                     resources.bindWorkClassExecutionRegistry(workClasses);
                     final InMemoryPayloadProofTrustSetCatalog trustCatalog = new InMemoryPayloadProofTrustSetCatalog();
@@ -1730,7 +1730,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                         store.recordControlSnapshot(controlSnapshot(probe.shard(), destinationProfile()));
                         final DelayShard delayShard = PulsarSmokeWorkerResources.openDelayShard(
                                 store,
-                                scheduleResolver(destinationPhysicalTopic, probe.shard().partition()),
+                                scheduleResolver(
+                                        destinationPhysicalTopic, probe.shard().partition()),
                                 trustCatalog);
                         delayShards.add(delayShard);
                         final OwnerLease lease = admission.lease();

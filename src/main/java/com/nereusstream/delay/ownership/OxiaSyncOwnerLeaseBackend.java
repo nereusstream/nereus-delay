@@ -212,36 +212,50 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
 
     /** Only the original configured connection factory records this fact; a borrowed client cannot self-report it. */
     public Duration requireConfiguredRequestTimeout() {
-        if (configuredRequestTimeout == null || configuredRequestTimeout.toMillis() < 1
+        if (configuredRequestTimeout == null
+                || configuredRequestTimeout.toMillis() < 1
                 || configuredRequestTimeout.toMillis() > 60_000) {
-            throw new IllegalStateException("Target root requires its actual Oxia client to have a finite request timeout");
+            throw new IllegalStateException(
+                    "Target root requires its actual Oxia client to have a finite request timeout");
         }
         return configuredRequestTimeout;
     }
     /** Only the actual managed SDK opening can supply a stable storage binding; a borrowed client cannot self-report it. */
-    public byte[] requireOriginalStorageNamespaceBinding(){
+    public byte[] requireOriginalStorageNamespaceBinding() {
         assertConnectedSession();
-        if(clientOwner==null)throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        if (clientOwner == null) {
+            throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        }
         return clientOwner.requireStorageNamespaceBinding();
     }
     /** A public ClientHandle record alone cannot associate a foreign client with this original SDK owner. */
-    public byte[] requireOriginalStorageNamespaceBinding(SyncOxiaClient actual){
+    public byte[] requireOriginalStorageNamespaceBinding(SyncOxiaClient actual) {
         requireOriginalConnectedClient(actual);
-        if(clientOwner==null)throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        if (clientOwner == null) {
+            throw new IllegalStateException("original SDK storage namespace binding is unavailable");
+        }
         return clientOwner.requireStorageNamespaceBinding();
     }
     /** Cleanup uses the original captured SDK identity even after its session has disconnected. */
-    public void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input){
-        if(clientOwner==null)throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
+    public void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input) {
+        if (clientOwner == null) {
+            throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
+        }
         clientOwner.retainClosedClientInputUntilTermination(input);
     }
-    public void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input,
-            TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission){
-        if(clientOwner==null)throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
-        clientOwner.retainClosedClientInputUntilTermination(input,admission);
+
+    public void retainClosedClientInputUntilTermination(
+            TargetDestinationSdkBudget.Client input,
+            TargetEvidenceObjectLifecycleAuthority.AdmissionProtection admission) {
+        if (clientOwner == null) {
+            throw new IllegalStateException("original managed Registry SDK input ownership is unavailable");
+        }
+        clientOwner.retainClosedClientInputUntilTermination(input, admission);
     }
     /** Captured ownership association only; unlike assertConnectedSession this performs no SDK request. */
-    public boolean hasManagedClientInputOwner(){return clientOwner!=null;}
+    public boolean hasManagedClientInputOwner() {
+        return clientOwner != null;
+    }
 
     /**
      * Derives the 32-byte session identity from the metadata attached to an
@@ -794,9 +808,13 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         public void close() throws IOException {
             if (backend.clientOwner != null) {
                 backend.clientOwner.requestClose();
-                if (!backend.clientOwner.cleanupComplete()) throw new IOException("original Oxia owner cleanup pending");
+                if (!backend.clientOwner.cleanupComplete()) {
+                    throw new IOException("original Oxia owner cleanup pending");
+                }
                 if (backend.clientOwner.firstFailure().isPresent()) {
-                    throw new IOException("original Oxia owner retained a failure", backend.clientOwner.firstFailure().get());
+                    throw new IOException(
+                            "original Oxia owner retained a failure",
+                            backend.clientOwner.firstFailure().get());
                 }
                 return;
             }

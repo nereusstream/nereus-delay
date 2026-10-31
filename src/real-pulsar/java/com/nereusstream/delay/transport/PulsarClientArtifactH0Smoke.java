@@ -120,48 +120,78 @@ public final class PulsarClientArtifactH0Smoke {
         final byte[] payload = Bytes.utf8("gate-payload");
         final byte[] attempt = digest("gate-attempt");
         final var reserved = new com.nereusstream.delay.protocol.ReservedPublishMetadata(
-                shard.routeIncarnation(), shard.unsignedPartition(), messageId, 0, attempt,
-                digest("destination"), digest("capability"), 1000,
+                shard.routeIncarnation(),
+                shard.unsignedPartition(),
+                messageId,
+                0,
+                attempt,
+                digest("destination"),
+                digest("capability"),
+                1000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED);
         final var template = new com.nereusstream.delay.protocol.PulsarRecordTemplate(
                 com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(
                         new com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity(
                                 CLUSTER, RESOURCE_INCARNATION, TOPIC, TOPIC_CREATION_TIMESTAMP)),
-                0, com.nereusstream.delay.protocol.PulsarKey.none(), null, java.util.List.of(), null,
-                reserved, com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, null,
-                com.nereusstream.delay.protocol.PayloadForPublish.inline(payload), artifacts.setDigest());
+                0,
+                com.nereusstream.delay.protocol.PulsarKey.none(),
+                null,
+                java.util.List.of(),
+                null,
+                reserved,
+                com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
+                com.nereusstream.delay.protocol.PayloadForPublish.inline(payload),
+                artifacts.setDigest());
         final byte[] prepared = digest("gate-prepared");
         final var record = new com.nereusstream.delay.protocol.PulsarPreparedRecord(
-                template, template.recordTemplateHash(), com.nereusstream.delay.protocol.ResolvedPayload.of(payload),
+                template,
+                template.recordTemplateHash(),
+                com.nereusstream.delay.protocol.ResolvedPayload.of(payload),
                 com.nereusstream.delay.protocol.PulsarSequenceAuthority.managedJournal(
                         digest("fixture-mapping"), 1, digest("h0-producer")),
-                com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(attempt), prepared,
+                com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(attempt),
+                prepared,
                 com.nereusstream.delay.protocol.PulsarReservedProperties.all(reserved, attempt, prepared),
                 artifacts.setDigest());
         final var producer = new CountingProducer(TOPIC);
         final var transport = new PulsarClientArtifactDestinationTransport(
-                producer.proxy(), CLUSTER, RESOURCE_INCARNATION, TOPIC, TOPIC_CREATION_TIMESTAMP,
-                0, digest("h0-producer"));
+                producer.proxy(),
+                CLUSTER,
+                RESOURCE_INCARNATION,
+                TOPIC,
+                TOPIC_CREATION_TIMESTAMP,
+                0,
+                digest("h0-producer"));
         final AtomicInteger gateCalls = new AtomicInteger();
         final var ownerActive = new java.util.concurrent.atomic.AtomicBoolean(true);
         producer.afterProperties = () -> ownerActive.set(false);
-        final var denied = transport.publishPreparedRecord(record, artifacts, (r, a) -> {
-            require(producer.propertiesConfigured, "gate ran before SDK properties construction");
-            require(producer.sendAsyncCalls.get() == 0, "gate ran after library SEND ownership");
-            require(!ownerActive.get(), "SDK construction did not observe the fixture Owner revocation");
-            gateCalls.incrementAndGet();
-            return DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null);
-        }).toCompletableFuture().join();
+        final var denied = transport
+                .publishPreparedRecord(record, artifacts, (r, a) -> {
+                    require(producer.propertiesConfigured, "gate ran before SDK properties construction");
+                    require(producer.sendAsyncCalls.get() == 0, "gate ran after library SEND ownership");
+                    require(!ownerActive.get(), "SDK construction did not observe the fixture Owner revocation");
+                    gateCalls.incrementAndGet();
+                    return DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null);
+                })
+                .toCompletableFuture()
+                .join();
         require(denied.disposition() == DestinationPublishResult.Disposition.UNKNOWN, "denial was changed");
         require(gateCalls.get() == 1 && producer.sendAsyncCalls.get() == 0, "denial called SEND");
-        transport.publishPreparedRecord(record, artifacts, (r, a) -> {
-            throw new IllegalStateException("fixture Owner authority is unavailable");
-        }).toCompletableFuture().join();
+        transport
+                .publishPreparedRecord(record, artifacts, (r, a) -> {
+                    throw new IllegalStateException("fixture Owner authority is unavailable");
+                })
+                .toCompletableFuture()
+                .join();
         require(producer.sendAsyncCalls.get() == 0, "unavailable gate called SEND");
-        transport.publishPreparedRecord(record, artifacts, (r, a) -> {
-            require(producer.propertiesConfigured, "permitted gate ran before SDK properties");
-            return null;
-        }).toCompletableFuture().join();
+        transport
+                .publishPreparedRecord(record, artifacts, (r, a) -> {
+                    require(producer.propertiesConfigured, "permitted gate ran before SDK properties");
+                    return null;
+                })
+                .toCompletableFuture()
+                .join();
         require(producer.sendAsyncCalls.get() == 1, "permitted gate did not call SEND exactly once");
         producer.throwOnSend = true;
         boolean propagated = false;

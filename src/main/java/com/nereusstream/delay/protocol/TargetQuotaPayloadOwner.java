@@ -32,9 +32,16 @@ public final class TargetQuotaPayloadOwner {
             + TargetQuotaMutation.MAX_CANONICAL_BYTES
             + 19
             + 2 * 35;
+
     public static final int MAX_CANONICAL_BYTES = V1_MAX_CANONICAL_BYTES
-            + 11 + 5 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 3 + 35
-            + 12 + 5 + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
+            + 11
+            + 5
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            + 3
+            + 35
+            + 12
+            + 5
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-quota-payload-owner\0");
 
     public enum Kind {
@@ -146,9 +153,30 @@ public final class TargetQuotaPayloadOwner {
             final TargetQuotaMutation mutation,
             final byte[] recoveryLineage,
             final byte[] releaseFloorDigest) {
-        this(messageId, owner, tenantScope, accounting, bindingDigest, kind, length, payloadSha256,
-                reservationId, objectStoreProfileHash, committed, phase, revision, mutation, recoveryLineage,
-                releaseFloorDigest, VERSION, -1, null, null, null, 0, null);
+        this(
+                messageId,
+                owner,
+                tenantScope,
+                accounting,
+                bindingDigest,
+                kind,
+                length,
+                payloadSha256,
+                reservationId,
+                objectStoreProfileHash,
+                committed,
+                phase,
+                revision,
+                mutation,
+                recoveryLineage,
+                releaseFloorDigest,
+                VERSION,
+                -1,
+                null,
+                null,
+                null,
+                0,
+                null);
     }
 
     private TargetQuotaPayloadOwner(
@@ -244,22 +272,34 @@ public final class TargetQuotaPayloadOwner {
         this.summaryRevision = summaryRevision;
         this.summaryMutation = summaryMutation;
         if (schemaVersion == VERSION) {
-            if (unresolvedCount != -1 || initializationSource != null || summaryOrigin != null || summaryOriginDigest != null
-                    || summaryRevision != 0 || summaryMutation != null) {
+            if (unresolvedCount != -1
+                    || initializationSource != null
+                    || summaryOrigin != null
+                    || summaryOriginDigest != null
+                    || summaryRevision != 0
+                    || summaryMutation != null) {
                 throw new IllegalArgumentException("schema-1 payload owner cannot carry a qualified summary");
             }
             this.summaryOriginDigest = null;
         } else if (schemaVersion == SUMMARY_VERSION) {
-            if (unresolvedCount < 0 || initializationSource == null || summaryOrigin == null || summaryMutation == null
-                    || summaryRevision == 0 || Long.compareUnsigned(summaryRevision, summaryMutation.sequence()) > 0
-                    || !messageId.routingId().shardId().equals(summaryMutation.source().shardId())
+            if (unresolvedCount < 0
+                    || initializationSource == null
+                    || summaryOrigin == null
+                    || summaryMutation == null
+                    || summaryRevision == 0
+                    || Long.compareUnsigned(summaryRevision, summaryMutation.sequence()) > 0
+                    || !messageId
+                            .routingId()
+                            .shardId()
+                            .equals(summaryMutation.source().shardId())
                     || ((phase == Phase.RETAINED || phase == Phase.RELEASED) && unresolvedCount != 0)) {
                 throw new IllegalArgumentException("invalid qualified payload obligation summary");
             }
             initializationSource.requireSourceApplied();
             summaryMutation.requireSourceApplied();
             initializationSource.requireAtOrBefore(summaryMutation);
-            this.summaryOriginDigest = TargetCompatibilityCodec.assigned(summaryOriginDigest, 32, "summaryOriginDigest");
+            this.summaryOriginDigest =
+                    TargetCompatibilityCodec.assigned(summaryOriginDigest, 32, "summaryOriginDigest");
         } else {
             throw new IllegalArgumentException("unknown payload owner version");
         }
@@ -298,109 +338,210 @@ public final class TargetQuotaPayloadOwner {
 
     /** Explicit migration baseline allocation. Complete original binding/raw custody is retained by schema2 and Native66. */
     public static TargetQuotaPayloadOwner importedScheduled(
-            final TargetScheduleBinding binding, final TargetMigrationPlan plan,
-            final byte[] tenantScope, final TargetQuotaAccounting accounting, final byte[] lineage) {
-        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
-        if (binding.schemaVersion() != 2 || binding.commandType() != CommandType.SCHEDULE
+            final TargetScheduleBinding binding,
+            final TargetMigrationPlan plan,
+            final byte[] tenantScope,
+            final TargetQuotaAccounting accounting,
+            final byte[] lineage) {
+        Objects.requireNonNull(binding);
+        Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != 2
+                || binding.commandType() != CommandType.SCHEDULE
                 || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
-                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope())
+                || !Arrays.equals(lineage, plan.newLineage())
                 || binding.bindingSource().compareTo(plan.baseline().source()) > 0) {
-            throw new IllegalArgumentException("imported payload allocation changed its complete original binding/plan/baseline");
+            throw new IllegalArgumentException(
+                    "imported payload allocation changed its complete original binding/plan/baseline");
         }
         return importedScheduledAt(binding, tenantScope, accounting, lineage, TargetMigrationRoot.baselineFor(plan));
     }
 
     /** A newly accepted legacy-prefix Schedule retains its actual Source S, never a provisional A or fake first. */
     public static TargetQuotaPayloadOwner importedPrefixScheduled(
-            final TargetScheduleBinding binding, final TargetMigrationPlan plan,
-            final byte[] tenantScope, final TargetQuotaAccounting accounting, final byte[] lineage) {
-        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
-        if (binding.schemaVersion() != 3 || binding.commandType() != CommandType.SCHEDULE
+            final TargetScheduleBinding binding,
+            final TargetMigrationPlan plan,
+            final byte[] tenantScope,
+            final TargetQuotaAccounting accounting,
+            final byte[] lineage) {
+        Objects.requireNonNull(binding);
+        Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != 3
+                || binding.commandType() != CommandType.SCHEDULE
                 || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
-                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())) {
-            throw new IllegalArgumentException("prefix payload allocation changed its complete original Source binding/plan");
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope())
+                || !Arrays.equals(lineage, plan.newLineage())) {
+            throw new IllegalArgumentException(
+                    "prefix payload allocation changed its complete original Source binding/plan");
         }
         binding.migrationSource().requireAfter(plan.baseline());
         return importedScheduledAt(binding, tenantScope, accounting, lineage, binding.migrationSource());
     }
 
     /** Complete original Prepare/receipt remains in migration custody; this is an explicit C allocation. */
-    public static TargetQuotaPayloadOwner importedReserved(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage) {
+    public static TargetQuotaPayloadOwner importedReserved(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            byte[] reservationId,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage) {
         return importedReservedAt(binding, plan, reservationId, tenantScope, accounting, lineage, false);
     }
 
-    public static TargetQuotaPayloadOwner importedPrefixReserved(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage) {
+    public static TargetQuotaPayloadOwner importedPrefixReserved(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            byte[] reservationId,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage) {
         return importedReservedAt(binding, plan, reservationId, tenantScope, accounting, lineage, true);
     }
 
-    private static TargetQuotaPayloadOwner importedReservedAt(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage, boolean prefix) {
-        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
-        if (binding.schemaVersion() != (prefix ? 3 : 2) || binding.commandType() != CommandType.PREPARE_LARGE_SCHEDULE
+    private static TargetQuotaPayloadOwner importedReservedAt(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            byte[] reservationId,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage,
+            boolean prefix) {
+        Objects.requireNonNull(binding);
+        Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != (prefix ? 3 : 2)
+                || binding.commandType() != CommandType.PREPARE_LARGE_SCHEDULE
                 || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
-                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope())
+                || !Arrays.equals(lineage, plan.newLineage())
                 || !prefix && binding.bindingSource().compareTo(plan.baseline().source()) > 0) {
             throw new IllegalArgumentException("imported reservation payload changed complete original Prepare/plan");
         }
         final var stamp = prefix ? binding.migrationSource() : TargetMigrationRoot.baselineFor(plan);
-        if (prefix) stamp.requireAfter(plan.baseline());
+        if (prefix) {
+            stamp.requireAfter(plan.baseline());
+        }
         final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
-        return new TargetQuotaPayloadOwner(binding.messageId(), identity(binding), tenantScope, accounting, binding.digest(),
-                Kind.OBJECT, prepare.expectedPayloadLength(), prepare.payloadSha256(), reservationId,
-                prepare.objectStoreProfile().semanticHash(), null, Phase.RESERVED, 1, stamp, lineage, null);
+        return new TargetQuotaPayloadOwner(
+                binding.messageId(),
+                identity(binding),
+                tenantScope,
+                accounting,
+                binding.digest(),
+                Kind.OBJECT,
+                prepare.expectedPayloadLength(),
+                prepare.payloadSha256(),
+                reservationId,
+                prepare.objectStoreProfile().semanticHash(),
+                null,
+                Phase.RESERVED,
+                1,
+                stamp,
+                lineage,
+                null);
     }
 
-    public static TargetQuotaPayloadOwner importedCommitted(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
-            TargetQuotaAccounting accounting, byte[] lineage) {
+    public static TargetQuotaPayloadOwner importedCommitted(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage) {
         return importedCommittedAt(binding, plan, original, tenantScope, accounting, lineage, false);
     }
 
-    public static TargetQuotaPayloadOwner importedPrefixCommitted(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
-            TargetQuotaAccounting accounting, byte[] lineage) {
+    public static TargetQuotaPayloadOwner importedPrefixCommitted(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage) {
         return importedCommittedAt(binding, plan, original, tenantScope, accounting, lineage, true);
     }
 
-    private static TargetQuotaPayloadOwner importedCommittedAt(TargetScheduleBinding binding, TargetMigrationPlan plan,
-            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
-            TargetQuotaAccounting accounting, byte[] lineage, boolean prefix) {
+    private static TargetQuotaPayloadOwner importedCommittedAt(
+            TargetScheduleBinding binding,
+            TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage,
+            boolean prefix) {
         Objects.requireNonNull(original);
-        final var reserved = importedReservedAt(binding, plan, original.reservationId(), tenantScope, accounting, lineage, prefix);
+        final var reserved =
+                importedReservedAt(binding, plan, original.reservationId(), tenantScope, accounting, lineage, prefix);
         final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
         if (original.status() != com.nereusstream.delay.runtime.PayloadReservationStatus.COMMITTED
-                || !original.delayMessageId().equals(binding.messageId()) || original.committedPayload() == null
+                || !original.delayMessageId().equals(binding.messageId())
+                || original.committedPayload() == null
                 || original.intent().expectedPayloadLength() != reserved.length
                 || !Arrays.equals(original.intent().payloadSha256(), reserved.payloadSha256)
-                || original.intent().deliverAtEpochMs() != prepare.intentWithoutPayload().deliverAtEpochMs()
-                || original.intent().expireAtEpochMs() != prepare.intentWithoutPayload().expireAtEpochMs()
-                || original.intent().orderingMode() != prepare.intentWithoutPayload().orderingMode()
+                || original.intent().deliverAtEpochMs()
+                        != prepare.intentWithoutPayload().deliverAtEpochMs()
+                || original.intent().expireAtEpochMs()
+                        != prepare.intentWithoutPayload().expireAtEpochMs()
+                || original.intent().orderingMode()
+                        != prepare.intentWithoutPayload().orderingMode()
                 || original.intent().reservationTtlMs() != prepare.reservationTtlMs()
-                || original.intent().payloadProofTrustSetVersion() != prepare.trustSet().version()) {
-            throw new IllegalArgumentException("imported committed payload lost its complete original reservation/object");
+                || original.intent().payloadProofTrustSetVersion()
+                        != prepare.trustSet().version()) {
+            throw new IllegalArgumentException(
+                    "imported committed payload lost its complete original reservation/object");
         }
         final var object = TargetPayloadReference.requireBounded(original.committedPayload());
         if (!Arrays.equals(object.objectStoreProfileHash(), reserved.objectStoreProfileHash)
-                || object.length() != reserved.length || !Arrays.equals(object.payloadSha256(), reserved.payloadSha256)) {
-            throw new IllegalArgumentException("imported committed object differs from the original full Prepare declaration");
+                || object.length() != reserved.length
+                || !Arrays.equals(object.payloadSha256(), reserved.payloadSha256)) {
+            throw new IllegalArgumentException(
+                    "imported committed object differs from the original full Prepare declaration");
         }
-        return new TargetQuotaPayloadOwner(reserved.messageId, reserved.owner, reserved.tenantScope, reserved.accounting,
-                reserved.bindingDigest, Kind.OBJECT, reserved.length, reserved.payloadSha256, reserved.reservationId,
-                reserved.objectStoreProfileHash, object, Phase.ACTIVE, 1, reserved.mutation, reserved.recoveryLineage, null);
+        return new TargetQuotaPayloadOwner(
+                reserved.messageId,
+                reserved.owner,
+                reserved.tenantScope,
+                reserved.accounting,
+                reserved.bindingDigest,
+                Kind.OBJECT,
+                reserved.length,
+                reserved.payloadSha256,
+                reserved.reservationId,
+                reserved.objectStoreProfileHash,
+                object,
+                Phase.ACTIVE,
+                1,
+                reserved.mutation,
+                reserved.recoveryLineage,
+                null);
     }
 
-    private static TargetQuotaPayloadOwner importedScheduledAt(TargetScheduleBinding binding, byte[] tenantScope,
-            TargetQuotaAccounting accounting, byte[] lineage, TargetQuotaMutation source) {
+    private static TargetQuotaPayloadOwner importedScheduledAt(
+            TargetScheduleBinding binding,
+            byte[] tenantScope,
+            TargetQuotaAccounting accounting,
+            byte[] lineage,
+            TargetQuotaMutation source) {
         final var intent = binding.intent();
-        final var object = intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload());
-        return new TargetQuotaPayloadOwner(binding.messageId(), identity(binding), tenantScope, accounting, binding.digest(),
+        final var object =
+                intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload());
+        return new TargetQuotaPayloadOwner(
+                binding.messageId(),
+                identity(binding),
+                tenantScope,
+                accounting,
+                binding.digest(),
                 object == null ? Kind.INLINE : Kind.OBJECT,
                 object == null ? intent.inlinePayload().length : object.length(),
                 object == null ? Bytes.sha256(intent.inlinePayload()) : object.payloadSha256(),
-                object == null ? null : object.reservationId(), object == null ? null : object.objectStoreProfileHash(),
-                object, Phase.ACTIVE, 1, source, lineage, null);
+                object == null ? null : object.reservationId(),
+                object == null ? null : object.objectStoreProfileHash(),
+                object,
+                Phase.ACTIVE,
+                1,
+                source,
+                lineage,
+                null);
     }
 
     /** Reservation ID must come from the authenticated Prepare/receipt authority, not an arbitrary caller value. */
@@ -443,7 +584,8 @@ public final class TargetQuotaPayloadOwner {
 
     private static void requireInitialBinding(
             final TargetScheduleBinding binding, final CommandType type, final TargetQuotaMutation stamp) {
-        if (binding.imported() || binding.commandType() != type
+        if (binding.imported()
+                || binding.commandType() != type
                 || !Arrays.equals(
                         binding.bindingSource().canonicalBytes(), stamp.source().canonicalBytes())) {
             throw new IllegalArgumentException("payload allocation does not match its initial binding source/type");
@@ -517,7 +659,8 @@ public final class TargetQuotaPayloadOwner {
 
     public void requireQualifiedSummary() {
         if (!summaryQualified()) {
-            throw new IllegalStateException("payload owner requires its original complete obligation-summary initialization");
+            throw new IllegalStateException(
+                    "payload owner requires its original complete obligation-summary initialization");
         }
     }
 
@@ -562,7 +705,9 @@ public final class TargetQuotaPayloadOwner {
     }
 
     public ProtocolTuple requiredTuple() {
-        return summaryQualified() ? ProtocolTuple.targetPayloadObligationSummary() : ProtocolTuple.currentSystemMutation();
+        return summaryQualified()
+                ? ProtocolTuple.targetPayloadObligationSummary()
+                : ProtocolTuple.currentSystemMutation();
     }
 
     public long revision() {
@@ -623,10 +768,30 @@ public final class TargetQuotaPayloadOwner {
         if (qualification.origin() == SummaryOrigin.FRESH && qualification.unresolvedCount() != 0) {
             throw new IllegalStateException("fresh payload birth cannot contain a previous attempt obligation");
         }
-        final var next = new TargetQuotaPayloadOwner(messageId, owner, tenantScope, accounting, bindingDigest,
-                kind, length, payloadSha256, reservationId, objectStoreProfileHash, committed, phase,
-                revision, mutation, recoveryLineage, releaseFloorDigest, SUMMARY_VERSION,
-                qualification.unresolvedCount(), stamp, qualification.origin(), qualification.originDigest(), 1, stamp);
+        final var next = new TargetQuotaPayloadOwner(
+                messageId,
+                owner,
+                tenantScope,
+                accounting,
+                bindingDigest,
+                kind,
+                length,
+                payloadSha256,
+                reservationId,
+                objectStoreProfileHash,
+                committed,
+                phase,
+                revision,
+                mutation,
+                recoveryLineage,
+                releaseFloorDigest,
+                SUMMARY_VERSION,
+                qualification.unresolvedCount(),
+                stamp,
+                qualification.origin(),
+                qualification.originDigest(),
+                1,
+                stamp);
         Objects.requireNonNull(authority, "transitionAuthority").requireAuthorized(this, next, null);
         return next;
     }
@@ -638,8 +803,10 @@ public final class TargetQuotaPayloadOwner {
             final TransitionAuthority authority) {
         requireQualifiedSummary();
         requireAttemptIdentity(admitted);
-        if (phase != Phase.ACTIVE || admitted.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
-                || admitted.resolvedAt() != null || !admitted.mutation().equals(stamp)) {
+        if (phase != Phase.ACTIVE
+                || admitted.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                || admitted.resolvedAt() != null
+                || !admitted.mutation().equals(stamp)) {
             throw new IllegalStateException("payload summary increment requires the original first Admission budget");
         }
         final long nextCount = Math.addExact(unresolvedCount, 1);
@@ -656,16 +823,20 @@ public final class TargetQuotaPayloadOwner {
         requireQualifiedSummary();
         requireAttemptIdentity(before);
         requireAttemptIdentity(resolved);
-        if (phase != Phase.ACTIVE || before.resolvedAt() != null
+        if (phase != Phase.ACTIVE
+                || before.resolvedAt() != null
                 || resolved.phase() != TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR
-                || !stamp.equals(resolved.resolvedAt()) || !stamp.equals(resolved.mutation())
-                || !Arrays.equals(before.locator().canonicalBytes(), resolved.locator().canonicalBytes())
+                || !stamp.equals(resolved.resolvedAt())
+                || !stamp.equals(resolved.mutation())
+                || !Arrays.equals(
+                        before.locator().canonicalBytes(), resolved.locator().canonicalBytes())
                 || !Arrays.equals(before.publishAttemptId(), resolved.publishAttemptId())
                 || !Arrays.equals(before.admissionDigest(), resolved.admissionDigest())
                 || before.executionBytes() != resolved.executionBytes()
                 || !before.commitment().equals(resolved.commitment())
                 || TargetQuotaMutation.increment(before.revision()) != resolved.revision()) {
-            throw new IllegalStateException("payload summary decrement changed its original unresolved attempt identity");
+            throw new IllegalStateException(
+                    "payload summary decrement changed its original unresolved attempt identity");
         }
         stamp.requireAfter(before.mutation());
         if (unresolvedCount == 0) {
@@ -680,12 +851,14 @@ public final class TargetQuotaPayloadOwner {
 
     private void requireAttemptIdentity(final TargetQuotaAttemptBudget budget) {
         Objects.requireNonNull(budget, "attemptBudget");
-        if (!messageId.equals(budget.locator().messageId()) || !owner.equals(budget.primaryIdentity())
+        if (!messageId.equals(budget.locator().messageId())
+                || !owner.equals(budget.primaryIdentity())
                 || !Arrays.equals(bindingDigest, budget.locator().scheduleBindingDigest())
                 || !Arrays.equals(tenantScope, budget.tenantScope())
                 || !Arrays.equals(recoveryLineage, budget.recoveryLineage())
                 || !accounting.equals(budget.accounting())) {
-            throw new IllegalStateException("payload obligation summary crossed its frozen owner/binding/tenant/lineage");
+            throw new IllegalStateException(
+                    "payload obligation summary crossed its frozen owner/binding/tenant/lineage");
         }
     }
 
@@ -784,7 +957,11 @@ public final class TargetQuotaPayloadOwner {
                 businessChanged ? stamp : mutation,
                 recoveryLineage,
                 floor == null ? null : floor.floorDigest(),
-                schemaVersion, nextUnresolvedCount, initializationSource, summaryOrigin, summaryOriginDigest,
+                schemaVersion,
+                nextUnresolvedCount,
+                initializationSource,
+                summaryOrigin,
+                summaryOriginDigest,
                 updateSummary ? TargetQuotaMutation.increment(summaryRevision) : summaryRevision,
                 updateSummary ? stamp : summaryMutation);
         Objects.requireNonNull(authority, "transitionAuthority").requireAuthorized(this, next, floor);
@@ -793,22 +970,46 @@ public final class TargetQuotaPayloadOwner {
 
     /** Read-only correlation of persisted Source state. This neither authorizes nor executes a release. */
     public void requireReleasedFrom(final TargetQuotaPayloadOwner expected, final RecoveryFloorRef floor) {
-        Objects.requireNonNull(expected, "expected");Objects.requireNonNull(floor, "floor");
-        if(expected.phase!=Phase.RETAINED||phase!=Phase.RELEASED)throw new IllegalStateException("payload release phase mismatch");
-        mutation.requireSourceApplied();mutation.requireAfter(expected.mutation);expected.mutation.requireCoveredByFloor(floor);
-        if(!Arrays.equals(expected.recoveryLineage,floor.recoveryLineageId())
-                ||floor.appliedSourcePosition().compareTo(mutation.source())>=0
-                ||Long.compareUnsigned(floor.includedMutationSequence(),mutation.sequence())>=0)
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(floor, "floor");
+        if (expected.phase != Phase.RETAINED || phase != Phase.RELEASED) {
+            throw new IllegalStateException("payload release phase mismatch");
+        }
+        mutation.requireSourceApplied();
+        mutation.requireAfter(expected.mutation);
+        expected.mutation.requireCoveredByFloor(floor);
+        if (!Arrays.equals(expected.recoveryLineage, floor.recoveryLineageId())
+                || floor.appliedSourcePosition().compareTo(mutation.source()) >= 0
+                || Long.compareUnsigned(floor.includedMutationSequence(), mutation.sequence()) >= 0) {
             throw new IllegalStateException("payload release did not follow its complete Floor");
-        final var projected=new TargetQuotaPayloadOwner(expected.messageId,expected.owner,expected.tenantScope,
-                expected.accounting,expected.bindingDigest,expected.kind,expected.length,expected.payloadSha256,
-                expected.reservationId,expected.objectStoreProfileHash,expected.committed,Phase.RELEASED,
-                TargetQuotaMutation.increment(expected.revision),mutation,expected.recoveryLineage,floor.floorDigest());
-        if(!Arrays.equals(businessCanonicalBytes(),projected.canonicalBytes()))throw new IllegalStateException("released payload changed frozen owner/value");
-        if(expected.summaryQualified()){
+        }
+        final var projected = new TargetQuotaPayloadOwner(
+                expected.messageId,
+                expected.owner,
+                expected.tenantScope,
+                expected.accounting,
+                expected.bindingDigest,
+                expected.kind,
+                expected.length,
+                expected.payloadSha256,
+                expected.reservationId,
+                expected.objectStoreProfileHash,
+                expected.committed,
+                Phase.RELEASED,
+                TargetQuotaMutation.increment(expected.revision),
+                mutation,
+                expected.recoveryLineage,
+                floor.floorDigest());
+        if (!Arrays.equals(businessCanonicalBytes(), projected.canonicalBytes())) {
+            throw new IllegalStateException("released payload changed frozen owner/value");
+        }
+        if (expected.summaryQualified()) {
             requireSameSummaryOrigin(expected);
-            if(unresolvedCount!=0||summaryRevision!=expected.summaryRevision||!summaryMutation.equals(expected.summaryMutation))
+            if (unresolvedCount != 0
+                    || summaryRevision != expected.summaryRevision
+                    || !summaryMutation.equals(expected.summaryMutation)) {
                 throw new IllegalStateException("payload release changed its original obligation summary");
+            }
             expected.summaryMutation.requireCoveredByFloor(floor);
         }
     }
@@ -817,9 +1018,24 @@ public final class TargetQuotaPayloadOwner {
         if (!summaryQualified()) {
             return canonicalBytes();
         }
-        return new TargetQuotaPayloadOwner(messageId, owner, tenantScope, accounting, bindingDigest, kind,
-                length, payloadSha256, reservationId, objectStoreProfileHash, committed, phase, revision,
-                mutation, recoveryLineage, releaseFloorDigest).canonicalBytes();
+        return new TargetQuotaPayloadOwner(
+                        messageId,
+                        owner,
+                        tenantScope,
+                        accounting,
+                        bindingDigest,
+                        kind,
+                        length,
+                        payloadSha256,
+                        reservationId,
+                        objectStoreProfileHash,
+                        committed,
+                        phase,
+                        revision,
+                        mutation,
+                        recoveryLineage,
+                        releaseFloorDigest)
+                .canonicalBytes();
     }
 
     /** Rebinds decoded owner data to the full retained first Schedule/Prepare, not just its digest. */

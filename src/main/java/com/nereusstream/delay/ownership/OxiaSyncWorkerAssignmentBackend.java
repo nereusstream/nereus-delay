@@ -2,8 +2,8 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.ShardId;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -90,10 +90,15 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
                 throw new IllegalStateException("worker assignment publication revision exhausted", overflow);
             }
             final var migration = current == null ? null : current.publication().migration();
-            final var reactivation = migration == null ? null : current.publication().reactivation();
-            if (migration != null && !current.publication().assignment().sourceAssignment()
-                    .sameIdentity(assignment.sourceAssignment()))
+            final var reactivation =
+                    migration == null ? null : current.publication().reactivation();
+            if (migration != null
+                    && !current.publication()
+                            .assignment()
+                            .sourceAssignment()
+                            .sameIdentity(assignment.sourceAssignment())) {
                 throw new IllegalArgumentException("migrated Source renewal requires its explicit reactivation CAS");
+            }
             final byte[] value = encode(nextRevision, assignment, reactivation, migration);
             final Set<PutOption> options = current == null
                     ? Set.of(PutOption.IfRecordDoesNotExist)
@@ -128,7 +133,9 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
 
     @Override
     public Publication publishReactivation(Publication previous, WorkerAssignment successor, RouteSnapshot route) {
-        Objects.requireNonNull(previous); Objects.requireNonNull(successor); Objects.requireNonNull(route);
+        Objects.requireNonNull(previous);
+        Objects.requireNonNull(successor);
+        Objects.requireNonNull(route);
         previous.requireRouteProjection(route);
         final var receipt = PulsarSourceReactivationReceipt.next(previous, successor);
         final long revision = Math.addExact(previous.revision(), 1);
@@ -136,7 +143,9 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         final var shard = successor.sourceAssignment().shardId();
         final String key = assignmentKey(shard);
         final Stored current = read(key, shard);
-        if (current != null && exact(current, revision, successor, value)) return current.publication();
+        if (current != null && exact(current, revision, successor, value)) {
+            return current.publication();
+        }
         if (current == null || !current.publication().sameIdentity(previous)) {
             throw new IllegalStateException("source reactivation lost its exact previous publication");
         }
@@ -146,51 +155,68 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
             return new Publication(revision, successor, receipt, previous.migration());
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
             final Stored observed = read(key, shard);
-            if (observed != null && exact(observed, revision, successor, value)) return observed.publication();
+            if (observed != null && exact(observed, revision, successor, value)) {
+                return observed.publication();
+            }
             throw new IllegalStateException("source reactivation assignment CAS lost", conflict);
         } catch (RuntimeException failure) {
             final Stored observed = read(key, shard);
-            if (observed != null && exact(observed, revision, successor, value)) return observed.publication();
+            if (observed != null && exact(observed, revision, successor, value)) {
+                return observed.publication();
+            }
             throw failure;
         }
     }
 
     /** Metadata-only CAS: the actual same Source A and Catalog must already exist. No second activation. */
-    Publication adoptMigration(Publication previous,
+    Publication adoptMigration(
+            Publication previous,
             com.nereusstream.delay.runtime.TargetMigrationStore.Activated applied,
             com.nereusstream.delay.store.TargetCheckpointRootVerifier.AuthenticatedImage image,
             com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend catalog,
-            TargetMigrationAssignmentReceipt receipt, Runnable protection) {
-        receipt.requireApplied(applied); receipt.requireManifest(image.manifest());
+            TargetMigrationAssignmentReceipt receipt,
+            Runnable protection) {
+        receipt.requireApplied(applied);
+        receipt.requireManifest(image.manifest());
         catalog.requireMigration(receipt, image.manifest());
         final var assignment = previous.assignment();
         final long revision = Math.addExact(previous.revision(), 1);
-        if (previous.migration() != null || receipt.adoptedRevision() != revision)
+        if (previous.migration() != null || receipt.adoptedRevision() != revision) {
             throw new IllegalStateException("migration adoption changed its exact previous assignment");
+        }
         final byte[] value = encode(revision, assignment, previous.reactivation(), receipt);
         final var shard = assignment.sourceAssignment().shardId();
         final String key = assignmentKey(shard);
         protection.run();
         final var current = read(key, shard);
-        if (current != null && exact(current, revision, assignment, value)) return current.publication();
-        if (current == null || !current.publication().sameIdentity(previous))
+        if (current != null && exact(current, revision, assignment, value)) {
+            return current.publication();
+        }
+        if (current == null || !current.publication().sameIdentity(previous)) {
             throw new IllegalStateException("migration adoption lost its exact predecessor assignment");
+        }
         try {
-            protection.run(); applied.requireCurrent();
+            protection.run();
+            applied.requireCurrent();
             putExact(key, value, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
             final var observed = read(key, shard);
-            if (observed != null && exact(observed, revision, assignment, value)) return observed.publication();
+            if (observed != null && exact(observed, revision, assignment, value)) {
+                return observed.publication();
+            }
             throw new IllegalStateException("migration assignment adoption CAS lost", conflict);
         } catch (RuntimeException failure) {
             final var observed = read(key, shard);
-            if (observed != null && exact(observed, revision, assignment, value)) return observed.publication();
+            if (observed != null && exact(observed, revision, assignment, value)) {
+                return observed.publication();
+            }
             throw failure;
         }
         protection.run();
         final var observed = read(key, shard);
-        if (observed == null || !exact(observed, revision, assignment, value))
+        if (observed == null || !exact(observed, revision, assignment, value)) {
             throw new IllegalStateException("migration adoption no longer has its exact durable assignment");
+        }
         return observed.publication();
     }
 
@@ -264,31 +290,43 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         return encode(revision, assignment, null);
     }
 
-    private static byte[] encode(final long revision, final WorkerAssignment assignment,
-            final PulsarSourceReactivationReceipt receipt) {
+    private static byte[] encode(
+            final long revision, final WorkerAssignment assignment, final PulsarSourceReactivationReceipt receipt) {
         return encode(revision, assignment, receipt, null);
     }
 
-    private static byte[] encode(final long revision, final WorkerAssignment assignment,
-            final PulsarSourceReactivationReceipt receipt, final TargetMigrationAssignmentReceipt migration) {
+    private static byte[] encode(
+            final long revision,
+            final WorkerAssignment assignment,
+            final PulsarSourceReactivationReceipt receipt,
+            final TargetMigrationAssignmentReceipt migration) {
         if (revision <= 0) {
             throw new IllegalArgumentException("assignment record revision must be positive");
         }
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, migration != null ? MIGRATION_RECORD_VERSION
-                    : receipt == null ? RECORD_VERSION : REACTIVATION_RECORD_VERSION);
+            CanonicalProtobuf.uint32(
+                    output,
+                    1,
+                    migration != null
+                            ? MIGRATION_RECORD_VERSION
+                            : receipt == null ? RECORD_VERSION : REACTIVATION_RECORD_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, revision);
             CanonicalProtobuf.bytes(output, 3, assignment.canonicalBytes());
             if (migration != null) {
                 CanonicalProtobuf.bytes(output, 4, receipt == null ? new byte[0] : receipt.canonicalBytes());
                 CanonicalProtobuf.bytes(output, 5, migration.canonicalBytes());
-            } else if (receipt != null) CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
+            } else if (receipt != null) {
+                CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
+            }
         });
         final byte[] encoded = CanonicalProtobuf.message(output -> {
             output.writeBytes(body);
-            CanonicalProtobuf.bytes(output, migration != null ? 6 : receipt == null ? 4 : 5, Bytes.sha256(DIGEST_DOMAIN, body));
+            CanonicalProtobuf.bytes(
+                    output, migration != null ? 6 : receipt == null ? 4 : 5, Bytes.sha256(DIGEST_DOMAIN, body));
         });
-        if (encoded.length > MAX_RECORD_BYTES) throw new IllegalArgumentException("assignment record exceeds its bound");
+        if (encoded.length > MAX_RECORD_BYTES) {
+            throw new IllegalArgumentException("assignment record exceeds its bound");
+        }
         return encoded;
     }
 
@@ -298,10 +336,13 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         }
         final List<CanonicalProtobuf.Reader.Field> fields = fields(encoded);
         final long version = uint(fields.get(0), 1);
-        if (version == RECORD_VERSION) requireNumbers(fields, 1, 2, 3, 4);
-        else if (version == REACTIVATION_RECORD_VERSION) requireNumbers(fields, 1, 2, 3, 4, 5);
-        else if (version == MIGRATION_RECORD_VERSION) requireNumbers(fields, 1, 2, 3, 4, 5, 6);
-        else {
+        if (version == RECORD_VERSION) {
+            requireNumbers(fields, 1, 2, 3, 4);
+        } else if (version == REACTIVATION_RECORD_VERSION) {
+            requireNumbers(fields, 1, 2, 3, 4, 5);
+        } else if (version == MIGRATION_RECORD_VERSION) {
+            requireNumbers(fields, 1, 2, 3, 4, 5, 6);
+        } else {
             throw new IllegalStateException("unsupported Oxia Worker assignment record version");
         }
         final long revision = uint(fields.get(1), 2);
@@ -312,7 +353,8 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         final byte[] receiptBytes = version == RECORD_VERSION ? new byte[0] : bytes(fields.get(3), 4);
         final var receipt = receiptBytes.length == 0 ? null : PulsarSourceReactivationReceipt.decode(receiptBytes);
         final var migration = version == MIGRATION_RECORD_VERSION
-                ? TargetMigrationAssignmentReceipt.decode(bytes(fields.get(4), 5)) : null;
+                ? TargetMigrationAssignmentReceipt.decode(bytes(fields.get(4), 5))
+                : null;
         final byte[] body = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, (int) version);
             CanonicalProtobuf.uint64Bits(output, 2, revision);
@@ -320,10 +362,13 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
             if (migration != null) {
                 CanonicalProtobuf.bytes(output, 4, receiptBytes);
                 CanonicalProtobuf.bytes(output, 5, migration.canonicalBytes());
-            } else if (receipt != null) CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
+            } else if (receipt != null) {
+                CanonicalProtobuf.bytes(output, 4, receipt.canonicalBytes());
+            }
         });
         final int digestNumber = version == MIGRATION_RECORD_VERSION ? 6 : version == RECORD_VERSION ? 4 : 5;
-        if (!Bytes.constantTimeEquals(fixed(fields.get(digestNumber - 1), digestNumber, 32), Bytes.sha256(DIGEST_DOMAIN, body))) {
+        if (!Bytes.constantTimeEquals(
+                fixed(fields.get(digestNumber - 1), digestNumber, 32), Bytes.sha256(DIGEST_DOMAIN, body))) {
             throw new IllegalStateException("Oxia Worker assignment record digest mismatch");
         }
         final WorkerAssignment assignment = WorkerAssignment.decode(assignmentBytes);
@@ -361,7 +406,9 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
         final List<CanonicalProtobuf.Reader.Field> result = new ArrayList<>();
         while (reader.hasRemaining()) {
-            if (result.size() == 6) throw new IllegalArgumentException("extra Worker assignment record field");
+            if (result.size() == 6) {
+                throw new IllegalArgumentException("extra Worker assignment record field");
+            }
             result.add(reader.next());
         }
         if (result.isEmpty()) {

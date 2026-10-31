@@ -153,8 +153,8 @@ class GcWorkClassExecutorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve(name + "-store"));
         final SharedRocksDbResources resources = new SharedRocksDbResources(config);
         final ShardStore store = ShardStore.open(config, shard, resources);
-        final OwnedDelayShard owned = new OwnedDelayShard(
-                BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
+        final OwnedDelayShard owned =
+                new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
         owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
         owned.recordCatchup(new KafkaSourcePosition(shard, "gc-cluster", topic, 0, null, 1_000));
         owned.activateForCommands(authority, 101);

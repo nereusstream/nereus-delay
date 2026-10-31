@@ -19,26 +19,19 @@ class BoundedAsyncMetricExporterTest {
         final CountDownLatch enteredExporter = new CountDownLatch(1);
         final CountDownLatch releaseExporter = new CountDownLatch(1);
         final var exported = new CopyOnWriteArrayList<MetricEvent>();
-        try (var metrics = new BoundedAsyncMetricExporter(
-                new BoundedAsyncMetricExporter.Limits(2, 18), event -> {
-                    if (event.metric() == Metric.TARGET_DRR_TURN_VISITS) {
-                        enteredExporter.countDown();
-                        if (!releaseExporter.await(5, TimeUnit.SECONDS)) {
-                            throw new IOException("test exporter release timed out");
-                        }
-                    }
-                    exported.add(event);
-                })) {
-            assertEquals(
-                    OfferResult.ACCEPTED,
-                    metrics.record(new MetricEvent(Metric.TARGET_DRR_TURN_VISITS, 1)));
+        try (var metrics = new BoundedAsyncMetricExporter(new BoundedAsyncMetricExporter.Limits(2, 18), event -> {
+            if (event.metric() == Metric.TARGET_DRR_TURN_VISITS) {
+                enteredExporter.countDown();
+                if (!releaseExporter.await(5, TimeUnit.SECONDS)) {
+                    throw new IOException("test exporter release timed out");
+                }
+            }
+            exported.add(event);
+        })) {
+            assertEquals(OfferResult.ACCEPTED, metrics.record(new MetricEvent(Metric.TARGET_DRR_TURN_VISITS, 1)));
             assertTrue(enteredExporter.await(5, TimeUnit.SECONDS));
-            assertEquals(
-                    OfferResult.ACCEPTED,
-                    metrics.record(new MetricEvent(Metric.TARGET_DRR_CLAIM_TURNS, 1)));
-            assertEquals(
-                    OfferResult.DROPPED_FULL,
-                    metrics.record(new MetricEvent(Metric.TARGET_DRR_STOP_NORMAL, 1)));
+            assertEquals(OfferResult.ACCEPTED, metrics.record(new MetricEvent(Metric.TARGET_DRR_CLAIM_TURNS, 1)));
+            assertEquals(OfferResult.DROPPED_FULL, metrics.record(new MetricEvent(Metric.TARGET_DRR_STOP_NORMAL, 1)));
             assertEquals(2, metrics.snapshot().pendingRecords());
             assertEquals(18, metrics.snapshot().pendingBytes());
 
@@ -77,12 +70,9 @@ class BoundedAsyncMetricExporterTest {
 
     @Test
     void rejectedOfferAfterCloseIsCountedAsUnknownCoverage() {
-        try (var metrics = new BoundedAsyncMetricExporter(
-                new BoundedAsyncMetricExporter.Limits(1, 9), event -> {})) {
+        try (var metrics = new BoundedAsyncMetricExporter(new BoundedAsyncMetricExporter.Limits(1, 9), event -> {})) {
             metrics.stopAccepting();
-            assertEquals(
-                    OfferResult.DROPPED_CLOSED,
-                    metrics.record(new MetricEvent(Metric.TARGET_DRR_STOP_NORMAL, 1)));
+            assertEquals(OfferResult.DROPPED_CLOSED, metrics.record(new MetricEvent(Metric.TARGET_DRR_STOP_NORMAL, 1)));
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
             final var snapshot = metrics.snapshot();
             assertEquals(1, snapshot.rejectedAfterClose());

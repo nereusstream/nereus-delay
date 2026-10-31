@@ -66,8 +66,8 @@ public final class TargetMessageExpiryWorkClassExecutor {
             settlePending(clock);
         }
 
-        final Request request = Request.prepare(
-                candidate, evidence, retryUntilEpochMs, owner, signingKeyVersion, signingKey, clock);
+        final Request request =
+                Request.prepare(candidate, evidence, retryUntilEpochMs, owner, signingKeyVersion, signingKey, clock);
         final byte[] frame = request.mutation.encodeFrame();
         final WorkClassTask task = new WorkClassTask(
                 WorkClass.EXPIRY,
@@ -112,7 +112,8 @@ public final class TargetMessageExpiryWorkClassExecutor {
                 && !worker.messageExpiryAppendApplied(result.sourcePosition(), clock)) {
             return Optional.empty();
         }
-        final SystemMutationResult applied = worker.messageExpiryMutationResult(prior.mutation, clock).orElse(null);
+        final SystemMutationResult applied =
+                worker.messageExpiryMutationResult(prior.mutation, clock).orElse(null);
         if (applied == null) {
             return Optional.empty();
         }
@@ -140,8 +141,7 @@ public final class TargetMessageExpiryWorkClassExecutor {
                 case PERSISTED -> {
                     submission.complete(HandoffResult.appended(request.mutation, appended.sourcePosition()));
                 }
-                case DEFINITIVELY_NOT_PERSISTED ->
-                    submission.complete(HandoffResult.notAppended(request.mutation));
+                case DEFINITIVELY_NOT_PERSISTED -> submission.complete(HandoffResult.notAppended(request.mutation));
                 case UNKNOWN -> submission.complete(HandoffResult.unknown(request.mutation, null));
             }
         } catch (RuntimeException failure) {
@@ -281,8 +281,7 @@ public final class TargetMessageExpiryWorkClassExecutor {
         }
 
         private synchronized void confirmApplied() {
-            if (result == null
-                    || (result.kind() != ResultKind.UNKNOWN && result.kind() != ResultKind.APPENDED)) {
+            if (result == null || (result.kind() != ResultKind.UNKNOWN && result.kind() != ResultKind.APPENDED)) {
                 throw new IllegalStateException("only an appended Target expiry can be confirmed applied");
             }
             result = HandoffResult.applied(mutation);

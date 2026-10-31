@@ -27,10 +27,20 @@ public final class TargetPublishAdmissionMutationFactory {
             throw new IllegalArgumentException("new Target Admission writer requires v4/v5 materialization");
         }
         final var owner = body.owner();
-        final var image = SystemMutation.signed(body.shard(), SystemMutationType.TARGET_PUBLISH_ADMISSION,
-                body.retryUntilEpochMs(), body.publishAttemptId(), body.canonicalBytes(),
-                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
-                        owner.leaseFencingDigest()).canonicalBytes(), keyVersion, key);
+        final var image = SystemMutation.signed(
+                body.shard(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                body.retryUntilEpochMs(),
+                body.publishAttemptId(),
+                body.canonicalBytes(),
+                AuthorIdentity.owner(
+                                owner.deploymentId(),
+                                owner.workerRunId(),
+                                owner.ownerEpoch(),
+                                owner.leaseFencingDigest())
+                        .canonicalBytes(),
+                keyVersion,
+                key);
         if (image.encodeFrame().length > maximumFrameBytes) {
             throw new IllegalArgumentException("materialized Admission exceeds configured Source frame bytes");
         }

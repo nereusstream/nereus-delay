@@ -102,8 +102,9 @@ public final class SourceApplyCoordinator {
                 }
             } else {
                 final SourceReplayEntry next;
-                try { next = peekSource(); }
-                catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
+                try {
+                    next = peekSource();
+                } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
                     return TurnResult.waitingForCapacity(unavailable);
                 }
                 if (next == null) {
@@ -122,7 +123,9 @@ public final class SourceApplyCoordinator {
                 } catch (java.util.concurrent.RejectedExecutionException full) {
                     return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, full);
                 } catch (RuntimeException | Error failure) {
-                    if (target.isReadIncomplete(failure)) return TurnResult.failed(TurnStatus.READ_INCOMPLETE, pending.entry, failure);
+                    if (target.isReadIncomplete(failure)) {
+                        return TurnResult.failed(TurnStatus.READ_INCOMPLETE, pending.entry, failure);
+                    }
                     target.fence();
                     return TurnResult.failed(TurnStatus.AUTHORITY_FAILURE, pending.entry, failure);
                 }
@@ -142,7 +145,8 @@ public final class SourceApplyCoordinator {
                     if (observed == null) {
                         return TurnResult.failed(TurnStatus.WORK_CLASS_FAILURE, pending.entry, failure);
                     }
-                    if (target.isReadIncomplete(observed.failure()) || target.isAuthorityPreparationRequired(observed.failure())) {
+                    if (target.isReadIncomplete(observed.failure())
+                            || target.isAuthorityPreparationRequired(observed.failure())) {
                         // A different selected action may have failed after this
                         // source read yielded. Never hide that error as a read retry.
                         pending.submission = null;
@@ -162,10 +166,11 @@ public final class SourceApplyCoordinator {
                 // Other failures still require the existing fenced recovery path.
                 pending.submission = null;
                 return TurnResult.failed(
-                        target.isAuthorityPreparationRequired(applied.failure()) ? TurnStatus.AUTHORITY_RETRY
-                        : target.isReadIncomplete(applied.failure())
-                                ? TurnStatus.READ_INCOMPLETE
-                                : TurnStatus.APPLY_FAILURE,
+                        target.isAuthorityPreparationRequired(applied.failure())
+                                ? TurnStatus.AUTHORITY_RETRY
+                                : target.isReadIncomplete(applied.failure())
+                                        ? TurnStatus.READ_INCOMPLETE
+                                        : TurnStatus.APPLY_FAILURE,
                         pending.entry,
                         applied.failure());
             }
@@ -174,17 +179,21 @@ public final class SourceApplyCoordinator {
 
         if (!pending.finalContinuationPrepared) {
             try {
-                pending.finalContinuation = target.beginFinalContinuation(
-                        pending.entry, pending.appliedOutcome, ownerClock);
+                pending.finalContinuation =
+                        target.beginFinalContinuation(pending.entry, pending.appliedOutcome, ownerClock);
                 pending.finalContinuationPrepared = true;
             } catch (java.util.concurrent.RejectedExecutionException full) {
                 return TurnResult.rejected(TurnStatus.SUBMISSION_REJECTED, pending.entry, full);
             } catch (RuntimeException | Error failure) {
                 // Business apply is already durable. Retry only this preparation, never the business mutation.
                 return TurnResult.failed(
-                        target.isAuthorityPreparationRequired(failure) ? TurnStatus.AUTHORITY_RETRY
-                        : target.isReadIncomplete(failure) ? TurnStatus.READ_INCOMPLETE
-                        : TurnStatus.FINAL_SOURCE_FAILURE, pending.entry, failure);
+                        target.isAuthorityPreparationRequired(failure)
+                                ? TurnStatus.AUTHORITY_RETRY
+                                : target.isReadIncomplete(failure)
+                                        ? TurnStatus.READ_INCOMPLETE
+                                        : TurnStatus.FINAL_SOURCE_FAILURE,
+                        pending.entry,
+                        failure);
             }
         }
         final SourceApplyTarget.FinalContinuation finals = pending.finalContinuation;
@@ -242,7 +251,7 @@ public final class SourceApplyCoordinator {
                 }
                 source.next();
             } catch (TargetWorkerSourceStartup.FrameCapacityUnavailable unavailable) {
-                return new TurnResult(TurnStatus.WAITING_FOR_SOURCE_CAPACITY,pending.entry,null,null,unavailable);
+                return new TurnResult(TurnStatus.WAITING_FOR_SOURCE_CAPACITY, pending.entry, null, null, unavailable);
             } catch (RuntimeException | Error failure) {
                 // The broker ACK is already confirmed, but the caller-owned
                 // cursor could not be advanced. Continuity is no longer proven;
@@ -358,8 +367,11 @@ public final class SourceApplyCoordinator {
                     throw new IllegalArgumentException("source idle turn cannot carry work evidence");
                 }
             } else if (status == TurnStatus.WAITING_FOR_SOURCE_CAPACITY) {
-                if(appliedOutcome!=null||task!=null||!(failure instanceof TargetWorkerSourceStartup.FrameCapacityUnavailable))
+                if (appliedOutcome != null
+                        || task != null
+                        || !(failure instanceof TargetWorkerSourceStartup.FrameCapacityUnavailable)) {
                     throw new IllegalArgumentException("Source capacity wait must retain its original cause");
+                }
             } else if (status == TurnStatus.SOURCE_POLL_FAILURE) {
                 if (entry != null || appliedOutcome != null || task != null || failure == null) {
                     throw new IllegalArgumentException("source poll failure has invalid evidence");
@@ -390,8 +402,10 @@ public final class SourceApplyCoordinator {
             return new TurnResult(
                     TurnStatus.SOURCE_POLL_FAILURE, null, null, null, Objects.requireNonNull(failure, "failure"));
         }
+
         private static TurnResult waitingForCapacity(final TargetWorkerSourceStartup.FrameCapacityUnavailable failure) {
-            return new TurnResult(TurnStatus.WAITING_FOR_SOURCE_CAPACITY, null, null, null, Objects.requireNonNull(failure));
+            return new TurnResult(
+                    TurnStatus.WAITING_FOR_SOURCE_CAPACITY, null, null, null, Objects.requireNonNull(failure));
         }
 
         private static TurnResult waiting(final SourceReplayEntry entry, final WorkClassTask task) {

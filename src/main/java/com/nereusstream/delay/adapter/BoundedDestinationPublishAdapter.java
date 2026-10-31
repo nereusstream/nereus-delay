@@ -193,11 +193,16 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         return submitPhysical(
                 () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
-                () -> !admission.targetChannelSnapshot(publication.channel()).ready()
-                        ? completedUnknownValue() : null,
-                () -> delegate.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) ->
-                        !admission.targetChannelSnapshot(publication.channel()).ready()
-                                ? completedUnknownValue() : preflight.check(publication, r, a)));
+                () -> !admission.targetChannelSnapshot(publication.channel()).ready() ? completedUnknownValue() : null,
+                () -> delegate.publishTargetPreparedRecord(
+                        publication,
+                        record,
+                        artifacts,
+                        (p, r, a) -> !admission
+                                        .targetChannelSnapshot(publication.channel())
+                                        .ready()
+                                ? completedUnknownValue()
+                                : preflight.check(publication, r, a)));
     }
 
     public PublishCall submitTargetPreparedRecord(
@@ -209,23 +214,32 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         return submitPhysical(
                 () -> admission.tryAcquireTarget(publication.channel(), record.physicalByteCharge()),
-                () -> !admission.targetChannelSnapshot(publication.channel()).ready()
-                        ? completedUnknownValue() : null,
-                () -> delegate.publishTargetPreparedRecord(publication, record, artifacts, (p, r, a) ->
-                        !admission.targetChannelSnapshot(publication.channel()).ready()
-                                ? completedUnknownValue() : preflight.check(publication, r, a)));
+                () -> !admission.targetChannelSnapshot(publication.channel()).ready() ? completedUnknownValue() : null,
+                () -> delegate.publishTargetPreparedRecord(
+                        publication,
+                        record,
+                        artifacts,
+                        (p, r, a) -> !admission
+                                        .targetChannelSnapshot(publication.channel())
+                                        .ready()
+                                ? completedUnknownValue()
+                                : preflight.check(publication, r, a)));
     }
 
     /** Ordinary Target submission into the same actual channel pool; Native and old Lane methods remain distinct. */
-    public PublishCall submitTargetOrdinary(final TargetOrdinaryPublishRequest request,
-            final TargetOrdinaryPublishPreflight gate) {
+    public PublishCall submitTargetOrdinary(
+            final TargetOrdinaryPublishRequest request, final TargetOrdinaryPublishPreflight gate) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(gate, "ownership gate");
         final var channel = request.publication().channel();
-        return submitPhysical(() -> admission.tryAcquireTarget(channel, request.physicalByteCharge()),
+        return submitPhysical(
+                () -> admission.tryAcquireTarget(channel, request.physicalByteCharge()),
                 () -> !admission.targetChannelSnapshot(channel).ready() ? completedUnknownValue() : null,
-                () -> delegate.publishTargetOrdinary(request, actual ->
-                        !admission.targetChannelSnapshot(channel).ready() ? completedUnknownValue() : gate.check(actual)));
+                () -> delegate.publishTargetOrdinary(
+                        request,
+                        actual -> !admission.targetChannelSnapshot(channel).ready()
+                                ? completedUnknownValue()
+                                : gate.check(actual)));
     }
 
     private PublishCall submit(
@@ -256,8 +270,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         }
         Objects.requireNonNull(preflight, "preflight");
         Objects.requireNonNull(delegateCall, "delegateCall");
-        return submitPhysical(() -> admission.tryAcquire(laneId, laneIncarnation, physicalBytes),
-                preflight, delegateCall);
+        return submitPhysical(
+                () -> admission.tryAcquire(laneId, laneIncarnation, physicalBytes), preflight, delegateCall);
     }
 
     private PublishCall submitPhysical(
@@ -267,8 +281,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
-        final DestinationPhysicalAdmission.AdmissionDecision decision =
-                acquire.get();
+        final DestinationPhysicalAdmission.AdmissionDecision decision = acquire.get();
         if (!decision.granted()) {
             final byte[] evidence =
                     Bytes.utf8("physical-admission:" + decision.rejection().name());
@@ -438,8 +451,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                         }
                         try {
                             final long delegateStartedNanos = System.nanoTime();
-                            return new DelegateInvocation(
-                                    delegateCall.publish(), false, true, delegateStartedNanos);
+                            return new DelegateInvocation(delegateCall.publish(), false, true, delegateStartedNanos);
                         } catch (RuntimeException exception) {
                             // A synchronous transport exception does not
                             // prove that the request stopped before
@@ -447,8 +459,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                             // unobserved marker used by the pinned adapters
                             // so the physical charge is retained until
                             // certified completion or teardown.
-                            return new DelegateInvocation(
-                                    UnobservedDestinationPublishStage.unknown(), false, true, 0);
+                            return new DelegateInvocation(UnobservedDestinationPublishStage.unknown(), false, true, 0);
                         }
                     },
                     () -> new DelegateInvocation(null, true, false, 0));
@@ -635,7 +646,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     @FunctionalInterface
     public interface TargetPreparedPublishPreflight {
         DestinationPublishResult check(
-                TargetOrdinaryPublicationBinding publication, PulsarPreparedRecord record,
+                TargetOrdinaryPublicationBinding publication,
+                PulsarPreparedRecord record,
                 ArtifactGenerationSet artifacts);
     }
 
@@ -643,7 +655,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     public interface TargetNativePreparedPublishPreflight {
         DestinationPublishResult check(
                 com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
-                PulsarPreparedRecord record, ArtifactGenerationSet artifacts);
+                PulsarPreparedRecord record,
+                ArtifactGenerationSet artifacts);
     }
 
     @FunctionalInterface

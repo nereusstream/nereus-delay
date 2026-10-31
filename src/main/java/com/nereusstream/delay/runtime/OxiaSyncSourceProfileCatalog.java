@@ -33,7 +33,9 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
     private final Runnable session;
 
     public OxiaSyncSourceProfileCatalog(final OxiaSyncOwnerLeaseBackend.ClientHandle handle, final String keyPrefix) {
-        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
+        this(
+                new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()),
+                keyPrefix,
                 handle.backend()::assertConnectedSession);
     }
 
@@ -41,7 +43,9 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
         this.client = Objects.requireNonNull(client, "client");
         this.session = Objects.requireNonNull(session, "session");
         prefix = Objects.requireNonNull(keyPrefix, "keyPrefix");
-        if (prefix.isBlank() || prefix.endsWith("/") || prefix.indexOf('\0') >= 0
+        if (prefix.isBlank()
+                || prefix.endsWith("/")
+                || prefix.indexOf('\0') >= 0
                 || !prefix.equals(new String(prefix.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))
                 || !Normalizer.isNormalized(prefix, Normalizer.Form.NFC)) {
             throw new IllegalArgumentException("Source Profile catalog requires a canonical nonempty key prefix");
@@ -66,7 +70,9 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
             requireObservedExact(key, value, race);
         } catch (RuntimeException uncertain) {
             final byte[] observed = get(key);
-            if (observed == null) { throw uncertain; }
+            if (observed == null) {
+                throw uncertain;
+            }
             requireExact(observed, value, key);
         }
     }
@@ -77,17 +83,22 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
         TargetSourcePosition.requireBounded(sourcePosition);
         final String key = key(reference, sourcePosition);
         final byte[] value = get(key);
-        if (value == null) { return null; }
+        if (value == null) {
+            return null;
+        }
         final var publication = decode(value);
         if (!key.equals(key(publication.semantic().ref(), publication.visibleAt()))) {
             throw new IllegalStateException("Source Profile semantics catalog key disagrees with its immutable value");
         }
         if (!reference.equals(publication.semantic().ref())
                 || !publication.visibleAt().sameSourceIdentity(sourcePosition)
-                || publication.visibleAt().kind() != sourcePosition.kind()) { return null; }
+                || publication.visibleAt().kind() != sourcePosition.kind()) {
+            return null;
+        }
         final int order = publication.visibleAt().compareTo(sourcePosition);
-        if (order > 0 || order == 0
-                && !Arrays.equals(publication.visibleAt().canonicalBytes(), sourcePosition.canonicalBytes())) {
+        if (order > 0
+                || order == 0
+                        && !Arrays.equals(publication.visibleAt().canonicalBytes(), sourcePosition.canonicalBytes())) {
             return null;
         }
         return publication.semantic();
@@ -105,13 +116,16 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
      * Resolves at the original use with a finite queue/start/result acceptance deadline. Caller owns the executor,
      * configured client request timeout and held protection; cancellation never means underlying I/O has ended.
      */
-    public java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope> resolveAsync(ProfileRef reference,
-            SourcePosition originalUse, java.time.Duration timeout, Runnable protection,
+    public java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope> resolveAsync(
+            ProfileRef reference,
+            SourcePosition originalUse,
+            java.time.Duration timeout,
+            Runnable protection,
             java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(reference, "reference");
         TargetSourcePosition.requireBounded(originalUse);
-        return CheckpointRegistryLookup.submit(() -> resolve(reference, originalUse), timeout, protection,
-                executor, System::nanoTime);
+        return CheckpointRegistryLookup.submit(
+                () -> resolve(reference, originalUse), timeout, protection, executor, System::nanoTime);
     }
 
     private static void requireExact(byte[] existing, byte[] expected, String key) {
@@ -181,6 +195,7 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
 
     interface RecordClient {
         byte[] get(String key);
+
         void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException, UnexpectedVersionIdException;
     }
 
@@ -188,7 +203,9 @@ public final class OxiaSyncSourceProfileCatalog implements TargetCheckpointSeman
         @Override
         public byte[] get(String key) {
             final var result = client.get(key);
-            if (result == null) { return null; }
+            if (result == null) {
+                return null;
+            }
             if (!key.equals(result.key()) || result.value() == null || result.version() == null) {
                 throw new IllegalStateException("Oxia returned an incomplete or mismatched Source Profile record");
             }

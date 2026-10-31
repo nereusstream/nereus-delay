@@ -336,17 +336,12 @@ public final class SloObservationOutboxStore {
         if (limits != null && maxBytes > limits.maxBytes()) {
             throw new IllegalArgumentException("SLO outbox scan exceeds the configured byte budget");
         }
-        final BoundedReadBudget budget = BoundedReadBudget.forValueBytes(
-                limit, maxBytes, Long.MAX_VALUE, System::nanoTime);
+        final BoundedReadBudget budget =
+                BoundedReadBudget.forValueBytes(limit, maxBytes, Long.MAX_VALUE, System::nanoTime);
         final List<SloObservationOutbox> result = new ArrayList<>(Math.min(limit, 16));
         final long[] totalBytes = {0};
         final ShardStore.VisitResult visitResult = store.visitResult(
-                ColumnFamily.META,
-                new byte[] {8, 1},
-                new byte[] {8, 2},
-                limit,
-                budget,
-                (entry, ignored) -> {
+                ColumnFamily.META, new byte[] {8, 1}, new byte[] {8, 2}, limit, budget, (entry, ignored) -> {
                     try {
                         totalBytes[0] = Math.addExact(totalBytes[0], entry.value().length);
                     } catch (ArithmeticException exception) {

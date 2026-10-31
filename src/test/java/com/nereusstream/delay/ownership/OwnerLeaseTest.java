@@ -104,7 +104,8 @@ class OwnerLeaseTest {
                     Bytes.sha256(Bytes.utf8("finite-head-policy-assignment")),
                     1,
                     new KafkaActivationBarrier(shardId, "finite-head-policy-cluster", topic, 0));
-            final OwnerLease lease = leaseStore.acquire(
+            final OwnerLease lease = leaseStore
+                    .acquire(
                             assignment,
                             "worker-finite-head-policy",
                             Bytes.sha256(Bytes.utf8("finite-head-policy-session")),
@@ -136,7 +137,8 @@ class OwnerLeaseTest {
 
                 assertEquals(sequenceBeforeActivation, store.latestSequenceNumber());
                 assertEquals(writesBeforeActivation, store.operationStatistics().nativeWriteCalls());
-                assertEquals(openedEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
+                assertEquals(
+                        openedEpochBeforeActivation, store.runtimeMetadata().lastOpenedOwnerEpoch());
                 assertEquals(ShardLifecycleState.CATCHING_UP, owned.state());
                 final OwnerLease currentLease = leaseStore.current(shardId).orElseThrow();
                 assertTrue(lease.sameIdentity(currentLease));
@@ -1876,9 +1878,8 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-context-epoch"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), legacyContextLease);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), legacyContextLease);
             assertThrows(IllegalArgumentException.class, () -> owned.markCatchingUp(assignment));
             assertEquals(ShardLifecycleState.RESTORING, owned.state());
         }

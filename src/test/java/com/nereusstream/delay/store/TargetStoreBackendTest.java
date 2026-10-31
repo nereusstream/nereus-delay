@@ -73,8 +73,8 @@ class TargetStoreBackendTest {
     void emptyTargetOpenIsRejectedAndFreshCreationDoesNotActivateItsWorkerRoot() {
         final var config = ShardStoreConfig.defaults(root.resolve("target-open-is-not-activation"));
         try (var resources = new SharedRocksDbResources(config)) {
-            final var failure = assertThrows(
-                    IllegalStateException.class, () -> ShardStore.openTarget(config, shard, resources));
+            final var failure =
+                    assertThrows(IllegalStateException.class, () -> ShardStore.openTarget(config, shard, resources));
             assertEquals(
                     "Target open requires a valid ACTIVE pointer; orphan adoption requires protected repair",
                     failure.getCause().getMessage());
@@ -171,16 +171,29 @@ class TargetStoreBackendTest {
         final var config = ShardStoreConfig.defaults(root.resolve("target-write-failure-" + writeBeforeFailure));
         final byte[] businessKey = TargetKeyCodec.message(DelayMessageId.random(shard));
         final byte[] businessValue = Bytes.utf8("target-atomic-value");
-        final var cursor = EvidenceCursor.targetPulsar(new EvidenceCursor.TargetScope(shard,
-                new TargetPartitionId(bytes(32, 0x43)), new TargetKeyCodec.Domain(1, 1), incarnation, bytes(32, 0x41)),
-                bytes(32, 0x42), shard.partition(), 1, 100, "persistent://tenant/ns/target-cursor", 1, 2, 3, 0, 1);
+        final var cursor = EvidenceCursor.targetPulsar(
+                new EvidenceCursor.TargetScope(
+                        shard,
+                        new TargetPartitionId(bytes(32, 0x43)),
+                        new TargetKeyCodec.Domain(1, 1),
+                        incarnation,
+                        bytes(32, 0x41)),
+                bytes(32, 0x42),
+                shard.partition(),
+                1,
+                100,
+                "persistent://tenant/ns/target-cursor",
+                1,
+                2,
+                3,
+                0,
+                1);
         final TargetStoreBackend.Mutation mutation;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.createTarget(config, shard, resources)) {
             final var backend = backend(store);
-            final var prepared = backend.prepare(
-                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
-                    reader -> {
+            final var prepared =
+                    backend.prepare(new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime), reader -> {
                         final var counters = TargetQuotaDelta.prepare(
                                 reader.aggregate(),
                                 reader.sourceSequence(),
@@ -192,16 +205,14 @@ class TargetStoreBackendTest {
                                 reader::counter);
                         final var totals = TargetQuotaTotalsDelta.prepare(counters, scope, 1, reader::total);
                         final var business = reader.replace(ColumnFamily.ID, businessKey, 15, businessValue);
-                        return new TargetStoreBackend.Mutation(totals, List.of(business), null,
-                                reader.advanceEvidenceCursor(cursor));
+                        return new TargetStoreBackend.Mutation(
+                                totals, List.of(business), null, reader.advanceEvidenceCursor(cursor));
                     });
             mutation = prepared.mutation();
             final var failure = assertThrows(
                     ShardStore.RocksDbWriteFailure.class,
                     () -> backend.commit(
-                            prepared,
-                            (metadata, targetScope, actual) -> guard(),
-                            (db, writeOptions, batch) -> {
+                            prepared, (metadata, targetScope, actual) -> guard(), (db, writeOptions, batch) -> {
                                 if (writeBeforeFailure) {
                                     db.write(writeOptions, batch);
                                 }
@@ -218,7 +229,9 @@ class TargetStoreBackendTest {
                 assertArrayEquals(
                         TargetValueEnvelope.encode(15, businessValue), reopened.get(ColumnFamily.ID, businessKey));
                 assertEquals(1, reopened.shardMutationSequence());
-                assertArrayEquals(source(1).canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+                assertArrayEquals(
+                        source(1).canonicalBytes(),
+                        reopened.appliedShardLogPosition().canonicalBytes());
                 assertEquals(List.of(cursor), reopened.runtimeMetadata().evidenceCursors());
             } else {
                 assertNull(reopened.get(ColumnFamily.ID, businessKey));
@@ -227,20 +240,24 @@ class TargetStoreBackendTest {
                 assertTrue(reopened.runtimeMetadata().evidenceCursors().isEmpty());
             }
             for (var change : mutation.quota().counters().changes()) {
-                final byte[] stored = reopened.get(ColumnFamily.META, change.next().identity().key());
+                final byte[] stored =
+                        reopened.get(ColumnFamily.META, change.next().identity().key());
                 if (writeBeforeFailure) {
                     assertArrayEquals(
-                            TargetValueEnvelope.encode(TargetQuotaCounter.VALUE_TYPE, change.next().canonicalBytes()),
+                            TargetValueEnvelope.encode(
+                                    TargetQuotaCounter.VALUE_TYPE, change.next().canonicalBytes()),
                             stored);
                 } else {
                     assertNull(stored);
                 }
             }
             for (var change : mutation.quota().changes()) {
-                final byte[] stored = reopened.get(ColumnFamily.META, change.next().key());
+                final byte[] stored =
+                        reopened.get(ColumnFamily.META, change.next().key());
                 if (writeBeforeFailure) {
                     assertArrayEquals(
-                            TargetValueEnvelope.encode(TargetQuotaTotal.VALUE_TYPE, change.next().canonicalBytes()),
+                            TargetValueEnvelope.encode(
+                                    TargetQuotaTotal.VALUE_TYPE, change.next().canonicalBytes()),
                             stored);
                 } else {
                     assertNull(stored);
@@ -267,20 +284,27 @@ class TargetStoreBackendTest {
             store.recordEvidenceCursors(List.of(cursor));
             final var backend = backend(store);
             final long before = store.latestSequenceNumber();
-            assertTrue(backend.prepareRead(new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
-                    reader -> reader.advanceEvidenceCursor(targetCursor(1, 3, 250)) == null).value());
+            assertTrue(backend.prepareRead(
+                            new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                            reader -> reader.advanceEvidenceCursor(targetCursor(1, 3, 250)) == null)
+                    .value());
             final var advance = backend.prepareRead(
-                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
-                    reader -> reader.advanceEvidenceCursor(targetCursor(1, 9, 301))).value();
+                            new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                            reader -> reader.advanceEvidenceCursor(targetCursor(1, 9, 301)))
+                    .value();
             assertEquals(List.of(targetCursor(1, 9, 301)), advance.after());
             final var generation = backend.prepareRead(
-                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
-                    reader -> reader.advanceEvidenceCursor(targetCursor(2, 1, 1))).value();
+                            new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                            reader -> reader.advanceEvidenceCursor(targetCursor(2, 1, 1)))
+                    .value();
             assertEquals(List.of(cursor, targetCursor(2, 1, 1)), generation.after());
-            assertThrows(IllegalArgumentException.class, () -> backend.prepareRead(
-                    new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
-                    reader -> reader.advanceEvidenceCursor(targetCursor(1, 9, 200))));
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> backend.prepareRead(
+                            new BoundedReadBudget(100, 1 << 20, 10_000_000_000L, System::nanoTime),
+                            reader -> reader.advanceEvidenceCursor(targetCursor(1, 9, 200))));
+            assertThrows(
+                    IllegalArgumentException.class,
                     () -> new TargetStoreBackend.EvidenceCursorChange(generation.encodedAfter(), List.of(cursor)));
             assertEquals(before, store.latestSequenceNumber());
             assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
@@ -288,10 +312,23 @@ class TargetStoreBackendTest {
     }
 
     private EvidenceCursor targetCursor(long generation, long entry, long timestamp) {
-        return EvidenceCursor.targetPulsar(new EvidenceCursor.TargetScope(shard,
-                new TargetPartitionId(bytes(32, 0x43)), new TargetKeyCodec.Domain(1, 1), incarnation, bytes(32, 0x41)),
-                bytes(32, 0x42), shard.partition(), generation, timestamp,
-                "persistent://tenant/ns/target-cursor", 1, 2, entry, 0, 1);
+        return EvidenceCursor.targetPulsar(
+                new EvidenceCursor.TargetScope(
+                        shard,
+                        new TargetPartitionId(bytes(32, 0x43)),
+                        new TargetKeyCodec.Domain(1, 1),
+                        incarnation,
+                        bytes(32, 0x41)),
+                bytes(32, 0x42),
+                shard.partition(),
+                generation,
+                timestamp,
+                "persistent://tenant/ns/target-cursor",
+                1,
+                2,
+                entry,
+                0,
+                1);
     }
 
     @Test

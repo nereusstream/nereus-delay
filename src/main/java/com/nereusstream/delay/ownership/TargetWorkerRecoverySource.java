@@ -6,13 +6,18 @@ import com.nereusstream.delay.store.SharedRocksDbResources;
 
 /** Original verified no-ACK SDK reader, its delivery proof and actual native cleanup responsibility. */
 public interface TargetWorkerRecoverySource extends AutoCloseable {
-    void requireStartup(SourceAssignment assignment, long maximumFrameBytes,
-            WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
+    void requireStartup(
+            SourceAssignment assignment,
+            long maximumFrameBytes,
+            WorkClassExecutionRegistry classes,
+            SharedRocksDbResources resources);
+
     SourceReplayCursor<SourceReplayEntry> replayCursor();
     /** The outer replay look-ahead has actually consumed this exact decoded delivery. */
     default void releaseDecoded(SourceReplayEntry actual) {
         throw new IllegalStateException("reader has no original frame decode loan");
     }
+
     SourceReplaySuccessor successorAfter(SourcePosition position);
     /** The same actual continuous reader/Owner/admission hold, without poll, native I/O or external validation. */
     default void requireLocalCurrent() {
@@ -22,11 +27,11 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
      * One finite native tail observation after the original signed barrier, before probing its old EOF.
      * Runs on the caller's owned I/O pool. A captured prefix is not an old-writer/UNKNOWN settlement proof.
      */
-    default void captureReplayTail(){
+    default void captureReplayTail() {
         throw new IllegalStateException("reader cannot capture its original guarded finite replay tail");
     }
     /** Local original-reader checks only; every delivered entry must already be reflected in actualApplied. */
-    default boolean replayTailReached(SourcePosition actualApplied){
+    default boolean replayTailReached(SourcePosition actualApplied) {
         throw new IllegalStateException("reader has no original captured-prefix consumption proof");
     }
     /** Actual decoded/delivered finite prefix only. This grants no Store progress, ACK or recovery completion. */
@@ -37,10 +42,16 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
     default void requireReaderBinding(SourceAssignment assignment, SourcePosition positionedCut) {
         throw new IllegalStateException("reader has no independent Target startup binding");
     }
-    default void requireReaderEntry(SourceReplayEntry entry, SourceAssignment assignment, SourcePosition positionedCut) {
+
+    default void requireReaderEntry(
+            SourceReplayEntry entry, SourceAssignment assignment, SourcePosition positionedCut) {
         throw new IllegalStateException("reader has no independent Target entry proof");
     }
+
     TargetOwnedBackendGroup backend();
+
     boolean cleanupComplete();
-    @Override void close();
+
+    @Override
+    void close();
 }

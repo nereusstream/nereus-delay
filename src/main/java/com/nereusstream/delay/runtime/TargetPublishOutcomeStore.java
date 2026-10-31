@@ -1,8 +1,8 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PublishEvidence;
@@ -91,9 +91,12 @@ public final class TargetPublishOutcomeStore {
         return prepareFirst(budget, mutation, source, authority, null);
     }
 
-    public Prepared prepareFirst(final BoundedReadBudget budget, final SystemMutation mutation,
+    public Prepared prepareFirst(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
-            final TargetPublishOutcomeVerifier.Authority authority, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
+            final TargetPublishOutcomeVerifier.Authority authority,
+            final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
         TargetSourcePosition.requireBounded(source);
@@ -107,29 +110,35 @@ public final class TargetPublishOutcomeStore {
         final com.nereusstream.delay.protocol.EvidenceCursor[] acceptedCursor =
                 new com.nereusstream.delay.protocol.EvidenceCursor[1];
         final var sourceAccounting = new TargetSourceAccounting(
-                scope,
-                lineage,
-                source,
-                Bytes.sha256(mutation.canonicalEnvelope()),
-                maximumCounters,
-                maximumTargets,
-                maximumDomains).withLegacyPrefix(legacyPrefix);
+                        scope,
+                        lineage,
+                        source,
+                        Bytes.sha256(mutation.canonicalEnvelope()),
+                        maximumCounters,
+                        maximumTargets,
+                        maximumDomains)
+                .withLegacyPrefix(legacyPrefix);
         final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
-                (reader, business) -> sourceAccounting.assemble(reader, business, null,
+                (reader, business) -> sourceAccounting.assemble(
+                        reader,
+                        business,
+                        null,
                         acceptedCursor[0] == null ? null : reader.advanceEvidenceCursor(acceptedCursor[0])),
                 TargetQuotaGrantGate.Operation.OUTCOME,
                 null);
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
-                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
+                    if (legacyPrefix != null) {
+                        legacyPrefix.requireCurrent(reader, mutation, source);
+                    }
                     requireFirstPosition(reader, source);
                     final var stamp = stamp(reader, source, mutation);
                     final var decision = reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
                             ? null
                             : TargetPublishOutcomeVerifier.decideFirstApplication(scope, mutation, source, authority);
-                    StableCode rejection = decision == null
-                            ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED : decision.rejection();
+                    StableCode rejection =
+                            decision == null ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED : decision.rejection();
                     StableCode appliedCode = null;
                     List<TargetMessageStore.Transition> transitions = List.of();
                     List<TargetMessageStore.OrderTransition> orders = List.of();
@@ -139,15 +148,22 @@ public final class TargetPublishOutcomeStore {
                         final var author = AuthorIdentity.decode(mutation.authorIdentity());
                         final var writer = author.kind() == AuthorIdentity.Kind.OWNER ? author.asOwnerIdentity() : null;
                         final var projection = outcome.sideEffect() != 3
-                                ? definitive(reader, outcome, stamp, writer, decision.authorization(),
-                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION,mutation,legacyPrefix)
+                                ? definitive(
+                                        reader,
+                                        outcome,
+                                        stamp,
+                                        writer,
+                                        decision.authorization(),
+                                        mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION,
+                                        mutation,
+                                        legacyPrefix)
                                 : unknown(reader, outcome, stamp, writer, decision.authorization());
                         rejection = projection.rejection();
                         appliedCode = projection.appliedCode();
                         if (rejection == null) {
                             if (projection.before() != null) {
-                                transitions = List.of(new TargetMessageStore.Transition(
-                                        projection.before(), projection.after()));
+                                transitions = List.of(
+                                        new TargetMessageStore.Transition(projection.before(), projection.after()));
                             }
                             if (projection.order() != null) {
                                 orders = List.of(projection.order());
@@ -161,7 +177,8 @@ public final class TargetPublishOutcomeStore {
                     final var result = SystemMutationResult.from(
                             mutation,
                             rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
-                            rejection != null ? rejection
+                            rejection != null
+                                    ? rejection
                                     : appliedCode == null ? decision.body().stableCode() : appliedCode,
                             source.canonicalBytes());
                     extra.addAll(resultEdits(reader, mutation, stamp, result));
@@ -172,8 +189,7 @@ public final class TargetPublishOutcomeStore {
         return new Prepared(this, batch, Objects.requireNonNull(applied[0], "Target Outcome result"));
     }
 
-    public SystemMutationResult commit(
-            final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
+    public SystemMutationResult commit(final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {
             throw new IllegalArgumentException("Target Outcome plan belongs to another Store wrapper");
@@ -185,10 +201,15 @@ public final class TargetPublishOutcomeStore {
     /** Actual retained Source proof. No caller-created first-result DTO can construct this writer input. */
     public static final class NegativeOutcome {
         private final com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding;
+
         private NegativeOutcome(com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding) {
             this.binding = binding;
         }
-        public com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding() { return binding; }
+
+        public com.nereusstream.delay.protocol.TargetJournalNegativeSettlement binding() {
+            return binding;
+        }
+
         public void requireMapping(com.nereusstream.delay.adapter.PulsarAttemptJournal.Mapping mapping) {
             binding.requireMapping(mapping);
         }
@@ -199,15 +220,36 @@ public final class TargetPublishOutcomeStore {
         private final SystemMutation admission;
         private final TargetQuotaAttemptBudget budget;
         private final com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping;
-        private KafkaUnknown(SystemMutation admission, TargetQuotaAttemptBudget budget,
+
+        private KafkaUnknown(
+                SystemMutation admission,
+                TargetQuotaAttemptBudget budget,
                 com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping) {
-            this.admission = admission; this.budget = budget; this.mapping = mapping;
+            this.admission = admission;
+            this.budget = budget;
+            this.mapping = mapping;
         }
-        public SystemMutation admission() { return admission; }
-        public TargetQuotaAttemptBudget budget() { return budget; }
-        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() { return mapping; }
-        public com.nereusstream.delay.protocol.SourcePosition admissionSource() { return mapping.mutation().source(); }
-        public com.nereusstream.delay.protocol.SourcePosition unknownSource() { return budget.mutation().source(); }
+
+        public SystemMutation admission() {
+            return admission;
+        }
+
+        public TargetQuotaAttemptBudget budget() {
+            return budget;
+        }
+
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() {
+            return mapping;
+        }
+
+        public com.nereusstream.delay.protocol.SourcePosition admissionSource() {
+            return mapping.mutation().source();
+        }
+
+        public com.nereusstream.delay.protocol.SourcePosition unknownSource() {
+            return budget.mutation().source();
+        }
+
         public void requireSame(KafkaUnknown actual) {
             if (!Arrays.equals(admission.canonicalEnvelope(), actual.admission.canonicalEnvelope())
                     || !Arrays.equals(budget.canonicalBytes(), actual.budget.canonicalBytes())
@@ -218,56 +260,91 @@ public final class TargetPublishOutcomeStore {
     }
 
     /** Reads the original first results and exact pending slot under the current read/Owner barrier. */
-    public KafkaUnknown readKafkaUnknown(BoundedReadBudget reads, SystemMutation admission,
-            TargetStoreBackend.ReadAuthority authority) {
-        final var body = TargetPublishAdmissionBody.decode(Objects.requireNonNull(admission, "original Admission").canonicalBody());
+    public KafkaUnknown readKafkaUnknown(
+            BoundedReadBudget reads, SystemMutation admission, TargetStoreBackend.ReadAuthority authority) {
+        final var body = TargetPublishAdmissionBody.decode(
+                Objects.requireNonNull(admission, "original Admission").canonicalBody());
         if (body.kafkaReceipt() == null || !scope.shard().equals(body.shard())) {
             throw new IllegalArgumentException("K2 resolution requires original v6 Admission in this Shard");
         }
-        return backend.guardedRead(reads, reader -> {
-            final var first = admissionProof(reader, admission);
-            final var admittedPosition = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader,
-                    ColumnFamily.DEDUPE, positionResultKey(first.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
-            admittedPosition.requireFirst(first);
-            admittedPosition.requireOwner(root(reader));
-            if (admittedPosition.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
-                    || !admittedPosition.mutation().equals(first.mutation())) {
-                throw new IllegalStateException("K2 original Admission lost its POSITION companion");
-            }
-            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
-                    body.publishAttemptId());
-            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(required(reader,
-                    ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            attempt.mutation().requireAfter(first.mutation());
-            if (attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
-                    || !Arrays.equals(attempt.recoveryLineage(), lineage) || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
-                    || !attempt.locator().equals(body.locator()) || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
-                    || !attempt.commitment().equals(body.commitment()) || !attempt.allocated().equals(body.allocated())
-                    || attempt.executionBytes() != body.executionBytes()
-                    || !generation(reader, body.locator()).runtime().attemptObligations().contains(body.obligation())) {
-                throw new IllegalStateException("K2 resolution lacks its exact retained UNKNOWN obligation/budget");
-            }
-            requireUnknownProof(reader, attempt);
-            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
-            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-            if (slot.pendingMappingId() == null) { throw new IllegalStateException("K2 UNKNOWN lost its pending slot"); }
-            final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT},
-                    slot.pendingMappingId());
-            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
-            mapping.requireOriginal(admission, first.mutation().source());
-            slot.requirePending(mapping);
-            if (!mapping.mutation().equals(first.mutation()) || !slot.mutation().equals(first.mutation())
-                    || !Arrays.equals(mapping.recoveryLineage(), lineage) || !Arrays.equals(slot.recoveryLineage(), lineage)) {
-                throw new IllegalStateException("K2 UNKNOWN mapping/slot changed original Source/lineage");
-            }
-            reader.requireWithinElapsedBudget();
-            return new KafkaUnknown(admission, attempt, mapping);
-        }, authority);
+        return backend.guardedRead(
+                reads,
+                reader -> {
+                    final var first = admissionProof(reader, admission);
+                    final var admittedPosition = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                                    required(
+                                            reader,
+                                            ColumnFamily.DEDUPE,
+                                            positionResultKey(first.mutation().source())),
+                                    TargetResultRecord.VALUE_TYPE)
+                            .payload());
+                    admittedPosition.requireFirst(first);
+                    admittedPosition.requireOwner(root(reader));
+                    if (admittedPosition.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                            || !admittedPosition.mutation().equals(first.mutation())) {
+                        throw new IllegalStateException("K2 original Admission lost its POSITION companion");
+                    }
+                    final byte[] key = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                            body.publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                            key,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, key),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    attempt.mutation().requireAfter(first.mutation());
+                    if (attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
+                            || !Arrays.equals(attempt.recoveryLineage(), lineage)
+                            || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                            || !attempt.locator().equals(body.locator())
+                            || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                            || !attempt.commitment().equals(body.commitment())
+                            || !attempt.allocated().equals(body.allocated())
+                            || attempt.executionBytes() != body.executionBytes()
+                            || !generation(reader, body.locator())
+                                    .runtime()
+                                    .attemptObligations()
+                                    .contains(body.obligation())) {
+                        throw new IllegalStateException(
+                                "K2 resolution lacks its exact retained UNKNOWN obligation/budget");
+                    }
+                    requireUnknownProof(reader, attempt);
+                    final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+                    final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                            slotKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, slotKey),
+                                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    if (slot.pendingMappingId() == null) {
+                        throw new IllegalStateException("K2 UNKNOWN lost its pending slot");
+                    }
+                    final byte[] mappingKey = Bytes.concat(
+                            new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT},
+                            slot.pendingMappingId());
+                    final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(
+                            mappingKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, mappingKey),
+                                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    mapping.requireOriginal(admission, first.mutation().source());
+                    slot.requirePending(mapping);
+                    if (!mapping.mutation().equals(first.mutation())
+                            || !slot.mutation().equals(first.mutation())
+                            || !Arrays.equals(mapping.recoveryLineage(), lineage)
+                            || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                        throw new IllegalStateException("K2 UNKNOWN mapping/slot changed original Source/lineage");
+                    }
+                    reader.requireWithinElapsedBudget();
+                    return new KafkaUnknown(admission, attempt, mapping);
+                },
+                authority);
     }
 
     /** Private original pending-slot snapshot, including the actual Store/cut used for one recovery opening. */
@@ -278,22 +355,50 @@ public final class TargetPublishOutcomeStore {
         private final com.nereusstream.delay.store.StoreMetadata store;
         private final com.nereusstream.delay.protocol.SourcePosition cut;
         private final long nativeSequence, sourceSequence;
-        private KafkaRecoveryPending(com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
-                TargetQuotaAttemptBudget attempt, TargetExternalEvidenceStore.Adoption adoption, TargetStoreBackend.Reader reader) {
-            this.mapping = mapping; this.attempt = attempt; this.adoption = adoption; store = reader.metadata();
-            cut = Objects.requireNonNull(reader.source()); nativeSequence = reader.nativeSequence(); sourceSequence = reader.sourceSequence();
+
+        private KafkaRecoveryPending(
+                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping,
+                TargetQuotaAttemptBudget attempt,
+                TargetExternalEvidenceStore.Adoption adoption,
+                TargetStoreBackend.Reader reader) {
+            this.mapping = mapping;
+            this.attempt = attempt;
+            this.adoption = adoption;
+            store = reader.metadata();
+            cut = Objects.requireNonNull(reader.source());
+            nativeSequence = reader.nativeSequence();
+            sourceSequence = reader.sourceSequence();
         }
-        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() { return mapping; }
-        public TargetQuotaAttemptBudget.Phase phase() { return attempt.phase(); }
-        public byte[] tenantScope() { return attempt.tenantScope(); }
-        public TargetQuotaAttemptBudget attempt() { return attempt; }
-        public TargetExternalEvidenceStore.Adoption adoption() { return adoption; }
+
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping mapping() {
+            return mapping;
+        }
+
+        public TargetQuotaAttemptBudget.Phase phase() {
+            return attempt.phase();
+        }
+
+        public byte[] tenantScope() {
+            return attempt.tenantScope();
+        }
+
+        public TargetQuotaAttemptBudget attempt() {
+            return attempt;
+        }
+
+        public TargetExternalEvidenceStore.Adoption adoption() {
+            return adoption;
+        }
+
         public void requireUnknown(KafkaUnknown unknown) {
             if (phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
-                    || !Arrays.equals(mapping.canonicalBytes(), unknown.mapping().canonicalBytes())
-                    || !Arrays.equals(attempt.canonicalBytes(), unknown.budget().canonicalBytes()))
+                    || !Arrays.equals(
+                            mapping.canonicalBytes(), unknown.mapping().canonicalBytes())
+                    || !Arrays.equals(attempt.canonicalBytes(), unknown.budget().canonicalBytes())) {
                 throw new IllegalStateException("K2 evidence differs from the actual pending UNKNOWN obligation");
+            }
         }
+
         public byte[] contextImage() {
             return com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
                 com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, 1);
@@ -305,151 +410,258 @@ public final class TargetPublishOutcomeStore {
                 com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 7, Bytes.sha256(attempt.canonicalBytes()));
             });
         }
+
         public void requireContinuation(KafkaRecoveryPending actual) {
             if (!Arrays.equals(mapping.canonicalBytes(), actual.mapping.canonicalBytes())
-                    || !Arrays.equals(store.encode(), actual.store.encode()) || actual.cut.compareTo(cut) < 0
+                    || !Arrays.equals(store.encode(), actual.store.encode())
+                    || actual.cut.compareTo(cut) < 0
                     || Long.compareUnsigned(actual.nativeSequence, nativeSequence) < 0
                     || Long.compareUnsigned(actual.sourceSequence, sourceSequence) < 0
                     || phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN && actual.phase() != phase()) {
-                throw new IllegalStateException("K2 recovery changed original mapping/Store or regressed its pending Source cut");
+                throw new IllegalStateException(
+                        "K2 recovery changed original mapping/Store or regressed its pending Source cut");
             }
         }
     }
 
     /** Actual retained Admission, pending slot and unreleased obligation; no expiry check on the historical SEND lease. */
-    public KafkaRecoveryPending readKafkaRecoveryPending(BoundedReadBudget budget, SystemMutation admission,
-            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original, TargetStoreBackend.ReadAuthority authority) {
-        return backend.guardedRead(budget, reader -> {
-            final var first = admissionProof(reader, admission);
-            original.requireOriginal(admission, first.mutation().source());
-            final var adoption = TargetExternalEvidenceStore.readAdoption(reader, original, scope, lineage);
-            final var body = original.admission();
-            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT}, body.publishAttemptId());
-            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if (attempt.resolvedAt() != null || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
-                    && attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
-                    || !Arrays.equals(attempt.tenantScope(), scope.tenantScope()) || !attempt.allocated().equals(body.allocated())
-                    || !generation(reader, body.locator()).runtime().attemptObligations().contains(body.obligation())) {
-                throw new IllegalStateException("K2 recovery lacks its original unresolved Source obligation");
-            }
-            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
-            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-            slot.requirePending(original);
-            if (!slot.mutation().equals(first.mutation()) || !Arrays.equals(slot.recoveryLineage(), lineage))
-                throw new IllegalStateException("K2 recovery changed its original pending slot");
-            if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
-                attempt.mutation().requireAfter(first.mutation()); requireUnknownProof(reader, attempt);
-            }
-            else if (!attempt.mutation().equals(first.mutation())) throw new IllegalStateException("K2 admitted recovery changed its first Source stamp");
-            final var result = new KafkaRecoveryPending(original, attempt, adoption, reader);
-            reader.requireWithinElapsedBudget(); return result;
-        }, authority);
+    public KafkaRecoveryPending readKafkaRecoveryPending(
+            BoundedReadBudget budget,
+            SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original,
+            TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final var first = admissionProof(reader, admission);
+                    original.requireOriginal(admission, first.mutation().source());
+                    final var adoption = TargetExternalEvidenceStore.readAdoption(reader, original, scope, lineage);
+                    final var body = original.admission();
+                    final byte[] key = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                            body.publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                            key,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, key),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    if (attempt.resolvedAt() != null
+                            || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                                    && attempt.phase() != TargetQuotaAttemptBudget.Phase.UNKNOWN
+                            || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                            || !attempt.allocated().equals(body.allocated())
+                            || !generation(reader, body.locator())
+                                    .runtime()
+                                    .attemptObligations()
+                                    .contains(body.obligation())) {
+                        throw new IllegalStateException("K2 recovery lacks its original unresolved Source obligation");
+                    }
+                    final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+                    final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                            slotKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, slotKey),
+                                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    slot.requirePending(original);
+                    if (!slot.mutation().equals(first.mutation()) || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                        throw new IllegalStateException("K2 recovery changed its original pending slot");
+                    }
+                    if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                        attempt.mutation().requireAfter(first.mutation());
+                        requireUnknownProof(reader, attempt);
+                    } else if (!attempt.mutation().equals(first.mutation())) {
+                        throw new IllegalStateException("K2 admitted recovery changed its first Source stamp");
+                    }
+                    final var result = new KafkaRecoveryPending(original, attempt, adoption, reader);
+                    reader.requireWithinElapsedBudget();
+                    return result;
+                },
+                authority);
     }
 
     /** Exact retained Source resolution and free stable slot; grants neither SEND nor Floor/accounting release. */
-    public boolean kafkaMappingSettled(BoundedReadBudget budget, SystemMutation admission,
-            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original, TargetStoreBackend.ReadAuthority authority) {
-        return backend.guardedRead(budget, reader -> {
-            final var first = admissionProof(reader, admission);
-            original.requireOriginal(admission, first.mutation().source());
-            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(original.key(),
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, original.key()),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
-            if (!Arrays.equals(mapping.canonicalBytes(), original.canonicalBytes()) || !Arrays.equals(mapping.recoveryLineage(), lineage)
-                    || !mapping.mutation().equals(first.mutation())) {
-                throw new IllegalStateException("K2 reopen lost its original retained Source mapping");
-            }
-            final var body = mapping.admission();
-            final byte[] key = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT}, body.publishAttemptId());
-            final var attempt = TargetQuotaAttemptBudget.decodeForStore(key, TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.META, key), TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if (!Arrays.equals(attempt.recoveryLineage(), lineage) || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
-                    || !attempt.locator().equals(body.locator()) || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
-                    || !attempt.commitment().equals(body.commitment()) || attempt.executionBytes() != body.executionBytes()) {
-                throw new IllegalStateException("K2 reopen changes its original Source attempt");
-            }
-            final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
-            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-            slot.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if (attempt.resolvedAt() == null) {
-                slot.requirePending(mapping);
-                if (!slot.mutation().equals(first.mutation())) throw new IllegalStateException("pending K2 slot changed its original Source stamp");
-                if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) requireUnknownProof(reader, attempt);
-                else if (!attempt.mutation().equals(first.mutation())) throw new IllegalStateException("K2 admitted attempt changed its Source stamp");
-                reader.requireWithinElapsedBudget(); return false;
-            }
-            attempt.resolvedAt().requireAfter(first.mutation());
-            if (slot.pendingMappingId() != null || slot.lastAllocatedSequence() != mapping.logicalSequence()
-                    || !slot.mutation().equals(attempt.resolvedAt()) || !Arrays.equals(slot.recoveryLineage(), lineage)) {
-                throw new IllegalStateException("K2 reopen lacks its exact Source-resolved free slot");
-            }
-            slot.channel().requireExactFrozenIdentity(body.channel());
-            final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
-                    positionResultKey(slot.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
-            position.requireOwner(root(reader));
-            final var result = SystemMutationResult.decode(position.typedPayload());
-            final byte[] resultKey = Bytes.concat(new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, result.mutationId());
-            final var resolved = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
-                    resultKey), TargetResultRecord.VALUE_TYPE).payload());
-            resolved.requireOwner(root(reader)); position.requireFirst(resolved);
-            if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM || resolved.kind() != TargetResultRecord.Kind.SYSTEM
-                    || resolved.allocation() != null || !resolved.mutation().equals(slot.mutation()) || !position.mutation().equals(slot.mutation())
-                    || !Arrays.equals(resolved.typedPayload(), position.typedPayload())
-                    || !Arrays.equals(result.appliedSourcePosition(), slot.mutation().source().canonicalBytes())
-                    || !Arrays.equals(resolved.logicalId(), result.mutationId()) || result.applyStatus() != ApplyStatus.APPLIED
-                    || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME && result.mutationType() != SystemMutationType.EVIDENCE_RESOLUTION) {
-                throw new IllegalStateException("K2 free slot lacks its exact APPLIED Source resolution first result");
-            }
-            reader.requireWithinElapsedBudget(); return true;
-        }, authority);
+    public boolean kafkaMappingSettled(
+            BoundedReadBudget budget,
+            SystemMutation admission,
+            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping original,
+            TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final var first = admissionProof(reader, admission);
+                    original.requireOriginal(admission, first.mutation().source());
+                    final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(
+                            original.key(),
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, original.key()),
+                                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    if (!Arrays.equals(mapping.canonicalBytes(), original.canonicalBytes())
+                            || !Arrays.equals(mapping.recoveryLineage(), lineage)
+                            || !mapping.mutation().equals(first.mutation())) {
+                        throw new IllegalStateException("K2 reopen lost its original retained Source mapping");
+                    }
+                    final var body = mapping.admission();
+                    final byte[] key = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                            body.publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                            key,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, key),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    attempt.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    if (!Arrays.equals(attempt.recoveryLineage(), lineage)
+                            || !Arrays.equals(attempt.tenantScope(), scope.tenantScope())
+                            || !attempt.locator().equals(body.locator())
+                            || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                            || !attempt.commitment().equals(body.commitment())
+                            || attempt.executionBytes() != body.executionBytes()) {
+                        throw new IllegalStateException("K2 reopen changes its original Source attempt");
+                    }
+                    final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+                    final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                            slotKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, slotKey),
+                                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    slot.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    if (attempt.resolvedAt() == null) {
+                        slot.requirePending(mapping);
+                        if (!slot.mutation().equals(first.mutation())) {
+                            throw new IllegalStateException("pending K2 slot changed its original Source stamp");
+                        }
+                        if (attempt.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN) {
+                            requireUnknownProof(reader, attempt);
+                        } else if (!attempt.mutation().equals(first.mutation())) {
+                            throw new IllegalStateException("K2 admitted attempt changed its Source stamp");
+                        }
+                        reader.requireWithinElapsedBudget();
+                        return false;
+                    }
+                    attempt.resolvedAt().requireAfter(first.mutation());
+                    if (slot.pendingMappingId() != null
+                            || slot.lastAllocatedSequence() != mapping.logicalSequence()
+                            || !slot.mutation().equals(attempt.resolvedAt())
+                            || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                        throw new IllegalStateException("K2 reopen lacks its exact Source-resolved free slot");
+                    }
+                    slot.channel().requireExactFrozenIdentity(body.channel());
+                    final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                                    required(
+                                            reader,
+                                            ColumnFamily.DEDUPE,
+                                            positionResultKey(slot.mutation().source())),
+                                    TargetResultRecord.VALUE_TYPE)
+                            .payload());
+                    position.requireOwner(root(reader));
+                    final var result = SystemMutationResult.decode(position.typedPayload());
+                    final byte[] resultKey = Bytes.concat(
+                            new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                            result.mutationId());
+                    final var resolved = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.DEDUPE, resultKey), TargetResultRecord.VALUE_TYPE)
+                            .payload());
+                    resolved.requireOwner(root(reader));
+                    position.requireFirst(resolved);
+                    if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                            || resolved.kind() != TargetResultRecord.Kind.SYSTEM
+                            || resolved.allocation() != null
+                            || !resolved.mutation().equals(slot.mutation())
+                            || !position.mutation().equals(slot.mutation())
+                            || !Arrays.equals(resolved.typedPayload(), position.typedPayload())
+                            || !Arrays.equals(
+                                    result.appliedSourcePosition(),
+                                    slot.mutation().source().canonicalBytes())
+                            || !Arrays.equals(resolved.logicalId(), result.mutationId())
+                            || result.applyStatus() != ApplyStatus.APPLIED
+                            || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME
+                                    && result.mutationType() != SystemMutationType.EVIDENCE_RESOLUTION) {
+                        throw new IllegalStateException(
+                                "K2 free slot lacks its exact APPLIED Source resolution first result");
+                    }
+                    reader.requireWithinElapsedBudget();
+                    return true;
+                },
+                authority);
     }
 
     /** Reads actual first results and the unreleased resolved budget; external authentication is separate. */
-    public NegativeOutcome readNegativeOutcome(final BoundedReadBudget budget, final byte[] mappingId,
-            final SystemMutation admission, final SystemMutation outcome,
+    public NegativeOutcome readNegativeOutcome(
+            final BoundedReadBudget budget,
+            final byte[] mappingId,
+            final SystemMutation admission,
+            final SystemMutation outcome,
             final com.nereusstream.delay.protocol.PulsarRecordTemplate template,
             final TargetStoreBackend.ReadAuthority authority) {
-        return backend.guardedRead(budget, reader -> {
-            final var admitted = TargetPublishAdmissionBody.decode(admission.canonicalBody());
-            final var admissionFirst = admissionProof(reader, admission);
-            final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
-                    systemResultKey(outcome)), TargetResultRecord.VALUE_TYPE).payload());
-            first.requireOwner(root(reader));
-            first.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            final byte[] attemptKey = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
-                    TargetKeyCodec.KEY_FORMAT}, admitted.publishAttemptId());
-            final var attempt = TargetQuotaAttemptBudget.decodeForStore(attemptKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, attemptKey),
-                            TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            if (attempt.phase() != TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR
-                    || !Arrays.equals(attempt.recoveryLineage(), lineage)
-                    || !attempt.locator().equals(admitted.locator())
-                    || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
-                    || !attempt.commitment().equals(admitted.commitment())
-                    || attempt.executionBytes() != admitted.executionBytes()
-                    || !attempt.resolvedAt().equals(first.mutation())) {
-                throw new IllegalStateException("Journal settlement lacks its exact retained Source-resolved budget");
-            }
-            final var binding = new com.nereusstream.delay.protocol.TargetJournalNegativeSettlement(mappingId,
-                    admission, admissionFirst.mutation().source(), admissionFirst,
-                    outcome, first.mutation().source(), first, template);
-            final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(required(reader, ColumnFamily.DEDUPE,
-                    positionResultKey(first.mutation().source())), TargetResultRecord.VALUE_TYPE).payload());
-            position.requireFirst(first);
-            position.requireOwner(root(reader));
-            if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM || !position.mutation().equals(first.mutation())) {
-                throw new IllegalStateException("negative Source first result lost its exact POSITION companion");
-            }
-            reader.requireWithinElapsedBudget();
-            return new NegativeOutcome(binding);
-        }, authority);
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final var admitted = TargetPublishAdmissionBody.decode(admission.canonicalBody());
+                    final var admissionFirst = admissionProof(reader, admission);
+                    final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.DEDUPE, systemResultKey(outcome)),
+                                    TargetResultRecord.VALUE_TYPE)
+                            .payload());
+                    first.requireOwner(root(reader));
+                    first.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    final byte[] attemptKey = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                            admitted.publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                            attemptKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, attemptKey),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    if (attempt.phase() != TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR
+                            || !Arrays.equals(attempt.recoveryLineage(), lineage)
+                            || !attempt.locator().equals(admitted.locator())
+                            || !Arrays.equals(attempt.admissionDigest(), admission.mutationHash())
+                            || !attempt.commitment().equals(admitted.commitment())
+                            || attempt.executionBytes() != admitted.executionBytes()
+                            || !attempt.resolvedAt().equals(first.mutation())) {
+                        throw new IllegalStateException(
+                                "Journal settlement lacks its exact retained Source-resolved budget");
+                    }
+                    final var binding = new com.nereusstream.delay.protocol.TargetJournalNegativeSettlement(
+                            mappingId,
+                            admission,
+                            admissionFirst.mutation().source(),
+                            admissionFirst,
+                            outcome,
+                            first.mutation().source(),
+                            first,
+                            template);
+                    final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
+                                    required(
+                                            reader,
+                                            ColumnFamily.DEDUPE,
+                                            positionResultKey(first.mutation().source())),
+                                    TargetResultRecord.VALUE_TYPE)
+                            .payload());
+                    position.requireFirst(first);
+                    position.requireOwner(root(reader));
+                    if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                            || !position.mutation().equals(first.mutation())) {
+                        throw new IllegalStateException(
+                                "negative Source first result lost its exact POSITION companion");
+                    }
+                    reader.requireWithinElapsedBudget();
+                    return new NegativeOutcome(binding);
+                },
+                authority);
     }
 
     private OutcomeProjection unknown(
@@ -467,7 +679,8 @@ public final class TargetPublishOutcomeStore {
         }
         final var budget = TargetQuotaAttemptBudget.decodeForStore(
                 budgetKey,
-                TargetValueEnvelope.decode(rawBudget, TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
+                TargetValueEnvelope.decode(rawBudget, TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload(),
                 scope.shard());
         if (!Arrays.equals(outcome.publishAttemptId(), budget.publishAttemptId())
                 || budget.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED) {
@@ -490,7 +703,8 @@ public final class TargetPublishOutcomeStore {
             requireRetryContext(reader, generation, budget, outcome, authorization);
         }
         final boolean admittedWriter = typed
-                ? TargetPublishAdmissionBody.decode(authorization.retryContext().admission().canonicalBody())
+                ? TargetPublishAdmissionBody.decode(
+                                authorization.retryContext().admission().canonicalBody())
                         .owner()
                         .equals(writer)
                 : obligation.ownerEpoch() == writer.ownerEpoch();
@@ -498,29 +712,37 @@ public final class TargetPublishOutcomeStore {
             return OutcomeProjection.stale(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final boolean retryRequested = !generation.runtime().terminal()
-                && typed && outcome.retryDecision().hasNextRetryAt();
+                && typed
+                && outcome.retryDecision().hasNextRetryAt();
         final TargetQueueState currentQueue = retryRequested ? queue(reader, before) : null;
         if (currentQueue != null) {
             before.locator().requireQueueProjection(currentQueue);
         }
-        final TargetMessageRecord after = generation.historical() ? null
+        final TargetMessageRecord after = generation.historical()
+                ? null
                 : currentQueue != null && currentQueue.admissionState() != TargetQueueState.AdmissionState.CLOSED
                         ? before.unknownOutcomeWithRetry(
-                                outcome.publishAttemptId(), outcome.retryDecision().nextRetryAt())
+                                outcome.publishAttemptId(),
+                                outcome.retryDecision().nextRetryAt())
                         : before.unknownOutcome(outcome.publishAttemptId());
-        final var nextRuntime = after == null
-                ? generation.runtime().unknownOutcome(outcome.publishAttemptId()) : after.runtime();
+        final var nextRuntime =
+                after == null ? generation.runtime().unknownOutcome(outcome.publishAttemptId()) : after.runtime();
         final TargetQuotaAttemptBudget unknown = budget.unknown(budget.allocated(), stamp);
         final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
-        extra.add(reader.replace(ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE,
-                unknown.canonicalBytes()));
+        extra.add(reader.replace(
+                ColumnFamily.META, budgetKey, TargetQuotaAttemptBudget.VALUE_TYPE, unknown.canonicalBytes()));
         final var terminalAfter = generation.runtime().terminal()
-                ? terminalEdits(reader, generation, after, nextRuntime, stamp, extra) : null;
-        return new OutcomeProjection(generation.historical() ? null : before, after,
-                generation.historical() ? historicalOrder(reader, generation, terminalAfter,
-                        outcome.publishAttemptId(), 3, false)
+                ? terminalEdits(reader, generation, after, nextRuntime, stamp, extra)
+                : null;
+        return new OutcomeProjection(
+                generation.historical() ? null : before,
+                after,
+                generation.historical()
+                        ? historicalOrder(reader, generation, terminalAfter, outcome.publishAttemptId(), 3, false)
                         : strictOrder(reader, before, after, outcome.publishAttemptId(), false),
-                extra, null, null);
+                extra,
+                null,
+                null);
     }
 
     private OutcomeProjection definitive(
@@ -528,7 +750,9 @@ public final class TargetPublishOutcomeStore {
             final PublishOutcomeBody outcome,
             final TargetQuotaMutation stamp,
             final OwnerIdentity writer,
-            final TargetPublishOutcomeVerifier.Authorization authorization, final boolean resolution, final SystemMutation sourceMutation,
+            final TargetPublishOutcomeVerifier.Authorization authorization,
+            final boolean resolution,
+            final SystemMutation sourceMutation,
             final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
@@ -538,17 +762,20 @@ public final class TargetPublishOutcomeStore {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
         final var budget = TargetQuotaAttemptBudget.decodeForStore(
-                budgetKey, TargetValueEnvelope.decode(raw, TargetQuotaAttemptBudget.VALUE_TYPE).payload(),
+                budgetKey,
+                TargetValueEnvelope.decode(raw, TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload(),
                 scope.shard());
-        if (budget.phase() != (resolution
-                ? TargetQuotaAttemptBudget.Phase.UNKNOWN : TargetQuotaAttemptBudget.Phase.ADMITTED)) {
+        if (budget.phase()
+                != (resolution ? TargetQuotaAttemptBudget.Phase.UNKNOWN : TargetQuotaAttemptBudget.Phase.ADMITTED)) {
             return OutcomeProjection.stale(StableCode.STALE_SYSTEM_MUTATION);
         }
         final var context = authorization.evidenceContext();
         if (context == null) {
             throw new IllegalStateException("Target physical evidence authority/history is unavailable");
         }
-        final var admission = TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
+        final var admission =
+                TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
         final var proof = admissionProof(reader, context.admission());
         if (!admission.locator().equals(budget.locator())
                 || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
@@ -568,8 +795,11 @@ public final class TargetPublishOutcomeStore {
         final var evidence = PublishEvidence.decode(outcome.evidence());
         final boolean nativeHandoff = admission.nativePublication() != null;
         if (nativeHandoff) {
-            if (outcome.sideEffect() == 1) { evidence.requireNativeTargetPublishedBinding(admission.nativePublication()); }
-            else { evidence.requireNativeTargetNotPublishedBinding(admission.nativePublication()); }
+            if (outcome.sideEffect() == 1) {
+                evidence.requireNativeTargetPublishedBinding(admission.nativePublication());
+            } else {
+                evidence.requireNativeTargetNotPublishedBinding(admission.nativePublication());
+            }
         } else if (outcome.sideEffect() == 1) {
             evidence.requireOrdinaryTargetPublishedBinding(admission.publication());
         } else {
@@ -581,7 +811,8 @@ public final class TargetPublishOutcomeStore {
         }
         final var generation = generation(reader, budget.locator());
         final var before = generation.current();
-        if (!resolution && !generation.runtime().terminal()
+        if (!resolution
+                && !generation.runtime().terminal()
                 && (before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
                         || !Arrays.equals(before.runtime().publishAttemptId(), outcome.publishAttemptId()))) {
             throw new IllegalStateException("Target definitive outcome differs from current PUBLISHING work");
@@ -590,97 +821,171 @@ public final class TargetPublishOutcomeStore {
         if (outcome.retryDecision().cause() != outcome.stableCode()) {
             throw new IllegalArgumentException("Target definitive retry decision changes its observed cause");
         }
-        if(outcome.recoveryProof()!=null){
-            final var archived=Objects.requireNonNull(context.recoveryProof(),"full immutable recovery snapshot");
+        if (outcome.recoveryProof() != null) {
+            final var archived = Objects.requireNonNull(context.recoveryProof(), "full immutable recovery snapshot");
             archived.requireExact(sourceMutation);
-            if(admission.kafkaReceipt()==null||nativeHandoff||!archived.verified().reference().equals(outcome.recoveryProof()))
+            if (admission.kafkaReceipt() == null
+                    || nativeHandoff
+                    || !archived.verified().reference().equals(outcome.recoveryProof())) {
                 throw new IllegalStateException("proof-bearing Source settlement changed its original K2 snapshot");
-            if(resolution&&!Arrays.equals(outcome.evidenceCursor().canonicalBytes(),com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(
-                    archived.verified().proof().mapping(),evidence).canonicalBytes()))
+            }
+            if (resolution
+                    && !Arrays.equals(
+                            outcome.evidenceCursor().canonicalBytes(),
+                            com.nereusstream.delay.protocol.TargetKafkaReceiptWire.cursor(
+                                            archived.verified().proof().mapping(), evidence)
+                                    .canonicalBytes())) {
                 throw new IllegalStateException("recovery resolution cursor differs from archived observation");
-        } else if(context.recoveryProof()!=null){
+            }
+        } else if (context.recoveryProof() != null) {
             throw new IllegalStateException("archived recovery cannot use a legacy Source body");
         } else if (nativeHandoff) {
-            // Authenticate the retained request and its historical snapshot; current policy/lease cannot undo ownership.
-            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage).requireTrusted(
-                    admission.nativePublication().policyScope(), admission.nativePublication().policySnapshot(),
-                    proof.mutation().source());
+            // Authenticate the retained request and its historical snapshot; current policy/lease cannot undo
+            // ownership.
+            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage)
+                    .requireTrusted(
+                            admission.nativePublication().policyScope(),
+                            admission.nativePublication().policySnapshot(),
+                            proof.mutation().source());
             if (resolution) {
                 if (context.nativeResolutionAuthority() == null) {
                     throw new IllegalStateException("Target Native resolution cursor/history authority is unavailable");
                 }
-                context.nativeResolutionAuthority().requireAuthenticated(admission.nativePublication(), evidence,
-                        outcome.evidenceCursor(), proof.mutation().source(), budget.mutation().source(), stamp.source());
+                context.nativeResolutionAuthority()
+                        .requireAuthenticated(
+                                admission.nativePublication(),
+                                evidence,
+                                outcome.evidenceCursor(),
+                                proof.mutation().source(),
+                                budget.mutation().source(),
+                                stamp.source());
             } else {
-                context.nativeAuthority().requireAuthenticated(
-                        admission.nativePublication(), evidence, proof.mutation().source(), stamp.source());
+                context.nativeAuthority()
+                        .requireAuthenticated(
+                                admission.nativePublication(),
+                                evidence,
+                                proof.mutation().source(),
+                                stamp.source());
             }
         } else if (resolution) {
             if (context.resolutionAuthority() == null) {
                 throw new IllegalStateException("Target resolution cursor/history authority is unavailable");
             }
-            context.resolutionAuthority().requireAuthenticated(admission.publication(), evidence,
-                    outcome.evidenceCursor(), proof.mutation().source(), budget.mutation().source(), stamp.source());
+            context.resolutionAuthority()
+                    .requireAuthenticated(
+                            admission.publication(),
+                            evidence,
+                            outcome.evidenceCursor(),
+                            proof.mutation().source(),
+                            budget.mutation().source(),
+                            stamp.source());
         } else {
-            context.authority().requireAuthenticated(
-                    admission.publication(), evidence, proof.mutation().source(), stamp.source());
+            context.authority()
+                    .requireAuthenticated(
+                            admission.publication(), evidence, proof.mutation().source(), stamp.source());
         }
-        final TargetQueueState currentQueue = !generation.runtime().terminal() && outcome.sideEffect() == 2
-                ? queue(reader, before) : null;
+        final TargetQueueState currentQueue =
+                !generation.runtime().terminal() && outcome.sideEffect() == 2 ? queue(reader, before) : null;
         if (currentQueue != null) {
             before.locator().requireQueueProjection(currentQueue);
         }
-        final boolean closed = currentQueue != null
-                && currentQueue.admissionState() == TargetQueueState.AdmissionState.CLOSED;
-        final StableCode terminalCode = closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
-                : outcome.stableCode();
+        final boolean closed =
+                currentQueue != null && currentQueue.admissionState() == TargetQueueState.AdmissionState.CLOSED;
+        final StableCode terminalCode =
+                closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED : outcome.stableCode();
         final boolean published = outcome.sideEffect() == 1;
         final boolean permanent = closed || outcome.disposition() == 2;
         final Long retryAt = permanent || !outcome.retryDecision().hasNextRetryAt()
-                ? null : outcome.retryDecision().nextRetryAt();
-        final var claim = resolution && !generation.historical()
+                ? null
+                : outcome.retryDecision().nextRetryAt();
+        final var claim = resolution
+                        && !generation.historical()
                         && before.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
-                ? TargetClaimStore.current(reader, before) : null;
-        final TargetMessageRecord after = generation.historical() ? null
-                : resolution ? before.evidenceOutcome(outcome.publishAttemptId(), published, permanent,
-                        retryAt, claim == null ? null : claim.work(), published && nativeHandoff)
-                : before.runtime().terminal() ? before.terminalOutcome(outcome.publishAttemptId(), published)
-                : published ? nativeHandoff ? before.handedOffOutcome(outcome.publishAttemptId())
-                        : before.publishedOutcome(outcome.publishAttemptId())
-                : before.notPublishedOutcome(outcome.publishAttemptId(), closed || outcome.disposition() == 2,
-                        closed || !outcome.retryDecision().hasNextRetryAt()
-                                ? null : outcome.retryDecision().nextRetryAt());
+                ? TargetClaimStore.current(reader, before)
+                : null;
+        final TargetMessageRecord after = generation.historical()
+                ? null
+                : resolution
+                        ? before.evidenceOutcome(
+                                outcome.publishAttemptId(),
+                                published,
+                                permanent,
+                                retryAt,
+                                claim == null ? null : claim.work(),
+                                published && nativeHandoff)
+                        : before.runtime().terminal()
+                                ? before.terminalOutcome(outcome.publishAttemptId(), published)
+                                : published
+                                        ? nativeHandoff
+                                                ? before.handedOffOutcome(outcome.publishAttemptId())
+                                                : before.publishedOutcome(outcome.publishAttemptId())
+                                        : before.notPublishedOutcome(
+                                                outcome.publishAttemptId(),
+                                                closed || outcome.disposition() == 2,
+                                                closed
+                                                                || !outcome.retryDecision()
+                                                                        .hasNextRetryAt()
+                                                        ? null
+                                                        : outcome.retryDecision()
+                                                                .nextRetryAt());
         final var extra = new java.util.ArrayList<TargetStoreBackend.Edit>();
         if (claim != null) {
             stamp.requireStoreSuccessorOf(claim.creation());
             extra.add(reader.replace(ColumnFamily.INFLIGHT, claim.key(), TargetClaimRecord.VALUE_TYPE, null));
-            extra.add(reader.replace(ColumnFamily.META, claim.chargeKey(),
-                    com.nereusstream.delay.protocol.TargetQuotaClaimCharge.VALUE_TYPE, null));
+            extra.add(reader.replace(
+                    ColumnFamily.META,
+                    claim.chargeKey(),
+                    com.nereusstream.delay.protocol.TargetQuotaClaimCharge.VALUE_TYPE,
+                    null));
         }
         if (admission.kafkaReceipt() != null) {
             final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(admission.channel());
-            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-            if (slot.pendingMappingId() == null) { throw new IllegalStateException("unresolved K2 attempt has no pending slot"); }
-            final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT}, slot.pendingMappingId());
-            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
-                    TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
-                            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
+            final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                    slotKey,
+                    TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.META, slotKey),
+                                    com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                            .payload(),
+                    scope.shard());
+            if (slot.pendingMappingId() == null) {
+                throw new IllegalStateException("unresolved K2 attempt has no pending slot");
+            }
+            final byte[] mappingKey = Bytes.concat(
+                    new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT},
+                    slot.pendingMappingId());
+            final var mapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(
+                    mappingKey,
+                    TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.META, mappingKey),
+                                    com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE)
+                            .payload(),
+                    scope.shard());
             mapping.requireOriginal(context.admission(), proof.mutation().source());
             slot.requirePending(mapping);
-            if (!mapping.mutation().equals(proof.mutation()) || !Arrays.equals(mapping.recoveryLineage(), lineage)
-                    || !Arrays.equals(slot.recoveryLineage(), lineage)) { throw new IllegalStateException("K2 settlement mapping/slot lineage or Source differs"); }
-            if (published) { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(mapping, evidence); }
-            else { com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(mapping, evidence); }
-            if(outcome.recoveryProof()!=null)extra.addAll(TargetRecoveryEvidenceStore.adopt(reader,scope,lineage,mapping,budget,stamp,
-                    sourceMutation,context.recoveryProof()));
+            if (!mapping.mutation().equals(proof.mutation())
+                    || !Arrays.equals(mapping.recoveryLineage(), lineage)
+                    || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                throw new IllegalStateException("K2 settlement mapping/slot lineage or Source differs");
+            }
+            if (published) {
+                com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requirePublished(mapping, evidence);
+            } else {
+                com.nereusstream.delay.protocol.TargetKafkaReceiptWire.requireNotPublished(mapping, evidence);
+            }
+            if (outcome.recoveryProof() != null) {
+                extra.addAll(TargetRecoveryEvidenceStore.adopt(
+                        reader, scope, lineage, mapping, budget, stamp, sourceMutation, context.recoveryProof()));
+            }
             final var settled = slot.settle(mapping, stamp);
-            extra.add(reader.replace(ColumnFamily.META, slotKey,
-                    com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, settled.canonicalBytes()));
+            extra.add(reader.replace(
+                    ColumnFamily.META,
+                    slotKey,
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE,
+                    settled.canonicalBytes()));
         }
         final var resolved = budget.resolve(evidence.verificationStatus(), budget.allocated(), stamp);
-        final var payloadOwner = TargetPayloadObligationSource.owner(reader, scope, lineage, budget.locator().messageId());
+        final var payloadOwner = TargetPayloadObligationSource.owner(
+                reader, scope, lineage, budget.locator().messageId());
         payloadOwner.requireMessagePayload(generation.current());
         final var currentAfter = after == null ? generation.current() : after;
         extra.add(reader.replace(
@@ -688,44 +993,78 @@ public final class TargetPublishOutcomeStore {
         final TargetQuotaPayloadOwner nextOwner;
         if (payloadOwner.summaryQualified()) {
             final long remaining = Math.subtractExact(payloadOwner.unresolvedCount(), 1L);
-            final boolean retainPayload = TargetPayloadObligationSource.canRetain(reader, currentAfter, payloadOwner, remaining);
+            final boolean retainPayload =
+                    TargetPayloadObligationSource.canRetain(reader, currentAfter, payloadOwner, remaining);
             nextOwner = payloadOwner.resolveAttempt(budget, resolved, retainPayload, stamp, (prior, next, floor) -> {
-                if (prior != payloadOwner || floor != null || !next.summaryMutation().equals(stamp)) {
+                if (prior != payloadOwner
+                        || floor != null
+                        || !next.summaryMutation().equals(stamp)) {
                     throw new IllegalStateException("Outcome summary changed its original payload owner/Source");
                 }
             });
         } else {
-            final var original = Objects.requireNonNull(legacyPrefix,
-                    "unqualified payload resolution requires its original finite v1 prefix permit");
+            final var original = Objects.requireNonNull(
+                    legacyPrefix, "unqualified payload resolution requires its original finite v1 prefix permit");
             original.requireCurrent(reader, sourceMutation, stamp.source());
             final boolean retainPayload = payloadOwner.phase() == TargetQuotaPayloadOwner.Phase.ACTIVE
-                    && currentAfter.runtime().terminal() && currentAfter.runtime().currentWorkKind() == CurrentSendWorkKind.NONE
+                    && currentAfter.runtime().terminal()
+                    && currentAfter.runtime().currentWorkKind() == CurrentSendWorkKind.NONE
                     && currentAfter.runtime().attemptObligations().isEmpty()
                     && original.noUnresolvedAfter(reader, payloadOwner, extra)
                     && original.noLegacyCustodyAfter(reader, payloadOwner, extra);
-            nextOwner = retainPayload ? payloadOwner.retain(stamp, (prior, next, floor) -> {
-                if (prior != payloadOwner || floor != null) throw new IllegalStateException("legacy prefix changed its original retention owner");
-            }) : null;
+            nextOwner = retainPayload
+                    ? payloadOwner.retain(stamp, (prior, next, floor) -> {
+                        if (prior != payloadOwner || floor != null) {
+                            throw new IllegalStateException("legacy prefix changed its original retention owner");
+                        }
+                    })
+                    : null;
         }
-        if (nextOwner != null) extra.add(reader.replace(ColumnFamily.META, nextOwner.key(),
-                TargetQuotaPayloadOwner.VALUE_TYPE, nextOwner.canonicalBytes()));
+        if (nextOwner != null) {
+            extra.add(reader.replace(
+                    ColumnFamily.META,
+                    nextOwner.key(),
+                    TargetQuotaPayloadOwner.VALUE_TYPE,
+                    nextOwner.canonicalBytes()));
+        }
         if (generation.runtime().terminal()) {
-            final var terminalAfter = terminalEdits(reader, generation, after, after == null
-                    ? resolution ? generation.runtime().evidenceOutcome(
-                            outcome.publishAttemptId(), published, false, null)
-                            : generation.runtime().terminalOutcome(outcome.publishAttemptId(), published)
+            final var terminalAfter = terminalEdits(
+                    reader,
+                    generation,
+                    after,
+                    after == null
+                            ? resolution
+                                    ? generation
+                                            .runtime()
+                                            .evidenceOutcome(outcome.publishAttemptId(), published, false, null)
+                                    : generation.runtime().terminalOutcome(outcome.publishAttemptId(), published)
                             : after.runtime(),
-                    stamp, extra);
-            return new OutcomeProjection(generation.historical() ? null : before, after,
-                    generation.historical() ? historicalOrder(reader, generation, terminalAfter,
-                            outcome.publishAttemptId(), outcome.sideEffect(), resolution)
+                    stamp,
+                    extra);
+            return new OutcomeProjection(
+                    generation.historical() ? null : before,
+                    after,
+                    generation.historical()
+                            ? historicalOrder(
+                                    reader,
+                                    generation,
+                                    terminalAfter,
+                                    outcome.publishAttemptId(),
+                                    outcome.sideEffect(),
+                                    resolution)
                             : definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim),
-                    extra, null, null);
+                    extra,
+                    null,
+                    null);
         }
         if (!after.runtime().terminal()) {
-            return new OutcomeProjection(before, after,
+            return new OutcomeProjection(
+                    before,
+                    after,
                     definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim),
-                    extra, null, null);
+                    extra,
+                    null,
+                    null);
         }
         final var terminal = new TargetTerminalGenerationRecord(
                 after.locator(), after.stateVersion(), terminalCode, after.runtime(), stamp, lineage);
@@ -738,21 +1077,29 @@ public final class TargetPublishOutcomeStore {
             throw new IllegalStateException("current publishing Target Message lacks active payload ownership");
         }
         extra.add(reader.replace(
-                ColumnFamily.TERMINAL, terminal.key(), TargetTerminalGenerationRecord.VALUE_TYPE,
+                ColumnFamily.TERMINAL,
+                terminal.key(),
+                TargetTerminalGenerationRecord.VALUE_TYPE,
                 terminal.canonicalBytes()));
-        return new OutcomeProjection(before, after,
-                definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim), extra, null,
+        return new OutcomeProjection(
+                before,
+                after,
+                definitiveOrder(reader, before, after, outcome, resolution, permanent, retryAt, claim),
+                extra,
+                null,
                 closed ? terminalCode : null);
     }
 
     private void requireUnknownProof(final TargetStoreBackend.Reader reader, final TargetQuotaAttemptBudget budget) {
         final byte[] positionKey = positionResultKey(budget.mutation().source());
         final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE).payload());
+                        required(reader, ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
         final byte[] firstKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.DEDUPE, firstKey), TargetResultRecord.VALUE_TYPE).payload());
+                        required(reader, ColumnFamily.DEDUPE, firstKey), TargetResultRecord.VALUE_TYPE)
+                .payload());
         final var root = root(reader);
         position.requireOwner(root);
         first.requireOwner(root);
@@ -760,37 +1107,61 @@ public final class TargetPublishOutcomeStore {
         first.mutation().requireAtOrBefore(reader.aggregate().mutation());
         final var result = SystemMutationResult.decode(first.typedPayload());
         if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
-                || first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
+                || first.kind() != TargetResultRecord.Kind.SYSTEM
+                || first.allocation() != null
                 || !first.mutation().equals(budget.mutation())
                 || result.mutationType() != SystemMutationType.PUBLISH_OUTCOME
-                || result.applyStatus() != ApplyStatus.APPLIED || result.stableCode() == StableCode.OK
+                || result.applyStatus() != ApplyStatus.APPLIED
+                || result.stableCode() == StableCode.OK
                 || AuthorIdentity.decode(result.authorIdentity()).kind() != AuthorIdentity.Kind.OWNER
-                || !Arrays.equals(result.appliedSourcePosition(), budget.mutation().source().canonicalBytes())
+                || !Arrays.equals(
+                        result.appliedSourcePosition(),
+                        budget.mutation().source().canonicalBytes())
                 || !Arrays.equals(result.mutationId(), first.logicalId())
-                || !Arrays.equals(result.mutationId(), SystemMutation.computeSystemMutationId(
-                        scope.shard(), SystemMutationType.PUBLISH_OUTCOME,
-                        budget.publishAttemptId(), result.mutationHash()))) {
+                || !Arrays.equals(
+                        result.mutationId(),
+                        SystemMutation.computeSystemMutationId(
+                                scope.shard(),
+                                SystemMutationType.PUBLISH_OUTCOME,
+                                budget.publishAttemptId(),
+                                result.mutationHash()))) {
             throw new IllegalStateException("Target resolution lacks its exact applied initial UNKNOWN first result");
         }
     }
 
     private TargetMessageStore.OrderTransition definitiveOrder(
-            final TargetStoreBackend.Reader reader, final TargetMessageRecord before, final TargetMessageRecord after,
-            final PublishOutcomeBody outcome, final boolean resolution, final boolean permanent,
-            final Long retryAt, final TargetClaimRecord claim) {
+            final TargetStoreBackend.Reader reader,
+            final TargetMessageRecord before,
+            final TargetMessageRecord after,
+            final PublishOutcomeBody outcome,
+            final boolean resolution,
+            final boolean permanent,
+            final Long retryAt,
+            final TargetClaimRecord claim) {
         if (!resolution) {
             return strictOrder(reader, before, after, outcome.publishAttemptId(), outcome.sideEffect() == 1);
         }
         if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return null;
         }
-        final byte[] key = TargetKeyCodec.orderState(before.locator().target(), before.locator().orderingDomain());
-        final var state = TargetOrderState.decodeForStore(key, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE).payload(),
-                scope.shard(), queue(reader, before));
-        return new TargetMessageStore.OrderTransition(state, state.afterEvidenceResolution(before, after,
-                outcome.publishAttemptId(), outcome.sideEffect() == 1, permanent, retryAt,
-                claim == null ? null : claim.work()));
+        final byte[] key = TargetKeyCodec.orderState(
+                before.locator().target(), before.locator().orderingDomain());
+        final var state = TargetOrderState.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                queue(reader, before));
+        return new TargetMessageStore.OrderTransition(
+                state,
+                state.afterEvidenceResolution(
+                        before,
+                        after,
+                        outcome.publishAttemptId(),
+                        outcome.sideEffect() == 1,
+                        permanent,
+                        retryAt,
+                        claim == null ? null : claim.work()));
     }
 
     private record Generation(TargetMessageRecord current, TargetTerminalGenerationRecord history) {
@@ -809,8 +1180,11 @@ public final class TargetPublishOutcomeStore {
 
     private Generation generation(final TargetStoreBackend.Reader reader, final TargetMessageLocator locator) {
         final byte[] key = TargetKeyCodec.message(locator.messageId());
-        final var current = TargetMessageRecord.decodeForStore(key, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+        final var current = TargetMessageRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                        .payload(),
+                scope.shard());
         final boolean historical = !current.locator().equals(locator);
         if (historical && Integer.compareUnsigned(current.locator().generation(), locator.generation()) <= 0) {
             throw new IllegalStateException("Target Outcome budget points to another or future generation");
@@ -819,63 +1193,89 @@ public final class TargetPublishOutcomeStore {
             return new Generation(current, null);
         }
         final var history = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
-                TargetTerminalGenerationRecord.VALUE_TYPE).payload());
-        if (!history.locator().equals(locator) || !Arrays.equals(history.recoveryLineage(), lineage)
-                || !historical && (history.stateVersion() != current.stateVersion()
-                        || !history.runtime().equals(current.runtime()))) {
+                        required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
+                        TargetTerminalGenerationRecord.VALUE_TYPE)
+                .payload());
+        if (!history.locator().equals(locator)
+                || !Arrays.equals(history.recoveryLineage(), lineage)
+                || !historical
+                        && (history.stateVersion() != current.stateVersion()
+                                || !history.runtime().equals(current.runtime()))) {
             throw new IllegalStateException("Target Outcome terminal history differs from its exact generation");
         }
         history.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if (historical && locator.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
             final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
-            final var order = TargetOrderState.decodeForStore(orderKey, TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload(),
-                    scope.shard(), queue(reader, current));
+            final var order = TargetOrderState.decodeForStore(
+                    orderKey,
+                    TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    queue(reader, current));
             order.requireTerminalBarrierProjection(history);
         }
         return new Generation(current, history);
     }
 
     private TargetTerminalGenerationRecord terminalEdits(
-            final TargetStoreBackend.Reader reader, final Generation generation,
-            final TargetMessageRecord after, final TargetGenerationRuntimeIndex runtime,
-            final TargetQuotaMutation stamp, final List<TargetStoreBackend.Edit> extra) {
+            final TargetStoreBackend.Reader reader,
+            final Generation generation,
+            final TargetMessageRecord after,
+            final TargetGenerationRuntimeIndex runtime,
+            final TargetQuotaMutation stamp,
+            final List<TargetStoreBackend.Edit> extra) {
         final var history = Objects.requireNonNull(generation.history(), "terminal history");
-        final var next = new TargetTerminalGenerationRecord(history.locator(),
-                after == null ? history.stateVersion() : after.stateVersion(), history.terminalCode(), runtime,
-                history.mutation(), history.recoveryLineage());
+        final var next = new TargetTerminalGenerationRecord(
+                history.locator(),
+                after == null ? history.stateVersion() : after.stateVersion(),
+                history.terminalCode(),
+                runtime,
+                history.mutation(),
+                history.recoveryLineage());
         final byte[] payloadKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                 history.locator().messageId().bytes());
-        final var payload = TargetQuotaPayloadOwner.decodeForStore(payloadKey, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload(),
-                scope.shard(), scope.tenantScope());
+        final var payload = TargetQuotaPayloadOwner.decodeForStore(
+                payloadKey,
+                TargetValueEnvelope.decode(
+                                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                scope.tenantScope());
         history.requireOwner(payload);
         payload.requireMessagePayload(generation.current());
         payload.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if (payload.phase() != TargetQuotaPayloadOwner.Phase.ACTIVE) {
             throw new IllegalStateException("unresolved Target terminal history lacks active payload ownership");
         }
-        extra.add(reader.replace(ColumnFamily.TERMINAL, next.key(),
-                TargetTerminalGenerationRecord.VALUE_TYPE, next.canonicalBytes()));
+        extra.add(reader.replace(
+                ColumnFamily.TERMINAL, next.key(), TargetTerminalGenerationRecord.VALUE_TYPE, next.canonicalBytes()));
         return next;
     }
 
     private TargetMessageStore.OrderTransition historicalOrder(
-            final TargetStoreBackend.Reader reader, final Generation generation,
-            final TargetTerminalGenerationRecord after, final byte[] attemptId, final int effect,
+            final TargetStoreBackend.Reader reader,
+            final Generation generation,
+            final TargetTerminalGenerationRecord after,
+            final byte[] attemptId,
+            final int effect,
             final boolean resolution) {
         if (generation.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return null;
         }
         final byte[] key = TargetKeyCodec.orderState(
                 generation.locator().target(), generation.locator().orderingDomain());
-        final var before = TargetOrderState.decodeForStore(key, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE).payload(),
-                scope.shard(), queue(reader, generation.current()));
-        return new TargetMessageStore.OrderTransition(before,
-                resolution ? before.afterHistoricalEvidenceResolution(generation.history(), after, attemptId, effect)
+        final var before = TargetOrderState.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                queue(reader, generation.current()));
+        return new TargetMessageStore.OrderTransition(
+                before,
+                resolution
+                        ? before.afterHistoricalEvidenceResolution(generation.history(), after, attemptId, effect)
                         : before.afterHistoricalTerminalOutcome(generation.history(), after, attemptId, effect));
     }
 
@@ -899,8 +1299,10 @@ public final class TargetPublishOutcomeStore {
             throw new IllegalStateException("Target retry source-history context is unavailable");
         }
         final boolean resolution = outcome.evidenceCursor() != null;
-        final var current = TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
-        final var first = TargetPublishAdmissionBody.decode(context.firstAdmission().canonicalBody());
+        final var current =
+                TargetPublishAdmissionBody.decode(context.admission().canonicalBody());
+        final var first =
+                TargetPublishAdmissionBody.decode(context.firstAdmission().canonicalBody());
         final var currentResult = admissionProof(reader, context.admission());
         final var firstResult = admissionProof(reader, context.firstAdmission());
         firstResult.mutation().requireAtOrBefore(currentResult.mutation());
@@ -908,22 +1310,29 @@ public final class TargetPublishOutcomeStore {
                 || !first.locator().equals(budget.locator())
                 || first.attemptNo() != 1
                 || (resolution || generation.runtime().terminal()
-                        ? Integer.compareUnsigned(current.attemptNo(), generation.runtime().admissionsUsed()) > 0
+                        ? Integer.compareUnsigned(
+                                        current.attemptNo(),
+                                        generation.runtime().admissionsUsed())
+                                > 0
                         : current.attemptNo() != generation.runtime().admissionsUsed())
                 || !Arrays.equals(context.admission().mutationHash(), budget.admissionDigest())
                 || !resolution && !currentResult.mutation().equals(budget.mutation())
-                || !generation.runtime().attemptObligations().contains(
-                        resolution ? current.obligation().uncertain() : current.obligation())) {
+                || !generation
+                        .runtime()
+                        .attemptObligations()
+                        .contains(resolution ? current.obligation().uncertain() : current.obligation())) {
             throw new IllegalStateException("Target retry history differs from the exact applied Admission/budget");
         }
-        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(generation.locator().scheduleBindingDigest());
+        final byte[] bindingKey =
+                TargetKeyCodec.scheduleBinding(generation.locator().scheduleBindingDigest());
         final byte[] rawBinding = reader.get(ColumnFamily.ID, bindingKey);
         if (rawBinding == null) {
             throw new IllegalStateException("Target retry lacks its retained Schedule binding");
         }
         final var binding = TargetScheduleBinding.decodeForStore(
                 bindingKey,
-                TargetValueEnvelope.decode(rawBinding, TargetScheduleBinding.VALUE_TYPE).payload(),
+                TargetValueEnvelope.decode(rawBinding, TargetScheduleBinding.VALUE_TYPE)
+                        .payload(),
                 scope.shard());
         binding.requireLocator(generation.locator());
         final var policy = context.policy();
@@ -933,13 +1342,23 @@ public final class TargetPublishOutcomeStore {
         if (generation.historical() && !current.materialized()) {
             throw new IllegalStateException("historical Target retry window requires materialized Admission history");
         }
-        requireRetryDecision(generation.locator(), generation.runtime(),
-                generation.historical() ? current.nativePublication() == null
-                                ? current.publication().deliverAtEpochMs() : current.nativePublication().deliverAtEpochMs()
+        requireRetryDecision(
+                generation.locator(),
+                generation.runtime(),
+                generation.historical()
+                        ? current.nativePublication() == null
+                                ? current.publication().deliverAtEpochMs()
+                                : current.nativePublication().deliverAtEpochMs()
                         : generation.current().deliverAtEpochMs(),
-                generation.historical() ? current.nativePublication() == null
-                                ? current.publication().expireAtEpochMs() : current.nativePublication().expireAtEpochMs()
-                        : generation.current().expireAtEpochMs(), current, first, policy, outcome);
+                generation.historical()
+                        ? current.nativePublication() == null
+                                ? current.publication().expireAtEpochMs()
+                                : current.nativePublication().expireAtEpochMs()
+                        : generation.current().expireAtEpochMs(),
+                current,
+                first,
+                policy,
+                outcome);
     }
 
     static void requireRetryDecision(
@@ -948,18 +1367,30 @@ public final class TargetPublishOutcomeStore {
             final TargetPublishAdmissionBody first,
             final RetryPolicySemantic policy,
             final PublishOutcomeBody outcome) {
-        requireRetryDecision(message.locator(), message.runtime(), message.deliverAtEpochMs(),
-                message.expireAtEpochMs(), current, first, policy, outcome);
+        requireRetryDecision(
+                message.locator(),
+                message.runtime(),
+                message.deliverAtEpochMs(),
+                message.expireAtEpochMs(),
+                current,
+                first,
+                policy,
+                outcome);
     }
 
     private static void requireRetryDecision(
-            final TargetMessageLocator locator, final TargetGenerationRuntimeIndex runtime,
-            final long deliverAt, final long expireAt,
-            final TargetPublishAdmissionBody current, final TargetPublishAdmissionBody first,
-            final RetryPolicySemantic policy, final PublishOutcomeBody outcome) {
+            final TargetMessageLocator locator,
+            final TargetGenerationRuntimeIndex runtime,
+            final long deliverAt,
+            final long expireAt,
+            final TargetPublishAdmissionBody current,
+            final TargetPublishAdmissionBody first,
+            final RetryPolicySemantic policy,
+            final PublishOutcomeBody outcome) {
         TargetPublishOutcomeVerifier.requireRetryWindow(locator, deliverAt, expireAt, current, first, policy, outcome);
         final var retry = outcome.retryDecision();
-        if (retry.hasNextRetryAt() && !runtime.terminal()
+        if (retry.hasNextRetryAt()
+                && !runtime.terminal()
                 && (outcome.sideEffect() == 3 && runtime.uncertainRetryAdmissionsUsed() >= policy.maxUncertainRetries()
                         || runtime.admissionsUsed() >= policy.maxPublishAdmissions())) {
             throw new IllegalArgumentException("Target retry differs from its policy/jitter/budget");
@@ -987,7 +1418,9 @@ public final class TargetPublishOutcomeStore {
                 || result.retryUntilEpochMs() != image.retryUntilEpochMs()
                 || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
                 || !Arrays.equals(record.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
-                || !Arrays.equals(result.appliedSourcePosition(), record.mutation().source().canonicalBytes())) {
+                || !Arrays.equals(
+                        result.appliedSourcePosition(),
+                        record.mutation().source().canonicalBytes())) {
             throw new IllegalStateException("Target retry Admission image differs from its authenticated first result");
         }
         return record;
@@ -1010,7 +1443,8 @@ public final class TargetPublishOutcomeStore {
         if (before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO) {
             return null;
         }
-        final byte[] key = TargetKeyCodec.orderState(before.locator().target(), before.locator().orderingDomain());
+        final byte[] key = TargetKeyCodec.orderState(
+                before.locator().target(), before.locator().orderingDomain());
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null) {
             throw new IllegalStateException("strict Target Outcome lacks its durable order state");
@@ -1023,12 +1457,14 @@ public final class TargetPublishOutcomeStore {
         state.requireBarrierProjection(before);
         final TargetOrderState next;
         if (before.runtime().terminal()
-                && after.runtime().attemptObligations().size() < before.runtime().attemptObligations().size()) {
+                && after.runtime().attemptObligations().size()
+                        < before.runtime().attemptObligations().size()) {
             next = state.afterTerminalOutcome(before, after, attemptId, published);
         } else if (after.aggregateState() == GenerationAggregateState.PUBLISHED
                 && !before.runtime().terminal()) {
             next = state.afterPublishedOutcome(before, after);
-        } else if (after.runtime().attemptObligations().size() < before.runtime().attemptObligations().size()) {
+        } else if (after.runtime().attemptObligations().size()
+                < before.runtime().attemptObligations().size()) {
             next = state.afterNotPublishedOutcome(before, after);
         } else {
             next = state.afterUnknownOutcome(before, after);
@@ -1042,7 +1478,8 @@ public final class TargetPublishOutcomeStore {
         if (raw == null) {
             throw new IllegalStateException("strict Target Outcome lacks its queue");
         }
-        return TargetQueueState.decode(TargetValueEnvelope.decode(raw, TargetQueueState.VALUE_TYPE).payload());
+        return TargetQueueState.decode(
+                TargetValueEnvelope.decode(raw, TargetQueueState.VALUE_TYPE).payload());
     }
 
     private List<TargetStoreBackend.Edit> resultEdits(
@@ -1098,7 +1535,8 @@ public final class TargetPublishOutcomeStore {
         }
         final var root = TargetQuotaIncarnation.decodeForStore(
                 key,
-                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE)
+                        .payload(),
                 scope.shard(),
                 scope.tenantScope());
         if (!Arrays.equals(root.recoveryLineage(), lineage)) {

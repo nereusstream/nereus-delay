@@ -23,8 +23,8 @@ import com.nereusstream.delay.store.BoundedReadBudget;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.ShardStore;
 import com.nereusstream.delay.store.StoreMetadata;
-import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetCheckpointDependencies;
+import com.nereusstream.delay.store.TargetCheckpointRootVerifier;
 import com.nereusstream.delay.store.TargetKeyCodec;
 import com.nereusstream.delay.store.TargetStoreBackend;
 import com.nereusstream.delay.store.TargetValueEnvelope;
@@ -98,8 +98,11 @@ public final class TargetStoreBootstrap {
         private final ShardStore.ReadView view;
         private final TargetCheckpointDependencies dependencies;
 
-        private Reopened(final TargetStoreBackend backend, final TargetQuotaIncarnation root,
-                final ShardStore.ReadView view, final TargetCheckpointDependencies dependencies) {
+        private Reopened(
+                final TargetStoreBackend backend,
+                final TargetQuotaIncarnation root,
+                final ShardStore.ReadView view,
+                final TargetCheckpointDependencies dependencies) {
             this.backend = backend;
             this.root = root;
             this.view = view;
@@ -119,7 +122,9 @@ public final class TargetStoreBootstrap {
             return view;
         }
         /** The actual complete dependency fold from this same Native read view, never caller supplied. */
-        public TargetCheckpointDependencies dependencies() { return Objects.requireNonNull(dependencies, "this reopen did not retain archive dependencies"); }
+        public TargetCheckpointDependencies dependencies() {
+            return Objects.requireNonNull(dependencies, "this reopen did not retain archive dependencies");
+        }
     }
 
     /** Actual Source-applied SLO material at one audited reopen cut; this does not close any old writer domain. */
@@ -132,23 +137,54 @@ public final class TargetStoreBootstrap {
 
         private SloRecoveryAudit(Reopened reopened, SloFacts facts) {
             this.reopened = reopened;
-            cut = facts.cut(); generations = facts.generations(); writers = facts.writers();
+            cut = facts.cut();
+            generations = facts.generations();
+            writers = facts.writers();
             retainedBytes = facts.retainedBytes();
         }
 
-        public Reopened reopened() { return reopened; }
-        public TargetQuotaIncarnation root() { return reopened.root(); }
-        public TargetQuotaScope scope() { return root().scope(); }
-        public byte[] lineage() { return root().recoveryLineage(); }
-        public TargetQuotaMutation cut() { return cut; }
-        public List<TargetSloObservationGeneration> generations() { return generations; }
-        public List<TargetSloWriterEpoch> writers() { return writers; }
-        public long retainedBytes() { return retainedBytes; }
+        public Reopened reopened() {
+            return reopened;
+        }
+
+        public TargetQuotaIncarnation root() {
+            return reopened.root();
+        }
+
+        public TargetQuotaScope scope() {
+            return root().scope();
+        }
+
+        public byte[] lineage() {
+            return root().recoveryLineage();
+        }
+
+        public TargetQuotaMutation cut() {
+            return cut;
+        }
+
+        public List<TargetSloObservationGeneration> generations() {
+            return generations;
+        }
+
+        public List<TargetSloWriterEpoch> writers() {
+            return writers;
+        }
+
+        public long retainedBytes() {
+            return retainedBytes;
+        }
     }
 
-    private record SloFacts(TargetQuotaMutation cut, List<TargetSloObservationGeneration> generations,
-            List<TargetSloWriterEpoch> writers, long retainedBytes) {}
-    private record ReopenFacts(TargetCheckpointRootVerifier.RootProof proof, TargetCheckpointDependencies dependencies, SloFacts slo) {}
+    private record SloFacts(
+            TargetQuotaMutation cut,
+            List<TargetSloObservationGeneration> generations,
+            List<TargetSloWriterEpoch> writers,
+            long retainedBytes) {}
+
+    private record ReopenFacts(
+            TargetCheckpointRootVerifier.RootProof proof, TargetCheckpointDependencies dependencies, SloFacts slo) {}
+
     private record ReopenResult(Reopened reopened, SloRecoveryAudit slo) {}
 
     /** Rebuilds the exact Target root after Store reopen; external Owner/recovery authority must guard the read. */
@@ -172,10 +208,15 @@ public final class TargetStoreBootstrap {
         return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0).reopened();
     }
     /** Retains this existing complete fold only while post-T startup authenticates its original raw archive inputs. */
-    public static Reopened reopenForArchiveRecovery(final ShardStore store, final TargetQuotaScope scope,
-            final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
-            final TargetStoreBackend.ReadAuthority reads, final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
-        return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0, true).reopened();
+    public static Reopened reopenForArchiveRecovery(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, 0, true)
+                .reopened();
     }
 
     public static SloRecoveryAudit reopenForSloRecovery(
@@ -185,8 +226,8 @@ public final class TargetStoreBootstrap {
             final BoundedReadBudget budget,
             final TargetStoreBackend.ReadAuthority reads,
             final long maximumRetainedBytes) {
-        return reopenForSloRecovery(store, scope, limits, budget, reads, DEFAULT_REOPEN_LEDGER_AUDIT_LIMITS,
-                maximumRetainedBytes);
+        return reopenForSloRecovery(
+                store, scope, limits, budget, reads, DEFAULT_REOPEN_LEDGER_AUDIT_LIMITS, maximumRetainedBytes);
     }
 
     /** Retains every SLO generation and writer row from the original full fold under a separate finite byte bound. */
@@ -201,7 +242,8 @@ public final class TargetStoreBootstrap {
         if (maximumRetainedBytes <= 0 || maximumRetainedBytes == Long.MAX_VALUE) {
             throw new IllegalArgumentException("SLO recovery facts require an independent finite retained-byte bound");
         }
-        return reopen0(store, scope, limits, budget, reads, ledgerLimits, maximumRetainedBytes).slo();
+        return reopen0(store, scope, limits, budget, reads, ledgerLimits, maximumRetainedBytes)
+                .slo();
     }
 
     private static ReopenResult reopen0(
@@ -214,10 +256,16 @@ public final class TargetStoreBootstrap {
             final long maximumRetainedBytes) {
         return reopen0(store, scope, limits, budget, reads, ledgerLimits, maximumRetainedBytes, false);
     }
-    private static ReopenResult reopen0(final ShardStore store, final TargetQuotaScope scope,
-            final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
-            final TargetStoreBackend.ReadAuthority reads, final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
-            final long maximumRetainedBytes, final boolean retainArchiveDependencies) {
+
+    private static ReopenResult reopen0(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final TargetStoreBackend.ReadAuthority reads,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final long maximumRetainedBytes,
+            final boolean retainArchiveDependencies) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
@@ -292,10 +340,12 @@ public final class TargetStoreBootstrap {
                 bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
                 final var proof = new TargetCheckpointRootVerifier.RootProof(
                         store.metadata(), source, sequence, persistedRoot, bookkeeping, aggregate);
-                final var dependencies = TargetCheckpointRootVerifier.auditLiveStoreDependencies(
-                        store, proof, ledgerLimits, budget);
-                return new ReopenFacts(proof, dependencies, maximumRetainedBytes == 0 ? null
-                        : sloFacts(proof, dependencies, maximumRetainedBytes));
+                final var dependencies =
+                        TargetCheckpointRootVerifier.auditLiveStoreDependencies(store, proof, ledgerLimits, budget);
+                return new ReopenFacts(
+                        proof,
+                        dependencies,
+                        maximumRetainedBytes == 0 ? null : sloFacts(proof, dependencies, maximumRetainedBytes));
             });
             return store.withReadView(plan.view(), () -> {
                 guard.requireCurrent();
@@ -303,15 +353,19 @@ public final class TargetStoreBootstrap {
                 final var reopened = new Reopened(
                         new TargetStoreBackend(
                                 store, scope, root.identity().accountingIncarnation(), root.recoveryLineage(), limits),
-                        root, plan.view(), retainArchiveDependencies ? plan.value().dependencies() : null);
+                        root,
+                        plan.view(),
+                        retainArchiveDependencies ? plan.value().dependencies() : null);
                 final var facts = plan.value().slo();
                 return new ReopenResult(reopened, facts == null ? null : new SloRecoveryAudit(reopened, facts));
             });
         }
     }
 
-    private static SloFacts sloFacts(TargetCheckpointRootVerifier.RootProof proof,
-            TargetCheckpointDependencies dependencies, long maximumRetainedBytes) {
+    private static SloFacts sloFacts(
+            TargetCheckpointRootVerifier.RootProof proof,
+            TargetCheckpointDependencies dependencies,
+            long maximumRetainedBytes) {
         final var cut = proof.aggregate().mutation();
         long bytes = retained(0, proof.root().canonicalBytes().length, maximumRetainedBytes);
         bytes = retained(bytes, cut.canonicalBytes().length, maximumRetainedBytes);
@@ -346,24 +400,45 @@ public final class TargetStoreBootstrap {
             final SourcePosition source,
             final TargetQuotaGrantControlVerifier.Authority grants,
             final StartAuthority start) {
-        return prepareInitial(store, scope, lineage, limits, budget, control, mutation, source, grants, start,
-                null, null);
+        return prepareInitial(
+                store, scope, lineage, limits, budget, control, mutation, source, grants, start, null, null);
     }
 
     /** Authenticates issuer/reader set/immutable profile pins before any Store read or mutation. */
     @FunctionalInterface
     public interface InitialControlAuthority {
-        java.security.PublicKey authenticate(TargetControlSnapshotInput snapshot, PreparedControlOperation control,
-                SystemMutation mutation, SourcePosition source);
+        java.security.PublicKey authenticate(
+                TargetControlSnapshotInput snapshot,
+                PreparedControlOperation control,
+                SystemMutation mutation,
+                SourcePosition source);
     }
 
     /** Complete initial-control form; old Source grant bytes and their fixed projection fees are unchanged. */
-    public static Prepared prepareWithControlSnapshot(final ShardStore store, final TargetQuotaScope scope,
-            final byte[] lineage, final TargetStoreBackend.WriteLimits limits, final BoundedReadBudget budget,
-            final PreparedControlOperation control, final SystemMutation mutation, final SourcePosition source,
-            final TargetQuotaGrantControlVerifier.Authority grants, final StartAuthority start,
-            final TargetControlSnapshotInput snapshot, final InitialControlAuthority snapshotAuthority) {
-        return prepareInitial(store, scope, lineage, limits, budget, control, mutation, source, grants, start,
+    public static Prepared prepareWithControlSnapshot(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final byte[] lineage,
+            final TargetStoreBackend.WriteLimits limits,
+            final BoundedReadBudget budget,
+            final PreparedControlOperation control,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final TargetQuotaGrantControlVerifier.Authority grants,
+            final StartAuthority start,
+            final TargetControlSnapshotInput snapshot,
+            final InitialControlAuthority snapshotAuthority) {
+        return prepareInitial(
+                store,
+                scope,
+                lineage,
+                limits,
+                budget,
+                control,
+                mutation,
+                source,
+                grants,
+                start,
                 Objects.requireNonNull(snapshot, "snapshot"),
                 Objects.requireNonNull(snapshotAuthority, "snapshotAuthority"));
     }
@@ -378,7 +453,8 @@ public final class TargetStoreBootstrap {
             final SystemMutation mutation,
             final SourcePosition source,
             final TargetQuotaGrantControlVerifier.Authority grants,
-            final StartAuthority start, final TargetControlSnapshotInput snapshot,
+            final StartAuthority start,
+            final TargetControlSnapshotInput snapshot,
             final InitialControlAuthority snapshotAuthority) {
         Objects.requireNonNull(store, "store");
         Objects.requireNonNull(scope, "scope");
@@ -397,8 +473,8 @@ public final class TargetStoreBootstrap {
         }
         if (snapshot != null) {
             snapshot.requireInitial(scope, lineage, request.next(), source, Bytes.sha256(mutation.canonicalEnvelope()));
-            final var key = Objects.requireNonNull(snapshotAuthority.authenticate(snapshot, control, mutation, source),
-                    "snapshot issuer key");
+            final var key = Objects.requireNonNull(
+                    snapshotAuthority.authenticate(snapshot, control, mutation, source), "snapshot issuer key");
             if (!snapshot.verifySignature(key)) {
                 throw new IllegalArgumentException("Target snapshot signature invalid");
             }
@@ -442,30 +518,32 @@ public final class TargetStoreBootstrap {
                 final var first = TargetResultRecord.system(root, outcome, stamp, null, results);
                 final var position = TargetResultRecord.position(root, first, stamp, results);
                 final var edits = new java.util.ArrayList<TargetStoreBackend.Edit>(List.of(
-                                        reader.replace(
-                                                ColumnFamily.META,
-                                                root.key(),
-                                                TargetQuotaIncarnation.VALUE_TYPE,
-                                                root.canonicalBytes()),
-                                        reader.replace(
-                                                ColumnFamily.META,
-                                                change.after().key(),
-                                                TargetQuotaGrantActivation.VALUE_TYPE,
-                                                change.after().canonicalBytes()),
-                                        reader.replace(
-                                                ColumnFamily.DEDUPE,
-                                                first.key(),
-                                                TargetResultRecord.VALUE_TYPE,
-                                                first.canonicalBytes()),
-                                        reader.replace(
-                                                ColumnFamily.DEDUPE,
-                                                position.key(),
-                                                TargetResultRecord.VALUE_TYPE,
-                                                position.canonicalBytes())));
+                        reader.replace(
+                                ColumnFamily.META,
+                                root.key(),
+                                TargetQuotaIncarnation.VALUE_TYPE,
+                                root.canonicalBytes()),
+                        reader.replace(
+                                ColumnFamily.META,
+                                change.after().key(),
+                                TargetQuotaGrantActivation.VALUE_TYPE,
+                                change.after().canonicalBytes()),
+                        reader.replace(
+                                ColumnFamily.DEDUPE,
+                                first.key(),
+                                TargetResultRecord.VALUE_TYPE,
+                                first.canonicalBytes()),
+                        reader.replace(
+                                ColumnFamily.DEDUPE,
+                                position.key(),
+                                TargetResultRecord.VALUE_TYPE,
+                                position.canonicalBytes())));
                 if (snapshot != null) {
-                    final var persisted = new TargetInitialControlSnapshot(snapshot, root.identity(), stamp,
-                            change.after(), mutation.authorIdentity());
-                    edits.add(reader.replace(ColumnFamily.META, persisted.key(),
+                    final var persisted = new TargetInitialControlSnapshot(
+                            snapshot, root.identity(), stamp, change.after(), mutation.authorIdentity());
+                    edits.add(reader.replace(
+                            ColumnFamily.META,
+                            persisted.key(),
                             TargetInitialControlSnapshot.VALUE_TYPE,
                             persisted.canonicalBytes()));
                 }

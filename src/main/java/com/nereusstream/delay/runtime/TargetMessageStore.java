@@ -275,7 +275,9 @@ public final class TargetMessageStore {
             if (transition.after() != null
                     && (transition.after().runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
                             || transition.after().runtime().currentWorkKind() == CurrentSendWorkKind.PUBLISHING)) {
-                TargetMigrationStore.requireSendAllowed(reader, transition.after().locator().messageId(),
+                TargetMigrationStore.requireSendAllowed(
+                        reader,
+                        transition.after().locator().messageId(),
                         transition.after().locator().generation());
             }
             requireWorkRouting(reader, transition.before(), List.of());
@@ -487,16 +489,20 @@ public final class TargetMessageStore {
                 state.requireBarrierProjection(current);
             } else {
                 if (Integer.compareUnsigned(
-                        current.locator().generation(), state.barrier().locator().generation()) <= 0) {
+                                current.locator().generation(),
+                                state.barrier().locator().generation())
+                        <= 0) {
                     throw new IllegalStateException("strict barrier points to a foreign or future generation");
                 }
-                final byte[] key = TargetTerminalGenerationRecord.key(state.barrier().locator());
+                final byte[] key =
+                        TargetTerminalGenerationRecord.key(state.barrier().locator());
                 final byte[] raw = reader.projected(ColumnFamily.TERMINAL, key, overlay);
                 if (raw == null) {
                     throw new IllegalStateException("historical strict barrier lacks its terminal summary");
                 }
                 final var terminal = TargetTerminalGenerationRecord.decode(
-                        TargetValueEnvelope.decode(raw, TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                        TargetValueEnvelope.decode(raw, TargetTerminalGenerationRecord.VALUE_TYPE)
+                                .payload());
                 state.requireTerminalBarrierProjection(terminal);
             }
         }

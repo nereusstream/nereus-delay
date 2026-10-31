@@ -240,47 +240,78 @@ public final class TargetMessageRecord {
 
     public TargetMessageRecord terminalOutcome(final byte[] attemptId, final boolean published) {
         return new TargetMessageRecord(
-                locator, TargetQueueState.nextRevision(stateVersion), deliverAtEpochMs, expireAtEpochMs,
-                retryEligibilityAtEpochMs, nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                retryEligibilityAtEpochMs,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
                 runtime.terminalOutcome(attemptId, published));
     }
 
     /** A reversible Claim must be revoked by the Source committer when its obligation snapshot changes. */
     public TargetMessageRecord evidenceOutcome(
-            final byte[] attemptId, final boolean published, final boolean permanent,
-            final Long nextRetryAt, final TargetTimelineWorkRef claimedWork) {
+            final byte[] attemptId,
+            final boolean published,
+            final boolean permanent,
+            final Long nextRetryAt,
+            final TargetTimelineWorkRef claimedWork) {
         return evidenceOutcome(attemptId, published, permanent, nextRetryAt, claimedWork, false);
     }
 
     public TargetMessageRecord evidenceOutcome(
-            final byte[] attemptId, final boolean published, final boolean permanent,
-            final Long nextRetryAt, final TargetTimelineWorkRef claimedWork, final boolean nativeHandoff) {
+            final byte[] attemptId,
+            final boolean published,
+            final boolean permanent,
+            final Long nextRetryAt,
+            final TargetTimelineWorkRef claimedWork,
+            final boolean nativeHandoff) {
         final boolean uncertainRemaining = runtime.attemptObligations().stream()
                 .anyMatch(ref -> !Arrays.equals(ref.publishAttemptId(), attemptId)
                         && ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
         final TargetTimelineWorkRef retry;
-        if (runtime.terminal() || published || permanent
+        if (runtime.terminal()
+                || published
+                || permanent
                 || runtime.currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
             retry = null;
         } else if (uncertainRemaining) {
             final var prior = runtime.currentWorkKind() == CurrentSendWorkKind.CLAIMED
-                    ? Objects.requireNonNull(claimedWork, "revoked Claim work") : runtime.timeline();
-            retry = prior == null ? null : prior.withRuntimeRevision(
-                    TargetQueueState.nextRevision(runtime.runtimeRevision()));
+                    ? Objects.requireNonNull(claimedWork, "revoked Claim work")
+                    : runtime.timeline();
+            retry = prior == null
+                    ? null
+                    : prior.withRuntimeRevision(TargetQueueState.nextRevision(runtime.runtimeRevision()));
         } else {
             if (nextRetryAt == null || nextRetryAt < 0 || Math.max(deliverAtEpochMs, nextRetryAt) >= expireAtEpochMs) {
                 throw new IllegalArgumentException("resolved Target evidence lacks a valid definitive retry window");
             }
-            retry = new TargetTimelineWorkRef(locator, TimelineWorkKind.DEFINITIVE_RETRY, deliverAtEpochMs,
-                    Math.max(deliverAtEpochMs, nextRetryAt), scheduleSource.sourceOrderToken(),
+            retry = new TargetTimelineWorkRef(
+                    locator,
+                    TimelineWorkKind.DEFINITIVE_RETRY,
+                    deliverAtEpochMs,
+                    Math.max(deliverAtEpochMs, nextRetryAt),
+                    scheduleSource.sourceOrderToken(),
                     Math.addExact(runtime.admissionsUsed(), 1),
                     TargetQueueState.nextRevision(runtime.runtimeRevision()),
-                    UncertainRetryAuthority.NONE, null, null, false);
+                    UncertainRetryAuthority.NONE,
+                    null,
+                    null,
+                    false);
         }
-        return new TargetMessageRecord(locator, TargetQueueState.nextRevision(stateVersion),
-                deliverAtEpochMs, expireAtEpochMs,
+        return new TargetMessageRecord(
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
                 retry == null ? retryEligibilityAtEpochMs : retry.retryEligibilityAtEpochMs(),
-                nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
                 runtime.evidenceOutcome(attemptId, published, permanent, retry, nativeHandoff));
     }
 
@@ -298,18 +329,30 @@ public final class TargetMessageRecord {
                 throw new IllegalArgumentException("definitive retry is outside the current Message window");
             }
             retry = new TargetTimelineWorkRef(
-                    locator, TimelineWorkKind.DEFINITIVE_RETRY, deliverAtEpochMs,
-                    Math.max(deliverAtEpochMs, nextRetryAt), scheduleSource.sourceOrderToken(),
+                    locator,
+                    TimelineWorkKind.DEFINITIVE_RETRY,
+                    deliverAtEpochMs,
+                    Math.max(deliverAtEpochMs, nextRetryAt),
+                    scheduleSource.sourceOrderToken(),
                     Math.addExact(runtime.admissionsUsed(), 1),
                     TargetQueueState.nextRevision(runtime.runtimeRevision()),
-                    UncertainRetryAuthority.NONE, null, null, false);
+                    UncertainRetryAuthority.NONE,
+                    null,
+                    null,
+                    false);
         } else {
             retry = null;
         }
         return new TargetMessageRecord(
-                locator, TargetQueueState.nextRevision(stateVersion), deliverAtEpochMs, expireAtEpochMs,
+                locator,
+                TargetQueueState.nextRevision(stateVersion),
+                deliverAtEpochMs,
+                expireAtEpochMs,
                 retry == null ? retryEligibilityAtEpochMs : retry.retryEligibilityAtEpochMs(),
-                nativeDeliveryPolicy, scheduleSource, inlinePayload, payloadReference,
+                nativeDeliveryPolicy,
+                scheduleSource,
+                inlinePayload,
+                payloadReference,
                 runtime.notPublishedOutcome(attemptId, permanent, retry));
     }
 

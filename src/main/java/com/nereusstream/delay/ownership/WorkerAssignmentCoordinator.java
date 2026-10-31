@@ -95,7 +95,8 @@ public final class WorkerAssignmentCoordinator {
      */
     public WorkerAssignment requireAccepted(
             final ShardId shardId, final long expectedRevision, final WorkerAssignment expectedAssignment) {
-        return requireAcceptedPublication(shardId, expectedRevision, expectedAssignment).assignment();
+        return requireAcceptedPublication(shardId, expectedRevision, expectedAssignment)
+                .assignment();
     }
 
     WorkerAssignmentAuthority.Publication requireAcceptedPublication(

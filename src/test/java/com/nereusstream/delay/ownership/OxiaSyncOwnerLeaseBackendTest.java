@@ -215,7 +215,8 @@ class OxiaSyncOwnerLeaseBackendTest {
         assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-epoch-create-loss", 100, 50));
         assertTrue(backend.current(shard).isEmpty());
 
-        final OwnerLease acquired = backend.acquire(shard, "worker-epoch-create-retry", 101, 50).orElseThrow();
+        final OwnerLease acquired =
+                backend.acquire(shard, "worker-epoch-create-retry", 101, 50).orElseThrow();
         assertEquals(2, acquired.ownerEpoch());
     }
 
@@ -232,7 +233,8 @@ class OxiaSyncOwnerLeaseBackendTest {
         assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-epoch-update-loss-2", 200, 50));
         assertTrue(backend.current(shard).isEmpty());
 
-        final OwnerLease reacquired = backend.acquire(shard, "worker-epoch-update-retry", 201, 50).orElseThrow();
+        final OwnerLease reacquired =
+                backend.acquire(shard, "worker-epoch-update-retry", 201, 50).orElseThrow();
         assertEquals(3, reacquired.ownerEpoch());
     }
 
@@ -245,7 +247,11 @@ class OxiaSyncOwnerLeaseBackendTest {
 
         assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-lost-create", 100, 50));
         assertTrue(backend.current(shard).isEmpty());
-        assertEquals(2, backend.acquire(shard, "worker-after-create-race", 101, 50).orElseThrow().ownerEpoch());
+        assertEquals(
+                2,
+                backend.acquire(shard, "worker-after-create-race", 101, 50)
+                        .orElseThrow()
+                        .ownerEpoch());
     }
 
     @Test
@@ -259,7 +265,11 @@ class OxiaSyncOwnerLeaseBackendTest {
 
         assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-lost-update", 200, 50));
         assertTrue(backend.current(shard).isEmpty());
-        assertEquals(3, backend.acquire(shard, "worker-after-update-race", 201, 50).orElseThrow().ownerEpoch());
+        assertEquals(
+                3,
+                backend.acquire(shard, "worker-after-update-race", 201, 50)
+                        .orElseThrow()
+                        .ownerEpoch());
     }
 
     @Test
@@ -329,8 +339,8 @@ class OxiaSyncOwnerLeaseBackendTest {
             }
             if (failNextEpochPutWithCompetingCommit && key.contains("/epoch/")) {
                 failNextEpochPutWithCompetingCommit = false;
-                final Version competingVersion = new Version(
-                        nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+                final Version competingVersion =
+                        new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
                 records.put(key, new Entry(new GetResult(key, Bytes.copy(value), competingVersion)));
                 throw new IllegalStateException("simulated response loss after competing epoch CAS");
             }

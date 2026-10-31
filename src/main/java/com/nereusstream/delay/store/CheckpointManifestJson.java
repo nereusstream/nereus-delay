@@ -110,9 +110,19 @@ final class CheckpointManifestJson {
         "resourceToken"
     };
     private static final String[] TARGET_PULSAR_EVIDENCE_KEYS = {
-        "batchIndex", "batchSize", "entryId", "evidenceGeneration", "evidenceKind", "evidenceResourceIncarnation",
-        "ledgerId", "maxBrokerPersistedAtThroughCursor", "physicalPartition", "physicalTopic",
-        "physicalTopicCreationTimestamp", "resourceToken", "targetScope"
+        "batchIndex",
+        "batchSize",
+        "entryId",
+        "evidenceGeneration",
+        "evidenceKind",
+        "evidenceResourceIncarnation",
+        "ledgerId",
+        "maxBrokerPersistedAtThroughCursor",
+        "physicalPartition",
+        "physicalTopic",
+        "physicalTopicCreationTimestamp",
+        "resourceToken",
+        "targetScope"
     };
 
     private CheckpointManifestJson() {}

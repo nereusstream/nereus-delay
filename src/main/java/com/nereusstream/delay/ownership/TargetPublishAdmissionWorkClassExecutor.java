@@ -56,15 +56,17 @@ public final class TargetPublishAdmissionWorkClassExecutor {
                 if (!same) {
                     throw new IllegalStateException("Target Admission already retains another exact signed image");
                 }
-                if (!pending.actionOutstanding && (pending.append == null
-                        || pending.append.disposition() != ShardLogMutationAppender.AppendDisposition.PERSISTED)) {
+                if (!pending.actionOutstanding
+                        && (pending.append == null
+                                || pending.append.disposition()
+                                        != ShardLogMutationAppender.AppendDisposition.PERSISTED)) {
                     enqueue(pending, clock);
                 }
                 return pending;
             }
         }
-        final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-admission/" + Bytes.hex(Bytes.sha256(frame)), frame.length);
+        final var task = new WorkClassTask(
+                WorkClass.OUTCOME_AND_CONTROL, "target-admission/" + Bytes.hex(Bytes.sha256(frame)), frame.length);
         final var submission = new Submission(image, task);
         pending = submission;
         if (readFirstResult(submission, clock).isPresent()) {
@@ -149,10 +151,24 @@ public final class TargetPublishAdmissionWorkClassExecutor {
             this.task = task;
         }
 
-        public SystemMutation mutation() { return mutation; }
-        public WorkClassTask task() { return task; }
-        public Optional<ShardLogMutationAppender.AppendOutcome> append() { return Optional.ofNullable(append); }
-        public Optional<SystemMutationResult> firstResult() { return Optional.ofNullable(first); }
-        public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        public SystemMutation mutation() {
+            return mutation;
+        }
+
+        public WorkClassTask task() {
+            return task;
+        }
+
+        public Optional<ShardLogMutationAppender.AppendOutcome> append() {
+            return Optional.ofNullable(append);
+        }
+
+        public Optional<SystemMutationResult> firstResult() {
+            return Optional.ofNullable(first);
+        }
+
+        public Optional<Throwable> failure() {
+            return Optional.ofNullable(failure);
+        }
     }
 }

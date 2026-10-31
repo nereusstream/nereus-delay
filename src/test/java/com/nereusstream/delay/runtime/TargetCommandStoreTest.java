@@ -168,17 +168,20 @@ import org.junit.jupiter.params.provider.CsvSource;
 class TargetCommandStoreTest {
     @TempDir
     Path root;
+
     private OwnerLeaseStore ownerDelegate;
     private byte[] connectedOwnerSession;
     private OxiaOwnerLeaseStore takeoverLeases;
     private byte[] takeoverSession;
     private boolean checkpointAdmissionImages;
 
-    private record CheckpointImageContext(List<ProfileSemanticEnvelope> profiles,
+    private record CheckpointImageContext(
+            List<ProfileSemanticEnvelope> profiles,
             List<TargetCheckpointDependencies.ControlImage> controls,
             List<TargetCheckpointDependencies.OutcomeImage> outcomes,
             java.util.Map<String, TargetPublishOutcomeVerifier.Authorization> outcomeAuthorizations,
-            InMemoryControlTargetRegistrationAuthority registrations, ControlAuthorizationContext actor,
+            InMemoryControlTargetRegistrationAuthority registrations,
+            ControlAuthorizationContext actor,
             WorkClassExecutionRegistry workClasses) {}
 
     @org.junit.jupiter.api.Test
@@ -196,14 +199,14 @@ class TargetCommandStoreTest {
 
     private void runRealOxiaTargetOutcome(int mode) throws Exception {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
-        org.junit.jupiter.api.Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
-                "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
         final String configuredNamespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
-        final String namespace = configuredNamespace == null || configuredNamespace.isBlank()
-                ? "default" : configuredNamespace;
+        final String namespace =
+                configuredNamespace == null || configuredNamespace.isBlank() ? "default" : configuredNamespace;
         final String prefix = "nereus-delay-target-publish-recovery/" + java.util.UUID.randomUUID();
         try (var first = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
-                endpoint, namespace, "target-publish-owner-a", java.time.Duration.ofSeconds(15), prefix);
+                        endpoint, namespace, "target-publish-owner-a", java.time.Duration.ofSeconds(15), prefix);
                 var second = com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
                         endpoint, namespace, "target-publish-owner-b", java.time.Duration.ofSeconds(15), prefix)) {
             ownerDelegate = new OxiaOwnerLeaseStore(first.backend());
@@ -226,8 +229,7 @@ class TargetCommandStoreTest {
     @org.junit.jupiter.api.Test
     void checkpointAdmissionAuthenticationPreservesUnknownAndResolvedOriginalSource() throws Exception {
         checkpointAdmissionImages = true;
-        modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
-                true, false, false, false, false, true, false, 31);
+        modifiesActualTimelineOrClaimWithHistoryAndFirstResults(true, false, false, false, false, true, false, 31);
     }
 
     private byte[] ownerSession(final int fixture) {
@@ -236,31 +238,50 @@ class TargetCommandStoreTest {
 
     @ParameterizedTest
     @CsvSource({
-        "false,false,false,false,false,false,false,0", "true,false,false,false,false,false,false,0",
-        "false,true,false,false,false,false,false,0", "true,true,false,false,false,false,false,0",
+        "false,false,false,false,false,false,false,0",
+        "true,false,false,false,false,false,false,0",
+        "false,true,false,false,false,false,false,0",
+        "true,true,false,false,false,false,false,0",
         "true,false,true,false,false,false,false,0",
-        "true,false,false,true,false,false,false,0", "true,false,false,true,true,false,false,0",
+        "true,false,false,true,false,false,false,0",
+        "true,false,false,true,true,false,false,0",
         "true,false,false,false,false,true,false,0",
         "true,false,false,false,false,true,true,0",
-        "true,false,false,false,false,true,false,1", "true,false,false,false,false,true,false,2",
-        "true,false,false,false,false,true,false,3", "true,false,false,false,false,true,false,4",
+        "true,false,false,false,false,true,false,1",
+        "true,false,false,false,false,true,false,2",
+        "true,false,false,false,false,true,false,3",
+        "true,false,false,false,false,true,false,4",
         "true,false,false,false,false,true,false,5",
-        "true,false,false,false,false,true,false,6", "true,false,false,false,false,true,false,7",
-        "true,false,false,false,false,true,false,8", "true,false,false,false,false,true,false,9",
-        "true,false,false,false,false,true,false,10", "true,false,false,false,false,true,false,11",
-        "true,false,false,false,false,true,false,12", "true,false,false,false,false,true,false,13",
-        "true,false,false,false,false,true,false,14", "true,false,false,false,false,true,false,15",
-        "true,false,false,false,false,true,false,16", "true,false,false,false,false,true,false,17",
-        "true,false,false,false,false,true,false,18", "true,false,false,false,false,true,false,19",
-        "true,false,false,false,false,true,false,20", "true,false,false,false,false,true,false,21",
-        "true,false,false,false,false,true,false,22", "true,false,false,false,false,true,false,23",
-        "true,false,false,false,false,true,false,24", "true,false,false,false,false,true,false,25",
+        "true,false,false,false,false,true,false,6",
+        "true,false,false,false,false,true,false,7",
+        "true,false,false,false,false,true,false,8",
+        "true,false,false,false,false,true,false,9",
+        "true,false,false,false,false,true,false,10",
+        "true,false,false,false,false,true,false,11",
+        "true,false,false,false,false,true,false,12",
+        "true,false,false,false,false,true,false,13",
+        "true,false,false,false,false,true,false,14",
+        "true,false,false,false,false,true,false,15",
+        "true,false,false,false,false,true,false,16",
+        "true,false,false,false,false,true,false,17",
+        "true,false,false,false,false,true,false,18",
+        "true,false,false,false,false,true,false,19",
+        "true,false,false,false,false,true,false,20",
+        "true,false,false,false,false,true,false,21",
+        "true,false,false,false,false,true,false,22",
+        "true,false,false,false,false,true,false,23",
+        "true,false,false,false,false,true,false,24",
+        "true,false,false,false,false,true,false,25",
         "true,false,false,false,false,true,false,26",
-        "true,false,false,true,false,true,false,27", "true,false,false,true,false,true,false,28",
-        "true,false,false,true,false,true,false,29", "true,false,false,true,false,true,false,30",
+        "true,false,false,true,false,true,false,27",
+        "true,false,false,true,false,true,false,28",
+        "true,false,false,true,false,true,false,29",
+        "true,false,false,true,false,true,false,30",
         "true,false,false,false,false,true,false,31",
-        "true,false,false,false,false,true,false,32", "true,false,false,false,false,true,false,33",
-        "true,false,false,true,false,true,false,34", "true,false,false,true,false,true,false,35"
+        "true,false,false,false,false,true,false,32",
+        "true,false,false,false,false,true,false,33",
+        "true,false,false,true,false,true,false,34",
+        "true,false,false,true,false,true,false,35"
     })
     void modifiesActualTimelineOrClaimWithHistoryAndFirstResults(
             boolean claimed,
@@ -537,12 +558,7 @@ class TargetCommandStoreTest {
                     .activate(destination.ref(), origin)
                     .activate(capability.ref(), grantAt);
             final var scheduleAuthority = new TargetScheduleRegistration.Authority(
-                    binding,
-                    physical,
-                    destination,
-                    capability,
-                    profiles,
-                    60000);
+                    binding, physical, destination, capability, profiles, 60000);
             final var scheduleResolutions = new java.util.concurrent.atomic.AtomicInteger();
             final TargetCommandStore.Schedules scheduleProvider = (incoming, position) -> {
                 scheduleResolutions.incrementAndGet();
@@ -563,12 +579,7 @@ class TargetCommandStoreTest {
                 return new TargetCommandStore.ScheduleAdmission(
                         StableCode.OK,
                         new TargetScheduleRegistration.Authority(
-                                acceptedBinding,
-                                physical,
-                                destination,
-                                capability,
-                                profiles,
-                                60000),
+                                acceptedBinding, physical, destination, capability, profiles, 60000),
                         TargetOrderState.OrderingContract.ADMISSION_WATERMARK);
             };
             final var initialCommands = new TargetCommandStore(backend, scope, lineage, 16, 1);
@@ -622,9 +633,9 @@ class TargetCommandStoreTest {
             if (strictOrderExpiry) {
                 final byte[] orderKey = TargetKeyCodec.orderState(
                         message.locator().target(), message.locator().orderingDomain());
-                final var originalOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                        .payload());
+                final var originalOrder = TargetOrderState.decode(
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                .payload());
                 final var admittedWork = message.runtime().timeline();
                 final var watermarkedOrder = new TargetOrderState(
                         originalOrder.target(),
@@ -645,10 +656,8 @@ class TargetCommandStoreTest {
                         orderKey,
                         TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, watermarkedOrder.canonicalBytes())));
 
-                final var lateSource = source(
-                        scheduleAt,
-                        scheduleAt.offset() + 1,
-                        scheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                final var lateSource =
+                        source(scheduleAt, scheduleAt.offset() + 1, scheduleAt.brokerLogAppendTimeEpochMs() + 1);
                 final long lateDeliverAt = message.deliverAtEpochMs() - 1;
                 final var lateIntent = CanonicalScheduleIntent.create(
                         destination.ref(),
@@ -664,7 +673,8 @@ class TargetCommandStoreTest {
                         intent.businessKey(),
                         intent.eventTimeEpochMs(),
                         NativeDeliveryPolicy.FORBID);
-                final var lateMessageId = new DelayMessageId(cancel(messageId, lateSource, 11).commandId().bytes());
+                final var lateMessageId = new DelayMessageId(
+                        cancel(messageId, lateSource, 11).commandId().bytes());
                 final var lateBody = new ScheduleCommandBody(
                         lateMessageId, lateSource.brokerLogAppendTimeEpochMs() + 1000, lateIntent);
                 final var lateCommandId = cancel(lateMessageId, lateSource, 12).commandId();
@@ -698,14 +708,15 @@ class TargetCommandStoreTest {
                 assertEquals(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, lateResult.stableCode());
                 assertEquals(sourceSequenceBeforeLateSchedule + 1, store.shardMutationSequence());
                 assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(lateMessageId)));
-                final var actualOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                        .payload());
+                final var actualOrder = TargetOrderState.decode(
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                .payload());
                 assertArrayEquals(watermarkedOrder.canonicalBytes(), actualOrder.canonicalBytes());
                 final long afterLateSchedule = store.latestSequenceNumber();
                 final var replay = new TargetCommandReplayStore(backend, scope, lineage, 16, 1);
                 final var replayedLateResult = replay.commit(
-                        replay.prepareReplayOrExpired(budget(), lateCommand, lateSource).orElseThrow(),
+                        replay.prepareReplayOrExpired(budget(), lateCommand, lateSource)
+                                .orElseThrow(),
                         (a, b, c) -> guard(),
                         (a, b) -> guard());
                 assertEquals(StableCode.ORDER_BEFORE_ADMISSION_WATERMARK, replayedLateResult.stableCode());
@@ -1072,8 +1083,8 @@ class TargetCommandStoreTest {
             } else {
                 loseTransitionResponse.set(true);
             }
-            final var active = TargetWorkerOwnerActivation.activate(
-                    initialized, store, assignment, acquiring, leases, () -> 1);
+            final var active =
+                    TargetWorkerOwnerActivation.activate(initialized, store, assignment, acquiring, leases, () -> 1);
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, active.state());
             assertEquals(active.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch());
             reopenOwner[0] = new ReopenOwner(
@@ -1085,15 +1096,15 @@ class TargetCommandStoreTest {
                     throwTransitionAfterCommit,
                     throwReleaseAfterCommit);
             final var workerClasses = checkpointAdmissionImages
-                    ? new WorkClassExecutionRegistry(workClassConfig(60_000_000_000L), () -> 0) : workClasses();
+                    ? new WorkClassExecutionRegistry(workClassConfig(60_000_000_000L), () -> 0)
+                    : workClasses();
             TargetClaimRecord claim = null;
             if (claimed) {
                 final var actualQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
                                 store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target())),
                                 TargetQueueState.VALUE_TYPE)
                         .payload());
-                final var expectedSiblingCommand =
-                        new java.util.concurrent.atomic.AtomicReference<PreparedCommand>();
+                final var expectedSiblingCommand = new java.util.concurrent.atomic.AtomicReference<PreparedCommand>();
                 final var claimRuntime = new TargetSourceApplyRuntime(
                         initialized,
                         store,
@@ -1108,7 +1119,9 @@ class TargetCommandStoreTest {
                                 entry -> {
                                     throw new AssertionError("Claim resolved a fence");
                                 },
-                                entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                                entry -> {
+                                    throw new AssertionError("unexpected Target expiry authority");
+                                },
                                 entry -> {
                                     throw new AssertionError("Claim resolved a Close");
                                 },
@@ -1183,8 +1196,8 @@ class TargetCommandStoreTest {
                                     maintenance));
                     assertTrue(wrongSourceClosed.get());
                 }
-                final var claimNextSourceRecord = new java.util.concurrent.atomic.AtomicReference<
-                        SourceRecordConsumer.PolledSourceRecord>();
+                final var claimNextSourceRecord =
+                        new java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord>();
                 final var claimWorker = TargetWorkerShardFactory.create(
                         () -> java.util.Optional.ofNullable(claimNextSourceRecord.getAndSet(null)),
                         claimRuntime.acceptedAssignment(),
@@ -1274,8 +1287,7 @@ class TargetCommandStoreTest {
                         headCost.schedulingCost());
                 final var nativeHead = actualQueue.domains().getFirst().nativeHead();
                 assertNull(
-                        nativeHead,
-                        "a seeded Native scope without source-applied approval must use ordinary delivery");
+                        nativeHead, "a seeded Native scope without source-applied approval must use ordinary delivery");
                 assertEquals(beforeScan, store.latestSequenceNumber());
                 final long beforeClaim = store.latestSequenceNumber();
                 assertThrows(
@@ -1350,44 +1362,59 @@ class TargetCommandStoreTest {
                 registrations.register(otherSigned.control());
                 final var checkpointControls = new java.util.ArrayList<TargetCheckpointDependencies.ControlImage>();
                 final var checkpointContext = checkpointAdmissionImages
-                        ? new CheckpointImageContext(List.of(destination, capability), checkpointControls,
-                                new java.util.ArrayList<>(), new java.util.HashMap<>(), registrations, actor,
-                                workerClasses) : null;
-                checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
-                        otherSource, otherSigned.mutation()));
+                        ? new CheckpointImageContext(
+                                List.of(destination, capability),
+                                checkpointControls,
+                                new java.util.ArrayList<>(),
+                                new java.util.HashMap<>(),
+                                registrations,
+                                actor,
+                                workerClasses)
+                        : null;
+                checkpointControls.add(
+                        new TargetCheckpointDependencies.ControlImage(otherSource, otherSigned.mutation()));
                 try (var otherStore = ShardStore.createTarget(config, otherShard, resources)) {
                     final TargetStoreBootstrap.Prepared otherPrepared;
                     if (checkpointContext == null) {
                         otherPrepared = TargetStoreBootstrap.prepare(
-                            otherStore,
-                            otherScope,
-                            bytes(16, 0xcd),
-                            new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                            budget(),
-                            otherSigned.control(),
-                            otherSigned.mutation(),
-                            otherSource,
-                            authority(
-                                    registrations,
-                                    keys,
-                                    actor,
-                                    otherSource,
-                                    otherGrantRequest,
-                                    (a, b, c, d) -> {}),
-                            (a, b, c) -> {});
+                                otherStore,
+                                otherScope,
+                                bytes(16, 0xcd),
+                                new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                budget(),
+                                otherSigned.control(),
+                                otherSigned.mutation(),
+                                otherSource,
+                                authority(
+                                        registrations, keys, actor, otherSource, otherGrantRequest, (a, b, c, d) -> {}),
+                                (a, b, c) -> {});
                     } else {
                         final var initialSnapshot = com.nereusstream.delay.protocol.TargetControlSnapshotInput.signed(
-                                otherScope, bytes(16, 0xcd), otherGrantRequest.next().digest(), otherSource,
+                                otherScope,
+                                bytes(16, 0xcd),
+                                otherGrantRequest.next().digest(),
+                                otherSource,
                                 Bytes.sha256(otherSigned.mutation().canonicalEnvelope()),
-                                List.of(ProtocolTuple.currentSystemMutation(),
-                                        ProtocolTuple.targetMaterializedPublishAdmission()), List.of(),
-                                1, keys.getPrivate());
-                        otherPrepared = TargetStoreBootstrap.prepareWithControlSnapshot(otherStore, otherScope,
-                                bytes(16, 0xcd), new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                                otherSigned.control(), otherSigned.mutation(), otherSource,
-                                authority(registrations, keys, actor, otherSource, otherGrantRequest,
-                                        (a, b, c, d) -> {}),
-                                (a, b, c) -> {}, initialSnapshot, (input, control, mutation, at) -> {
+                                List.of(
+                                        ProtocolTuple.currentSystemMutation(),
+                                        ProtocolTuple.targetMaterializedPublishAdmission()),
+                                List.of(),
+                                1,
+                                keys.getPrivate());
+                        otherPrepared = TargetStoreBootstrap.prepareWithControlSnapshot(
+                                otherStore,
+                                otherScope,
+                                bytes(16, 0xcd),
+                                new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                budget(),
+                                otherSigned.control(),
+                                otherSigned.mutation(),
+                                otherSource,
+                                authority(
+                                        registrations, keys, actor, otherSource, otherGrantRequest, (a, b, c, d) -> {}),
+                                (a, b, c) -> {},
+                                initialSnapshot,
+                                (input, control, mutation, at) -> {
                                     assertFalse(Thread.holdsLock(otherStore));
                                     assertEquals(otherSource, at);
                                     return keys.getPublic();
@@ -1411,8 +1438,8 @@ class TargetCommandStoreTest {
                             source(otherSource, otherSource.offset() + 1, otherSource.brokerLogAppendTimeEpochMs() + 1);
                     final var otherBackend = otherInitialized.backend();
                     final var otherLineage = otherInitialized.root().recoveryLineage();
-                    checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
-                            otherGrantAt, otherTargetSigned.mutation()));
+                    checkpointControls.add(
+                            new TargetCheckpointDependencies.ControlImage(otherGrantAt, otherTargetSigned.mutation()));
                     final var otherGrants = new TargetQuotaGrantStore(otherBackend, otherScope, otherLineage, 16, 1);
                     assertEquals(
                             StableCode.OK,
@@ -1537,8 +1564,10 @@ class TargetCommandStoreTest {
                             otherRetryPolicy.ref(),
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 100,
                             uncertainRetry
-                                    ? Math.max(message.deliverAtEpochMs(),
-                                            otherScheduleAt.brokerLogAppendTimeEpochMs() + 100) + 4000
+                                    ? Math.max(
+                                                    message.deliverAtEpochMs(),
+                                                    otherScheduleAt.brokerLogAppendTimeEpochMs() + 100)
+                                            + 4000
                                     : otherScheduleAt.brokerLogAppendTimeEpochMs() + 2000,
                             priorIntent.deliveryMode(),
                             uncertainRetry ? OrderingMode.BEST_EFFORT : OrderingMode.DELIVERY_TIME_FIFO,
@@ -1626,8 +1655,8 @@ class TargetCommandStoreTest {
                             otherScheduleAt.brokerLogAppendTimeEpochMs() + 1);
                     checkpointControls.add(new TargetCheckpointDependencies.ControlImage(
                             otherTargetGrantAt, otherTargetGrantSigned.mutation()));
-                    final var otherPhysicalGrants = new TargetQuotaGrantStore(
-                            otherBackend, otherScope, otherLineage, 16, 1);
+                    final var otherPhysicalGrants =
+                            new TargetQuotaGrantStore(otherBackend, otherScope, otherLineage, 16, 1);
                     assertEquals(
                             StableCode.OK,
                             otherPhysicalGrants
@@ -1646,19 +1675,22 @@ class TargetCommandStoreTest {
                                                             (a, b, c, d) -> {})),
                                             (a, b, c) -> guard())
                                     .stableCode());
-                    final var otherPhysicalGrantActivation = TargetQuotaGrantActivation.decode(
-                            TargetValueEnvelope.decode(
-                                    otherStore.get(
-                                            ColumnFamily.META,
-                                            Bytes.concat(
-                                                    new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
-                                                    otherPhysicalGrantRequest.next().scope().keySuffix())),
-                                    TargetQuotaGrantActivation.VALUE_TYPE)
-                            .payload());
+                    final var otherPhysicalGrantActivation =
+                            TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
+                                            otherStore.get(
+                                                    ColumnFamily.META,
+                                                    Bytes.concat(
+                                                            new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                                            otherPhysicalGrantRequest
+                                                                    .next()
+                                                                    .scope()
+                                                                    .keySuffix())),
+                                            TargetQuotaGrantActivation.VALUE_TYPE)
+                                    .payload());
                     final var otherPhysicalControls = new TargetControlScope(
                             otherPhysical.id(), otherShard, controls.controls(), controls.permits());
-                    final var otherDispatch = TargetDispatchCompatibility.fromProfiles(
-                            otherPhysical, destination, capability);
+                    final var otherDispatch =
+                            TargetDispatchCompatibility.fromProfiles(otherPhysical, destination, capability);
                     final var otherTargetMembershipPolicy = new TargetMembershipPolicy(
                             otherScope.tenantScope(),
                             destination.ref(),
@@ -1752,8 +1784,8 @@ class TargetCommandStoreTest {
                             priorIntent.businessKey(),
                             priorIntent.eventTimeEpochMs(),
                             NativeDeliveryPolicy.FORBID);
-                    final var otherTargetSchedule = schedule(
-                            otherTargetIntent, otherSchedule.delayMessageId(), otherTargetScheduleAt, 43);
+                    final var otherTargetSchedule =
+                            schedule(otherTargetIntent, otherSchedule.delayMessageId(), otherTargetScheduleAt, 43);
                     final var otherTargetBinding = new TargetScheduleBinding(
                             otherTargetSchedule.delayMessageId(),
                             CommandType.SCHEDULE,
@@ -1809,8 +1841,8 @@ class TargetCommandStoreTest {
                             otherIntent.businessKey(),
                             otherIntent.eventTimeEpochMs(),
                             NativeDeliveryPolicy.FORBID);
-                    final var otherFollowerSchedule = schedule(
-                            otherFollowerIntent, otherSeed, otherFollowerScheduleAt, 45);
+                    final var otherFollowerSchedule =
+                            schedule(otherFollowerIntent, otherSeed, otherFollowerScheduleAt, 45);
                     final var otherFollowerBinding = new TargetScheduleBinding(
                             otherFollowerSchedule.delayMessageId(),
                             CommandType.SCHEDULE,
@@ -1874,7 +1906,9 @@ class TargetCommandStoreTest {
                                     entry -> {
                                         throw new AssertionError("other Shard resolved a fence");
                                     },
-                                    entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                                    entry -> {
+                                        throw new AssertionError("unexpected Target expiry authority");
+                                    },
                                     entry -> {
                                         throw new AssertionError("other Shard resolved a Close");
                                     },
@@ -1977,7 +2011,8 @@ class TargetCommandStoreTest {
                         if (first) {
                             assertEquals(selectedHead, selected.head());
                         } else {
-                            assertTrue(selected.head().equals(otherHead) || selected.head().equals(otherTargetHead));
+                            assertTrue(selected.head().equals(otherHead)
+                                    || selected.head().equals(otherTargetHead));
                         }
                         return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
                                 first ? actualOwner : otherOwner,
@@ -1991,8 +2026,8 @@ class TargetCommandStoreTest {
                     assertEquals(1, frozen.eligibleTargets());
                     final long firstBeforeUnavailable = store.latestSequenceNumber();
                     final long otherBeforeUnavailable = otherStore.latestSequenceNumber();
-                    final TargetWorkerOrdinaryDrr.Requests unavailableRequests = (shard, selected) ->
-                            java.util.Optional.empty();
+                    final TargetWorkerOrdinaryDrr.Requests unavailableRequests =
+                            (shard, selected) -> java.util.Optional.empty();
                     assertTrue(ordinary.claimOrdinary(claimNow, claimBudget, unavailableRequests)
                             .claims()
                             .isEmpty());
@@ -2000,9 +2035,9 @@ class TargetCommandStoreTest {
                     assertEquals(otherBeforeUnavailable, otherStore.latestSequenceNumber());
                     assertTrue(schedulingCost > 1);
                     assertTrue(ordinary.claimOrdinary(
-                                            claimNow,
-                                            new SchedulerBudget(1, schedulingCost - 1, 60_000_000_000L),
-                                            claimRequests)
+                                    claimNow,
+                                    new SchedulerBudget(1, schedulingCost - 1, 60_000_000_000L),
+                                    claimRequests)
                             .claims()
                             .isEmpty());
                     assertEquals(firstBeforeUnavailable, store.latestSequenceNumber());
@@ -2038,8 +2073,7 @@ class TargetCommandStoreTest {
                     assertEquals(actualOwner, claim.owner());
                     assertEquals(otherBeforeClaim, otherStore.latestSequenceNumber());
                     assertEquals(queueRevisionBeforeClaim + 1, claimHost.targetQueueChangeRevision());
-                    assertTrue(claimHost.awaitTargetQueueChange(
-                            queueRevisionBeforeClaim, java.time.Duration.ZERO));
+                    assertTrue(claimHost.awaitTargetQueueChange(queueRevisionBeforeClaim, java.time.Duration.ZERO));
                     final long firstAfterClaim = store.latestSequenceNumber();
                     final long queueRevisionBeforeAdmission = claimHost.targetQueueChangeRevision();
                     claimHost.admitShard(otherWorker);
@@ -2061,7 +2095,9 @@ class TargetCommandStoreTest {
                     assertTrue(otherStore.latestSequenceNumber() > otherBeforeClaim);
                     final long firstBeforeEmptyPoll = store.latestSequenceNumber();
                     final long otherBeforeEmptyPoll = otherStore.latestSequenceNumber();
-                    assertTrue(ordinary.claimOrdinary(claimNow, claimBudget, claimRequests).claims().isEmpty());
+                    assertTrue(ordinary.claimOrdinary(claimNow, claimBudget, claimRequests)
+                            .claims()
+                            .isEmpty());
                     assertEquals(firstBeforeEmptyPoll, store.latestSequenceNumber());
                     assertEquals(otherBeforeEmptyPoll, otherStore.latestSequenceNumber());
                     final var originalClaim = claim;
@@ -2071,12 +2107,12 @@ class TargetCommandStoreTest {
                     final var schedulerClaims = new java.util.concurrent.LinkedBlockingQueue<TargetClaimRecord>();
                     final var schedulerClaimGate = new java.util.concurrent.Semaphore(0);
                     final long schedulerDeadline = claimNow;
-                    final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(
-                            Math.max(0, schedulerDeadline - 100));
+                    final var schedulerEpoch =
+                            new java.util.concurrent.atomic.AtomicLong(Math.max(0, schedulerDeadline - 100));
                     final var schedulerOwnerEpoch = new java.util.concurrent.atomic.AtomicLong(100);
                     final var replacementLoopOnly = new java.util.concurrent.atomic.AtomicBoolean();
-                    final var replacementLoopShard = new java.util.concurrent.atomic.AtomicReference<
-                            TargetWorkerShardRuntime>();
+                    final var replacementLoopShard =
+                            new java.util.concurrent.atomic.AtomicReference<TargetWorkerShardRuntime>();
                     final var replacementLoopOwner = new java.util.concurrent.atomic.AtomicReference<>(otherOwner);
                     final TargetWorkerOrdinaryDrr.Requests retryClaimRequests = (shard, selected) -> {
                         if (replacementLoopOnly.get()) {
@@ -2087,30 +2123,31 @@ class TargetCommandStoreTest {
                             return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
                                     replacementLoopOwner.get(),
                                     Math.addExact(
-                                            Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()), 1000),
+                                            Math.max(
+                                                    schedulerEpoch.get(),
+                                                    selected.head().timeEpochMs()),
+                                            1000),
                                     bytes(32, 0xa4),
                                     (kind, delta) -> {},
                                     (a, b, c) -> guard()));
                         }
-                        return claimRequests.resolve(shard, selected)
+                        return claimRequests
+                                .resolve(shard, selected)
                                 .map(requestForClaim -> new TargetWorkerOrdinaryDrr.Request(
                                         requestForClaim.owner(),
                                         Math.addExact(
-                                                Math.max(schedulerEpoch.get(), selected.head().timeEpochMs()), 1000),
+                                                Math.max(
+                                                        schedulerEpoch.get(),
+                                                        selected.head().timeEpochMs()),
+                                                1000),
                                         bytes(32, 0xa4),
                                         requestForClaim.quota(),
                                         requestForClaim.physicalWrites()));
                     };
-                    final var ordinaryInventoryLimits = new TargetWorkerTargetInventory.Limits(
-                            2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L);
+                    final var ordinaryInventoryLimits =
+                            new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L);
                     final var ordinaryDrrLimits = new TargetWorkerOrdinaryDrr.Limits(
-                            schedulingCost,
-                            schedulingCost,
-                            schedulingCost,
-                            16,
-                            4096,
-                            32L << 20,
-                            60_000_000_000L);
+                            schedulingCost, schedulingCost, schedulingCost, 16, 4096, 32L << 20, 60_000_000_000L);
                     assertThrows(
                             IllegalArgumentException.class,
                             () -> claimHost.startOrdinaryScheduling(
@@ -2248,7 +2285,8 @@ class TargetCommandStoreTest {
                     assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
                     final long afterRevoke = store.latestSequenceNumber();
                     final long writesAfterRevoke = store.operationStatistics().nativeWriteCalls();
-                    final long otherWritesAfterRevoke = otherStore.operationStatistics().nativeWriteCalls();
+                    final long otherWritesAfterRevoke =
+                            otherStore.operationStatistics().nativeWriteCalls();
                     assertThrows(
                             IllegalStateException.class,
                             () -> claimHost.revokeClaim(
@@ -2264,7 +2302,9 @@ class TargetCommandStoreTest {
                     assertEquals(afterRevoke, store.latestSequenceNumber());
                     assertEquals(otherBeforeRevoke, otherStore.latestSequenceNumber());
                     assertEquals(writesAfterRevoke, store.operationStatistics().nativeWriteCalls());
-                    assertEquals(otherWritesAfterRevoke, otherStore.operationStatistics().nativeWriteCalls());
+                    assertEquals(
+                            otherWritesAfterRevoke,
+                            otherStore.operationStatistics().nativeWriteCalls());
                     schedulerEpoch.set(schedulerDeadline);
                     try {
                         claim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
@@ -2301,8 +2341,7 @@ class TargetCommandStoreTest {
                         for (int turn = 1; turn < 5; turn++) {
                             final var nextClaim = schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                             assertNotNull(
-                                    nextClaim,
-                                    () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
+                                    nextClaim, () -> "ordinary scheduler failure: " + ordinaryLoop.firstFailure());
                             final boolean targetBClaim = turn % 2 == 1;
                             assertEquals(
                                     targetBClaim ? otherPhysical.id() : physical.id(),
@@ -2337,8 +2376,7 @@ class TargetCommandStoreTest {
                         }
                         final long schedulerIdleDeadline =
                                 System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
-                        while (!ordinaryLoop.isWaitingForQueueChange()
-                                && System.nanoTime() < schedulerIdleDeadline) {
+                        while (!ordinaryLoop.isWaitingForQueueChange() && System.nanoTime() < schedulerIdleDeadline) {
                             Thread.sleep(1);
                         }
                         assertTrue(ordinaryLoop.isWaitingForQueueChange());
@@ -2364,37 +2402,37 @@ class TargetCommandStoreTest {
                                 .schedulingCost();
                         assertTrue(replacementTargetBCost > 1);
                         long replacementMaximumCost = 0;
-                        for (final var target : replacementProbeInventory.snapshot().targets()) {
+                        for (final var target :
+                                replacementProbeInventory.snapshot().targets()) {
                             for (final var source : target.sources()) {
-                                final var sourceWorker = source.shard().equals(scope.shard())
-                                        ? claimWorker
-                                        : otherWorker;
+                                final var sourceWorker =
+                                        source.shard().equals(scope.shard()) ? claimWorker : otherWorker;
                                 for (final var domain : source.entry().queue().domains()) {
                                     final var head = domain.ordinaryHead();
                                     if (head != null) {
                                         replacementMaximumCost = Math.max(
                                                 replacementMaximumCost,
-                                                sourceWorker.probeSelectedHead(
-                                                                budget(), head, replacementOwnerClock::get)
+                                                sourceWorker
+                                                        .probeSelectedHead(budget(), head, replacementOwnerClock::get)
                                                         .schedulingCost());
                                     }
                                 }
                             }
                         }
                         assertTrue(replacementMaximumCost >= replacementTargetBCost);
-                        final int replacementTargetCount = replacementProbeInventory.snapshot().targets().size();
-                        final long replacementQuantum =
-                                replacementTargetBCost / 2 + replacementTargetBCost % 2;
+                        final int replacementTargetCount =
+                                replacementProbeInventory.snapshot().targets().size();
+                        final long replacementQuantum = replacementTargetBCost / 2 + replacementTargetBCost % 2;
                         final var replacementDrr = claimHost.newOrdinaryDrr(
                                 replacementProbeInventory,
                                 new TargetWorkerOrdinaryDrr.Limits(
                                         replacementQuantum,
                                         replacementMaximumCost,
-                                replacementMaximumCost,
-                                replacementTargetCount,
-                                4096,
-                                32L << 20,
-                                60_000_000_000L),
+                                        replacementMaximumCost,
+                                        replacementTargetCount,
+                                        4096,
+                                        32L << 20,
+                                        60_000_000_000L),
                                 replacementOwnerClock::get,
                                 System::nanoTime);
                         final long replacementNow = replacementTargetBHead.timeEpochMs();
@@ -2413,7 +2451,8 @@ class TargetCommandStoreTest {
                                     : actualOwner;
                             return java.util.Optional.of(new TargetWorkerOrdinaryDrr.Request(
                                     owner,
-                                    Math.addExact(Math.max(replacementNow, cost.head().timeEpochMs()), 1000),
+                                    Math.addExact(
+                                            Math.max(replacementNow, cost.head().timeEpochMs()), 1000),
                                     bytes(32, 0x95),
                                     (kind, delta) -> {},
                                     (a, b, c) -> {
@@ -2422,24 +2461,27 @@ class TargetCommandStoreTest {
                         };
                         TargetWorkerOrdinaryDrr.Turn<TargetClaimRecord> beforeOwnerReplacement;
                         boolean replacementFrozen = false;
-                        final long replacementReadDeadline = System.nanoTime()
-                                + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                        final long replacementReadDeadline =
+                                System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
                         while (true) {
                             claimHost.awaitShardAdmission(otherShard, java.time.Duration.ofMillis(100));
                             claimHost.awaitShardAdmission(claimWorker.shardId(), java.time.Duration.ofMillis(100));
                             try {
                                 if (!replacementFrozen) {
-                                    assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY,
-                                            replacementDrr.freezeRecoveryFirstPass(
-                                                    replacementNow, replacementVisitBudget, replacementRequests)
+                                    assertEquals(
+                                            TargetWorkerOrdinaryDrr.FreezeStop.READY,
+                                            replacementDrr
+                                                    .freezeRecoveryFirstPass(
+                                                            replacementNow, replacementVisitBudget, replacementRequests)
                                                     .stop());
                                     replacementFrozen = true;
                                 }
                                 beforeOwnerReplacement = replacementDrr.claimOrdinary(
                                         replacementNow, replacementVisitBudget, replacementRequests);
                                 break;
-                            } catch (com.nereusstream.delay.ownership.TargetWorkerHostRuntime
-                                    .ShardAdmissionBusyException busy) {
+                            } catch (
+                                    com.nereusstream.delay.ownership.TargetWorkerHostRuntime.ShardAdmissionBusyException
+                                            busy) {
                                 if (System.nanoTime() >= replacementReadDeadline) {
                                     throw busy;
                                 }
@@ -2460,17 +2502,17 @@ class TargetCommandStoreTest {
                                 .toList();
                         assertTrue(oldTargetBSourceIds.contains(otherShard));
                         com.nereusstream.delay.ownership.TargetWorkerHostRuntime.ShardDrain oldWorkerDrain;
-                        final long drainDeadline = System.nanoTime()
-                                + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                        final long drainDeadline =
+                                System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
                         while (true) {
-                            assertTrue(claimHost.awaitShardAdmission(otherShard, java.time.Duration.ofSeconds(1)),
+                            assertTrue(
+                                    claimHost.awaitShardAdmission(otherShard, java.time.Duration.ofSeconds(1)),
                                     "old Worker head read did not release its Host admission");
                             try {
                                 oldWorkerDrain = claimHost.drainShard(
                                         otherWorker,
                                         new TargetOwnerDrainCoordinator.Request(
-                                                5_000,
-                                                new SchedulerBudget(16, 32L << 20, 60_000_000_000L)),
+                                                5_000, new SchedulerBudget(16, 32L << 20, 60_000_000_000L)),
                                         new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
                                         () -> 100);
                                 break;
@@ -2482,8 +2524,7 @@ class TargetCommandStoreTest {
                             }
                         }
                         assertTrue(oldWorkerDrain.complete());
-                        final var replacementActive = leases
-                                .transition(
+                        final var replacementActive = leases.transition(
                                         leases.acquire(
                                                         otherAssignment,
                                                         "other-claim-worker-replacement",
@@ -2502,13 +2543,17 @@ class TargetCommandStoreTest {
                                         @Override
                                         public void requireCurrent() {
                                             assertEquals(otherScope, actualScope);
-                                            assertArrayEquals(replacementStore.metadata().encode(), actual.encode());
-                                            final var current = leases.current(otherShard).orElseThrow();
+                                            assertArrayEquals(
+                                                    replacementStore.metadata().encode(), actual.encode());
+                                            final var current =
+                                                    leases.current(otherShard).orElseThrow();
                                             assertTrue(replacementActive.sameIdentity(current));
                                             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, current.state());
                                             assertEquals(
                                                     replacementActive.ownerEpoch(),
-                                                    replacementStore.runtimeMetadata().lastOpenedOwnerEpoch());
+                                                    replacementStore
+                                                            .runtimeMetadata()
+                                                            .lastOpenedOwnerEpoch());
                                         }
 
                                         @Override
@@ -2527,8 +2572,8 @@ class TargetCommandStoreTest {
                                     new TargetStoreBackend.WriteLimits(64, 2 << 20),
                                     budget(),
                                     replacementOwnerReads);
-                            final var expectedLateCommand = new java.util.concurrent.atomic.AtomicReference<
-                                    PreparedCommand>();
+                            final var expectedLateCommand =
+                                    new java.util.concurrent.atomic.AtomicReference<PreparedCommand>();
                             final var replacementRuntime = new TargetSourceApplyRuntime(
                                     replacementInitialized,
                                     replacementStore,
@@ -2627,8 +2672,10 @@ class TargetCommandStoreTest {
                                                         return new TargetPublishAdmissionVerifier.Authorization(
                                                                 keys.getPublic(),
                                                                 TargetPublishAdmissionBody.decode(
-                                                                                mutation.canonicalBody())
-                                                                                .publication() == null
+                                                                                                mutation
+                                                                                                        .canonicalBody())
+                                                                                        .publication()
+                                                                                == null
                                                                         ? ProtocolTuple.targetPublishAdmission()
                                                                         : ProtocolTuple
                                                                                 .targetMaterializedPublishAdmission(),
@@ -2644,8 +2691,7 @@ class TargetCommandStoreTest {
                                                         outcomeAuthorityResolutions.incrementAndGet();
                                                         assertEquals(otherScope, actualScope);
                                                         assertEquals(
-                                                                SystemMutationType.PUBLISH_OUTCOME,
-                                                                mutation.type());
+                                                                SystemMutationType.PUBLISH_OUTCOME, mutation.type());
                                                         final var writerOwner = replacementOwnerIdentity[0];
                                                         assertArrayEquals(
                                                                 AuthorIdentity.owner(
@@ -2674,14 +2720,12 @@ class TargetCommandStoreTest {
                                                                         : null);
                                                     },
                                                     (a, b, c) -> guard())),
-                                    new TargetSourceApplyRuntime.Limits(
-                                            4096, 32L << 20, 60_000_000_000L, 16, 1),
+                                    new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                                     System::nanoTime);
                             final var replacementNextSourceRecord = new java.util.concurrent.atomic.AtomicReference<
                                     SourceRecordConsumer.PolledSourceRecord>();
                             final var replacementWorker = TargetWorkerShardFactory.create(
-                                    () -> java.util.Optional.ofNullable(
-                                            replacementNextSourceRecord.getAndSet(null)),
+                                    () -> java.util.Optional.ofNullable(replacementNextSourceRecord.getAndSet(null)),
                                     replacementRuntime.acceptedAssignment(),
                                     workerClasses,
                                     replacementStore,
@@ -2691,11 +2735,12 @@ class TargetCommandStoreTest {
                                             new TargetCloseStore(
                                                             replacementInitialized.backend(),
                                                             otherScope,
-                                                            replacementInitialized.root().recoveryLineage(),
+                                                            replacementInitialized
+                                                                    .root()
+                                                                    .recoveryLineage(),
                                                             16,
                                                             1)
-                                                    .reservationControls(
-                                                            (reader, bound) -> java.util.Optional.empty()),
+                                                    .reservationControls((reader, bound) -> java.util.Optional.empty()),
                                             new TargetReservationClosureWorkClassExecutor.Limits(
                                                     4096, 250_000, 60_000_000_000L),
                                             new TargetReservationExpiryWorkClassExecutor.Limits(
@@ -2718,13 +2763,15 @@ class TargetCommandStoreTest {
                             final long sourceSequenceBeforeDynamicClaim = store.latestSequenceNumber();
                             final long replacementSequenceBeforeDynamicClaim = replacementStore.latestSequenceNumber();
                             claimHost.admitShard(replacementWorker);
-                            final var replacementLoopClaim = schedulerClaims.poll(
-                                    5, java.util.concurrent.TimeUnit.SECONDS);
+                            final var replacementLoopClaim =
+                                    schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                             assertNotNull(
                                     replacementLoopClaim,
                                     () -> "ordinary scheduler failure after Worker admission: "
                                             + ordinaryLoop.firstFailure());
-                            assertEquals(physical.id(), replacementLoopClaim.selected().target());
+                            assertEquals(
+                                    physical.id(),
+                                    replacementLoopClaim.selected().target());
                             assertEquals(replacementOwnerIdentity[0], replacementLoopClaim.owner());
                             assertEquals(sourceSequenceBeforeDynamicClaim, store.latestSequenceNumber());
                             assertTrue(replacementStore.latestSequenceNumber() > replacementSequenceBeforeDynamicClaim);
@@ -2739,7 +2786,11 @@ class TargetCommandStoreTest {
                             assertEquals(TargetWorkerTargetInventory.Stop.COMPLETE, replacementInventory.stop());
                             assertArrayEquals(
                                     oldStoreIncarnation,
-                                    replacementInventory.snapshot().cuts().get(otherShard).storeIncarnation());
+                                    replacementInventory
+                                            .snapshot()
+                                            .cuts()
+                                            .get(otherShard)
+                                            .storeIncarnation());
                             assertEquals(
                                     oldTargetBSourceIds,
                                     replacementInventory.snapshot().targets().stream()
@@ -2769,9 +2820,13 @@ class TargetCommandStoreTest {
 
                             final var materializedChannel = closedRetryQueue || publishedOutcome
                                     ? materializedChannelFixture(
-                                            replacementInitialized.backend(), replacementStore, otherScope,
-                                            replacementInitialized.root().recoveryLineage(), replacementLoopClaim,
-                                            otherBinding, destination.ref())
+                                            replacementInitialized.backend(),
+                                            replacementStore,
+                                            otherScope,
+                                            replacementInitialized.root().recoveryLineage(),
+                                            replacementLoopClaim,
+                                            otherBinding,
+                                            destination.ref())
                                     : null;
                             final var admissionBefore =
                                     (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
@@ -2779,7 +2834,8 @@ class TargetCommandStoreTest {
                                     admissionBefore,
                                     admissionBefore.offset() + 1,
                                     uncertainRetry
-                                            ? Math.max(admissionBefore.brokerLogAppendTimeEpochMs() + 1,
+                                            ? Math.max(
+                                                    admissionBefore.brokerLogAppendTimeEpochMs() + 1,
                                                     schedulerEpoch.get())
                                             : admissionBefore.brokerLogAppendTimeEpochMs() + 1);
                             final var admission = targetAdmission(
@@ -2794,16 +2850,21 @@ class TargetCommandStoreTest {
                                 final var materialized = TargetPublishAdmissionBody.decode(
                                         admission.entry().mutation().canonicalBody());
                                 assertEquals(4, materialized.bodyVersion());
-                                assertEquals(materializedChannel, materialized.publication().channel());
+                                assertEquals(
+                                        materializedChannel,
+                                        materialized.publication().channel());
                             }
                             final var admissionAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    admission.entry(),
-                                    (entry, outcome) -> {
+                            replacementNextSourceRecord.set(
+                                    new SourceRecordConsumer.PolledSourceRecord(admission.entry(), (entry, outcome) -> {
                                         assertEquals(admission.entry(), entry);
                                         assertEquals(admissionAt, outcome.position());
-                                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
-                                        assertEquals(ApplyStatus.APPLIED, outcome.systemMutationResult().applyStatus());
+                                        assertEquals(
+                                                StableCode.OK,
+                                                outcome.systemMutationResult().stableCode());
+                                        assertEquals(
+                                                ApplyStatus.APPLIED,
+                                                outcome.systemMutationResult().applyStatus());
                                         return admissionAcknowledgements.incrementAndGet() == 1
                                                 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                                 : SourceAcknowledgement.AcknowledgementResult.acked();
@@ -2816,7 +2877,9 @@ class TargetCommandStoreTest {
                                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                                     admissionUnknownAck.status(),
                                     () -> String.valueOf(admissionUnknownAck.failure()));
-                            assertEquals(admission.entry(), replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    admission.entry(),
+                                    replacementWorker.pendingSourceEntry().orElseThrow());
                             assertEquals(1, admissionAcknowledgements.get());
                             assertEquals(beforeAdmissionMutation + 1, replacementStore.shardMutationSequence());
                             assertTrue(replacementStore.latestSequenceNumber() > beforeAdmissionVersion);
@@ -2837,16 +2900,23 @@ class TargetCommandStoreTest {
                             final byte[] admittedOrderKey = uncertainRetry
                                     ? null
                                     : TargetKeyCodec.orderState(
-                                            replacementLoopClaim.work().locator().target(),
-                                            replacementLoopClaim.work().locator().orderingDomain());
+                                            replacementLoopClaim
+                                                    .work()
+                                                    .locator()
+                                                    .target(),
+                                            replacementLoopClaim
+                                                    .work()
+                                                    .locator()
+                                                    .orderingDomain());
                             TargetOrderState orderAfterCancel = null;
                             if (!uncertainRetry) {
                                 final byte[] admittedOrderState =
                                         replacementStore.get(ColumnFamily.META, admittedOrderKey);
-                                final var admittedOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                                admittedOrderState, TargetOrderState.VALUE_TYPE)
-                                        .payload());
-                                final long lateDeliverAt = admittedOrder.lastAdmittedOrder().deliverAtEpochMs() - 1;
+                                final var admittedOrder = TargetOrderState.decode(
+                                        TargetValueEnvelope.decode(admittedOrderState, TargetOrderState.VALUE_TYPE)
+                                                .payload());
+                                final long lateDeliverAt =
+                                        admittedOrder.lastAdmittedOrder().deliverAtEpochMs() - 1;
                                 final var lateAt = source(
                                         admissionAt,
                                         admissionAt.offset() + 1,
@@ -2865,14 +2935,13 @@ class TargetCommandStoreTest {
                                         otherIntent.businessKey(),
                                         otherIntent.eventTimeEpochMs(),
                                         NativeDeliveryPolicy.FORBID);
-                                final var lateSchedule = schedule(
-                                        lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
+                                final var lateSchedule =
+                                        schedule(lateIntent, otherSchedule.delayMessageId(), lateAt, 44);
                                 expectedLateCommand.set(lateSchedule);
                                 final var lateAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                                 final var lateEntry = new SourceReplayRecord(lateSchedule, lateAt, null, null);
-                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                        lateEntry,
-                                        (entry, outcome) -> {
+                                replacementNextSourceRecord.set(
+                                        new SourceRecordConsumer.PolledSourceRecord(lateEntry, (entry, outcome) -> {
                                             assertEquals(lateEntry, entry);
                                             assertEquals(lateAt, outcome.position());
                                             assertEquals(
@@ -2891,10 +2960,9 @@ class TargetCommandStoreTest {
                                         () -> String.valueOf(lateScheduleTurn.failure()));
                                 assertEquals(lateEntry, lateScheduleTurn.entry());
                                 assertEquals(1, lateAcknowledgements.get());
-                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
-                                assertEquals(
-                                        beforeLateScheduleMutation + 1,
-                                        replacementStore.shardMutationSequence());
+                                assertTrue(
+                                        replacementWorker.pendingSourceEntry().isEmpty());
+                                assertEquals(beforeLateScheduleMutation + 1, replacementStore.shardMutationSequence());
                                 assertTrue(replacementStore.latestSequenceNumber() > beforeLateScheduleVersion);
                                 assertEquals(lateAt, replacementStore.appliedShardLogPosition());
                                 assertNull(replacementStore.get(
@@ -2928,11 +2996,12 @@ class TargetCommandStoreTest {
                                 final var lateRescheduleAcknowledgements =
                                         new java.util.concurrent.atomic.AtomicInteger();
                                 replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                        lateRescheduleEntry,
-                                        (entry, outcome) -> {
+                                        lateRescheduleEntry, (entry, outcome) -> {
                                             assertEquals(lateRescheduleEntry, entry);
                                             assertEquals(lateRescheduleAt, outcome.position());
-                                            assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
+                                            assertEquals(
+                                                    ApplyStatus.REJECTED,
+                                                    outcome.commandResult().applyStatus());
                                             assertEquals(
                                                     StableCode.ORDER_BEFORE_ADMISSION_WATERMARK,
                                                     outcome.commandResult().stableCode());
@@ -2949,10 +3018,10 @@ class TargetCommandStoreTest {
                                         () -> String.valueOf(lateRescheduleTurn.failure()));
                                 assertEquals(lateRescheduleEntry, lateRescheduleTurn.entry());
                                 assertEquals(1, lateRescheduleAcknowledgements.get());
-                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertTrue(
+                                        replacementWorker.pendingSourceEntry().isEmpty());
                                 assertEquals(
-                                        beforeLateRescheduleMutation + 1,
-                                        replacementStore.shardMutationSequence());
+                                        beforeLateRescheduleMutation + 1, replacementStore.shardMutationSequence());
                                 assertTrue(replacementStore.latestSequenceNumber() > beforeLateRescheduleVersion);
                                 assertEquals(lateRescheduleAt, replacementStore.appliedShardLogPosition());
                                 assertArrayEquals(
@@ -2967,18 +3036,18 @@ class TargetCommandStoreTest {
                                         lateCancelBefore,
                                         lateCancelBefore.offset() + 1,
                                         lateCancelBefore.brokerLogAppendTimeEpochMs() + 1);
-                                final var lateCancel = cancel(
-                                        otherFollowerSchedule.delayMessageId(), lateCancelAt, 47);
+                                final var lateCancel = cancel(otherFollowerSchedule.delayMessageId(), lateCancelAt, 47);
                                 expectedLateCommand.set(lateCancel);
                                 final var lateCancelEntry =
                                         new SourceReplayRecord(lateCancel, lateCancelAt, null, null);
                                 final var lateCancelAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                                 replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                        lateCancelEntry,
-                                        (entry, outcome) -> {
+                                        lateCancelEntry, (entry, outcome) -> {
                                             assertEquals(lateCancelEntry, entry);
                                             assertEquals(lateCancelAt, outcome.position());
-                                            assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
+                                            assertEquals(
+                                                    StableCode.CANCELED,
+                                                    outcome.commandResult().stableCode());
                                             assertEquals(1, lateCancelAcknowledgements.incrementAndGet());
                                             return SourceAcknowledgement.AcknowledgementResult.acked();
                                         }));
@@ -2992,7 +3061,8 @@ class TargetCommandStoreTest {
                                         () -> String.valueOf(lateCancelTurn.failure()));
                                 assertEquals(lateCancelEntry, lateCancelTurn.entry());
                                 assertEquals(1, lateCancelAcknowledgements.get());
-                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertTrue(
+                                        replacementWorker.pendingSourceEntry().isEmpty());
                                 assertEquals(beforeLateCancelMutation + 1, replacementStore.shardMutationSequence());
                                 assertTrue(replacementStore.latestSequenceNumber() > beforeLateCancelVersion);
                                 assertEquals(lateCancelAt, replacementStore.appliedShardLogPosition());
@@ -3004,9 +3074,11 @@ class TargetCommandStoreTest {
                                                 .payload(),
                                         otherShard);
                                 assertEquals(GenerationAggregateState.CANCELED, canceledFollower.aggregateState());
-                                assertEquals(CurrentSendWorkKind.NONE, canceledFollower.runtime().currentWorkKind());
-                                final var canceledTerminal = TargetTerminalGenerationRecord.decode(
-                                        TargetValueEnvelope.decode(
+                                assertEquals(
+                                        CurrentSendWorkKind.NONE,
+                                        canceledFollower.runtime().currentWorkKind());
+                                final var canceledTerminal =
+                                        TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
                                                         replacementStore.get(
                                                                 ColumnFamily.TERMINAL,
                                                                 TargetTerminalGenerationRecord.key(
@@ -3029,9 +3101,16 @@ class TargetCommandStoreTest {
                                 assertNull(orderAfterCancel.serviceableHead());
                             }
                             if (publishFailure >= 27 && publishFailure <= 30 || publishFailure >= 34) {
-                                assertEvidenceWithNewerWork(replacementInitialized.backend(), replacementStore,
-                                        otherScope, replacementInitialized.root().recoveryLineage(), admission,
-                                        replacementOwnerIdentity[0], keys, otherRetryPolicy, capability.ref(),
+                                assertEvidenceWithNewerWork(
+                                        replacementInitialized.backend(),
+                                        replacementStore,
+                                        otherScope,
+                                        replacementInitialized.root().recoveryLineage(),
+                                        admission,
+                                        replacementOwnerIdentity[0],
+                                        keys,
+                                        otherRetryPolicy,
+                                        capability.ref(),
                                         publishFailure);
                                 replacementWorker.pauseNewTurns();
                                 replacementWorker.closeSource();
@@ -3040,32 +3119,59 @@ class TargetCommandStoreTest {
                                 return;
                             }
                             if (publishFailure == 10 || publishFailure == 11 || publishFailure >= 18) {
-                                final boolean terminalRecovery = publishFailure == 18 || publishFailure == 19
+                                final boolean terminalRecovery = publishFailure == 18
+                                        || publishFailure == 19
                                         || publishFailure >= 23 && publishFailure <= 26;
                                 if (terminalRecovery) {
-                                    terminalOutcomeFixture(replacementInitialized.backend(), replacementStore,
-                                            otherScope, replacementInitialized.root().recoveryLineage(),
-                                            TargetPublishAdmissionBody.decode(
-                                                    admission.entry().mutation().canonicalBody())
+                                    terminalOutcomeFixture(
+                                            replacementInitialized.backend(),
+                                            replacementStore,
+                                            otherScope,
+                                            replacementInitialized.root().recoveryLineage(),
+                                            TargetPublishAdmissionBody.decode(admission
+                                                            .entry()
+                                                            .mutation()
+                                                            .canonicalBody())
                                                     .locator(),
                                             publishFailure == 19 || publishFailure == 24 || publishFailure == 25);
                                 }
-                                assertRecoveredTargetOutcome(replacementStore, otherScope, replacementWorker,
-                                        replacementActive, otherAssignment, leases,
+                                assertRecoveredTargetOutcome(
+                                        replacementStore,
+                                        otherScope,
+                                        replacementWorker,
+                                        replacementActive,
+                                        otherAssignment,
+                                        leases,
                                         takeoverLeases == null ? leases : takeoverLeases,
                                         takeoverSession == null ? bytes(32, 0xF1) : takeoverSession,
-                                        resources, workerClasses, admission, replacementOwnerIdentity[0], keys,
-                                        otherRetryPolicy, publishFailure == 11, terminalRecovery, publishFailure,
+                                        resources,
+                                        workerClasses,
+                                        admission,
+                                        replacementOwnerIdentity[0],
+                                        keys,
+                                        otherRetryPolicy,
+                                        publishFailure == 11,
+                                        terminalRecovery,
+                                        publishFailure,
                                         checkpointContext);
                                 claimWorker.pauseNewTurns();
                                 claimWorker.closeSource();
                                 return;
                             }
                             if (publishFailure >= 12) {
-                                assertLateTargetOutcome(replacementInitialized.backend(), replacementStore, otherScope,
-                                        replacementInitialized.root().recoveryLineage(), replacementWorker,
-                                        replacementNextSourceRecord, admission, keys, replacementOwnerIdentity[0],
-                                        expectedPublishedEvidence, outcomeAuthorityResolutions, publishFailure);
+                                assertLateTargetOutcome(
+                                        replacementInitialized.backend(),
+                                        replacementStore,
+                                        otherScope,
+                                        replacementInitialized.root().recoveryLineage(),
+                                        replacementWorker,
+                                        replacementNextSourceRecord,
+                                        admission,
+                                        keys,
+                                        replacementOwnerIdentity[0],
+                                        expectedPublishedEvidence,
+                                        outcomeAuthorityResolutions,
+                                        publishFailure);
                                 replacementWorker.pauseNewTurns();
                                 replacementWorker.closeSource();
                                 claimWorker.pauseNewTurns();
@@ -3074,11 +3180,20 @@ class TargetCommandStoreTest {
                             }
                             if (publishedOutcome) {
                                 assertPublishedTargetOutcome(
-                                        replacementInitialized.backend(), replacementStore, otherScope,
-                                        replacementInitialized.root().recoveryLineage(), replacementWorker,
-                                        replacementNextSourceRecord, admission, keys, replacementOwnerIdentity[0],
-                                        expectedPublishedEvidence, outcomeAuthorityResolutions, mismatchedTransfer,
-                                        workerClasses, publishFailure);
+                                        replacementInitialized.backend(),
+                                        replacementStore,
+                                        otherScope,
+                                        replacementInitialized.root().recoveryLineage(),
+                                        replacementWorker,
+                                        replacementNextSourceRecord,
+                                        admission,
+                                        keys,
+                                        replacementOwnerIdentity[0],
+                                        expectedPublishedEvidence,
+                                        outcomeAuthorityResolutions,
+                                        mismatchedTransfer,
+                                        workerClasses,
+                                        publishFailure);
                             } else {
                                 if (closedRetryQueue) {
                                     closeRetryQueueFixture(
@@ -3086,11 +3201,14 @@ class TargetCommandStoreTest {
                                             replacementStore,
                                             otherScope,
                                             replacementInitialized.root().recoveryLineage(),
-                                            replacementLoopClaim.work().locator().target());
+                                            replacementLoopClaim
+                                                    .work()
+                                                    .locator()
+                                                    .target());
                                 }
 
-                                final var admittedBody =
-                                        TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
+                                final var admittedBody = TargetPublishAdmissionBody.decode(
+                                        admission.entry().mutation().canonicalBody());
                                 final var outcomeBefore =
                                         (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                                 final var outcomeAt = source(
@@ -3098,22 +3216,24 @@ class TargetCommandStoreTest {
                                         outcomeBefore.offset() + 1,
                                         uncertainRetry
                                                 ? Math.max(
-                                                        Math.max(outcomeBefore.brokerLogAppendTimeEpochMs() + 1,
-                                                                admittedBody.decisionTime().latestEpochMs() + 1),
+                                                        Math.max(
+                                                                outcomeBefore.brokerLogAppendTimeEpochMs() + 1,
+                                                                admittedBody
+                                                                                .decisionTime()
+                                                                                .latestEpochMs()
+                                                                        + 1),
                                                         schedulerEpoch.get() + 1)
                                                 : outcomeBefore.brokerLogAppendTimeEpochMs() + 1);
                                 final byte[] outcomeBudgetKey = Bytes.concat(
                                         new byte[] {
-                                            (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
-                                            TargetKeyCodec.KEY_FORMAT
+                                            (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT
                                         },
                                         admission.attemptId());
                                 final var admittedBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                                                 replacementStore.get(ColumnFamily.META, outcomeBudgetKey),
                                                 TargetQuotaAttemptBudget.VALUE_TYPE)
                                         .payload());
-                                final long outcomeRetryUntil =
-                                        outcomeAt.brokerLogAppendTimeEpochMs() + 10_000;
+                                final long outcomeRetryUntil = outcomeAt.brokerLogAppendTimeEpochMs() + 10_000;
                                 final var outcomeObservedAt = new TrustedUtcIntervalEvidence(
                                         outcomeAt.brokerLogAppendTimeEpochMs(),
                                         outcomeAt.brokerLogAppendTimeEpochMs() + 1,
@@ -3125,7 +3245,8 @@ class TargetCommandStoreTest {
                                         bytes(32, 0xA2),
                                         0,
                                         new byte[0]);
-                                final long firstAttemptAt = admittedBody.decisionTime().latestEpochMs();
+                                final long firstAttemptAt =
+                                        admittedBody.decisionTime().latestEpochMs();
                                 final long retryDeadline = Math.min(
                                         otherIntent.expireAtEpochMs(),
                                         firstAttemptAt + otherRetryPolicy.maxRetryDurationMs());
@@ -3134,13 +3255,18 @@ class TargetCommandStoreTest {
                                                 + com.nereusstream.delay.protocol.RetryJitter.delayMs(
                                                         com.nereusstream.delay.protocol.RetryJitter.MESSAGE_PUBLISH,
                                                         admittedBody.locator().messageId(),
-                                                        Integer.toUnsignedLong(admittedBody.locator().generation()),
+                                                        Integer.toUnsignedLong(admittedBody
+                                                                .locator()
+                                                                .generation()),
                                                         Integer.toUnsignedLong(admittedBody.attemptNo()),
                                                         otherRetryPolicy.retryBackoffCap(admittedBody.attemptNo()))
                                         : null;
                                 final byte[] unknownRetry = typedUnknownRetryDecision(
-                                        otherRetryPolicy, firstAttemptAt, retryDeadline,
-                                        admittedBody.attemptNo(), nextRetryAt);
+                                        otherRetryPolicy,
+                                        firstAttemptAt,
+                                        retryDeadline,
+                                        admittedBody.attemptNo(),
+                                        nextRetryAt);
                                 final byte[] unknownTransfer = new PublishAdmissionBody.ChargeVector(
                                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                                         .canonicalBytes();
@@ -3171,9 +3297,17 @@ class TargetCommandStoreTest {
                                         1,
                                         keys.getPrivate());
                                 if (!uncertainRetry) {
-                                    assertRecoveryOutcomeSnapshot(replacementWorker, replacementStore,
-                                            admission.entry().mutation(), outcomeOwner, keys, otherRetryPolicy,
-                                            outcomeRetryUntil, outcomeObservedAt, unknownRetry, unknownTransfer,
+                                    assertRecoveryOutcomeSnapshot(
+                                            replacementWorker,
+                                            replacementStore,
+                                            admission.entry().mutation(),
+                                            outcomeOwner,
+                                            keys,
+                                            otherRetryPolicy,
+                                            outcomeRetryUntil,
+                                            outcomeObservedAt,
+                                            unknownRetry,
+                                            unknownTransfer,
                                             outcomeMutation);
                                 }
                                 final var outcomeEntry =
@@ -3189,16 +3323,18 @@ class TargetCommandStoreTest {
                                         otherRetryPolicy,
                                         keys);
                                 final var outcomeAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-                                replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                        outcomeEntry,
-                                        (entry, outcome) -> {
+                                replacementNextSourceRecord.set(
+                                        new SourceRecordConsumer.PolledSourceRecord(outcomeEntry, (entry, outcome) -> {
                                             assertEquals(outcomeEntry, entry);
                                             assertEquals(outcomeAt, outcome.position());
-                                            assertEquals(ApplyStatus.APPLIED,
-                                                    outcome.systemMutationResult().applyStatus());
+                                            assertEquals(
+                                                    ApplyStatus.APPLIED,
+                                                    outcome.systemMutationResult()
+                                                            .applyStatus());
                                             assertEquals(
                                                     StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
-                                                    outcome.systemMutationResult().stableCode());
+                                                    outcome.systemMutationResult()
+                                                            .stableCode());
                                             return outcomeAcknowledgements.incrementAndGet() == 1
                                                     ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                                                     : SourceAcknowledgement.AcknowledgementResult.acked();
@@ -3211,13 +3347,15 @@ class TargetCommandStoreTest {
                                         SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                                         unknownOutcomeTurn.status(),
                                         () -> String.valueOf(unknownOutcomeTurn.failure()));
-                                assertEquals(outcomeEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                                assertEquals(
+                                        outcomeEntry,
+                                        replacementWorker.pendingSourceEntry().orElseThrow());
                                 assertEquals(1, outcomeAcknowledgements.get());
                                 assertEquals(beforeOutcomeMutation + 1, replacementStore.shardMutationSequence());
                                 assertTrue(replacementStore.latestSequenceNumber() > beforeOutcomeVersion);
                                 assertEquals(outcomeAt, replacementStore.appliedShardLogPosition());
-                                final byte[] admittedMessageKey =
-                                        TargetKeyCodec.message(replacementLoopClaim.work().locator().messageId());
+                                final byte[] admittedMessageKey = TargetKeyCodec.message(
+                                        replacementLoopClaim.work().locator().messageId());
                                 final var uncertainMessage = TargetMessageRecord.decodeForStore(
                                         admittedMessageKey,
                                         TargetValueEnvelope.decode(
@@ -3232,13 +3370,15 @@ class TargetCommandStoreTest {
                                                 : CurrentSendWorkKind.NONE,
                                         uncertainMessage.runtime().currentWorkKind());
                                 if (uncertainRetry && !closedRetryQueue) {
-                                    final var retryWork = uncertainMessage.runtime().timeline();
+                                    final var retryWork =
+                                            uncertainMessage.runtime().timeline();
                                     assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retryWork.workKind());
-                                    assertEquals(UncertainRetryAuthority.PINNED_POLICY,
-                                            retryWork.uncertainRetryAuthority());
+                                    assertEquals(
+                                            UncertainRetryAuthority.PINNED_POLICY, retryWork.uncertainRetryAuthority());
                                     assertEquals(2, retryWork.candidateAttemptNo());
                                     assertFalse(retryWork.nativeCandidate());
-                                    assertEquals(Math.max(uncertainMessage.deliverAtEpochMs(), nextRetryAt),
+                                    assertEquals(
+                                            Math.max(uncertainMessage.deliverAtEpochMs(), nextRetryAt),
                                             retryWork.ordinaryEligibilityAtEpochMs());
                                     uncertainMessage.requireTimelineProjection(
                                             retryWork.ordinaryKey(),
@@ -3251,13 +3391,26 @@ class TargetCommandStoreTest {
                                     assertEquals(0, uncertainMessage.runtime().uncertainRetryAdmissionsUsed());
                                 }
 
-                                assertEquals(1, uncertainMessage.runtime().attemptObligations().size());
+                                assertEquals(
+                                        1,
+                                        uncertainMessage
+                                                .runtime()
+                                                .attemptObligations()
+                                                .size());
                                 assertEquals(
                                         AttemptLedgerState.UNCERTAIN,
-                                        uncertainMessage.runtime().attemptObligations().getFirst().ledgerState());
+                                        uncertainMessage
+                                                .runtime()
+                                                .attemptObligations()
+                                                .getFirst()
+                                                .ledgerState());
                                 assertArrayEquals(
                                         admission.attemptId(),
-                                        uncertainMessage.runtime().attemptObligations().getFirst().publishAttemptId());
+                                        uncertainMessage
+                                                .runtime()
+                                                .attemptObligations()
+                                                .getFirst()
+                                                .publishAttemptId());
                                 final var unknownBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                                                 replacementStore.get(ColumnFamily.META, outcomeBudgetKey),
                                                 TargetQuotaAttemptBudget.VALUE_TYPE)
@@ -3277,8 +3430,8 @@ class TargetCommandStoreTest {
                                     assertArrayEquals(
                                             orderAfterCancel.lastAdmittedOrder().encodedKey(),
                                             outcomeOrder.lastAdmittedOrder().encodedKey());
-                                    assertEquals(TargetOrderBarrier.fromMessage(uncertainMessage),
-                                            outcomeOrder.barrier());
+                                    assertEquals(
+                                            TargetOrderBarrier.fromMessage(uncertainMessage), outcomeOrder.barrier());
                                     assertNull(outcomeOrder.serviceableHead());
                                 }
                                 final var outcomeFirst = TargetResultRecord.decode(TargetValueEnvelope.decode(
@@ -3306,55 +3459,75 @@ class TargetCommandStoreTest {
                                         () -> String.valueOf(outcomeAcknowledged.failure()));
                                 assertEquals(outcomeEntry, outcomeAcknowledged.entry());
                                 assertEquals(2, outcomeAcknowledgements.get());
-                                assertTrue(replacementWorker.pendingSourceEntry().isEmpty());
+                                assertTrue(
+                                        replacementWorker.pendingSourceEntry().isEmpty());
                                 assertEquals(beforeOutcomeMutation + 1, replacementStore.shardMutationSequence());
                                 assertEquals(outcomeVersionAfterApply, replacementStore.latestSequenceNumber());
                                 assertEquals(1, outcomeAuthorityResolutions.get());
 
                                 if (uncertainRetry && !closedRetryQueue) {
-                                    final var retryWork = uncertainMessage.runtime().timeline();
+                                    final var retryWork =
+                                            uncertainMessage.runtime().timeline();
                                     final long due = retryWork.ordinaryEligibilityAtEpochMs();
-                                    final var retryQueue = replacementWorker.readTargetQueue(
-                                                    budget(), uncertainMessage.locator().target(), () -> 101)
-                                            .orElseThrow().queue();
-                                    final var retryHead = retryQueue.domains()
-                                            .get(uncertainMessage.locator().domain().slot()).ordinaryHead();
+                                    final var retryQueue = replacementWorker
+                                            .readTargetQueue(
+                                                    budget(),
+                                                    uncertainMessage.locator().target(),
+                                                    () -> 101)
+                                            .orElseThrow()
+                                            .queue();
+                                    final var retryHead = retryQueue
+                                            .domains()
+                                            .get(uncertainMessage
+                                                    .locator()
+                                                    .domain()
+                                                    .slot())
+                                            .ordinaryHead();
                                     assertNotNull(retryHead);
                                     assertEquals(uncertainMessage.locator().messageId(), retryHead.messageId());
                                     assertEquals(due, retryHead.timeEpochMs());
                                     final var retryCost =
                                             replacementWorker.probeSelectedHead(budget(), retryHead, () -> 101);
-                                    assertTrue(retryCost.deliverAtEpochMs() <= due
-                                            && retryCost.expireAtEpochMs() > due);
+                                    assertTrue(
+                                            retryCost.deliverAtEpochMs() <= due && retryCost.expireAtEpochMs() > due);
                                     schedulerEpoch.set(due - 1);
                                     schedulerClaimGate.release();
                                     assertNull(schedulerClaims.poll(150, java.util.concurrent.TimeUnit.MILLISECONDS));
                                     schedulerEpoch.set(due);
                                     final var retryClaim =
                                             schedulerClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
-                                    assertNotNull(retryClaim,
+                                    assertNotNull(
+                                            retryClaim,
                                             () -> "uncertain retry scheduler failure: " + ordinaryLoop.firstFailure());
-                                    assertEquals(retryWork.locator(), retryClaim.work().locator());
-                                    assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retryClaim.work().workKind());
+                                    assertEquals(
+                                            retryWork.locator(),
+                                            retryClaim.work().locator());
+                                    assertEquals(
+                                            TimelineWorkKind.UNCERTAIN_RETRY,
+                                            retryClaim.work().workKind());
                                     assertEquals(2, retryClaim.work().candidateAttemptNo());
                                     assertEquals(replacementOwnerIdentity[0], retryClaim.owner());
                                     schedulerClaimGate.release();
                                     final var retryBefore =
                                             (KafkaSourcePosition) replacementStore.appliedShardLogPosition();
                                     final var retryAt = source(
-                                            retryBefore, retryBefore.offset() + 1,
+                                            retryBefore,
+                                            retryBefore.offset() + 1,
                                             Math.max(retryBefore.brokerPersistenceTimeEpochMs() + 1, due));
                                     final var retryAdmission = targetAdmission(
                                             replacementStore, retryClaim, replacementOwnerIdentity[0], keys, retryAt);
                                     replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
                                             retryAdmission.entry(), (entry, outcome) -> {
-                                                assertEquals(StableCode.OK,
-                                                        outcome.systemMutationResult().stableCode());
+                                                assertEquals(
+                                                        StableCode.OK,
+                                                        outcome.systemMutationResult()
+                                                                .stableCode());
                                                 return SourceAcknowledgement.AcknowledgementResult.acked();
                                             }));
                                     final var retryTurn = replacementWorker.runSourceTurn(
                                             new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
-                                    assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                                    assertEquals(
+                                            SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                                             retryTurn.status(),
                                             () -> String.valueOf(retryTurn.failure()));
                                     assertTargetAdmissionCommitted(replacementStore, retryClaim, retryAdmission);
@@ -3366,41 +3539,55 @@ class TargetCommandStoreTest {
                                     assertEquals(2, retried.runtime().admissionsUsed());
                                     assertEquals(1, retried.runtime().uncertainRetryAdmissionsUsed());
                                     assertTrue(retried.runtime().possibleDestinationDuplicate());
-                                    assertEquals(2, retried.runtime().attemptObligations().size());
-                                    assertTrue(retried.runtime().attemptObligations().stream().anyMatch(ref ->
-                                            Arrays.equals(ref.publishAttemptId(), admission.attemptId())
-                                                    && ref.ledgerState() == AttemptLedgerState.UNCERTAIN));
-                                    assertTrue(retried.runtime().attemptObligations().stream().anyMatch(ref ->
-                                            Arrays.equals(ref.publishAttemptId(), retryAdmission.attemptId())
-                                                    && ref.ledgerState() == AttemptLedgerState.PUBLISHING));
+                                    assertEquals(
+                                            2,
+                                            retried.runtime()
+                                                    .attemptObligations()
+                                                    .size());
+                                    assertTrue(retried.runtime().attemptObligations().stream()
+                                            .anyMatch(
+                                                    ref -> Arrays.equals(ref.publishAttemptId(), admission.attemptId())
+                                                            && ref.ledgerState() == AttemptLedgerState.UNCERTAIN));
+                                    assertTrue(retried.runtime().attemptObligations().stream()
+                                            .anyMatch(ref ->
+                                                    Arrays.equals(ref.publishAttemptId(), retryAdmission.attemptId())
+                                                            && ref.ledgerState() == AttemptLedgerState.PUBLISHING));
                                     final var oldBudgetAfterRetry =
                                             TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                                                    replacementStore.get(ColumnFamily.META, outcomeBudgetKey),
-                                                    TargetQuotaAttemptBudget.VALUE_TYPE)
-                                            .payload());
-                                    assertArrayEquals(unknownBudget.canonicalBytes(),
-                                            oldBudgetAfterRetry.canonicalBytes());
+                                                            replacementStore.get(ColumnFamily.META, outcomeBudgetKey),
+                                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                                    .payload());
+                                    assertArrayEquals(
+                                            unknownBudget.canonicalBytes(), oldBudgetAfterRetry.canonicalBytes());
                                     assertExhaustedRetryDoesNotWrite(
-                                            replacementInitialized.backend(), replacementStore, otherScope,
+                                            replacementInitialized.backend(),
+                                            replacementStore,
+                                            otherScope,
                                             replacementInitialized.root().recoveryLineage(),
-                                            admission, retryAdmission, replacementOwnerIdentity[0],
-                                                otherRetryPolicy, keys);
+                                            admission,
+                                            retryAdmission,
+                                            replacementOwnerIdentity[0],
+                                            otherRetryPolicy,
+                                            keys);
                                     assertNull(ordinaryLoop.firstFailure());
                                     ordinaryLoop.close();
                                 } else if (closedRetryQueue) {
                                     final var closedQueue = TargetQueueState.decode(TargetValueEnvelope.decode(
-                                                    replacementStore.get(ColumnFamily.META,
-                                                            TargetKeyCodec.state(uncertainMessage.locator().target())),
+                                                    replacementStore.get(
+                                                            ColumnFamily.META,
+                                                            TargetKeyCodec.state(uncertainMessage
+                                                                    .locator()
+                                                                    .target())),
                                                     TargetQueueState.VALUE_TYPE)
                                             .payload());
                                     assertEquals(TargetQueueState.AdmissionState.CLOSED, closedQueue.admissionState());
                                     assertNull(uncertainMessage.runtime().timeline());
-                                    assertTrue(closedQueue.domains().stream().allMatch(domain ->
-                                            domain.ordinaryHead() == null && domain.nativeHead() == null));
+                                    assertTrue(closedQueue.domains().stream()
+                                            .allMatch(domain ->
+                                                    domain.ordinaryHead() == null && domain.nativeHead() == null));
                                     schedulerClaimGate.release();
                                     ordinaryLoop.close();
                                 }
-
                             }
 
                             final var replacementBeforeReplay =
@@ -3411,9 +3598,8 @@ class TargetCommandStoreTest {
                                     replacementBeforeReplay.brokerLogAppendTimeEpochMs() + 1);
                             final var replayEntry = new SourceReplayRecord(otherSchedule, replayAt, null, null);
                             final var replacementAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-                            replacementNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    replayEntry,
-                                    (entry, outcome) -> {
+                            replacementNextSourceRecord.set(
+                                    new SourceRecordConsumer.PolledSourceRecord(replayEntry, (entry, outcome) -> {
                                         assertEquals(replayEntry, entry);
                                         assertEquals(replayAt, outcome.position());
                                         assertNotNull(outcome.commandResult());
@@ -3427,13 +3613,14 @@ class TargetCommandStoreTest {
                                     new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
                             assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, unknownTurn.status());
                             assertEquals(replayEntry, unknownTurn.entry());
-                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    replayEntry,
+                                    replacementWorker.pendingSourceEntry().orElseThrow());
                             assertEquals(1, replacementAcknowledgements.get());
                             assertFalse(replacementRuntime.fenced());
                             assertEquals(replayAt, replacementStore.appliedShardLogPosition());
                             assertEquals(
-                                    replacementMutationsBeforeUnknown + 1,
-                                    replacementStore.shardMutationSequence());
+                                    replacementMutationsBeforeUnknown + 1, replacementStore.shardMutationSequence());
 
                             final long replacementSequenceAfterUnknown = replacementStore.latestSequenceNumber();
                             final var siblingBeforeReplay = (KafkaSourcePosition) store.appliedShardLogPosition();
@@ -3445,8 +3632,7 @@ class TargetCommandStoreTest {
                                     new SourceReplayRecord(schedule, siblingReplayAt, null, null);
                             final var siblingAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
                             claimNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                    siblingReplayEntry,
-                                    (entry, outcome) -> {
+                                    siblingReplayEntry, (entry, outcome) -> {
                                         assertEquals(siblingReplayEntry, entry);
                                         assertEquals(siblingReplayAt, outcome.position());
                                         assertNotNull(outcome.commandResult());
@@ -3463,16 +3649,22 @@ class TargetCommandStoreTest {
                             assertEquals(
                                     SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
                                     siblingApplyTurn.result().status());
-                            assertEquals(siblingReplayEntry, siblingApplyTurn.result().entry());
+                            assertEquals(
+                                    siblingReplayEntry,
+                                    siblingApplyTurn.result().entry());
                             assertEquals(1, siblingAcknowledgements.get());
-                            assertEquals(siblingReplayEntry, claimWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    siblingReplayEntry,
+                                    claimWorker.pendingSourceEntry().orElseThrow());
                             assertFalse(claimRuntime.fenced());
                             assertFalse(replacementRuntime.fenced());
                             assertEquals(siblingReplayAt, store.appliedShardLogPosition());
                             assertTrue(store.latestSequenceNumber() > mainSequenceBeforeUnknown);
                             assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
                             final long mainSequenceAfterSibling = store.latestSequenceNumber();
-                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    replayEntry,
+                                    replacementWorker.pendingSourceEntry().orElseThrow());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
 
                             assertTrue(leases.release(replacementActive));
@@ -3486,17 +3678,19 @@ class TargetCommandStoreTest {
                                     lostOwnerRetry.result().status());
                             assertEquals(replayEntry, lostOwnerRetry.result().entry());
                             assertEquals(1, replacementAcknowledgements.get());
-                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    replayEntry,
+                                    replacementWorker.pendingSourceEntry().orElseThrow());
                             assertTrue(replacementRuntime.fenced());
                             assertEquals(
-                                    replacementMutationsBeforeUnknown + 1,
-                                    replacementStore.shardMutationSequence());
+                                    replacementMutationsBeforeUnknown + 1, replacementStore.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
                             assertEquals(
-                                    replacementMutationsBeforeLostOwnerRetry,
-                                    replacementStore.shardMutationSequence());
+                                    replacementMutationsBeforeLostOwnerRetry, replacementStore.shardMutationSequence());
                             assertFalse(claimRuntime.fenced());
-                            assertEquals(siblingReplayEntry, claimWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    siblingReplayEntry,
+                                    claimWorker.pendingSourceEntry().orElseThrow());
 
                             final var acknowledgedSiblingTurn = actualFleet.runNextSourceTurn(
                                     new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101);
@@ -3504,7 +3698,9 @@ class TargetCommandStoreTest {
                             assertEquals(
                                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                                     acknowledgedSiblingTurn.result().status());
-                            assertEquals(siblingReplayEntry, acknowledgedSiblingTurn.result().entry());
+                            assertEquals(
+                                    siblingReplayEntry,
+                                    acknowledgedSiblingTurn.result().entry());
                             assertEquals(2, siblingAcknowledgements.get());
                             assertTrue(claimWorker.pendingSourceEntry().isEmpty());
                             assertFalse(claimRuntime.fenced());
@@ -3512,7 +3708,9 @@ class TargetCommandStoreTest {
                             assertEquals(mainSequenceAfterSibling, store.latestSequenceNumber());
                             assertEquals(mainMutationsBeforeSibling + 1, store.shardMutationSequence());
                             assertEquals(replacementSequenceAfterUnknown, replacementStore.latestSequenceNumber());
-                            assertEquals(replayEntry, replacementWorker.pendingSourceEntry().orElseThrow());
+                            assertEquals(
+                                    replayEntry,
+                                    replacementWorker.pendingSourceEntry().orElseThrow());
                             assertTrue(replacementRuntime.fenced());
 
                             if (!rescheduled && !strictOrderExpiry) {
@@ -3521,18 +3719,16 @@ class TargetCommandStoreTest {
                                         currentPosition,
                                         currentPosition.offset() + 1,
                                         currentPosition.brokerLogAppendTimeEpochMs() + 1);
-                                final var overQuotaSchedule =
-                                        schedule(intent, messageId, siblingBusinessAt, 7000);
+                                final var overQuotaSchedule = schedule(intent, messageId, siblingBusinessAt, 7000);
                                 expectedSiblingCommand.set(overQuotaSchedule);
-                                final var overQuotaEntry = new SourceReplayRecord(
-                                        overQuotaSchedule, siblingBusinessAt, null, null);
+                                final var overQuotaEntry =
+                                        new SourceReplayRecord(overQuotaSchedule, siblingBusinessAt, null, null);
                                 final var queueBeforeQuotaRejection =
                                         store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target()));
                                 final long sequenceBeforeQuotaRejection = store.latestSequenceNumber();
                                 final var siblingBusinessAcks = new java.util.concurrent.atomic.AtomicInteger();
                                 claimNextSourceRecord.set(new SourceRecordConsumer.PolledSourceRecord(
-                                        overQuotaEntry,
-                                        (entry, outcome) -> {
+                                        overQuotaEntry, (entry, outcome) -> {
                                             assertEquals(overQuotaEntry, entry);
                                             assertEquals(siblingBusinessAt, outcome.position());
                                             assertEquals(
@@ -3549,7 +3745,10 @@ class TargetCommandStoreTest {
                                 assertEquals(overQuotaEntry, siblingBusinessTurn.entry());
                                 assertEquals(
                                         StableCode.HARD_QUOTA_EXCEEDED,
-                                        siblingBusinessTurn.appliedOutcome().commandResult().stableCode());
+                                        siblingBusinessTurn
+                                                .appliedOutcome()
+                                                .commandResult()
+                                                .stableCode());
                                 assertEquals(1, siblingBusinessAcks.get());
                                 assertTrue(claimWorker.pendingSourceEntry().isEmpty());
                                 assertFalse(claimRuntime.fenced());
@@ -3557,8 +3756,7 @@ class TargetCommandStoreTest {
                                 assertEquals(siblingBusinessAt, store.appliedShardLogPosition());
                                 assertTrue(store.latestSequenceNumber() > sequenceBeforeQuotaRejection);
                                 assertNull(store.get(
-                                        ColumnFamily.ID,
-                                        TargetKeyCodec.message(overQuotaSchedule.delayMessageId())));
+                                        ColumnFamily.ID, TargetKeyCodec.message(overQuotaSchedule.delayMessageId())));
                                 assertArrayEquals(
                                         queueBeforeQuotaRejection,
                                         store.get(ColumnFamily.META, TargetKeyCodec.state(binding.target())));
@@ -3566,8 +3764,7 @@ class TargetCommandStoreTest {
                         }
 
                         final long afterClaim = store.latestSequenceNumber();
-                        assertNotEquals(
-                                scanCut, claimWorker.readTargetQueueCut(budget(), replacementOwnerClock::get));
+                        assertNotEquals(scanCut, claimWorker.readTargetQueueCut(budget(), replacementOwnerClock::get));
                         assertNotEquals(
                                 partialPage.cut(),
                                 claimWorker
@@ -3579,7 +3776,8 @@ class TargetCommandStoreTest {
                                 .orElseThrow()
                                 .queue();
                         assertNotEquals(actualQueue.headRevision(), refreshed.headRevision());
-                        assertNotEquals(selectedHead, refreshed.domains().getFirst().ordinaryHead());
+                        assertNotEquals(
+                                selectedHead, refreshed.domains().getFirst().ordinaryHead());
                         assertEquals(afterClaim, store.latestSequenceNumber());
                         assertThrows(
                                 IllegalStateException.class,
@@ -3670,12 +3868,13 @@ class TargetCommandStoreTest {
                     Bytes.sha256(active.leaseToken()));
             final TargetExpireGenerationVerifier.Authority expiryAuthority =
                     (actualScope, owner, mutation, position) -> {
-                assertEquals(scope, actualScope);
-                assertArrayEquals(expiryOwner.canonicalBytes(), owner.canonicalBytes());
-                assertEquals(scope.shard(), mutation.shardId());
-                assertEquals(position.shardId(), scope.shard());
-                return new TargetExpireGenerationVerifier.Authorization(keys.getPublic(), 5, (a, b, c, proof) -> true);
-            };
+                        assertEquals(scope, actualScope);
+                        assertArrayEquals(expiryOwner.canonicalBytes(), owner.canonicalBytes());
+                        assertEquals(scope.shard(), mutation.shardId());
+                        assertEquals(position.shardId(), scope.shard());
+                        return new TargetExpireGenerationVerifier.Authorization(
+                                keys.getPublic(), 5, (a, b, c, proof) -> true);
+                    };
             final var trustSet = new PayloadProofTrustSetSemantic(
                     1, List.of(PayloadProofVerifierKey.fromPublicKey(1, proofKeys.getPublic(), 0, Long.MAX_VALUE)));
             final var proofControls = PayloadProofTrustSetControlState.empty().activate(trustSet.ref(), grantAt);
@@ -3701,8 +3900,7 @@ class TargetCommandStoreTest {
                             entry -> {
                                 expiryResolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.ExpiryControl(
-                                        expiryAuthority,
-                                        (a, b, c) -> guard());
+                                        expiryAuthority, (a, b, c) -> guard());
                             },
                             entry -> {
                                 closeResolutions.incrementAndGet();
@@ -3759,13 +3957,15 @@ class TargetCommandStoreTest {
                                 store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)),
                                 TargetMessageRecord.VALUE_TYPE)
                         .payload());
-                assertEquals(CurrentSendWorkKind.CLAIMED, claimedMessage.runtime().currentWorkKind());
+                assertEquals(
+                        CurrentSendWorkKind.CLAIMED, claimedMessage.runtime().currentWorkKind());
                 assertTrue(claim != null);
                 final var orderKey = TargetKeyCodec.orderState(
-                        claimedMessage.locator().target(), claimedMessage.locator().orderingDomain());
-                final var orderBeforeExpiry = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                        .payload());
+                        claimedMessage.locator().target(),
+                        claimedMessage.locator().orderingDomain());
+                final var orderBeforeExpiry = TargetOrderState.decode(
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                .payload());
                 assertTrue(orderBeforeExpiry.barrier() != null);
                 assertEquals(messageId, orderBeforeExpiry.barrier().locator().messageId());
                 assertFalse(store.get(ColumnFamily.INFLIGHT, claim.key()) == null);
@@ -3777,16 +3977,9 @@ class TargetCommandStoreTest {
 
                 final var currentSource = (KafkaSourcePosition) store.appliedShardLogPosition();
                 final var claimedExpiryAt = source(
-                        currentSource,
-                        currentSource.offset() + 1,
-                        currentSource.brokerLogAppendTimeEpochMs() + 1);
-                final var claimedExpiry = expire(
-                        messageId,
-                        claimedMessage.expireAtEpochMs(),
-                        claimedExpiryAt,
-                        expiryOwner,
-                        keys,
-                        false);
+                        currentSource, currentSource.offset() + 1, currentSource.brokerLogAppendTimeEpochMs() + 1);
+                final var claimedExpiry =
+                        expire(messageId, claimedMessage.expireAtEpochMs(), claimedExpiryAt, expiryOwner, keys, false);
                 final long beforeClaimedExpiryMutationSequence = store.shardMutationSequence();
                 final var claimedExpiryResult = applyExpiry(loop, entries, claimedExpiry, claimedExpiryAt);
                 assertEquals(StableCode.OK, claimedExpiryResult.stableCode());
@@ -3797,12 +3990,14 @@ class TargetCommandStoreTest {
                                 TargetMessageRecord.VALUE_TYPE)
                         .payload());
                 assertEquals(GenerationAggregateState.EXPIRED, expiredClaimedMessage.aggregateState());
-                assertEquals(CurrentSendWorkKind.NONE, expiredClaimedMessage.runtime().currentWorkKind());
+                assertEquals(
+                        CurrentSendWorkKind.NONE,
+                        expiredClaimedMessage.runtime().currentWorkKind());
                 assertNull(store.get(ColumnFamily.INFLIGHT, claim.key()));
                 assertNull(store.get(ColumnFamily.META, claim.chargeKey()));
-                final var orderAfterExpiry = TargetOrderState.decode(TargetValueEnvelope.decode(
-                                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                        .payload());
+                final var orderAfterExpiry = TargetOrderState.decode(
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                .payload());
                 assertNull(orderAfterExpiry.barrier());
                 assertNull(store.get(ColumnFamily.TIMELINE, work.ordinaryKey()));
                 if (work.nativeCandidate()) {
@@ -4007,12 +4202,13 @@ class TargetCommandStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(fresh.delayMessageId())),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            final var expiry = expire(
-                    fresh.delayMessageId(), beforeExpiry.expireAtEpochMs(), expiryAt, expiryOwner, keys, false);
+            final var expiry =
+                    expire(fresh.delayMessageId(), beforeExpiry.expireAtEpochMs(), expiryAt, expiryOwner, keys, false);
             final var expiryDiscovery = new TargetExpiryDiscoveryStore(backend, scope);
-            final var expiryProof = TargetExpireGenerationBody.decode(expiry.canonicalBody()).proof();
-            final var expectedExpiry = new TargetExpiryDiscoveryStore.Candidate(
-                    beforeExpiry.locator(), beforeExpiry.expireAtEpochMs());
+            final var expiryProof =
+                    TargetExpireGenerationBody.decode(expiry.canonicalBody()).proof();
+            final var expectedExpiry =
+                    new TargetExpiryDiscoveryStore.Candidate(beforeExpiry.locator(), beforeExpiry.expireAtEpochMs());
             assertTrue(expiryProof.earliestEpochMs() > 0);
             final var beforeExpiryProof = new TrustedUtcIntervalEvidence(
                     expiryProof.earliestEpochMs() - 1,
@@ -4057,17 +4253,15 @@ class TargetCommandStoreTest {
                     new TargetWorkerShardRuntime.Maintenance(
                             new TargetCloseStore(backend, scope, lineage, 16, 1)
                                     .reservationControls((reader, bound) -> java.util.Optional.empty()),
-                            new TargetReservationClosureWorkClassExecutor.Limits(
-                                    4096, 250_000, 60_000_000_000L),
-                            new TargetReservationExpiryWorkClassExecutor.Limits(
-                                    2048, 100_000, 60_000_000_000L),
+                            new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                            new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
                             (a, b, c) -> guard(),
                             ignored -> {},
                             ignored -> {},
                             ignored -> {},
                             () -> 100));
-            final var workerExpiryPage = messageExpiryWorker.discoverMessageExpiry(
-                    budget(), null, expiryProof, () -> 100);
+            final var workerExpiryPage =
+                    messageExpiryWorker.discoverMessageExpiry(budget(), null, expiryProof, () -> 100);
             assertEquals(expectedExpiry, workerExpiryPage.candidate().orElseThrow());
             final var missingExpiryMaintenance = assertThrows(
                     IllegalStateException.class,
@@ -4102,11 +4296,11 @@ class TargetCommandStoreTest {
                             expiry.signingKeyVersion(),
                             keys.getPrivate()));
             if (claimed) {
-                final java.util.function.LongSupplier maintenanceThreadCount = () -> Thread.getAllStackTraces()
-                        .keySet().stream()
-                        .filter(thread -> thread.isAlive()
-                                && thread.getName().equals("nereus-delay-target-maintenance"))
-                        .count();
+                final java.util.function.LongSupplier maintenanceThreadCount =
+                        () -> Thread.getAllStackTraces().keySet().stream()
+                                .filter(thread ->
+                                        thread.isAlive() && thread.getName().equals("nereus-delay-target-maintenance"))
+                                .count();
                 final long maintenanceThreadsBeforeFailedStart = maintenanceThreadCount.getAsLong();
                 assertThrows(
                         IllegalStateException.class,
@@ -4117,8 +4311,8 @@ class TargetCommandStoreTest {
                                 new SchedulerBudget(1, 1024, 1_000_000),
                                 java.time.Duration.ofHours(1),
                                 ignored -> {}));
-                final long maintenanceThreadDeadline = System.nanoTime()
-                        + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                final long maintenanceThreadDeadline =
+                        System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                 while (maintenanceThreadCount.getAsLong() > maintenanceThreadsBeforeFailedStart
                         && System.nanoTime() < maintenanceThreadDeadline) {
                     Thread.sleep(1);
@@ -4162,17 +4356,14 @@ class TargetCommandStoreTest {
                     () -> messageExpiryWorker.submitProtectedCheckpointCandidate(
                             null, null, null, null, null, null, null));
             assertEquals(
-                    "Target checkpoint cannot cut a pending message expiry handoff",
-                    checkpointCutFailure.getMessage());
+                    "Target checkpoint cannot cut a pending message expiry handoff", checkpointCutFailure.getMessage());
             final var localCheckpointFailure = assertThrows(
                     IllegalStateException.class,
-                    () -> messageExpiryWorker.submitLocalCheckpointCandidate(
-                            null, null, null, null, null, null, null));
+                    () -> messageExpiryWorker.submitLocalCheckpointCandidate(null, null, null, null, null, null, null));
             assertEquals(
                     "Target checkpoint cannot cut a pending message expiry handoff",
                     localCheckpointFailure.getMessage());
-            final var pauseFailure = assertThrows(
-                    IllegalStateException.class, messageExpiryWorker::pauseNewTurns);
+            final var pauseFailure = assertThrows(IllegalStateException.class, messageExpiryWorker::pauseNewTurns);
             assertEquals("Target Worker cannot pause a pending message expiry handoff", pauseFailure.getMessage());
             assertEquals(
                     messageExpirySubmission.task(),
@@ -4218,7 +4409,8 @@ class TargetCommandStoreTest {
                             expiry.systemMutationId())));
             assertEquals(
                     StableCode.OK,
-                    applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt).stableCode());
+                    applyExpiry(loop, entries, messageExpirySubmission.mutation(), expiryAt)
+                            .stableCode());
             assertTrue(messageExpiryWorker
                     .settlePendingMessageExpiryForDrain(
                             new SchedulerBudget(100, 2_000_000, 60_000_000_000L),
@@ -4234,9 +4426,11 @@ class TargetCommandStoreTest {
             assertEquals(GenerationAggregateState.EXPIRED, expired.aggregateState());
             assertEquals(CurrentSendWorkKind.NONE, expired.runtime().currentWorkKind());
             assertEquals(beforeExpiry.stateVersion() + 1, expired.stateVersion());
-            assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().ordinaryKey()));
+            assertNull(store.get(
+                    ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().ordinaryKey()));
             if (beforeExpiry.runtime().timeline().nativeCandidate()) {
-                assertNull(store.get(ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().nativeKey()));
+                assertNull(store.get(
+                        ColumnFamily.TIMELINE, beforeExpiry.runtime().timeline().nativeKey()));
             }
             assertNull(store.get(
                     ColumnFamily.TIMELINE,
@@ -4246,8 +4440,7 @@ class TargetCommandStoreTest {
                                     ColumnFamily.META,
                                     Bytes.concat(
                                             new byte[] {
-                                                TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG,
-                                                TargetKeyCodec.KEY_FORMAT
+                                                TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT
                                             },
                                             fresh.delayMessageId().bytes())),
                             TargetQuotaPayloadOwner.VALUE_TYPE)
@@ -4255,8 +4448,7 @@ class TargetCommandStoreTest {
             assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, expiryOwnerRecord.phase());
             final var expiryTerminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
                             store.get(
-                                    ColumnFamily.TERMINAL,
-                                    TargetTerminalGenerationRecord.key(beforeExpiry.locator())),
+                                    ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(beforeExpiry.locator())),
                             TargetTerminalGenerationRecord.VALUE_TYPE)
                     .payload());
             assertEquals(StableCode.ALREADY_EXPIRED, expiryTerminal.terminalCode());
@@ -4264,7 +4456,8 @@ class TargetCommandStoreTest {
             assertEquals(beforeExpiryMutationSequence + 1, store.shardMutationSequence());
             assertEquals(expiryAt, store.appliedShardLogPosition());
             final long afterExpiry = store.latestSequenceNumber();
-            assertEquals(StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
+            assertEquals(
+                    StableCode.OK, applyExpiry(loop, entries, expiry, expiryAt).stableCode());
             assertEquals(afterExpiry, store.latestSequenceNumber());
             assertEquals(1, expiryResolutions.get());
             final var laterExpiryDuplicateAt =
@@ -4279,20 +4472,16 @@ class TargetCommandStoreTest {
                     laterExpiryDuplicateAt.offset() + 1,
                     laterExpiryDuplicateAt.brokerLogAppendTimeEpochMs() + 1);
             final var unauthorizedExpiry = expire(
-                    fresh.delayMessageId(),
-                    beforeExpiry.expireAtEpochMs(),
-                    unauthorizedAt,
-                    expiryOwner,
-                    keys,
-                    true);
+                    fresh.delayMessageId(), beforeExpiry.expireAtEpochMs(), unauthorizedAt, expiryOwner, keys, true);
             final var unauthorizedResult = applyExpiry(loop, entries, unauthorizedExpiry, unauthorizedAt);
             assertEquals(ApplyStatus.REJECTED, unauthorizedResult.applyStatus());
             assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, unauthorizedResult.stableCode());
             assertEquals(2, expiryResolutions.get());
             final var replacementAt = source(
                     unauthorizedAt, unauthorizedAt.offset() + 1, unauthorizedAt.brokerLogAppendTimeEpochMs() + 1);
-            final var replacementId = new DelayMessageId(
-                    cancel(fresh.delayMessageId(), replacementAt, 2020).commandId().bytes());
+            final var replacementId = new DelayMessageId(cancel(fresh.delayMessageId(), replacementAt, 2020)
+                    .commandId()
+                    .bytes());
             final var replacement = schedule(intent, replacementId, replacementAt, 2021);
             assertEquals(
                     StableCode.SCHEDULED,
@@ -4306,9 +4495,11 @@ class TargetCommandStoreTest {
                     .payload());
             final var replacementExpiryCandidate = new TargetExpiryDiscoveryStore.Candidate(
                     replacementMessage.locator(), replacementMessage.expireAtEpochMs());
-            final var replacementExpiryPage = messageExpiryWorker.discoverMessageExpiry(
-                    budget(), null, expiryProof, () -> 100);
-            assertEquals(replacementExpiryCandidate, replacementExpiryPage.candidate().orElseThrow());
+            final var replacementExpiryPage =
+                    messageExpiryWorker.discoverMessageExpiry(budget(), null, expiryProof, () -> 100);
+            assertEquals(
+                    replacementExpiryCandidate,
+                    replacementExpiryPage.candidate().orElseThrow());
             final var replacementExpiryAt =
                     source(replacementAt, replacementAt.offset() + 1, replacementAt.brokerLogAppendTimeEpochMs() + 1);
             final var replacementExpiry = expire(
@@ -4335,7 +4526,9 @@ class TargetCommandStoreTest {
                     TargetMessageExpiryWorkClassExecutor.ResultKind.UNKNOWN,
                     replacementExpirySubmission.result().orElseThrow().kind());
             assertNull(replacementExpirySubmission.result().orElseThrow().sourcePosition());
-            assertEquals(replacementExpiry, replacementExpirySubmission.result().orElseThrow().mutation());
+            assertEquals(
+                    replacementExpiry,
+                    replacementExpirySubmission.result().orElseThrow().mutation());
             assertFalse(runtime.fenced());
             assertEquals(beforeReplacementExpirySubmit, store.latestSequenceNumber());
             failWorkerReads.set(true);
@@ -4366,10 +4559,11 @@ class TargetCommandStoreTest {
             assertEquals(beforeReplacementExpirySubmit, store.latestSequenceNumber());
             assertEquals(
                     StableCode.OK,
-                    applyExpiry(loop, entries, replacementExpiry, replacementExpiryAt).stableCode());
-            final var reconciledReplacement = messageExpiryHandoff.settlePending(() -> 100).orElseThrow();
-            assertEquals(
-                    TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED, reconciledReplacement.kind());
+                    applyExpiry(loop, entries, replacementExpiry, replacementExpiryAt)
+                            .stableCode());
+            final var reconciledReplacement =
+                    messageExpiryHandoff.settlePending(() -> 100).orElseThrow();
+            assertEquals(TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED, reconciledReplacement.kind());
             assertEquals(replacementExpiry, reconciledReplacement.mutation());
             assertEquals(
                     TargetMessageExpiryWorkClassExecutor.ResultKind.APPLIED,
@@ -4379,8 +4573,10 @@ class TargetCommandStoreTest {
                     replacementExpiryAt,
                     replacementExpiryAt.offset() + 1,
                     replacementExpiryAt.brokerLogAppendTimeEpochMs() + 1);
-            final var producerMessageId = new DelayMessageId(
-                    cancel(replacement.delayMessageId(), producerScheduleAt, 2022).commandId().bytes());
+            final var producerMessageId =
+                    new DelayMessageId(cancel(replacement.delayMessageId(), producerScheduleAt, 2022)
+                            .commandId()
+                            .bytes());
             final var producerSchedule = schedule(intent, producerMessageId, producerScheduleAt, 2023);
             assertEquals(
                     StableCode.SCHEDULED,
@@ -4403,7 +4599,8 @@ class TargetCommandStoreTest {
                     com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(
                             producerExpiryAt));
             final long beforeScheduledExpiry = store.latestSequenceNumber();
-            final var scheduledExpiryTask = messageExpiryWorker.runMessageExpiryMaintenanceTurn().orElseThrow();
+            final var scheduledExpiryTask =
+                    messageExpiryWorker.runMessageExpiryMaintenanceTurn().orElseThrow();
             assertEquals(WorkClass.EXPIRY, scheduledExpiryTask.workClass());
             assertEquals(beforeScheduledExpiry, store.latestSequenceNumber());
             workerClasses.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
@@ -4417,16 +4614,16 @@ class TargetCommandStoreTest {
             assertEquals(beforeScheduledExpiry, store.latestSequenceNumber());
             assertEquals(
                     StableCode.OK,
-                    applyExpiry(loop, entries, scheduledExpiryMutation, producerExpiryAt).stableCode());
+                    applyExpiry(loop, entries, scheduledExpiryMutation, producerExpiryAt)
+                            .stableCode());
             assertTrue(messageExpiryWorker.runMessageExpiryMaintenanceTurn().isEmpty());
             assertTrue(messageExpiryHandoff.settlePending(() -> 100).isEmpty());
 
             final var nextScheduleAt = source(
-                    producerExpiryAt,
-                    producerExpiryAt.offset() + 1,
-                    producerExpiryAt.brokerLogAppendTimeEpochMs() + 1);
-            final var nextMessageId = new DelayMessageId(
-                    cancel(producerSchedule.delayMessageId(), nextScheduleAt, 2024).commandId().bytes());
+                    producerExpiryAt, producerExpiryAt.offset() + 1, producerExpiryAt.brokerLogAppendTimeEpochMs() + 1);
+            final var nextMessageId = new DelayMessageId(cancel(producerSchedule.delayMessageId(), nextScheduleAt, 2024)
+                    .commandId()
+                    .bytes());
             final var nextSchedule = schedule(intent, nextMessageId, nextScheduleAt, 2025);
             assertEquals(
                     StableCode.SCHEDULED,
@@ -4438,15 +4635,13 @@ class TargetCommandStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(nextSchedule.delayMessageId())),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            final var nextExpiryCandidate = new TargetExpiryDiscoveryStore.Candidate(
-                    nextMessage.locator(), nextMessage.expireAtEpochMs());
-            final var nextExpiryPage = messageExpiryWorker.discoverMessageExpiry(
-                    budget(), null, expiryProof, () -> 100);
+            final var nextExpiryCandidate =
+                    new TargetExpiryDiscoveryStore.Candidate(nextMessage.locator(), nextMessage.expireAtEpochMs());
+            final var nextExpiryPage =
+                    messageExpiryWorker.discoverMessageExpiry(budget(), null, expiryProof, () -> 100);
             assertEquals(nextExpiryCandidate, nextExpiryPage.candidate().orElseThrow());
             final var nextExpiryAt = source(
-                    nextScheduleAt,
-                    nextScheduleAt.offset() + 1,
-                    nextScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    nextScheduleAt, nextScheduleAt.offset() + 1, nextScheduleAt.brokerLogAppendTimeEpochMs() + 1);
             final var nextExpiry = expire(
                     nextSchedule.delayMessageId(),
                     nextMessage.expireAtEpochMs(),
@@ -4475,9 +4670,7 @@ class TargetCommandStoreTest {
                     TargetMessageExpiryWorkClassExecutor.ResultKind.DEFINITIVELY_NOT_APPENDED,
                     messageExpiryHandoff.settlePending(() -> 100).orElseThrow().kind());
             final var rejectedExpiryAt = source(
-                    nextScheduleAt,
-                    nextScheduleAt.offset() + 1,
-                    nextScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    nextScheduleAt, nextScheduleAt.offset() + 1, nextScheduleAt.brokerLogAppendTimeEpochMs() + 1);
             final var invalidProofExpiry = expire(
                     nextSchedule.delayMessageId(),
                     nextMessage.expireAtEpochMs(),
@@ -4488,7 +4681,7 @@ class TargetCommandStoreTest {
             messageExpiryAppendMutation.set(invalidProofExpiry);
             messageExpiryAppendOutcome.set(
                     com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(
-                    rejectedExpiryAt));
+                            rejectedExpiryAt));
             final var rejectedExpirySubmission = messageExpiryHandoff.submit(
                     nextExpiryCandidate,
                     expiryProof,
@@ -4517,9 +4710,7 @@ class TargetCommandStoreTest {
                             () -> 100));
             assertEquals(afterRejectedExpiry, store.latestSequenceNumber());
             final var prepareAt = source(
-                    rejectedExpiryAt,
-                    rejectedExpiryAt.offset() + 1,
-                    rejectedExpiryAt.brokerLogAppendTimeEpochMs() + 1);
+                    rejectedExpiryAt, rejectedExpiryAt.offset() + 1, rejectedExpiryAt.brokerLogAppendTimeEpochMs() + 1);
             final var modelPrepare = PrepareLargeScheduleBody.decode(
                     vector("target-binding-channel-vectors.properties", "body.prepare"));
             final var prepareIntent = CanonicalScheduleIntent.forPrepare(
@@ -6281,16 +6472,28 @@ class TargetCommandStoreTest {
                         assignment,
                         active,
                         new TargetSourceApplyRuntime.Authorities(
-                            leases,
-                            SourceReplaySuccessor.strictKafka(),
-                            entry -> { throw new AssertionError("cleanup Worker resolved a grant"); },
-                            entry -> { throw new AssertionError("cleanup Worker resolved a fence"); },
-                            entry -> { throw new AssertionError("cleanup Worker resolved expiry"); },
-                            entry -> { throw new AssertionError("cleanup Worker resolved Close"); },
-                            entry -> { throw new AssertionError("cleanup Worker resolved membership"); },
-                            (a, b, c) -> guard(),
-                            (a, b) -> guard(),
-                            entry -> { throw new AssertionError("cleanup Worker resolved a command"); }),
+                                leases,
+                                SourceReplaySuccessor.strictKafka(),
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved a grant");
+                                },
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved a fence");
+                                },
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved expiry");
+                                },
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved Close");
+                                },
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved membership");
+                                },
+                                (a, b, c) -> guard(),
+                                (a, b) -> guard(),
+                                entry -> {
+                                    throw new AssertionError("cleanup Worker resolved a command");
+                                }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
                 final var pausedWorker = TargetWorkerShardFactory.create(
@@ -6303,10 +6506,8 @@ class TargetCommandStoreTest {
                         new TargetWorkerShardRuntime.Maintenance(
                                 new TargetCloseStore(backend, scope, lineage, 16, 1)
                                         .reservationControls((reader, bound) -> java.util.Optional.empty()),
-                                new TargetReservationClosureWorkClassExecutor.Limits(
-                                        4096, 250_000, 60_000_000_000L),
-                                new TargetReservationExpiryWorkClassExecutor.Limits(
-                                        2048, 100_000, 60_000_000_000L),
+                                new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                                new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
                                 (a, b, c) -> guard(),
                                 ignored -> {},
                                 ignored -> {},
@@ -6332,10 +6533,8 @@ class TargetCommandStoreTest {
                 final var cacheConfigurationFailure = assertThrows(
                         IllegalStateException.class,
                         () -> cleanupHost.startOrdinaryScheduling(
-                                new TargetWorkerTargetInventory.Limits(
-                                        1, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
-                                new TargetWorkerOrdinaryDrr.Limits(
-                                        100, 200, 200, 16, 4096, 32L << 20, 60_000_000_000L),
+                                new TargetWorkerTargetInventory.Limits(1, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                                new TargetWorkerOrdinaryDrr.Limits(100, 200, 200, 16, 4096, 32L << 20, 60_000_000_000L),
                                 new SchedulerBudget(100, 2_000_000, 60_000_000_000L),
                                 java.time.Duration.ofSeconds(10),
                                 subscribedRequests,
@@ -6366,8 +6565,8 @@ class TargetCommandStoreTest {
                     },
                     () -> 100);
             final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
-            final var uncertainAt = source(
-                    priorSource, priorSource.offset() + 1, priorSource.brokerLogAppendTimeEpochMs() + 1);
+            final var uncertainAt =
+                    source(priorSource, priorSource.offset() + 1, priorSource.brokerLogAppendTimeEpochMs() + 1);
             final long closeThrough = fifthReservation.expiryEpochMs() + 1;
             final var uncertainProof = new TrustedUtcIntervalEvidence(
                     closeThrough + 10,
@@ -6380,8 +6579,8 @@ class TargetCommandStoreTest {
                     bytes(32, 0x92),
                     0,
                     new byte[0]);
-            final var uncertainBody = new TargetTimeFenceBody(
-                    scope.shard(), closeThrough + 1000, closeThrough, 1, uncertainProof);
+            final var uncertainBody =
+                    new TargetTimeFenceBody(scope.shard(), closeThrough + 1000, closeThrough, 1, uncertainProof);
             final var uncertainMutation = SystemMutation.signed(
                     scope.shard(),
                     SystemMutationType.TIME_FENCE,
@@ -6441,26 +6640,34 @@ class TargetCommandStoreTest {
         assertFalse(dependencyProof.dependencies().profiles().isEmpty());
         assertFalse(dependencyProof.dependencies().retryPolicies().isEmpty());
         assertFalse(dependencyProof.dependencies().retryUses().isEmpty());
-        assertEquals(new java.util.HashSet<>(dependencyProof.dependencies().retryPolicies()),
-                dependencyProof.dependencies().retryUses().stream().map(use -> use.reference())
+        assertEquals(
+                new java.util.HashSet<>(dependencyProof.dependencies().retryPolicies()),
+                dependencyProof.dependencies().retryUses().stream()
+                        .map(use -> use.reference())
                         .collect(java.util.stream.Collectors.toSet()));
-        assertTrue(dependencyProof.dependencies().retryUses().stream().anyMatch(use ->
-                use.source().compareTo(dependencyProof.root().source()) < 0));
+        assertTrue(dependencyProof.dependencies().retryUses().stream()
+                .anyMatch(use -> use.source().compareTo(dependencyProof.root().source()) < 0));
         final var retryReads = new java.util.ArrayList<com.nereusstream.delay.protocol.SourcePosition>();
-        assertThrows(IllegalStateException.class, () -> dependencyProof.dependencies().resolveRetryPolicies(
-                (ref, at) -> {
-                    retryReads.add(at);
-                    return null;
-                }, budget(), () -> {}));
+        assertThrows(IllegalStateException.class, () -> dependencyProof
+                .dependencies()
+                .resolveRetryPolicies(
+                        (ref, at) -> {
+                            retryReads.add(at);
+                            return null;
+                        },
+                        budget(),
+                        () -> {}));
         assertEquals(dependencyProof.dependencies().retryUses().getFirst().source(), retryReads.getFirst());
         assertFalse(dependencyProof.dependencies().controls().isEmpty());
         assertFalse(dependencyProof.dependencies().trustSets().isEmpty());
         assertFalse(dependencyProof.dependencies().objectProfileHashes().isEmpty());
         for (final var hash : dependencyProof.dependencies().objectProfileHashes()) {
-            assertTrue(dependencyProof.dependencies().profiles().stream().anyMatch(profile ->
-                    profile.profileKind() == ProfileKind.OBJECT_STORE && Arrays.equals(hash, profile.semanticHash())));
+            assertTrue(dependencyProof.dependencies().profiles().stream()
+                    .anyMatch(profile -> profile.profileKind() == ProfileKind.OBJECT_STORE
+                            && Arrays.equals(hash, profile.semanticHash())));
         }
-        assertEquals(scope.shard(), dependencyProof.dependencies().root().metadata().shardId());
+        assertEquals(
+                scope.shard(), dependencyProof.dependencies().root().metadata().shardId());
         final var orphan = TargetMessageRecord.decode(vector("target-identity-vectors.properties", "message.initial"));
         assertFalse(orphan.runtime().terminal());
         assertTrue(orphan.runtime().timeline() != null);
@@ -6477,8 +6684,8 @@ class TargetCommandStoreTest {
                         () -> TargetCheckpointRootVerifier.auditIndependentLedger(
                                 physicalDb,
                                 scope.shard(),
-                                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000,
-                                        1_024),
+                                new CheckpointManifestLimits(
+                                        1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
                                 new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
                                 new TargetCheckpointRootVerifier.LedgerAuditLimits(
                                         100_000, 256L << 20, 500_000, 256L << 20)))
@@ -6498,10 +6705,11 @@ class TargetCommandStoreTest {
                     new byte[] {TargetKeyCodec.SCHEDULE_BINDING_TAG, TargetKeyCodec.KEY_FORMAT},
                     1);
             assertFalse(messages.isEmpty());
-            final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                            messages.getFirst().value(), TargetMessageRecord.VALUE_TYPE)
-                    .payload());
-            retainedBindingKey = TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
+            final var message = TargetMessageRecord.decode(
+                    TargetValueEnvelope.decode(messages.getFirst().value(), TargetMessageRecord.VALUE_TYPE)
+                            .payload());
+            retainedBindingKey =
+                    TargetKeyCodec.scheduleBinding(message.locator().scheduleBindingDigest());
             retainedBindingRaw = corrupt.get(ColumnFamily.ID, retainedBindingKey);
             assertTrue(retainedBindingRaw != null);
             corrupt.write(batch -> batch.delete(ColumnFamily.ID, retainedBindingKey));
@@ -6516,8 +6724,8 @@ class TargetCommandStoreTest {
                         () -> TargetCheckpointRootVerifier.auditIndependentLedger(
                                 physicalDb,
                                 scope.shard(),
-                                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000,
-                                        1_024),
+                                new CheckpointManifestLimits(
+                                        1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024),
                                 new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
                                 new TargetCheckpointRootVerifier.LedgerAuditLimits(
                                         100_000, 256L << 20, 500_000, 256L << 20)))
@@ -6613,7 +6821,9 @@ class TargetCommandStoreTest {
                             entry -> {
                                 throw new AssertionError("reopened GC cannot resolve a fence");
                             },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
                             entry -> {
                                 throw new AssertionError("reopened GC cannot resolve a Close control");
                             },
@@ -6631,8 +6841,8 @@ class TargetCommandStoreTest {
             final var cutCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var replayPolls = new java.util.concurrent.atomic.AtomicInteger();
             final var replayAcknowledgements = new java.util.concurrent.atomic.AtomicInteger();
-            final SourceReplayMutation replayedEntry = java.util.Objects.requireNonNull(
-                    uncertainEntryForRecovery[0], "uncertain source entry");
+            final SourceReplayMutation replayedEntry =
+                    java.util.Objects.requireNonNull(uncertainEntryForRecovery[0], "uncertain source entry");
             final SourceRecordConsumer simulatedDurableSource = new SourceRecordConsumer() {
                 @Override
                 public java.util.Optional<PolledSourceRecord> poll() {
@@ -6641,7 +6851,8 @@ class TargetCommandStoreTest {
                     }
                     return java.util.Optional.of(new PolledSourceRecord(replayedEntry, (entry, outcome) -> {
                         assertEquals(replayedEntry, entry);
-                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
                         replayAcknowledgements.incrementAndGet();
                         return SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
@@ -6650,7 +6861,8 @@ class TargetCommandStoreTest {
                 @Override
                 public CheckpointCut checkpointCut(final SourcePosition expected) {
                     if (!Bytes.constantTimeEquals(
-                            expected.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes())) {
+                            expected.canonicalBytes(),
+                            reopened.appliedShardLogPosition().canonicalBytes())) {
                         throw new IllegalStateException("checkpoint source differs from the Store");
                     }
                     return new CheckpointCut() {
@@ -6693,15 +6905,19 @@ class TargetCommandStoreTest {
             assertEquals(java.util.List.of(scope.shard()), reopenedFleet.shardIds());
             final long beforeRecoverySequence = reopened.latestSequenceNumber();
             final long beforeRecoveryMutation = reopened.shardMutationSequence();
-            final var recoveredSourceTurn = reopenedFleet.runNextSourceTurn(
-                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 101);
+            final var recoveredSourceTurn =
+                    reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 101);
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     recoveredSourceTurn.result().status());
             assertEquals(replayedEntry, recoveredSourceTurn.result().entry());
             assertEquals(
                     StableCode.OK,
-                    recoveredSourceTurn.result().appliedOutcome().systemMutationResult().stableCode());
+                    recoveredSourceTurn
+                            .result()
+                            .appliedOutcome()
+                            .systemMutationResult()
+                            .stableCode());
             assertEquals(1, replayPolls.get());
             assertEquals(1, replayAcknowledgements.get());
             assertEquals(beforeRecoverySequence, reopened.latestSequenceNumber());
@@ -6796,15 +7012,20 @@ class TargetCommandStoreTest {
                 final var candidateLimits =
                         new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024);
                 final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20);
-                final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(
-                        100_000, 256L << 20, 500_000, 256L << 20);
+                final var ledgerLimits =
+                        new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20);
                 final long beforeCandidate = reopened.operationStatistics().nativeWriteCalls();
                 cutCurrent.set(false);
                 assertThrows(
                         IllegalStateException.class,
                         () -> reopenedWorker.submitProtectedCheckpointCandidate(
-                                candidateIntents, () -> 101, candidatePath, pendingCandidate, candidateLimits,
-                                quotaLimits, ledgerLimits));
+                                candidateIntents,
+                                () -> 101,
+                                candidatePath,
+                                pendingCandidate,
+                                candidateLimits,
+                                quotaLimits,
+                                ledgerLimits));
                 cutCurrent.set(true);
                 final var candidate = reopenedWorker.submitProtectedCheckpointCandidate(
                         candidateIntents,
@@ -6822,12 +7043,15 @@ class TargetCommandStoreTest {
                         IllegalStateException.class,
                         () -> reopenedWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 1_000)));
                 assertThrows(IllegalStateException.class, reopenedWorker::pauseNewTurns);
-                assertTrue(reopenedWorker.runCheckpointTurn(new SchedulerBudget(1, 1, 1_000)).isEmpty());
+                assertTrue(reopenedWorker
+                        .runCheckpointTurn(new SchedulerBudget(1, 1, 1_000))
+                        .isEmpty());
                 assertEquals(beforeCandidate, reopened.operationStatistics().nativeWriteCalls());
                 assertEquals(
                         candidatePath,
                         reopenedWorker
-                                .runCheckpointTurn(new SchedulerBudget(1, candidate.task().bytes(), 1_000))
+                                .runCheckpointTurn(
+                                        new SchedulerBudget(1, candidate.task().bytes(), 1_000))
                                 .orElseThrow()
                                 .checkpointPath());
                 assertEquals(candidatePath, candidate.outcome().orElseThrow().checkpointPath());
@@ -6841,10 +7065,13 @@ class TargetCommandStoreTest {
                         quotaLimits,
                         ledgerLimits);
                 cutCurrent.set(false);
-                assertTrue(reopenedWorker
-                        .runCheckpointTurn(new SchedulerBudget(1, staleCut.task().bytes(), 1_000))
-                        .orElseThrow()
-                        .failure() instanceof IllegalStateException);
+                assertTrue(
+                        reopenedWorker
+                                        .runCheckpointTurn(new SchedulerBudget(
+                                                1, staleCut.task().bytes(), 1_000))
+                                        .orElseThrow()
+                                        .failure()
+                                instanceof IllegalStateException);
                 assertEquals(beforeCandidate + 1, reopened.operationStatistics().nativeWriteCalls());
                 cutCurrent.set(true);
                 final var reused = reopenedWorker.submitProtectedCheckpointCandidate(
@@ -6858,7 +7085,8 @@ class TargetCommandStoreTest {
                 assertEquals(
                         candidatePath,
                         reopenedWorker
-                                .runCheckpointTurn(new SchedulerBudget(1, reused.task().bytes(), 1_000))
+                                .runCheckpointTurn(
+                                        new SchedulerBudget(1, reused.task().bytes(), 1_000))
                                 .orElseThrow()
                                 .checkpointPath());
                 assertEquals(candidatePath, reused.outcome().orElseThrow().checkpointPath());
@@ -6877,8 +7105,7 @@ class TargetCommandStoreTest {
                     IllegalStateException.class,
                     () -> reopenedFleet.runNextSourceTurn(new SchedulerBudget(1, 1, 60_000_000_000L), () -> 101));
             assertThrows(
-                    IllegalStateException.class,
-                    () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
+                    IllegalStateException.class, () -> reopenedWorker.scanTargetQueues(budget(), null, 1, () -> 101));
             assertThrows(IllegalStateException.class, () -> reopenedWorker.readTargetQueue(budget(), null, () -> 101));
             assertThrows(IllegalStateException.class, () -> reopenedWorker.readTargetQueueCut(budget(), () -> 101));
             assertThrows(
@@ -7024,11 +7251,7 @@ class TargetCommandStoreTest {
     }
 
     private static TargetAdmissionFixture targetAdmission(
-            ShardStore store,
-            TargetClaimRecord claim,
-            OwnerIdentity owner,
-            KeyPair keys,
-            KafkaSourcePosition at) {
+            ShardStore store, TargetClaimRecord claim, OwnerIdentity owner, KeyPair keys, KafkaSourcePosition at) {
         return targetAdmission(store, claim, owner, keys, at, null, null);
     }
 
@@ -7041,9 +7264,9 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.TargetChannelIdentity channel,
             ProfileRef capabilityProfile) {
         final byte[] messageKey = TargetKeyCodec.message(claim.work().locator().messageId());
-        final var claimed = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
-                .payload());
+        final var claimed = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         assertEquals(CurrentSendWorkKind.CLAIMED, claimed.runtime().currentWorkKind());
         assertArrayEquals(claim.claimId(), claimed.runtime().claimId());
         final long retryUntil = Math.addExact(at.brokerPersistenceTimeEpochMs(), 10_000);
@@ -7076,18 +7299,27 @@ class TargetCommandStoreTest {
         reserved[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 128;
         com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication = null;
         if (channel != null) {
-            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(claimed.locator().scheduleBindingDigest());
-            final var binding = TargetScheduleBinding.decode(TargetValueEnvelope.decode(
-                            store.get(ColumnFamily.ID, bindingKey), TargetScheduleBinding.VALUE_TYPE)
-                    .payload());
+            final byte[] bindingKey =
+                    TargetKeyCodec.scheduleBinding(claimed.locator().scheduleBindingDigest());
+            final var binding = TargetScheduleBinding.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.ID, bindingKey), TargetScheduleBinding.VALUE_TYPE)
+                            .payload());
             final var physical = CanonicalTargetPartition.decode(TargetValueEnvelope.decode(
-                            store.get(ColumnFamily.META, TargetKeyCodec.identity(claimed.locator().target())),
+                            store.get(
+                                    ColumnFamily.META,
+                                    TargetKeyCodec.identity(claimed.locator().target())),
                             CanonicalTargetPartition.VALUE_TYPE)
                     .payload());
             publication = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
-                    claim, claimed, binding, physical, channel, capabilityProfile,
+                    claim,
+                    claimed,
+                    binding,
+                    physical,
+                    channel,
+                    capabilityProfile,
                     com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
-                            1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), bytes(32, 0xC3)).setDigest());
+                                    1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), bytes(32, 0xC3))
+                            .setDigest());
         }
         final var body = new TargetPublishAdmissionBody(
                 at.shardId(),
@@ -7123,18 +7355,15 @@ class TargetCommandStoreTest {
             ShardStore store, TargetClaimRecord claim, TargetAdmissionFixture admission) {
         final var entry = admission.entry();
         final byte[] messageKey = TargetKeyCodec.message(claim.work().locator().messageId());
-        final var admitted = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
-                .payload());
+        final var admitted = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         assertEquals(CurrentSendWorkKind.PUBLISHING, admitted.runtime().currentWorkKind());
         assertArrayEquals(admission.attemptId(), admitted.runtime().publishAttemptId());
         assertNull(store.get(ColumnFamily.INFLIGHT, claim.key()));
         assertNull(store.get(ColumnFamily.META, claim.chargeKey()));
         final byte[] attemptBudgetKey = Bytes.concat(
-                new byte[] {
-                    (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
-                    TargetKeyCodec.KEY_FORMAT
-                },
+                new byte[] {(byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 admission.attemptId());
         final var attemptBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
                         store.get(ColumnFamily.META, attemptBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
@@ -7142,14 +7371,15 @@ class TargetCommandStoreTest {
         assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, attemptBudget.phase());
         assertEquals(claim.work().locator(), attemptBudget.locator());
         if (admitted.locator().orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
-            final byte[] orderKey =
-                    TargetKeyCodec.orderState(admitted.locator().target(), admitted.locator().orderingDomain());
-            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                            store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
-                    .payload());
+            final byte[] orderKey = TargetKeyCodec.orderState(
+                    admitted.locator().target(), admitted.locator().orderingDomain());
+            final var order = TargetOrderState.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload());
             final var barrier = TargetOrderBarrier.fromMessage(admitted);
             assertEquals(TargetOrderState.OrderingContract.ADMISSION_WATERMARK, order.orderingContract());
-            assertArrayEquals(barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
+            assertArrayEquals(
+                    barrier.order().encodedKey(), order.lastAdmittedOrder().encodedKey());
             assertEquals(barrier, order.barrier());
             assertNull(order.serviceableHead());
         }
@@ -7162,9 +7392,9 @@ class TargetCommandStoreTest {
         final byte[] positionKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
                 entry.position().canonicalBytes());
-        final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
-                .payload());
+        final var position = TargetResultRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                        .payload());
         position.requireFirst(first);
     }
 
@@ -7271,45 +7501,86 @@ class TargetCommandStoreTest {
             OwnerIdentity owner,
             com.nereusstream.delay.protocol.RetryPolicySemantic policy,
             KeyPair keys) {
-        final var currentBody = TargetPublishAdmissionBody.decode(current.entry().mutation().canonicalBody());
-        final var firstBody = TargetPublishAdmissionBody.decode(first.entry().mutation().canonicalBody());
+        final var currentBody =
+                TargetPublishAdmissionBody.decode(current.entry().mutation().canonicalBody());
+        final var firstBody =
+                TargetPublishAdmissionBody.decode(first.entry().mutation().canonicalBody());
         final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.ID, TargetKeyCodec.message(currentBody.locator().messageId())),
+                        store.get(
+                                ColumnFamily.ID,
+                                TargetKeyCodec.message(currentBody.locator().messageId())),
                         TargetMessageRecord.VALUE_TYPE)
                 .payload());
         final var beforeSource = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(beforeSource, beforeSource.offset() + 1, beforeSource.brokerPersistenceTimeEpochMs() + 1);
         final var observed = new TrustedUtcIntervalEvidence(
-                at.brokerPersistenceTimeEpochMs(), at.brokerPersistenceTimeEpochMs() + 1,
+                at.brokerPersistenceTimeEpochMs(),
+                at.brokerPersistenceTimeEpochMs() + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                bytes(32, 0xA1), 1, 1, 1, bytes(32, 0xA2), 0, null);
-        final long next = observed.latestEpochMs() + com.nereusstream.delay.protocol.RetryJitter.delayMs(
-                com.nereusstream.delay.protocol.RetryJitter.MESSAGE_PUBLISH,
-                message.locator().messageId(), Integer.toUnsignedLong(message.locator().generation()),
-                Integer.toUnsignedLong(currentBody.attemptNo()), policy.retryBackoffCap(currentBody.attemptNo()));
+                bytes(32, 0xA1),
+                1,
+                1,
+                1,
+                bytes(32, 0xA2),
+                0,
+                null);
+        final long next = observed.latestEpochMs()
+                + com.nereusstream.delay.protocol.RetryJitter.delayMs(
+                        com.nereusstream.delay.protocol.RetryJitter.MESSAGE_PUBLISH,
+                        message.locator().messageId(),
+                        Integer.toUnsignedLong(message.locator().generation()),
+                        Integer.toUnsignedLong(currentBody.attemptNo()),
+                        policy.retryBackoffCap(currentBody.attemptNo()));
         final long retryUntil = at.brokerPersistenceTimeEpochMs() + 10_000;
-        final byte[] placeholder = CanonicalProtobuf.message(
-                output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown")));
+        final byte[] placeholder =
+                CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown")));
         final byte[] body = PublishOutcomeBody.encodeInitial(
-                scope.shard(), retryUntil, currentBody.publishAttemptId(), 3, 4,
-                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null, placeholder, observed,
+                scope.shard(),
+                retryUntil,
+                currentBody.publishAttemptId(),
+                3,
+                4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                null,
+                placeholder,
+                observed,
                 typedUnknownRetryDecision(
-                        policy, firstBody.decisionTime().latestEpochMs(),
-                        Math.min(message.expireAtEpochMs(),
+                        policy,
+                        firstBody.decisionTime().latestEpochMs(),
+                        Math.min(
+                                message.expireAtEpochMs(),
                                 firstBody.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()),
-                        currentBody.attemptNo(), next));
+                        currentBody.attemptNo(),
+                        next));
         final var mutation = SystemMutation.signed(
-                scope.shard(), SystemMutationType.PUBLISH_OUTCOME, retryUntil, currentBody.publishAttemptId(), body,
-                current.entry().mutation().authorIdentity(), 1, keys.getPrivate());
+                scope.shard(),
+                SystemMutationType.PUBLISH_OUTCOME,
+                retryUntil,
+                currentBody.publishAttemptId(),
+                body,
+                current.entry().mutation().authorIdentity(),
+                1,
+                keys.getPrivate());
         final long beforeSequence = store.latestSequenceNumber();
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
-        final var exhausted = assertThrows(IllegalArgumentException.class, () -> outcomes.prepareFirst(
-                budget(), mutation, at,
-                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
-                        keys.getPublic(), ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
-                        (e, f, g, h) -> true,
-                        new TargetPublishOutcomeVerifier.RetryContext(
-                                current.entry().mutation(), first.entry().mutation(), policy))));
+        final var exhausted = assertThrows(
+                IllegalArgumentException.class,
+                () -> outcomes.prepareFirst(
+                        budget(),
+                        mutation,
+                        at,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true,
+                                new TargetPublishOutcomeVerifier.RetryContext(
+                                        current.entry().mutation(),
+                                        first.entry().mutation(),
+                                        policy))));
         assertTrue(exhausted.getMessage().contains("policy/jitter/budget"));
         assertEquals(beforeSequence, store.latestSequenceNumber());
         assertEquals(beforeSource, store.appliedShardLogPosition());
@@ -7317,29 +7588,45 @@ class TargetCommandStoreTest {
     }
 
     private static void assertRecoveredTargetOutcome(
-            ShardStore store, TargetQuotaScope scope, TargetWorkerShardRuntime oldWorker,
-            OwnerLease oldLease, SourceAssignment assignment, OxiaOwnerLeaseStore releasingLeases,
-            OxiaOwnerLeaseStore leases, byte[] session,
-            com.nereusstream.delay.store.SharedRocksDbResources resources, WorkClassExecutionRegistry classes,
-            TargetAdmissionFixture admission, OwnerIdentity oldOwner, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, boolean loseOwnerDuringLoad,
-            boolean terminalRecovery, int publishFailure, CheckpointImageContext checkpointContext) {
+            ShardStore store,
+            TargetQuotaScope scope,
+            TargetWorkerShardRuntime oldWorker,
+            OwnerLease oldLease,
+            SourceAssignment assignment,
+            OxiaOwnerLeaseStore releasingLeases,
+            OxiaOwnerLeaseStore leases,
+            byte[] session,
+            com.nereusstream.delay.store.SharedRocksDbResources resources,
+            WorkClassExecutionRegistry classes,
+            TargetAdmissionFixture admission,
+            OwnerIdentity oldOwner,
+            KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            boolean loseOwnerDuringLoad,
+            boolean terminalRecovery,
+            int publishFailure,
+            CheckpointImageContext checkpointContext) {
         final var admissionImage = admission.entry().mutation();
         final var admitted = TargetPublishAdmissionBody.decode(admissionImage.canonicalBody());
         final var journalEvidence = publishFailure >= 31
                 ? targetJournalEvidenceFixture(
-                        store, admitted, admission.entry().position(), publishFailure != 31) : null;
+                        store, admitted, admission.entry().position(), publishFailure != 31)
+                : null;
         final byte[] messageKey = TargetKeyCodec.message(admitted.locator().messageId());
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 admitted.publishAttemptId());
         final byte[] originalMessageBytes = store.get(ColumnFamily.ID, messageKey);
-        final var originalMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                originalMessageBytes, TargetMessageRecord.VALUE_TYPE).payload());
+        final var originalMessage = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(originalMessageBytes, TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         final byte[] terminalKey = TargetTerminalGenerationRecord.key(admitted.locator());
-        final var originalTerminal = terminalRecovery ? TargetTerminalGenerationRecord.decode(
-                TargetValueEnvelope.decode(store.get(ColumnFamily.TERMINAL, terminalKey),
-                        TargetTerminalGenerationRecord.VALUE_TYPE).payload()) : null;
+        final var originalTerminal = terminalRecovery
+                ? TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
+                                store.get(ColumnFamily.TERMINAL, terminalKey),
+                                TargetTerminalGenerationRecord.VALUE_TYPE)
+                        .payload())
+                : null;
         final byte[] payloadKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                 admitted.locator().messageId().bytes());
@@ -7347,15 +7634,19 @@ class TargetCommandStoreTest {
         if (terminalRecovery) {
             final long beforeProof = store.latestSequenceNumber();
             final var proof = oldWorker.readRecoveryAdmission(budget(), admissionImage, () -> 101);
-            assertArrayEquals(originalTerminal.canonicalBytes(), proof.terminal().orElseThrow().canonicalBytes());
+            assertArrayEquals(
+                    originalTerminal.canonicalBytes(),
+                    proof.terminal().orElseThrow().canonicalBytes());
             assertEquals(originalTerminal.runtime(), proof.runtime());
             assertArrayEquals(originalMessage.canonicalBytes(), proof.message().canonicalBytes());
-            assertThrows(IllegalStateException.class,
+            assertThrows(
+                    IllegalStateException.class,
                     () -> oldWorker.readAppliedAdmission(budget(), admissionImage, () -> 101));
             assertEquals(beforeProof, store.latestSequenceNumber());
         }
-        final var originalBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        final var originalBudget = TargetQuotaAttemptBudget.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload());
         oldWorker.pauseNewTurns();
         oldWorker.closeSource();
         assertTrue(releasingLeases.release(oldLease));
@@ -7370,83 +7661,154 @@ class TargetCommandStoreTest {
                 assertArrayEquals(store.metadata().encode(), metadata.encode());
                 assertTrue(acquiring.sameIdentity(leases.current(scope.shard()).orElseThrow()));
             }
+
             @Override
             public void close() {}
         };
-        final var reopened = TargetStoreBootstrap.reopen(store, scope,
-                new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), reads);
-        final var active = TargetWorkerOwnerActivation.activate(
-                reopened, store, assignment, acquiring, leases, () -> 102);
-        final var owner = new OwnerIdentity(oldOwner.deploymentId(), bytes(16, 0xF2),
-                active.ownerEpoch(), active.leaseToken());
+        final var reopened = TargetStoreBootstrap.reopen(
+                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), reads);
+        final var active =
+                TargetWorkerOwnerActivation.activate(reopened, store, assignment, acquiring, leases, () -> 102);
+        final var owner =
+                new OwnerIdentity(oldOwner.deploymentId(), bytes(16, 0xF2), active.ownerEpoch(), active.leaseToken());
         final var resolutions = new java.util.concurrent.atomic.AtomicInteger();
-        final var expectedResolution = new java.util.concurrent.atomic.AtomicReference<
-                com.nereusstream.delay.protocol.PublishEvidence>();
-        final var expectedCursor = new java.util.concurrent.atomic.AtomicReference<
-                com.nereusstream.delay.protocol.EvidenceCursor>();
+        final var expectedResolution =
+                new java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence>();
+        final var expectedCursor =
+                new java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.EvidenceCursor>();
         final var service = AuthorIdentity.service(bytes(16, 0xE9), bytes(16, 0xEA), 5);
-        final var runtime = new TargetSourceApplyRuntime(reopened, store, assignment, active,
-                new TargetSourceApplyRuntime.Authorities(leases, SourceReplaySuccessor.strictKafka(),
-                        e -> { throw new AssertionError("unexpected recovery grant"); },
-                        e -> { throw new AssertionError("unexpected recovery fence"); },
-                        e -> { throw new AssertionError("unexpected recovery expiry"); },
-                        e -> { throw new AssertionError("unexpected recovery Close"); },
-                        e -> { throw new AssertionError("unexpected recovery membership"); },
-                        (a, b, c) -> guard(), reads,
-                        e -> { throw new AssertionError("unexpected recovery command"); },
-                        e -> { throw new AssertionError("unexpected recovery Native control"); },
-                        e -> { throw new AssertionError("recovery must not create another Admission"); },
-                        e -> new TargetSourceApplyRuntime.OutcomeControl((actualScope, writer, mutation, at) -> {
-                            resolutions.incrementAndGet();
-                            assertEquals(scope, actualScope);
-                            final boolean resolving = mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
-                            assertArrayEquals(resolving ? service.canonicalBytes()
-                                    : AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
-                                            owner.ownerEpoch(),
-                                            owner.leaseFencingDigest()).canonicalBytes(), writer.canonicalBytes());
-                            final var authorized = new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                                    ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
-                                    (a, b, c, d) -> true, new TargetPublishOutcomeVerifier.RetryContext(
-                                            admissionImage, admissionImage, policy),
-                                    resolving ? new TargetPublishOutcomeVerifier.EvidenceContext(admissionImage,
-                                            (a, b, c, d) -> { throw new AssertionError("initial-only evidence seam"); },
-                                            (publication, evidence, cursor, first, unknown, resolutionSource) -> {
-                                                assertEquals(admitted.publication(), publication);
-                                                assertArrayEquals(expectedResolution.get().canonicalBytes(),
-                                                        evidence.canonicalBytes());
-                                                assertArrayEquals(expectedCursor.get().canonicalBytes(),
-                                                        cursor.canonicalBytes());
-                                                assertEquals(admission.entry().position(), first);
-                                                if (journalEvidence != null) {
-                                                    if (evidence.verificationStatus()
-                                                            == EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
-                                                        journalEvidence.journal().requireTargetPublishedEvidence(
-                                                                journalEvidence.mapping(), publication,
-                                                                first, cursor, evidence);
-                                                    } else {
-                                                        journalEvidence.journal().requireTargetNotPublishedEvidence(
-                                                                journalEvidence.mapping(), publication,
-                                                                first, cursor, evidence);
-                                                    }
-                                                }
-                                                assertTrue(first.compareTo(unknown) < 0
-                                                        && unknown.compareTo(resolutionSource) < 0);
-                                            }) : null);
-                            if (checkpointContext != null) {
-                                checkpointContext.outcomeAuthorizations().put(Bytes.hex(mutation.systemMutationId()),
-                                        authorized);
-                            }
-                            return authorized;
-                        }, (a, b, c) -> guard())),
-                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1), System::nanoTime);
+        final var runtime = new TargetSourceApplyRuntime(
+                reopened,
+                store,
+                assignment,
+                active,
+                new TargetSourceApplyRuntime.Authorities(
+                        leases,
+                        SourceReplaySuccessor.strictKafka(),
+                        e -> {
+                            throw new AssertionError("unexpected recovery grant");
+                        },
+                        e -> {
+                            throw new AssertionError("unexpected recovery fence");
+                        },
+                        e -> {
+                            throw new AssertionError("unexpected recovery expiry");
+                        },
+                        e -> {
+                            throw new AssertionError("unexpected recovery Close");
+                        },
+                        e -> {
+                            throw new AssertionError("unexpected recovery membership");
+                        },
+                        (a, b, c) -> guard(),
+                        reads,
+                        e -> {
+                            throw new AssertionError("unexpected recovery command");
+                        },
+                        e -> {
+                            throw new AssertionError("unexpected recovery Native control");
+                        },
+                        e -> {
+                            throw new AssertionError("recovery must not create another Admission");
+                        },
+                        e -> new TargetSourceApplyRuntime.OutcomeControl(
+                                (actualScope, writer, mutation, at) -> {
+                                    resolutions.incrementAndGet();
+                                    assertEquals(scope, actualScope);
+                                    final boolean resolving = mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
+                                    assertArrayEquals(
+                                            resolving
+                                                    ? service.canonicalBytes()
+                                                    : AuthorIdentity.owner(
+                                                                    owner.deploymentId(),
+                                                                    owner.workerRunId(),
+                                                                    owner.ownerEpoch(),
+                                                                    owner.leaseFencingDigest())
+                                                            .canonicalBytes(),
+                                            writer.canonicalBytes());
+                                    final var authorized = new TargetPublishOutcomeVerifier.Authorization(
+                                            keys.getPublic(),
+                                            ProtocolTuple.currentSystemMutation(),
+                                            owner,
+                                            10,
+                                            10,
+                                            100,
+                                            (a, b, c, d) -> true,
+                                            new TargetPublishOutcomeVerifier.RetryContext(
+                                                    admissionImage, admissionImage, policy),
+                                            resolving
+                                                    ? new TargetPublishOutcomeVerifier.EvidenceContext(
+                                                            admissionImage,
+                                                            (a, b, c, d) -> {
+                                                                throw new AssertionError("initial-only evidence seam");
+                                                            },
+                                                            (publication,
+                                                                    evidence,
+                                                                    cursor,
+                                                                    first,
+                                                                    unknown,
+                                                                    resolutionSource) -> {
+                                                                assertEquals(admitted.publication(), publication);
+                                                                assertArrayEquals(
+                                                                        expectedResolution
+                                                                                .get()
+                                                                                .canonicalBytes(),
+                                                                        evidence.canonicalBytes());
+                                                                assertArrayEquals(
+                                                                        expectedCursor
+                                                                                .get()
+                                                                                .canonicalBytes(),
+                                                                        cursor.canonicalBytes());
+                                                                assertEquals(
+                                                                        admission
+                                                                                .entry()
+                                                                                .position(),
+                                                                        first);
+                                                                if (journalEvidence != null) {
+                                                                    if (evidence.verificationStatus()
+                                                                            == EvidenceVerificationStatus
+                                                                                    .VERIFIED_PUBLISHED) {
+                                                                        journalEvidence
+                                                                                .journal()
+                                                                                .requireTargetPublishedEvidence(
+                                                                                        journalEvidence.mapping(),
+                                                                                        publication,
+                                                                                        first,
+                                                                                        cursor,
+                                                                                        evidence);
+                                                                    } else {
+                                                                        journalEvidence
+                                                                                .journal()
+                                                                                .requireTargetNotPublishedEvidence(
+                                                                                        journalEvidence.mapping(),
+                                                                                        publication,
+                                                                                        first,
+                                                                                        cursor,
+                                                                                        evidence);
+                                                                    }
+                                                                }
+                                                                assertTrue(first.compareTo(unknown) < 0
+                                                                        && unknown.compareTo(resolutionSource) < 0);
+                                                            })
+                                                    : null);
+                                    if (checkpointContext != null) {
+                                        checkpointContext
+                                                .outcomeAuthorizations()
+                                                .put(Bytes.hex(mutation.systemMutationId()), authorized);
+                                    }
+                                    return authorized;
+                                },
+                                (a, b, c) -> guard())),
+                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                System::nanoTime);
         final var pending = new java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord>();
         // Local adapter fixture: seed the inherited durable frontier, then advance only on confirmed ACK.
         final var confirmed = new java.util.concurrent.atomic.AtomicReference<>(store.appliedShardLogPosition());
         final SourceRecordConsumer sourceFixture = new SourceRecordConsumer() {
             @Override
             public java.util.Optional<PolledSourceRecord> poll() {
-                return java.util.Optional.ofNullable(pending.getAndSet(null)).map(record ->
-                        new PolledSourceRecord(record.entry(), (entry, applied) -> {
+                return java.util.Optional.ofNullable(pending.getAndSet(null))
+                        .map(record -> new PolledSourceRecord(record.entry(), (entry, applied) -> {
                             final var result = record.acknowledger().acknowledge(entry, applied);
                             if (result.disposition() == SourceAcknowledgement.Disposition.ACKED) {
                                 confirmed.set(entry.position());
@@ -7459,11 +7821,16 @@ class TargetCommandStoreTest {
             public CheckpointCut checkpointCut(SourcePosition expected) {
                 return new CheckpointCut() {
                     @Override
-                    public SourcePosition position() { return expected; }
+                    public SourcePosition position() {
+                        return expected;
+                    }
+
                     @Override
                     public void requireCurrent() {
-                        if (!expected.equals(confirmed.get()) || !expected.equals(store.appliedShardLogPosition())
-                                || !active.sameIdentity(leases.current(scope.shard()).orElseThrow())) {
+                        if (!expected.equals(confirmed.get())
+                                || !expected.equals(store.appliedShardLogPosition())
+                                || !active.sameIdentity(
+                                        leases.current(scope.shard()).orElseThrow())) {
                             throw new IllegalStateException("local checkpoint ACK/Owner cut changed");
                         }
                     }
@@ -7471,26 +7838,41 @@ class TargetCommandStoreTest {
             }
         };
         final var worker = TargetWorkerShardFactory.create(
-                sourceFixture, runtime.acceptedAssignment(),
-                classes, store, resources, runtime,
+                sourceFixture,
+                runtime.acceptedAssignment(),
+                classes,
+                store,
+                resources,
+                runtime,
                 new TargetWorkerShardRuntime.Maintenance(
-                        new TargetCloseStore(reopened.backend(), scope, reopened.root().recoveryLineage(), 16, 1)
+                        new TargetCloseStore(
+                                        reopened.backend(),
+                                        scope,
+                                        reopened.root().recoveryLineage(),
+                                        16,
+                                        1)
                                 .reservationControls((a, b) -> java.util.Optional.empty()),
                         new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
                         new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
-                        (a, b, c) -> guard(), ignored -> {}, ignored -> {}, ignored -> {}, () -> 102));
-        assertThrows(IllegalStateException.class,
+                        (a, b, c) -> guard(),
+                        ignored -> {},
+                        ignored -> {},
+                        ignored -> {},
+                        () -> 102));
+        assertThrows(
+                IllegalStateException.class,
                 () -> oldWorker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
-        assertThrows(IllegalStateException.class,
-                () -> worker.readAppliedAdmission(budget(), admissionImage, () -> 102));
+        assertThrows(
+                IllegalStateException.class, () -> worker.readAppliedAdmission(budget(), admissionImage, () -> 102));
         if (terminalRecovery) {
             final byte[] terminalBytes = store.get(ColumnFamily.TERMINAL, terminalKey);
             store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminalKey));
             final long missing = store.latestSequenceNumber();
-            assertThrows(IllegalStateException.class,
+            assertThrows(
+                    IllegalStateException.class,
                     () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
-            assertThrows(IllegalStateException.class,
-                    () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+            assertThrows(
+                    IllegalStateException.class, () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
             assertEquals(missing, store.latestSequenceNumber());
             store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
             final byte[] orderKey = TargetKeyCodec.orderState(
@@ -7499,31 +7881,42 @@ class TargetCommandStoreTest {
                 final byte[] protectedValue = store.get(ColumnFamily.META, protectedKey);
                 store.write(batch -> batch.delete(ColumnFamily.META, protectedKey));
                 final long missingPrimary = store.latestSequenceNumber();
-                assertThrows(IllegalStateException.class,
+                assertThrows(
+                        IllegalStateException.class,
                         () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
-                assertThrows(IllegalStateException.class,
+                assertThrows(
+                        IllegalStateException.class,
                         () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
                 assertEquals(missingPrimary, store.latestSequenceNumber());
                 store.write(batch -> batch.put(ColumnFamily.META, protectedKey, protectedValue));
             }
             if (originalMessage.locator().equals(admitted.locator())) {
-                final var mismatched = new TargetTerminalGenerationRecord(originalTerminal.locator(),
+                final var mismatched = new TargetTerminalGenerationRecord(
+                        originalTerminal.locator(),
                         originalTerminal.stateVersion() + 1,
-                        originalTerminal.terminalCode(), originalTerminal.runtime(),
-                        originalTerminal.mutation(), originalTerminal.recoveryLineage());
-                store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey,
+                        originalTerminal.terminalCode(),
+                        originalTerminal.runtime(),
+                        originalTerminal.mutation(),
+                        originalTerminal.recoveryLineage());
+                store.write(batch -> batch.put(
+                        ColumnFamily.TERMINAL,
+                        terminalKey,
                         TargetValueEnvelope.encode(
                                 TargetTerminalGenerationRecord.VALUE_TYPE, mismatched.canonicalBytes())));
                 final long wrongVersion = store.latestSequenceNumber();
-                assertThrows(IllegalStateException.class,
+                assertThrows(
+                        IllegalStateException.class,
                         () -> worker.readRecoveryAdmission(budget(), admissionImage, () -> 102));
-                assertThrows(IllegalStateException.class,
+                assertThrows(
+                        IllegalStateException.class,
                         () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
                 assertEquals(wrongVersion, store.latestSequenceNumber());
                 store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
             }
             final var proof = worker.readRecoveryAdmission(budget(), admissionImage, () -> 102);
-            assertArrayEquals(originalTerminal.canonicalBytes(), proof.terminal().orElseThrow().canonicalBytes());
+            assertArrayEquals(
+                    originalTerminal.canonicalBytes(),
+                    proof.terminal().orElseThrow().canonicalBytes());
             assertEquals(originalTerminal.runtime(), proof.runtime());
         }
         final long beforeDiscovery = store.latestSequenceNumber();
@@ -7536,26 +7929,43 @@ class TargetCommandStoreTest {
         assertEquals(oldOwner, reference.admittedOwner());
         final var retainedAdmitted = worker.discoverCheckpointInputs(budget(), null, 1, () -> 102);
         assertEquals(reference.source(), retainedAdmitted.entries().getFirst().source());
-        assertArrayEquals(reference.envelopeDigest(), retainedAdmitted.entries().getFirst().envelopeDigest());
-        assertThrows(IllegalArgumentException.class, () -> worker.discoverPublishRecovery(
-                budget(), retainedAdmitted.continuation(), 1, () -> 102));
+        assertArrayEquals(
+                reference.envelopeDigest(),
+                retainedAdmitted.entries().getFirst().envelopeDigest());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> worker.discoverPublishRecovery(budget(), retainedAdmitted.continuation(), 1, () -> 102));
         assertEquals(admission.entry().position(), reference.source());
         assertArrayEquals(Bytes.sha256(admissionImage.canonicalEnvelope()), reference.envelopeDigest());
-        assertEquals(admissionImage, reference.requireImage(admissionImage, admission.entry().position()));
-        final var changedImage = SystemMutation.signed(admissionImage.shardId(), admissionImage.type(),
-                admissionImage.retryUntilEpochMs(), admissionImage.logicalOperationIdentity(),
-                admissionImage.canonicalBody(), admissionImage.authorIdentity(), 2, keys.getPrivate());
-        assertThrows(IllegalStateException.class,
+        assertEquals(
+                admissionImage,
+                reference.requireImage(admissionImage, admission.entry().position()));
+        final var changedImage = SystemMutation.signed(
+                admissionImage.shardId(),
+                admissionImage.type(),
+                admissionImage.retryUntilEpochMs(),
+                admissionImage.logicalOperationIdentity(),
+                admissionImage.canonicalBody(),
+                admissionImage.authorIdentity(),
+                2,
+                keys.getPrivate());
+        assertThrows(
+                IllegalStateException.class,
                 () -> reference.requireImage(changedImage, admission.entry().position()));
         final var originalPosition = (KafkaSourcePosition) admission.entry().position();
-        assertThrows(IllegalStateException.class, () -> reference.requireImage(admissionImage,
-                source(originalPosition, originalPosition.offset() + 1,
-                        originalPosition.brokerPersistenceTimeEpochMs())));
+        assertThrows(
+                IllegalStateException.class,
+                () -> reference.requireImage(
+                        admissionImage,
+                        source(
+                                originalPosition,
+                                originalPosition.offset() + 1,
+                                originalPosition.brokerPersistenceTimeEpochMs())));
         final var rangeEnd = worker.discoverPublishRecovery(budget(), discovered.continuation(), 1, () -> 102);
         assertTrue(rangeEnd.complete());
         assertTrue(rangeEnd.entries().isEmpty());
-        final var shortBudget = new BoundedReadBudget(Math.toIntExact(discoveryBudget.actualRecords() - 1),
-                32L << 20, 60_000_000_000L, System::nanoTime);
+        final var shortBudget = new BoundedReadBudget(
+                Math.toIntExact(discoveryBudget.actualRecords() - 1), 32L << 20, 60_000_000_000L, System::nanoTime);
         final var incomplete = worker.discoverPublishRecovery(shortBudget, null, 1, () -> 102);
         assertEquals(TargetPublishRecoveryDiscovery.Stop.READ_BUDGET, incomplete.stop());
         assertFalse(incomplete.complete());
@@ -7564,44 +7974,63 @@ class TargetCommandStoreTest {
         assertEquals(1, resumed.entries().size());
         final var foreign = new TargetPublishRecoveryDiscovery(
                 reopened.backend(), scope, reopened.root().recoveryLineage());
-        assertThrows(IllegalArgumentException.class,
-                () -> foreign.scan(budget(), discovered.continuation(), 1, reads));
+        assertThrows(IllegalArgumentException.class, () -> foreign.scan(budget(), discovered.continuation(), 1, reads));
         assertEquals(beforeDiscovery, store.latestSequenceNumber());
         final byte[] firstProofKey = systemKey(admissionImage);
         final byte[] firstProof = store.get(ColumnFamily.DEDUPE, firstProofKey);
         store.write(batch -> batch.delete(ColumnFamily.DEDUPE, firstProofKey));
         final long missingProofVersion = store.latestSequenceNumber();
-        assertThrows(IllegalStateException.class,
-                () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
+        assertThrows(IllegalStateException.class, () -> worker.discoverPublishRecovery(budget(), null, 1, () -> 102));
         assertEquals(missingProofVersion, store.latestSequenceNumber());
         store.write(batch -> batch.put(ColumnFamily.DEDUPE, firstProofKey, firstProof));
-        final var restoredReference = worker.discoverPublishRecovery(budget(), null, 1, () -> 102).entries().getFirst();
-        assertEquals(admissionImage, restoredReference.requireImage(admissionImage, admission.entry().position()));
+        final var restoredReference = worker.discoverPublishRecovery(budget(), null, 1, () -> 102)
+                .entries()
+                .getFirst();
+        assertEquals(
+                admissionImage,
+                restoredReference.requireImage(admissionImage, admission.entry().position()));
         final var before = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(before, before.offset() + 1, before.brokerPersistenceTimeEpochMs() + 1);
-        final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), admitted.decisionTime().latestEpochMs());
-        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
+        final long observed = Math.max(
+                at.brokerPersistenceTimeEpochMs(), admitted.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(
+                observed,
+                observed + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                bytes(32, 0xF3), 1, 1, 1, bytes(32, 0xF4), 0, null);
-        final byte[] retry = typedUnknownRetryDecision(policy, admitted.decisionTime().latestEpochMs(),
-                Math.min(admitted.publication().expireAtEpochMs(),
+                bytes(32, 0xF3),
+                1,
+                1,
+                1,
+                bytes(32, 0xF4),
+                0,
+                null);
+        final byte[] retry = typedUnknownRetryDecision(
+                policy,
+                admitted.decisionTime().latestEpochMs(),
+                Math.min(
+                        admitted.publication().expireAtEpochMs(),
                         admitted.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()),
-                admitted.attemptNo(), null);
-        final byte[] zero = new PublishAdmissionBody.ChargeVector(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes();
+                admitted.attemptNo(),
+                null);
+        final byte[] zero = new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                .canonicalBytes();
         final var appends = new java.util.concurrent.atomic.AtomicInteger();
         final var handoff = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(worker, image -> {
             appends.incrementAndGet();
             return com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(at);
         });
-        final var factory = new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(
-                1, keys.getPrivate());
-        assertThrows(IllegalArgumentException.class,
-                () -> new com.nereusstream.delay.ownership.TargetPublishRecoveryExecutor(worker,
-                        new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(oldWorker,
-                                image -> { throw new AssertionError("wrong Worker must not append"); }), factory));
-        final var recovery = new com.nereusstream.delay.ownership.TargetPublishRecoveryExecutor(
-                worker, handoff, factory);
+        final var factory =
+                new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(1, keys.getPrivate());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new com.nereusstream.delay.ownership.TargetPublishRecoveryExecutor(
+                        worker,
+                        new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(oldWorker, image -> {
+                            throw new AssertionError("wrong Worker must not append");
+                        }),
+                        factory));
+        final var recovery =
+                new com.nereusstream.delay.ownership.TargetPublishRecoveryExecutor(worker, handoff, factory);
         final var context = new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
                 time.latestEpochMs() + 10_000, 4, zero, time, retry);
         final var loads = new java.util.concurrent.atomic.AtomicInteger();
@@ -7612,61 +8041,106 @@ class TargetCommandStoreTest {
         final var host = checkpointContext == null
                 ? TargetWorkerHostTestBridge.withoutMaintenanceTimer(classes, resources, List.of(worker))
                 : assertCheckpointStartupBeforeTick(store, worker, classes);
-        final var maintenance = host.configurePublishRecoveryMaintenance(worker, factory,
+        final var maintenance = host.configurePublishRecoveryMaintenance(
+                worker,
+                factory,
                 image -> {
                     appends.incrementAndGet();
                     return com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(at);
-                }, TargetCommandStoreTest::budget,
+                },
+                TargetCommandStoreTest::budget,
                 ref -> {
-                    assertEquals(admissionImage, ref.requireImage(admissionImage, admission.entry().position()));
+                    assertEquals(
+                            admissionImage,
+                            ref.requireImage(admissionImage, admission.entry().position()));
                     return loads.incrementAndGet() == 1 ? firstHistory : secondHistory;
-                }, () -> 102);
+                },
+                () -> 102);
         final var competingLoadCount = new java.util.concurrent.atomic.AtomicInteger();
         final var competingHistory = new java.util.concurrent.CompletableFuture<
                 com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared>();
-        final var competing = new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance(worker,
-                recovery, TargetCommandStoreTest::budget, ref -> {
+        final var competing = new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance(
+                worker,
+                recovery,
+                TargetCommandStoreTest::budget,
+                ref -> {
                     competingLoadCount.incrementAndGet();
                     return competingHistory;
-                }, () -> 102);
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
+                },
+                () -> 102);
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
                 competing.runTurn().status());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
                 competing.runTurn().status());
-        assertThrows(IllegalStateException.class, () -> host.configurePublishRecoveryMaintenance(worker, factory,
-                image -> { throw new AssertionError("duplicate configuration must not append"); },
-                TargetCommandStoreTest::budget, ref -> firstHistory, () -> 102));
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertThrows(
+                IllegalStateException.class,
+                () -> host.configurePublishRecoveryMaintenance(
+                        worker,
+                        factory,
+                        image -> {
+                            throw new AssertionError("duplicate configuration must not append");
+                        },
+                        TargetCommandStoreTest::budget,
+                        ref -> firstHistory,
+                        () -> 102));
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.DISCOVERED,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
         assertEquals(1, loads.get());
         assertEquals(0, appends.get());
         firstHistory.completeExceptionally(
                 new IllegalStateException("fixture protected history temporarily unavailable"));
-        final var loadFailed = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED,
-                loadFailed.status());
-        assertEquals("fixture protected history temporarily unavailable", loadFailed.failure().getMessage());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        final var loadFailed =
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED, loadFailed.status());
+        assertEquals(
+                "fixture protected history temporarily unavailable",
+                loadFailed.failure().getMessage());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
         if (loseOwnerDuringLoad) {
             final long beforeLoss = store.latestSequenceNumber();
             assertTrue(leases.release(active));
             secondHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
                     admissionImage, owner, context));
-            final var lost = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
-            assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED,
-                    lost.status());
+            final var lost =
+                    host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+            assertEquals(
+                    com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.FAILED, lost.status());
             assertNotNull(lost.failure());
             assertEquals(0, appends.get());
             assertEquals(2, loads.get());
             assertEquals(beforeLoss, store.latestSequenceNumber());
             assertTrue(maintenance.pendingMutation().isEmpty());
             final var retained = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                    .payload());
             assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, retained.phase());
             worker.pauseNewTurns();
             worker.closeSource();
@@ -7674,12 +8148,22 @@ class TargetCommandStoreTest {
         }
         secondHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
                 admissionImage, owner, context));
-        final var submitted = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SUBMITTED,
-                submitted.status(), () -> String.valueOf(submitted.failure()));
-        assertEquals(owner, AuthorIdentity.decode(submitted.mutation().authorIdentity()).asOwnerIdentity());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.WAITING_SOURCE,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        final var submitted =
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SUBMITTED,
+                submitted.status(),
+                () -> String.valueOf(submitted.failure()));
+        assertEquals(
+                owner,
+                AuthorIdentity.decode(submitted.mutation().authorIdentity()).asOwnerIdentity());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.WAITING_SOURCE,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
         final byte[] exact = submitted.mutation().encodeFrame();
         classes.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
         assertEquals(1, appends.get());
@@ -7688,31 +8172,38 @@ class TargetCommandStoreTest {
         final var acks = new java.util.concurrent.atomic.AtomicInteger();
         pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
             assertEquals(ApplyStatus.APPLIED, result.systemMutationResult().applyStatus());
-            assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, result.systemMutationResult().stableCode());
-            return acks.incrementAndGet() == 1 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+            assertEquals(
+                    StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                    result.systemMutationResult().stableCode());
+            return acks.incrementAndGet() == 1
+                    ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                     : SourceAcknowledgement.AcknowledgementResult.acked();
         }));
         final var turn = worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102);
-        assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(),
-                () -> String.valueOf(turn.failure()));
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(), () -> String.valueOf(turn.failure()));
         if (checkpointContext != null) {
             checkpointContext.outcomes().add(new TargetCheckpointDependencies.OutcomeImage(at, submitted.mutation()));
         }
         final long applied = store.latestSequenceNumber();
-        final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
+        final var after = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         final TargetTerminalGenerationRecord nextTerminal;
         if (terminalRecovery) {
             nextTerminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.TERMINAL, terminalKey),
-                    TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE)
+                    .payload());
             assertEquals(originalTerminal.terminalCode(), nextTerminal.terminalCode());
             assertEquals(originalTerminal.mutation(), nextTerminal.mutation());
-            assertEquals(originalTerminal.runtime().aggregateState(),
+            assertEquals(
+                    originalTerminal.runtime().aggregateState(),
                     nextTerminal.runtime().aggregateState());
-            assertEquals(List.of(admitted.obligation().uncertain()),
+            assertEquals(
+                    List.of(admitted.obligation().uncertain()),
                     nextTerminal.runtime().attemptObligations());
-            assertEquals(originalTerminal.runtime().runtimeRevision() + 1,
+            assertEquals(
+                    originalTerminal.runtime().runtimeRevision() + 1,
                     nextTerminal.runtime().runtimeRevision());
             if (after.locator().equals(admitted.locator())) {
                 assertEquals(originalMessage.aggregateState(), after.aggregateState());
@@ -7728,75 +8219,134 @@ class TargetCommandStoreTest {
             nextTerminal = null;
             assertEquals(GenerationAggregateState.UNCERTAIN, after.aggregateState());
             assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
-            assertEquals(oldOwner.ownerEpoch(), after.runtime().attemptObligations().getFirst().ownerEpoch());
+            assertEquals(
+                    oldOwner.ownerEpoch(),
+                    after.runtime().attemptObligations().getFirst().ownerEpoch());
         }
-        final var unknown = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        final var unknown = TargetQuotaAttemptBudget.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, unknown.phase());
         assertEquals(originalBudget.commitment(), unknown.commitment());
         assertEquals(originalBudget.allocated(), unknown.allocated());
         assertEquals(1, unknown.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
-        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(store.get(ColumnFamily.META,
-                TargetKeyCodec.orderState(after.locator().target(), after.locator().orderingDomain())),
-                TargetOrderState.VALUE_TYPE).payload());
+        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                        store.get(
+                                ColumnFamily.META,
+                                TargetKeyCodec.orderState(
+                                        after.locator().target(),
+                                        after.locator().orderingDomain())),
+                        TargetOrderState.VALUE_TYPE)
+                .payload());
         if (terminalRecovery && !after.locator().equals(admitted.locator())) {
             order.requireTerminalBarrierProjection(nextTerminal);
         } else {
             order.requireBarrierProjection(after);
         }
         assertNull(order.serviceableHead());
-        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102)
+                        .status());
         assertEquals(2, acks.get());
         assertEquals(1, resolutions.get());
         assertEquals(applied, store.latestSequenceNumber());
-        final var settled = host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SETTLED,
-                settled.status());
+        final var settled =
+                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow();
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SETTLED, settled.status());
         assertEquals(1, appends.get());
         assertEquals(2, loads.get());
         assertArrayEquals(exact, settled.mutation().encodeFrame());
         assertTrue(maintenance.pendingMutation().isEmpty());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.LOADING,
                 competing.runTurn().status());
         assertEquals(1, competingLoadCount.get());
         competingHistory.complete(new com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Prepared(
                 admissionImage, owner, context));
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.ALREADY_HANDLED,
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.ALREADY_HANDLED,
                 competing.runTurn().status());
         assertEquals(1, appends.get());
         assertTrue(competing.pendingMutation().isEmpty());
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> worker.discoverPublishRecovery(budget(), discovered.continuation(), 1, () -> 102));
         final var settledDiscovery = worker.discoverPublishRecovery(budget(), null, 2, () -> 102);
         assertTrue(settledDiscovery.complete());
         assertTrue(settledDiscovery.entries().isEmpty());
         assertEquals(applied, store.latestSequenceNumber());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
         store.write(batch -> batch.put(ColumnFamily.DEDUPE, firstProofKey, firstProof));
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.RESTART_SCAN,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
-        assertEquals(com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.IDLE,
-                host.runNextPublishRecoveryTurn().orElseThrow().turn().orElseThrow().status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.RESTART_SCAN,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.SCAN_YIELD,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.Status.IDLE,
+                host.runNextPublishRecoveryTurn()
+                        .orElseThrow()
+                        .turn()
+                        .orElseThrow()
+                        .status());
         assertEquals(2, loads.get());
         assertEquals(1, appends.get());
         if (publishFailure >= 20) {
-            assertResolvedTargetEvidence(reopened.backend(), store, scope, reopened.root().recoveryLineage(), worker,
-                    classes, pending, admissionImage, service, keys, owner, policy,
-                    expectedResolution, expectedCursor, publishFailure, journalEvidence, checkpointContext);
+            assertResolvedTargetEvidence(
+                    reopened.backend(),
+                    store,
+                    scope,
+                    reopened.root().recoveryLineage(),
+                    worker,
+                    classes,
+                    pending,
+                    admissionImage,
+                    service,
+                    keys,
+                    owner,
+                    policy,
+                    expectedResolution,
+                    expectedCursor,
+                    publishFailure,
+                    journalEvidence,
+                    checkpointContext);
         }
         final var lateHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
-        final var losingOwner = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
-                ref -> lateHistory, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
-        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, losingOwner.runTurn().status());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, losingOwner.runTurn().status());
+        final var losingOwner = new TargetCheckpointAdmissionInputs(
+                worker,
+                TargetCommandStoreTest::budget,
+                ref -> lateHistory,
+                new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20),
+                () -> 102);
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.DISCOVERED,
+                losingOwner.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.LOADING,
+                losingOwner.runTurn().status());
         final long beforeOwnerLoss = store.latestSequenceNumber();
         assertTrue(leases.release(active));
         lateHistory.complete(admissionImage);
-        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, losingOwner.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.FAILED,
+                losingOwner.runTurn().status());
         assertTrue(losingOwner.result().isEmpty());
         assertEquals(beforeOwnerLoss, store.latestSequenceNumber());
         worker.pauseNewTurns();
@@ -7804,74 +8354,133 @@ class TargetCommandStoreTest {
     }
 
     private static void assertResolvedTargetEvidence(
-            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes,
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetWorkerShardRuntime worker,
+            WorkClassExecutionRegistry classes,
             java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord> pending,
-            SystemMutation admission, AuthorIdentity service, KeyPair keys, OwnerIdentity owner,
+            SystemMutation admission,
+            AuthorIdentity service,
+            KeyPair keys,
+            OwnerIdentity owner,
             com.nereusstream.delay.protocol.RetryPolicySemantic policy,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence>
                     expectedEvidence,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.EvidenceCursor> expectedCursor,
-            int mode, TargetJournalEvidenceFixture journalEvidence, CheckpointImageContext checkpointContext) {
+            int mode,
+            TargetJournalEvidenceFixture journalEvidence,
+            CheckpointImageContext checkpointContext) {
         final var body = TargetPublishAdmissionBody.decode(admission.canonicalBody());
         final boolean published = mode == 20 || mode == 23 || mode == 24 || mode == 31;
         final boolean permanent = mode != 22 && mode != 33 && !published;
         final byte[] messageKey = TargetKeyCodec.message(body.locator().messageId());
         final byte[] beforeBytes = store.get(ColumnFamily.ID, messageKey);
-        final var before = TargetMessageRecord.decode(
-                TargetValueEnvelope.decode(beforeBytes, TargetMessageRecord.VALUE_TYPE).payload());
+        final var before =
+                TargetMessageRecord.decode(TargetValueEnvelope.decode(beforeBytes, TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         final byte[] terminalKey = TargetTerminalGenerationRecord.key(body.locator());
         final byte[] priorTerminal = store.get(ColumnFamily.TERMINAL, terminalKey);
-        final var history = priorTerminal == null ? null : TargetTerminalGenerationRecord.decode(
-                TargetValueEnvelope.decode(priorTerminal, TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+        final var history = priorTerminal == null
+                ? null
+                : TargetTerminalGenerationRecord.decode(
+                        TargetValueEnvelope.decode(priorTerminal, TargetTerminalGenerationRecord.VALUE_TYPE)
+                                .payload());
         final byte[] attemptKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 body.publishAttemptId());
         final var held = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, held.phase());
         final byte[] unknownPositionKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
                 held.mutation().source().canonicalBytes());
         final byte[] unknownPositionBytes = store.get(ColumnFamily.DEDUPE, unknownPositionKey);
         final var position = TargetResultRecord.decode(
-                TargetValueEnvelope.decode(unknownPositionBytes, TargetResultRecord.VALUE_TYPE).payload());
+                TargetValueEnvelope.decode(unknownPositionBytes, TargetResultRecord.VALUE_TYPE)
+                        .payload());
         final byte[] unknownFirstKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, position.logicalId());
         final byte[] unknownFirstBytes = store.get(ColumnFamily.DEDUPE, unknownFirstKey);
         final var collectingUnknown = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, held, keys, policy,
-                checkpointContext, classes, owner);
+                backend,
+                store,
+                scope,
+                lineage,
+                worker,
+                admission,
+                held,
+                keys,
+                policy,
+                checkpointContext,
+                classes,
+                owner);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
-        final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
-        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
-                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(32, 0xB8),
-                1, 1, 1, bytes(32, 0xB9), 0, null);
-        final var evidence = journalEvidence != null ? journalEvidence.evidence()
-                : published ? targetPublishedAck(body.publication(), body.publication().preparedPublishHash())
-                : targetRejectedEvidence(body.publication(), body.publication().preparedPublishHash(),
-                        body.publication().physical().physicalPartition());
-        final var cursor = journalEvidence != null ? journalEvidence.cursor()
+        final long observed =
+                Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(
+                observed,
+                observed + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xB8),
+                1,
+                1,
+                1,
+                bytes(32, 0xB9),
+                0,
+                null);
+        final var evidence = journalEvidence != null
+                ? journalEvidence.evidence()
+                : published
+                        ? targetPublishedAck(
+                                body.publication(), body.publication().preparedPublishHash())
+                        : targetRejectedEvidence(
+                                body.publication(),
+                                body.publication().preparedPublishHash(),
+                                body.publication().physical().physicalPartition());
+        final var cursor = journalEvidence != null
+                ? journalEvidence.cursor()
                 : com.nereusstream.delay.protocol.EvidenceCursor.pulsar(
-                body.locator().target().bytes(), body.locator().accountingIncarnation(), bytes(32, 0xBA),
-                Math.toIntExact(body.publication().physical().physicalPartition()), 5, observed,
-                "persistent://public/default/target-evidence-fixture", 1, 1, 1, 0, 1);
+                        body.locator().target().bytes(),
+                        body.locator().accountingIncarnation(),
+                        bytes(32, 0xBA),
+                        Math.toIntExact(body.publication().physical().physicalPartition()),
+                        5,
+                        observed,
+                        "persistent://public/default/target-evidence-fixture",
+                        1,
+                        1,
+                        1,
+                        0,
+                        1);
         expectedEvidence.set(evidence);
         expectedCursor.set(cursor);
-        final StableCode cause = published ? StableCode.OK : permanent ? StableCode.DESTINATION_DEFINITIVE_PERMANENT
-                : StableCode.DESTINATION_DEFINITIVE_RETRIABLE;
-        final long retryAt = time.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
-                body.locator().messageId(), body.locator().generation(), body.attemptNo(),
-                policy.retryBackoffCap(body.attemptNo()));
+        final StableCode cause = published
+                ? StableCode.OK
+                : permanent ? StableCode.DESTINATION_DEFINITIVE_PERMANENT : StableCode.DESTINATION_DEFINITIVE_RETRIABLE;
+        final long retryAt = time.latestEpochMs()
+                + RetryJitter.delayMs(
+                        RetryJitter.MESSAGE_PUBLISH,
+                        body.locator().messageId(),
+                        body.locator().generation(),
+                        body.attemptNo(),
+                        policy.retryBackoffCap(body.attemptNo()));
         final byte[] retry = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, published ? 1 : permanent ? 3 : 2);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 2, policy.ref().canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 3, body.attemptNo());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 4, body.decisionTime().latestEpochMs());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 5, Math.min(
-                    body.publication().expireAtEpochMs(),
-                    body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out, 4, body.decisionTime().latestEpochMs());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out,
+                    5,
+                    Math.min(
+                            body.publication().expireAtEpochMs(),
+                            body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
             if (!published && !permanent) {
                 com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 6, retryAt);
             }
@@ -7879,55 +8488,84 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 8, cause.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 9, 1);
         });
-        final byte[] encoded = PublishOutcomeBody.encodeEvidenceResolution(scope.shard(), observed + 10_000,
-                body.publishAttemptId(), cursor, evidence.canonicalBytes(), cause, published ? 1 : 2,
-                published ? 0 : permanent ? 2 : 1, body.outcomeTransfer(), time, retry);
+        final byte[] encoded = PublishOutcomeBody.encodeEvidenceResolution(
+                scope.shard(),
+                observed + 10_000,
+                body.publishAttemptId(),
+                cursor,
+                evidence.canonicalBytes(),
+                cause,
+                published ? 1 : 2,
+                published ? 0 : permanent ? 2 : 1,
+                body.outcomeTransfer(),
+                time,
+                retry);
         final var decoded = PublishOutcomeBody.decodeEvidenceResolution(encoded);
-        final var mutation = SystemMutation.signed(scope.shard(), SystemMutationType.EVIDENCE_RESOLUTION,
-                observed + 10_000, decoded.evidenceResolutionLogicalOperationIdentity(), encoded,
-                service.canonicalBytes(), 1, keys.getPrivate());
+        final var mutation = SystemMutation.signed(
+                scope.shard(),
+                SystemMutationType.EVIDENCE_RESOLUTION,
+                observed + 10_000,
+                decoded.evidenceResolutionLogicalOperationIdentity(),
+                encoded,
+                service.canonicalBytes(),
+                1,
+                keys.getPrivate());
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
-        final var auth = new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (a, b, c, d) -> true,
+        final var auth = new TargetPublishOutcomeVerifier.Authorization(
+                keys.getPublic(),
+                ProtocolTuple.currentSystemMutation(),
+                owner,
+                10,
+                10,
+                100,
+                (a, b, c, d) -> true,
                 new TargetPublishOutcomeVerifier.RetryContext(admission, admission, policy),
                 new TargetPublishOutcomeVerifier.EvidenceContext(admission, (a, b, c, d) -> {}));
         final long beforeReject = store.latestSequenceNumber();
-        assertThrows(IllegalStateException.class,
-                () -> outcomes.prepareFirst(budget(), mutation, at, (a, b, c, d) -> auth));
+        assertThrows(
+                IllegalStateException.class, () -> outcomes.prepareFirst(budget(), mutation, at, (a, b, c, d) -> auth));
         assertEquals(beforeReject, store.latestSequenceNumber());
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(mutation)));
-        final var handoff = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(worker,
+        final var handoff = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(
+                worker,
                 ignored -> com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(at));
         final var submission = handoff.submit(mutation, () -> 102);
         classes.runTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
-        assertEquals(com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED,
+        assertEquals(
+                com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendDisposition.PERSISTED,
                 submission.append().orElseThrow().disposition());
         final var acknowledgements = new java.util.concurrent.atomic.AtomicInteger();
         final var entry = new SourceReplayMutation(mutation, at, null, null);
         pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
             assertEquals(ApplyStatus.APPLIED, result.systemMutationResult().applyStatus());
             assertEquals(cause, result.systemMutationResult().stableCode());
-            return acknowledgements.incrementAndGet() == 1 ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
+            return acknowledgements.incrementAndGet() == 1
+                    ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                     : SourceAcknowledgement.AcknowledgementResult.acked();
         }));
         final var turn = worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102);
-        assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(),
-                () -> String.valueOf(turn.failure()));
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, turn.status(), () -> String.valueOf(turn.failure()));
         if (checkpointContext != null) {
             checkpointContext.outcomes().add(new TargetCheckpointDependencies.OutcomeImage(at, mutation));
         }
         collectingUnknown.history().complete(admission);
         assertTrue(collectingUnknown.completed().result().isEmpty());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingUnknown.pending().runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.FAILED,
+                collectingUnknown.pending().runTurn().status());
         assertTrue(collectingUnknown.pending().result().isEmpty());
         assertThrows(IllegalArgumentException.class, () -> liveCheckpointDependencies(backend, store, scope)
                 .withAdmissionInputs(collectingUnknown.inputs(), 32L << 20));
         final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.META, attemptKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
         assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
         final byte[] cursorSeed = store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(6));
-        assertEquals(List.of(cursor), com.nereusstream.delay.store.StoreRuntimeMetadata.decodeEvidenceCursors(
-                TargetValueEnvelope.decode(cursorSeed, 1).payload()));
+        assertEquals(
+                List.of(cursor),
+                com.nereusstream.delay.store.StoreRuntimeMetadata.decodeEvidenceCursors(
+                        TargetValueEnvelope.decode(cursorSeed, 1).payload()));
         assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolved.phase());
         assertEquals(held.commitment(), resolved.commitment());
         assertEquals(held.allocated(), resolved.allocated());
@@ -7935,17 +8573,26 @@ class TargetCommandStoreTest {
         assertNull(resolved.floorDigest());
         assertArrayEquals(unknownPositionBytes, store.get(ColumnFamily.DEDUPE, unknownPositionKey));
         assertArrayEquals(unknownFirstBytes, store.get(ColumnFamily.DEDUPE, unknownFirstKey));
-        final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
-        final var terminal = store.get(ColumnFamily.TERMINAL, terminalKey) == null ? null
+        final var after = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+        final var terminal = store.get(ColumnFamily.TERMINAL, terminalKey) == null
+                ? null
                 : TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.TERMINAL, terminalKey),
-                        TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                                store.get(ColumnFamily.TERMINAL, terminalKey),
+                                TargetTerminalGenerationRecord.VALUE_TYPE)
+                        .payload());
         if (!before.locator().equals(body.locator())) {
             assertArrayEquals(beforeBytes, store.get(ColumnFamily.ID, messageKey));
         } else {
-            assertEquals(before.evidenceOutcome(body.publishAttemptId(), published, permanent,
-                    published || permanent ? null : retryAt, null), after);
+            assertEquals(
+                    before.evidenceOutcome(
+                            body.publishAttemptId(),
+                            published,
+                            permanent,
+                            published || permanent ? null : retryAt,
+                            null),
+                    after);
         }
         if (history != null) {
             assertEquals(history.terminalCode(), terminal.terminalCode());
@@ -7955,84 +8602,145 @@ class TargetCommandStoreTest {
         if (terminal != null) {
             assertTrue(terminal.runtime().attemptObligations().isEmpty());
         } else {
-            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, after.runtime().timeline().workKind());
+            assertEquals(
+                    TimelineWorkKind.DEFINITIVE_RETRY,
+                    after.runtime().timeline().workKind());
             assertFalse(after.runtime().timeline().nativeCandidate());
         }
-        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(store.get(ColumnFamily.META,
-                TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain())),
-                TargetOrderState.VALUE_TYPE).payload());
+        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                        store.get(
+                                ColumnFamily.META,
+                                TargetKeyCodec.orderState(
+                                        body.locator().target(), body.locator().orderingDomain())),
+                        TargetOrderState.VALUE_TYPE)
+                .payload());
         assertNull(order.barrier());
         final long applied = store.latestSequenceNumber();
-        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 102)
+                        .status());
         assertEquals(applied, store.latestSequenceNumber());
         assertEquals(2, acknowledgements.get());
         assertTrue(handoff.readApplied(mutation, () -> 102).isPresent());
-        assertArrayEquals(cursorSeed,
-                store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(6)));
-        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                (a, b) -> guard());
+        assertArrayEquals(cursorSeed, store.get(ColumnFamily.META, com.nereusstream.delay.store.KeyCodec.metaFixed(6)));
+        TargetStoreBootstrap.reopen(
+                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
         assertEquals(List.of(cursor), store.runtimeMetadata().evidenceCursors());
         final long beforeSeedBypass = store.latestSequenceNumber();
         assertThrows(IllegalStateException.class, () -> store.recordEvidenceCursors(List.of()));
         assertEquals(beforeSeedBypass, store.latestSequenceNumber());
         final var collectingResolved = assertRetainedAdmissionInput(
-                backend, store, scope, lineage, worker, admission, resolved, keys, policy,
-                checkpointContext, classes, owner);
+                backend,
+                store,
+                scope,
+                lineage,
+                worker,
+                admission,
+                resolved,
+                keys,
+                policy,
+                checkpointContext,
+                classes,
+                owner);
         final byte[] budgetBefore = store.get(ColumnFamily.META, attemptKey);
         final var firstAdmission = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
-        final var changedBudget = TargetQuotaAttemptBudget.admit(resolved.locator(), resolved.tenantScope(),
-                resolved.publishAttemptId(), bytes(32, 0xCC), resolved.accounting(), resolved.executionBytes(),
-                resolved.commitment(), held.allocated(), firstAdmission.mutation(), lineage)
+                        store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE)
+                .payload());
+        final var changedBudget = TargetQuotaAttemptBudget.admit(
+                        resolved.locator(),
+                        resolved.tenantScope(),
+                        resolved.publishAttemptId(),
+                        bytes(32, 0xCC),
+                        resolved.accounting(),
+                        resolved.executionBytes(),
+                        resolved.commitment(),
+                        held.allocated(),
+                        firstAdmission.mutation(),
+                        lineage)
                 .unknown(held.allocated(), held.mutation())
                 .resolve(evidence.verificationStatus(), resolved.allocated(), resolved.mutation());
-        final byte[] budgetAfter = TargetValueEnvelope.encode(
-                TargetQuotaAttemptBudget.VALUE_TYPE, changedBudget.canonicalBytes());
+        final byte[] budgetAfter =
+                TargetValueEnvelope.encode(TargetQuotaAttemptBudget.VALUE_TYPE, changedBudget.canonicalBytes());
         assertEquals(budgetBefore.length, budgetAfter.length);
         assertEquals(resolved.effectiveCharge(), changedBudget.effectiveCharge());
         store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetAfter));
         collectingResolved.history().complete(admission);
         assertTrue(collectingResolved.completed().result().isEmpty());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, collectingResolved.pending().runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.FAILED,
+                collectingResolved.pending().runTurn().status());
         assertTrue(collectingResolved.pending().result().isEmpty());
-        assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
-                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
-                .getMessage().contains("retained Budget lacks its exact Admission first result"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetStoreBootstrap.reopen(
+                                store,
+                                scope,
+                                new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                budget(),
+                                (a, b) -> guard()))
+                .getMessage()
+                .contains("retained Budget lacks its exact Admission first result"));
         store.write(batch -> batch.put(ColumnFamily.META, attemptKey, budgetBefore));
-        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                (a, b) -> guard());
+        TargetStoreBootstrap.reopen(
+                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
     }
 
     private static TargetCheckpointDependencies liveCheckpointDependencies(
             TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope) {
         final var reads = budget();
-        return backend.guardedRead(reads, reader -> {
-            final var bookkeeping = TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
-                    reader.get(ColumnFamily.META, TargetQuotaBookkeeping.keyFor(scope.shard())),
-                    TargetQuotaBookkeeping.VALUE_TYPE).payload());
-            final byte[] key = bookkeeping.owner().key();
-            key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
-            final var root = TargetQuotaIncarnation.decodeForStore(key, TargetValueEnvelope.decode(
-                    reader.get(ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE).payload(),
-                    scope.shard(), scope.tenantScope());
-            final var aggregate = reader.aggregate();
-            final var proof = new TargetCheckpointRootVerifier.RootProof(reader.metadata(),
-                    aggregate.mutation().source(), aggregate.mutation().sequence(), root, bookkeeping, aggregate);
-            return TargetCheckpointRootVerifier.auditLiveStoreDependencies(store, proof,
-                    new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20), reads);
-        }, (a, b) -> guard());
+        return backend.guardedRead(
+                reads,
+                reader -> {
+                    final var bookkeeping = TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                                    reader.get(ColumnFamily.META, TargetQuotaBookkeeping.keyFor(scope.shard())),
+                                    TargetQuotaBookkeeping.VALUE_TYPE)
+                            .payload());
+                    final byte[] key = bookkeeping.owner().key();
+                    key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+                    final var root = TargetQuotaIncarnation.decodeForStore(
+                            key,
+                            TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard(),
+                            scope.tenantScope());
+                    final var aggregate = reader.aggregate();
+                    final var proof = new TargetCheckpointRootVerifier.RootProof(
+                            reader.metadata(),
+                            aggregate.mutation().source(),
+                            aggregate.mutation().sequence(),
+                            root,
+                            bookkeeping,
+                            aggregate);
+                    return TargetCheckpointRootVerifier.auditLiveStoreDependencies(
+                            store,
+                            proof,
+                            new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20),
+                            reads);
+                },
+                (a, b) -> guard());
     }
 
-    private record CheckpointInputFixture(TargetCheckpointAdmissionInputs pending,
+    private record CheckpointInputFixture(
+            TargetCheckpointAdmissionInputs pending,
             java.util.concurrent.CompletableFuture<SystemMutation> history,
-            TargetCheckpointAdmissionInputs completed, List<TargetCheckpointAdmissionInputs.Input> inputs) {}
+            TargetCheckpointAdmissionInputs completed,
+            List<TargetCheckpointAdmissionInputs.Input> inputs) {}
 
     private static CheckpointInputFixture assertRetainedAdmissionInput(
-            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetWorkerShardRuntime worker, SystemMutation admission, TargetQuotaAttemptBudget current, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext checkpointContext,
-            WorkClassExecutionRegistry classes, OwnerIdentity owner) {
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetWorkerShardRuntime worker,
+            SystemMutation admission,
+            TargetQuotaAttemptBudget current,
+            KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            CheckpointImageContext checkpointContext,
+            WorkClassExecutionRegistry classes,
+            OwnerIdentity owner) {
         final var discovery = new TargetPublishRecoveryDiscovery(backend, scope, lineage);
         final long before = store.latestSequenceNumber();
         final var limited = discovery.scanRetainedInputs(
@@ -8042,41 +8750,66 @@ class TargetCommandStoreTest {
         final var resumed = discovery.scanRetainedInputs(budget(), limited.continuation(), 2, (a, b) -> guard());
         assertFalse(resumed.entries().isEmpty());
         final var page = discovery.scanRetainedInputs(budget(), null, 2, (a, b) -> guard());
-        final var reference = page.entries().stream().filter(ref -> Arrays.equals(
-                ref.attempt().publishAttemptId(), current.publishAttemptId())).findFirst().orElseThrow();
+        final var reference = page.entries().stream()
+                .filter(ref -> Arrays.equals(ref.attempt().publishAttemptId(), current.publishAttemptId()))
+                .findFirst()
+                .orElseThrow();
         final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.DEDUPE, systemKey(admission)), TargetResultRecord.VALUE_TYPE)
+                .payload());
         assertEquals(first.mutation().source(), reference.source());
         final var owned = worker.discoverCheckpointInputs(budget(), null, 2, () -> 102).entries().stream()
                 .filter(ref -> Arrays.equals(ref.attempt().publishAttemptId(), current.publishAttemptId()))
-                .findFirst().orElseThrow();
+                .findFirst()
+                .orElseThrow();
         assertEquals(reference.source(), owned.source());
         assertArrayEquals(reference.envelopeDigest(), owned.envelopeDigest());
         assertArrayEquals(Bytes.sha256(admission.canonicalEnvelope()), reference.envelopeDigest());
-        assertArrayEquals(admission.canonicalEnvelope(),
+        assertArrayEquals(
+                admission.canonicalEnvelope(),
                 reference.requireImage(admission, first.mutation().source()).canonicalEnvelope());
         assertEquals(current.phase(), reference.attempt().phase());
         assertTrue(reference.source().compareTo(current.mutation().source()) < 0);
-        assertThrows(IllegalStateException.class, () -> reference.requireImage(admission, current.mutation().source()));
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalStateException.class,
+                () -> reference.requireImage(admission, current.mutation().source()));
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> discovery.scan(budget(), page.continuation(), 2, (a, b) -> guard()));
-        assertTrue(discovery.scanRetainedInputs(budget(), page.continuation(), 2, (a, b) -> guard()).complete());
+        assertTrue(discovery
+                .scanRetainedInputs(budget(), page.continuation(), 2, (a, b) -> guard())
+                .complete());
         assertFalse(discovery.stillAdmitted(budget(), reference, (a, b) -> guard()));
         final var loaded = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var loads = new java.util.concurrent.atomic.AtomicInteger();
-        final var collector = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget, ref -> {
-            assertFalse(Thread.holdsLock(store));
-            assertEquals(reference.source(), ref.source());
-            loads.incrementAndGet();
-            return loaded;
-        }, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
-        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, collector.runTurn().status());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, collector.runTurn().status());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, collector.runTurn().status());
+        final var collector = new TargetCheckpointAdmissionInputs(
+                worker,
+                TargetCommandStoreTest::budget,
+                ref -> {
+                    assertFalse(Thread.holdsLock(store));
+                    assertEquals(reference.source(), ref.source());
+                    loads.incrementAndGet();
+                    return loaded;
+                },
+                new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20),
+                () -> 102);
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.DISCOVERED,
+                collector.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.LOADING,
+                collector.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.LOADING,
+                collector.runTurn().status());
         assertTrue(collector.result().isEmpty());
         loaded.complete(admission);
-        assertEquals(TargetCheckpointAdmissionInputs.Status.ACCEPTED, collector.runTurn().status());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.COMPLETE, collector.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.ACCEPTED,
+                collector.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.COMPLETE,
+                collector.runTurn().status());
         final var inputs = collector.result().orElseThrow();
         assertEquals(1, inputs.size());
         assertEquals(reference.source(), inputs.getFirst().reference().source());
@@ -8085,41 +8818,60 @@ class TargetCommandStoreTest {
         final var dependencies = liveCheckpointDependencies(backend, store, scope);
         assertFalse(dependencies.admissionImagesComplete());
         assertEquals(1, dependencies.admissions().size());
-        assertEquals(reference.source(), dependencies.admissions().getFirst().first().mutation().source());
+        assertEquals(
+                reference.source(),
+                dependencies.admissions().getFirst().first().mutation().source());
         assertFalse(dependencies.controls().isEmpty());
         final var complete = dependencies.withAdmissionInputs(inputs, 32L << 20);
-        final var publication = TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication();
+        final var publication =
+                TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication();
         assertTrue(complete.admissionImagesComplete());
         assertTrue(complete.profiles().contains(publication.destinationProfile()));
         assertTrue(complete.profiles().contains(publication.capabilityProfile()));
-        assertTrue(complete.artifactDigests().stream().anyMatch(
-                digest -> Arrays.equals(digest, publication.artifactGenerationSetDigest())));
-        assertArrayEquals(complete.semanticInputsDigest(),
+        assertTrue(complete.artifactDigests().stream()
+                .anyMatch(digest -> Arrays.equals(digest, publication.artifactGenerationSetDigest())));
+        assertArrayEquals(
+                complete.semanticInputsDigest(),
                 dependencies.withAdmissionInputs(inputs, 32L << 20).semanticInputsDigest());
         assertArrayEquals(dependencies.storedControlsDigest(), complete.storedControlsDigest());
         assertEquals(dependencies.controlResults(), complete.controlResults());
         assertEquals(dependencies.retryUses(), complete.retryUses());
-        final var images = inputs.stream().map(input -> new TargetCheckpointDependencies.AdmissionImage(
-                input.reference().source(), input.image())).toList();
-        assertArrayEquals(complete.semanticInputsDigest(),
+        final var images = inputs.stream()
+                .map(input -> new TargetCheckpointDependencies.AdmissionImage(
+                        input.reference().source(), input.image()))
+                .toList();
+        assertArrayEquals(
+                complete.semanticInputsDigest(),
                 dependencies.withAdmissionImages(images, 32L << 20).semanticInputsDigest());
-        assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionImages(
-                List.of(new TargetCheckpointDependencies.AdmissionImage(current.mutation().source(), admission)),
-                32L << 20));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.withAdmissionImages(
+                        List.of(new TargetCheckpointDependencies.AdmissionImage(
+                                current.mutation().source(), admission)),
+                        32L << 20));
         final var materializationChecks = new java.util.concurrent.atomic.AtomicInteger();
         final TargetPublishAdmissionVerifier.Authority originalAuthority = (actualScope, writer, image, source) -> {
             assertFalse(Thread.holdsLock(store));
             assertEquals(scope, actualScope);
             assertEquals(first.mutation().source(), source);
-            assertEquals(TargetPublishAdmissionBody.decode(admission.canonicalBody()).owner(),
+            assertEquals(
+                    TargetPublishAdmissionBody.decode(admission.canonicalBody()).owner(),
                     AuthorIdentity.decode(image.authorIdentity()).asOwnerIdentity());
-            return new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
-                    ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
+            return new TargetPublishAdmissionVerifier.Authorization(
+                    keys.getPublic(),
+                    ProtocolTuple.targetMaterializedPublishAdmission(),
+                    10,
+                    10,
+                    100,
                     (boundScope, boundWriter, at, time) -> {
                         assertEquals(first.mutation().source(), at);
-                        assertEquals(TargetPublishAdmissionBody.decode(admission.canonicalBody()).decisionTime(), time);
+                        assertEquals(
+                                TargetPublishAdmissionBody.decode(admission.canonicalBody())
+                                        .decisionTime(),
+                                time);
                         return true;
-                    }, (body, at) -> {
+                    },
+                    (body, at) -> {
                         assertEquals(first.mutation().source(), at);
                         assertEquals(publication, body.publication());
                         materializationChecks.incrementAndGet();
@@ -8132,11 +8884,14 @@ class TargetCommandStoreTest {
             assertArrayEquals(admission.canonicalEnvelope(), input.image().canonicalEnvelope());
         };
         final var protectedCut = worker.captureSourceBacklogCut(() -> 102);
-        final var authenticated = dependencies.authenticateAdmissionImages(images, 32L << 20, budget(),
-                originalHistory, originalAuthority, protectedCut::requireCurrent);
+        final var authenticated = dependencies.authenticateAdmissionImages(
+                images, 32L << 20, budget(), originalHistory, originalAuthority, protectedCut::requireCurrent);
         assertArrayEquals(complete.semanticInputsDigest(), authenticated.semanticInputsDigest());
-        assertEquals(current.phase(), authenticated.admissions().getFirst().attempt().phase());
-        assertEquals(current.effectiveCharge(), authenticated.admissions().getFirst().attempt().effectiveCharge());
+        assertEquals(
+                current.phase(), authenticated.admissions().getFirst().attempt().phase());
+        assertEquals(
+                current.effectiveCharge(),
+                authenticated.admissions().getFirst().attempt().effectiveCharge());
         assertEquals(1, materializationChecks.get());
         final KeyPair unrelatedKey;
         try {
@@ -8144,67 +8899,160 @@ class TargetCommandStoreTest {
         } catch (java.security.GeneralSecurityException unavailable) {
             throw new AssertionError("test requires Ed25519", unavailable);
         }
-        assertThrows(IllegalArgumentException.class, () -> dependencies.authenticateAdmissionImages(
-                images, 32L << 20, budget(), originalHistory,
-                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(unrelatedKey.getPublic(),
-                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
-                        (e, f, g, h) -> true, (e, f) -> {}), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.authenticateAdmissionImages(
-                images, 32L << 20, budget(), originalHistory,
-                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
-                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
-                        (e, f, g, h) -> false, (e, f) -> {}), () -> {}));
-        assertThrows(IllegalStateException.class, () -> dependencies.authenticateAdmissionImages(
-                images, 32L << 20, budget(), originalHistory,
-                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
-                        ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
-                        (e, f, g, h) -> true), () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.authenticateAdmissionImages(
+                        images,
+                        32L << 20,
+                        budget(),
+                        originalHistory,
+                        (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
+                                unrelatedKey.getPublic(),
+                                ProtocolTuple.targetMaterializedPublishAdmission(),
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true,
+                                (e, f) -> {}),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.authenticateAdmissionImages(
+                        images,
+                        32L << 20,
+                        budget(),
+                        originalHistory,
+                        (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.targetMaterializedPublishAdmission(),
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> false,
+                                (e, f) -> {}),
+                        () -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> dependencies.authenticateAdmissionImages(
+                        images,
+                        32L << 20,
+                        budget(),
+                        originalHistory,
+                        (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.targetMaterializedPublishAdmission(),
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true),
+                        () -> {}));
         final var historyFailure = new IllegalStateException("original Broker history not protected");
-        assertSame(historyFailure, assertThrows(IllegalStateException.class,
-                () -> dependencies.authenticateAdmissionImages(images, 32L << 20, budget(),
-                        (input, retainedFirst) -> { throw historyFailure; }, originalAuthority, () -> {})));
-        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
-                () -> dependencies.authenticateAdmissionImages(images, 32L << 20,
-                        new BoundedReadBudget(1, 32L << 20, 1_000_000, () -> 0), originalHistory,
-                        originalAuthority, () -> {}));
+        assertSame(
+                historyFailure,
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> dependencies.authenticateAdmissionImages(
+                                images,
+                                32L << 20,
+                                budget(),
+                                (input, retainedFirst) -> {
+                                    throw historyFailure;
+                                },
+                                originalAuthority,
+                                () -> {})));
+        assertThrows(
+                com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.authenticateAdmissionImages(
+                        images,
+                        32L << 20,
+                        new BoundedReadBudget(1, 32L << 20, 1_000_000, () -> 0),
+                        originalHistory,
+                        originalAuthority,
+                        () -> {}));
         final var historyHeld = new java.util.concurrent.atomic.AtomicBoolean(true);
-        assertThrows(IllegalStateException.class, () -> dependencies.authenticateAdmissionImages(
-                images, 32L << 20, budget(), (input, retainedFirst) -> historyHeld.set(false), originalAuthority,
-                () -> { if (!historyHeld.get()) { throw new IllegalStateException("history/pin guard lost"); } }));
+        assertThrows(
+                IllegalStateException.class,
+                () -> dependencies.authenticateAdmissionImages(
+                        images,
+                        32L << 20,
+                        budget(),
+                        (input, retainedFirst) -> historyHeld.set(false),
+                        originalAuthority,
+                        () -> {
+                            if (!historyHeld.get()) {
+                                throw new IllegalStateException("history/pin guard lost");
+                            }
+                        }));
         assertEquals(before, store.latestSequenceNumber());
 
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(List.of(), 32L << 20));
         assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(inputs, 1));
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> dependencies.withAdmissionInputs(List.of(inputs.getFirst(), inputs.getFirst()), 32L << 20));
         // Same body and author, different envelope: retained first-result correlation must reject it.
-        final var changed = SystemMutation.signed(admission.shardId(), admission.type(),
-                admission.retryUntilEpochMs(), current.publishAttemptId(), admission.canonicalBody(),
-                admission.authorIdentity(), 2, keys.getPrivate());
+        final var changed = SystemMutation.signed(
+                admission.shardId(),
+                admission.type(),
+                admission.retryUntilEpochMs(),
+                current.publishAttemptId(),
+                admission.canonicalBody(),
+                admission.authorIdentity(),
+                2,
+                keys.getPrivate());
         for (final boolean bytesExceeded : List.of(false, true)) {
-            final var rejected = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
+            final var rejected = new TargetCheckpointAdmissionInputs(
+                    worker,
+                    TargetCommandStoreTest::budget,
                     ref -> java.util.concurrent.CompletableFuture.completedFuture(bytesExceeded ? admission : changed),
-                    new TargetCheckpointAdmissionInputs.Limits(4, bytesExceeded ? 1 : 32L << 20), () -> 102);
-            assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, rejected.runTurn().status());
-            assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, rejected.runTurn().status());
-            assertEquals(TargetCheckpointAdmissionInputs.Status.FAILED, rejected.runTurn().status());
+                    new TargetCheckpointAdmissionInputs.Limits(4, bytesExceeded ? 1 : 32L << 20),
+                    () -> 102);
+            assertEquals(
+                    TargetCheckpointAdmissionInputs.Status.DISCOVERED,
+                    rejected.runTurn().status());
+            assertEquals(
+                    TargetCheckpointAdmissionInputs.Status.LOADING,
+                    rejected.runTurn().status());
+            assertEquals(
+                    TargetCheckpointAdmissionInputs.Status.FAILED,
+                    rejected.runTurn().status());
             assertTrue(rejected.result().isEmpty());
         }
         if (checkpointContext != null) {
             assertCollectedCheckpointProtectionFailure(store, worker, classes, current, owner, lineage);
-            assertNonemptyAdmissionImage(store, scope, lineage, dependencies, images, current, keys, policy,
-                    checkpointContext, originalHistory, originalAuthority, worker, classes, owner);
+            assertNonemptyAdmissionImage(
+                    store,
+                    scope,
+                    lineage,
+                    dependencies,
+                    images,
+                    current,
+                    keys,
+                    policy,
+                    checkpointContext,
+                    originalHistory,
+                    originalAuthority,
+                    worker,
+                    classes,
+                    owner);
         }
         if (checkpointContext != null) {
-            final var completedOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+            final var completedOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(
+                    worker,
                     TargetCommandStoreTest::budget,
                     new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20),
                     ref -> java.util.concurrent.CompletableFuture.completedFuture(checkpointContext.outcomes().stream()
-                            .filter(input -> Arrays.equals(input.image().systemMutationId(),
-                                    SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
-                            .findFirst().orElseThrow().image()),
-                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20), () -> 102);
-            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.CAPTURED,
+                            .filter(input -> Arrays.equals(
+                                    input.image().systemMutationId(),
+                                    SystemMutationResult.decode(ref.first().typedPayload())
+                                            .mutationId()))
+                            .findFirst()
+                            .orElseThrow()
+                            .image()),
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20),
+                    () -> 102);
+            assertEquals(
+                    com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.CAPTURED,
                     completedOutcomes.runTurn().status());
             for (int turns = 0; turns < 16; turns++) {
                 final var outcomeTurn = completedOutcomes.runTurn();
@@ -8215,80 +9063,135 @@ class TargetCommandStoreTest {
                 }
             }
             final var outcomeInputs = completedOutcomes.result().orElseThrow();
-            assertEquals(checkpointContext.outcomes().size(), outcomeInputs.inputs().size());
+            assertEquals(
+                    checkpointContext.outcomes().size(), outcomeInputs.inputs().size());
             final var pendingOutcome = new java.util.concurrent.CompletableFuture<SystemMutation>();
-            final var pendingOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
+            final var pendingOutcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(
+                    worker,
                     TargetCommandStoreTest::budget,
                     new TargetCheckpointRootVerifier.LedgerAuditLimits(2048, 32L << 20, 8192, 32L << 20),
                     ref -> pendingOutcome,
-                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20), () -> 102);
+                    new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(8, 32L << 20),
+                    () -> 102);
             pendingOutcomes.runTurn();
-            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.LOADING,
+            assertEquals(
+                    com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.LOADING,
                     pendingOutcomes.runTurn().status());
-            store.write(batch -> batch.put(ColumnFamily.META,
+            store.write(batch -> batch.put(
+                    ColumnFamily.META,
                     com.nereusstream.delay.store.KeyCodec.metaFixed(7),
                     com.nereusstream.delay.store.ValueEnvelope.encode(1, bytes(16, 0x51))));
             assertTrue(completedOutcomes.result().isEmpty());
             pendingOutcome.complete(checkpointContext.outcomes().getFirst().image());
-            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.FAILED,
+            assertEquals(
+                    com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Status.FAILED,
                     pendingOutcomes.runTurn().status());
             assertTrue(pendingOutcomes.result().isEmpty());
         }
         final long beforeChangingHistory = store.latestSequenceNumber();
         final var changingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
-        final var changing = new TargetCheckpointAdmissionInputs(worker, TargetCommandStoreTest::budget,
-                ref -> changingHistory, new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20), () -> 102);
-        assertEquals(TargetCheckpointAdmissionInputs.Status.DISCOVERED, changing.runTurn().status());
-        assertEquals(TargetCheckpointAdmissionInputs.Status.LOADING, changing.runTurn().status());
+        final var changing = new TargetCheckpointAdmissionInputs(
+                worker,
+                TargetCommandStoreTest::budget,
+                ref -> changingHistory,
+                new TargetCheckpointAdmissionInputs.Limits(4, 32L << 20),
+                () -> 102);
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.DISCOVERED,
+                changing.runTurn().status());
+        assertEquals(
+                TargetCheckpointAdmissionInputs.Status.LOADING,
+                changing.runTurn().status());
         assertEquals(beforeChangingHistory, store.latestSequenceNumber());
         // Caller changes the actual Store while this original-cut collection is waiting for its next turn.
         return new CheckpointInputFixture(changing, changingHistory, collector, inputs);
     }
 
-    private static void assertCollectedCheckpointProtectionFailure(ShardStore store,
-            TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes, TargetQuotaAttemptBudget current,
-            OwnerIdentity owner, byte[] lineage) {
-        final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
-                1_024, 1 << 20, 1_000, 1_024);
+    private static void assertCollectedCheckpointProtectionFailure(
+            ShardStore store,
+            TargetWorkerShardRuntime worker,
+            WorkClassExecutionRegistry classes,
+            TargetQuotaAttemptBudget current,
+            OwnerIdentity owner,
+            byte[] lineage) {
+        final var physical = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 1 << 20, 1_000, 1_024);
         final var quota = new TargetCheckpointRootVerifier.QuotaAuditLimits(4096, 32L << 20);
         final var ledger = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
-        final var semantic = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
-                64, 512 << 10, 512 << 10);
-        final var intent = new CheckpointUploadIntent(new ShardSubject(worker.shardId()), lineage,
-                bytes(16, 0xA0 + current.phase().ordinal()), owner, store.metadata().storeIncarnation(),
-                bytes(32, 0xA4), 1, null, null,
-                new ProfileRef(Bytes.utf8("collected-checkpoint-fixture"), 1, bytes(32, 0xA5),
-                        ProfileKind.OBJECT_STORE),
-                new TrustedUtcIntervalEvidence(100, 101, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                        bytes(8, 0xA6), 1, 1, 1, bytes(32, 0xA7), 0, null), 1_000,
-                CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var semantic =
+                new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(64, 512 << 10, 512 << 10);
+        final var intent = new CheckpointUploadIntent(
+                new ShardSubject(worker.shardId()),
+                lineage,
+                bytes(16, 0xA0 + current.phase().ordinal()),
+                owner,
+                store.metadata().storeIncarnation(),
+                bytes(32, 0xA4),
+                1,
+                null,
+                null,
+                new ProfileRef(
+                        Bytes.utf8("collected-checkpoint-fixture"), 1, bytes(32, 0xA5), ProfileKind.OBJECT_STORE),
+                new TrustedUtcIntervalEvidence(
+                        100,
+                        101,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        bytes(8, 0xA6),
+                        1,
+                        1,
+                        1,
+                        bytes(32, 0xA7),
+                        0,
+                        null),
+                1_000,
+                CheckpointUploadState.PENDING_UPLOAD,
+                1,
+                null,
+                null);
         final var intents = new CheckpointUploadIntentStore();
         intents.create(intent);
         final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var requested = new java.util.concurrent.atomic.AtomicBoolean();
         final var pendingControl = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final Path path = store.dbPath().getParent().resolve("collected-failure-" + current.phase());
-        final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                TargetCommandStoreTest::budget, ledger, ref -> {
+        final var controls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker,
+                TargetCommandStoreTest::budget,
+                ledger,
+                ref -> {
                     requested.set(true);
                     return pendingControl;
-                }, new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20), () -> 102);
-        final var outcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(worker,
-                TargetCommandStoreTest::budget, ledger,
-                ref -> { throw new AssertionError("Control collection has not completed"); },
-                new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 1 << 20), () -> 102);
-        final var collection = new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(
-                controls, outcomes, (a, b) -> { throw new AssertionError("history is still pending"); });
-        final var request = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
-                .CollectedSemanticRequest(
-                new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intents,
-                        () -> 102, path, intent, physical, quota, ledger), collection, semantic,
-                () -> { if (!held.get()) { throw new IllegalStateException("history protection lost"); } }, null);
+                },
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
+                () -> 102);
+        final var outcomes = new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs(
+                worker,
+                TargetCommandStoreTest::budget,
+                ledger,
+                ref -> {
+                    throw new AssertionError("Control collection has not completed");
+                },
+                new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 1 << 20),
+                () -> 102);
+        final var collection =
+                new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs(controls, outcomes, (a, b) -> {
+                    throw new AssertionError("history is still pending");
+                });
+        final var request =
+                new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
+                        new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                intents, () -> 102, path, intent, physical, quota, ledger),
+                        collection,
+                        semantic,
+                        () -> {
+                            if (!held.get()) {
+                                throw new IllegalStateException("history protection lost");
+                            }
+                        },
+                        null);
         final long before = store.latestSequenceNumber();
         final var source = store.appliedShardLogPosition();
         if (worker.pendingSourceEntry().isPresent()) {
-            assertThrows(IllegalStateException.class,
-                    () -> worker.submitCollectedSemanticCheckpointCandidate(request));
+            assertThrows(IllegalStateException.class, () -> worker.submitCollectedSemanticCheckpointCandidate(request));
             assertEquals(before, store.latestSequenceNumber());
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             assertFalse(java.nio.file.Files.exists(path));
@@ -8296,25 +9199,46 @@ class TargetCommandStoreTest {
         }
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         final String prefix = "candidate-reaping/" + java.util.UUID.randomUUID();
-        try (var nativeClient = endpoint == null || endpoint.isBlank() ? null
-                : com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", prefix,
-                        java.time.Duration.ofSeconds(15), java.time.Duration.ofSeconds(5), prefix + "/session")) {
+        try (var nativeClient = endpoint == null || endpoint.isBlank()
+                ? null
+                : com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend.connect(
+                        endpoint,
+                        "default",
+                        prefix,
+                        java.time.Duration.ofSeconds(15),
+                        java.time.Duration.ofSeconds(5),
+                        prefix + "/session")) {
             final var reapingIntents = nativeClient == null
                     ? com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.oxiaPublicationModel(physical)
-                    : new com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend(nativeClient,
-                            prefix + "/publication", physical);
+                    : new com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackend(
+                            nativeClient, prefix + "/publication", physical);
             reapingIntents.create(intent);
-            final var reaped = reapingIntents.beginReaping(intent, new TrustedUtcIntervalEvidence(1000, 1001,
-                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 0xA8), 1, 1, 1,
-                    bytes(32, 0xA9), 0, null));
+            final var reaped = reapingIntents.beginReaping(
+                    intent,
+                    new TrustedUtcIntervalEvidence(
+                            1000,
+                            1001,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            bytes(8, 0xA8),
+                            1,
+                            1,
+                            1,
+                            bytes(32, 0xA9),
+                            0,
+                            null));
             assertEquals(CheckpointUploadState.REAPING, reaped.state());
             // Oxia identity lookup returns the current state, not an exact pending-value filter.
             assertEquals(reaped, reapingIntents.current(intent).orElseThrow());
-            final var reapingRequest = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
-                    .CollectedSemanticRequest(
-                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(reapingIntents,
-                            () -> 102, path, intent, physical, quota, ledger), collection, semantic, () -> {}, null);
-            assertThrows(IllegalStateException.class,
+            final var reapingRequest =
+                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                    reapingIntents, () -> 102, path, intent, physical, quota, ledger),
+                            collection,
+                            semantic,
+                            () -> {},
+                            null);
+            assertThrows(
+                    IllegalStateException.class,
                     () -> worker.submitCollectedSemanticCheckpointCandidate(reapingRequest));
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             assertEquals(0, classes.pending(WorkClass.CHECKPOINT));
@@ -8328,19 +9252,22 @@ class TargetCommandStoreTest {
         final var submission = worker.submitCollectedSemanticCheckpointCandidate(request);
         final var task = submission.task();
         for (int i = 0; i < 8 && !requested.get(); i++) {
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             assertEquals(task, worker.pendingCheckpointTask().orElseThrow());
         }
         assertTrue(requested.get());
-        assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
-                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+        assertThrows(
+                IllegalStateException.class,
+                () -> worker.runSourceTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
         held.set(false);
-        assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+        assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                .isEmpty());
         assertEquals(task, worker.pendingCheckpointTask().orElseThrow());
         assertThrows(IllegalStateException.class, worker::closeSource);
         pendingControl.completeExceptionally(new IllegalStateException("original history I/O exited"));
-        final var failed = worker.runCheckpointTurn(
-                new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).orElseThrow();
+        final var failed = worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                .orElseThrow();
         assertNotNull(failed.failure());
         assertTrue(worker.pendingCheckpointTask().isEmpty());
         assertEquals(before, store.latestSequenceNumber());
@@ -8356,28 +9283,41 @@ class TargetCommandStoreTest {
                 new java.util.concurrent.atomic.AtomicBoolean();
 
         @Override
-        public boolean cleanupComplete() { return closed.get(); }
+        public boolean cleanupComplete() {
+            return closed.get();
+        }
     }
 
     /** Full immutable nonempty image read; catalog/history/key/permission providers remain test fixtures. */
-    private static void assertNonemptyAdmissionImage(ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetCheckpointDependencies dependencies, List<TargetCheckpointDependencies.AdmissionImage> images,
-            TargetQuotaAttemptBudget current, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, CheckpointImageContext context,
+    private static void assertNonemptyAdmissionImage(
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetCheckpointDependencies dependencies,
+            List<TargetCheckpointDependencies.AdmissionImage> images,
+            TargetQuotaAttemptBudget current,
+            KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            CheckpointImageContext context,
             TargetCheckpointDependencies.AdmissionHistoryAuthority history,
-            TargetPublishAdmissionVerifier.Authority admissions, TargetWorkerShardRuntime worker,
-            WorkClassExecutionRegistry classes, OwnerIdentity owner) {
-        final var physicalLimits = new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20,
-                1_024, 32 << 20, 1_000, 1_024);
+            TargetPublishAdmissionVerifier.Authority admissions,
+            TargetWorkerShardRuntime worker,
+            WorkClassExecutionRegistry classes,
+            OwnerIdentity owner) {
+        final var physicalLimits =
+                new CheckpointManifestLimits(1_000, 256L << 20, 256L << 20, 1_024, 32 << 20, 1_000, 1_024);
         final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20);
-        final var ledgerLimits = new TargetCheckpointRootVerifier.LedgerAuditLimits(
-                100_000, 256L << 20, 500_000, 256L << 20);
-        final var semanticLimits = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
-                256, 32 << 20, 32L << 20);
+        final var ledgerLimits =
+                new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20);
+        final var semanticLimits =
+                new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(256, 32 << 20, 32L << 20);
         final ProfileCatalog profiles = new ProfileCatalog() {
             @Override
             public ProfileSemanticEnvelope resolve(ProfileRef ref) {
-                return context.profiles().stream().filter(value -> value.ref().equals(ref)).findFirst().orElse(null);
+                return context.profiles().stream()
+                        .filter(value -> value.ref().equals(ref))
+                        .findFirst()
+                        .orElse(null);
             }
 
             @Override
@@ -8397,16 +9337,22 @@ class TargetCommandStoreTest {
             }
         };
         final var controls = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                context.registrations(), (version, at) -> version == 1 ? keys.getPublic() : null,
+                context.registrations(),
+                (version, at) -> version == 1 ? keys.getPublic() : null,
                 (input, first) -> {},
                 (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
-                        context.actor(), ignored -> true), budget(), () -> assertFalse(Thread.holdsLock(store)));
+                        context.actor(), ignored -> true),
+                budget(),
+                () -> assertFalse(Thread.holdsLock(store)));
         final com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority.HistoryAuthority outcomeHistory =
                 (input, first) -> {
                     assertFalse(Thread.holdsLock(store));
                     assertEquals(first.mutation().source(), input.source());
-                    assertTrue(context.outcomes().stream().anyMatch(original -> original.source().equals(input.source())
-                            && Arrays.equals(original.image().canonicalEnvelope(), input.image().canonicalEnvelope())));
+                    assertTrue(context.outcomes().stream()
+                            .anyMatch(original -> original.source().equals(input.source())
+                                    && Arrays.equals(
+                                            original.image().canonicalEnvelope(),
+                                            input.image().canonicalEnvelope())));
                 };
         final TargetPublishOutcomeVerifier.Authority outcomeSource = (actualScope, writer, mutation, source) -> {
             assertFalse(Thread.holdsLock(store));
@@ -8414,59 +9360,137 @@ class TargetCommandStoreTest {
             return context.outcomeAuthorizations().get(Bytes.hex(mutation.systemMutationId()));
         };
         final var outcomeAuthority = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
-                dependencies, images, context.outcomes(), 32L << 20, outcomeHistory, outcomeSource, budget(),
+                dependencies,
+                images,
+                context.outcomes(),
+                32L << 20,
+                outcomeHistory,
+                outcomeSource,
+                budget(),
                 () -> assertFalse(Thread.holdsLock(store)));
         final var controlSemantics = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.collect(
-                dependencies, images, profiles, (ref, at) -> ref.matches(policy) ? policy : null,
-                ref -> { throw new AssertionError("inline fixture has no Trust Set"); }, budget(), semanticLimits,
-                () -> assertFalse(Thread.holdsLock(store)))
-                .withControlInputs(dependencies, context.controls(), budget(), semanticLimits, controls,
+                        dependencies,
+                        images,
+                        profiles,
+                        (ref, at) -> ref.matches(policy) ? policy : null,
+                        ref -> {
+                            throw new AssertionError("inline fixture has no Trust Set");
+                        },
+                        budget(),
+                        semanticLimits,
+                        () -> assertFalse(Thread.holdsLock(store)))
+                .withControlInputs(
+                        dependencies,
+                        context.controls(),
+                        budget(),
+                        semanticLimits,
+                        controls,
                         () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(2, controlSemantics.schemaVersion());
-        assertThrows(IllegalArgumentException.class, () -> controlSemantics.authenticateOutcomes(dependencies,
-                semanticLimits, budget(), (input, first) -> keys.getPublic(), () -> {}));
-        final var semantics = controlSemantics.withOutcomeInputs(dependencies, context.outcomes(), budget(),
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> controlSemantics.authenticateOutcomes(
+                        dependencies, semanticLimits, budget(), (input, first) -> keys.getPublic(), () -> {}));
+        final var semantics = controlSemantics.withOutcomeInputs(
+                dependencies,
+                context.outcomes(),
+                budget(),
                 semanticLimits,
-                        outcomeAuthority, () -> assertFalse(Thread.holdsLock(store)));
+                outcomeAuthority,
+                () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(3, semantics.schemaVersion());
         assertEquals(context.outcomes().size(), dependencies.outcomeReferences().size());
         final var decodedOutcomes = com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.decode(
                 semantics.canonicalBytes(), semanticLimits);
         assertArrayEquals(semantics.canonicalBytes(), decodedOutcomes.canonicalBytes());
-        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies, List.of(),
-                budget(), semanticLimits, (input, first) -> keys.getPublic(), () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> semantics.withOutcomeInputs(
+                        dependencies,
+                        List.of(),
+                        budget(),
+                        semanticLimits,
+                        (input, first) -> keys.getPublic(),
+                        () -> {}));
         final var duplicateOutcomes = new java.util.ArrayList<>(context.outcomes());
         duplicateOutcomes.set(duplicateOutcomes.size() - 1, duplicateOutcomes.getFirst());
         if (duplicateOutcomes.size() > 1) {
-            assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies,
-                    duplicateOutcomes, budget(), semanticLimits, (input, first) -> keys.getPublic(), () -> {}));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> semantics.withOutcomeInputs(
+                            dependencies,
+                            duplicateOutcomes,
+                            budget(),
+                            semanticLimits,
+                            (input, first) -> keys.getPublic(),
+                            () -> {}));
         }
-        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies,
-                context.outcomes(), budget(), semanticLimits, (input, first) -> null, () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> semantics.withOutcomeInputs(
+                        dependencies, context.outcomes(), budget(), semanticLimits, (input, first) -> null, () -> {}));
         final var wrongOutcomeSource = new java.util.ArrayList<>(context.outcomes());
         final var firstOutcome = wrongOutcomeSource.getFirst();
-        wrongOutcomeSource.set(0, new TargetCheckpointDependencies.OutcomeImage(
-                dependencies.admissions().getFirst().first().mutation().source(), firstOutcome.image()));
-        assertThrows(IllegalArgumentException.class, () -> semantics.withOutcomeInputs(dependencies, wrongOutcomeSource,
-                budget(), semanticLimits, (input, first) -> { throw new AssertionError("bad Source reached issuer"); },
-                () -> {}));
-        assertThrows(IllegalStateException.class,
-                () -> semantics.withOutcomeInputs(dependencies, context.outcomes(),
-                        new BoundedReadBudget(1, 1, 1_000_000, () -> 0), semanticLimits,
-                        (input, first) -> { throw new AssertionError("over-budget input reached issuer"); }, () -> {}));
+        wrongOutcomeSource.set(
+                0,
+                new TargetCheckpointDependencies.OutcomeImage(
+                        dependencies.admissions().getFirst().first().mutation().source(), firstOutcome.image()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> semantics.withOutcomeInputs(
+                        dependencies,
+                        wrongOutcomeSource,
+                        budget(),
+                        semanticLimits,
+                        (input, first) -> {
+                            throw new AssertionError("bad Source reached issuer");
+                        },
+                        () -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> semantics.withOutcomeInputs(
+                        dependencies,
+                        context.outcomes(),
+                        new BoundedReadBudget(1, 1, 1_000_000, () -> 0),
+                        semanticLimits,
+                        (input, first) -> {
+                            throw new AssertionError("over-budget input reached issuer");
+                        },
+                        () -> {}));
 
         final byte[] checkpointId = bytes(16, 0x40 + current.phase().ordinal());
         final Path image = store.dbPath().getParent().resolve("admission-image-" + current.phase());
         if (worker.pendingSourceEntry().isEmpty()) {
             final var collectedLimits = new com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot.Limits(
                     256, 512 << 10, 512L << 10);
-            final var intent = new CheckpointUploadIntent(new ShardSubject(scope.shard()), lineage, checkpointId,
-                    owner, store.metadata().storeIncarnation(), bytes(32, 0xB4), 1, null, null,
-                    new ProfileRef(Bytes.utf8("collected-admission-fixture"), 1, bytes(32, 0xB5),
-                            ProfileKind.OBJECT_STORE),
-                    new TrustedUtcIntervalEvidence(100, 101, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                            bytes(8, 0xB6), 1, 1, 1, bytes(32, 0xB7), 0, null), 1_000,
-                    CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+            final var intent = new CheckpointUploadIntent(
+                    new ShardSubject(scope.shard()),
+                    lineage,
+                    checkpointId,
+                    owner,
+                    store.metadata().storeIncarnation(),
+                    bytes(32, 0xB4),
+                    1,
+                    null,
+                    null,
+                    new ProfileRef(
+                            Bytes.utf8("collected-admission-fixture"), 1, bytes(32, 0xB5), ProfileKind.OBJECT_STORE),
+                    new TrustedUtcIntervalEvidence(
+                            100,
+                            101,
+                            TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                            bytes(8, 0xB6),
+                            1,
+                            1,
+                            1,
+                            bytes(32, 0xB7),
+                            0,
+                            null),
+                    1_000,
+                    CheckpointUploadState.PENDING_UPLOAD,
+                    1,
+                    null,
+                    null);
             final var intentStore = new CheckpointUploadIntentStore();
             final var registrationRequested = new java.util.concurrent.atomic.AtomicBoolean();
             final var waitingRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
@@ -8476,84 +9500,134 @@ class TargetCommandStoreTest {
             final var cleanupRetryIdle = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var admissionView = new java.util.concurrent.atomic.AtomicReference<
                     java.util.concurrent.CompletableFuture<SystemMutation>>(
-                            com.nereusstream.delay.ownership.CheckpointInputFuture.track(waitingAdmission, () -> {},
-                                    () -> { cleanupRetryRequested.set(true); cleanupRetryIdle.set(false); },
-                                    cleanupRetryIdle::get));
-            final var registryDependencies = new java.util.concurrent.atomic.AtomicReference<
-                    TargetCheckpointDependencies>();
+                    com.nereusstream.delay.ownership.CheckpointInputFuture.track(
+                            waitingAdmission,
+                            () -> {},
+                            () -> {
+                                cleanupRetryRequested.set(true);
+                                cleanupRetryIdle.set(false);
+                            },
+                            cleanupRetryIdle::get));
+            final var registryDependencies =
+                    new java.util.concurrent.atomic.AtomicReference<TargetCheckpointDependencies>();
             final var waitingProfile = new java.util.concurrent.CompletableFuture<ProfileSemanticEnvelope>();
-            final var requestedProfile = new java.util.concurrent.atomic.AtomicReference<
-                    TargetCheckpointDependencies.ProfileUse>();
+            final var requestedProfile =
+                    new java.util.concurrent.atomic.AtomicReference<TargetCheckpointDependencies.ProfileUse>();
             final var requestedUses = new java.util.ArrayList<TargetCheckpointDependencies.ProfileUse>();
             final var admissionAllowed = new java.util.concurrent.atomic.AtomicBoolean(true);
             final var checkpointYield = new java.util.concurrent.atomic.AtomicBoolean();
             final var readClock = new java.util.concurrent.atomic.AtomicLong();
-            final var configured = new com.nereusstream.delay.ownership.TargetCheckpointRuntimeConfig(1000, 0,
-                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), 2048, 32L << 20, 60_000_000_000L,
+            final var configured = new com.nereusstream.delay.ownership.TargetCheckpointRuntimeConfig(
+                    1000,
+                    0,
+                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L),
+                    2048,
+                    32L << 20,
+                    60_000_000_000L,
                     java.time.Duration.ofSeconds(10),
                     new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 512L << 10),
                     new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(64, 512L << 10),
                     new TargetCheckpointAdmissionInputs.Limits(64, 512L << 10),
                     new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Limits(64, 32L << 20),
-                    collectedLimits, physicalLimits, quotaLimits, ledgerLimits);
-            final var providers = new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers(use -> {
-                requestedUses.add(use);
-                if (requestedProfile.compareAndSet(null, use)) { return waitingProfile; }
-                return java.util.concurrent.CompletableFuture.completedFuture(profiles.resolve(use.reference()));
-            }, use -> java.util.concurrent.CompletableFuture.completedFuture(
-                    use.reference().matches(policy) ? policy : null),
-                    ref -> { throw new AssertionError("inline fixture has no Trust Set"); });
+                    collectedLimits,
+                    physicalLimits,
+                    quotaLimits,
+                    ledgerLimits);
+            final var providers = new com.nereusstream.delay.ownership.TargetCheckpointRegistryInputs.Providers(
+                    use -> {
+                        requestedUses.add(use);
+                        if (requestedProfile.compareAndSet(null, use)) {
+                            return waitingProfile;
+                        }
+                        return java.util.concurrent.CompletableFuture.completedFuture(
+                                profiles.resolve(use.reference()));
+                    },
+                    use -> java.util.concurrent.CompletableFuture.completedFuture(
+                            use.reference().matches(policy) ? policy : null),
+                    ref -> {
+                        throw new AssertionError("inline fixture has no Trust Set");
+                    });
             final com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.OriginalAuthorityFactory authorities =
                     (control, outcome, originals, complete) -> {
                         assertEquals(images.size(), originals.size());
                         registryDependencies.set(complete);
                         return new com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs.OriginalAuthorities(
-                                history, (actualScope, writer, mutation, at) -> admissionAllowed.get()
-                                        ? admissions.resolve(actualScope, writer, mutation, at) : null,
-                                controls, outcomeAuthority);
+                                history,
+                                (actualScope, writer, mutation, at) -> admissionAllowed.get()
+                                        ? admissions.resolve(actualScope, writer, mutation, at)
+                                        : null,
+                                controls,
+                                outcomeAuthority);
                     };
             final java.util.function.Supplier<com.nereusstream.delay.ownership.TargetCheckpointSemanticInputs>
-                    newCollection = () -> configured.newInputs(worker,
-                            ref -> java.util.concurrent.CompletableFuture.completedFuture(context.controls().stream()
-                                    .filter(input -> input.source().equals(ref.source()))
-                                    .findFirst().orElseThrow().image()),
-                            ref -> java.util.concurrent.CompletableFuture.completedFuture(context.outcomes().stream()
-                                    .filter(input -> input.source().equals(ref.source()))
-                                    .findFirst().orElseThrow().image()),
-                            ref -> { admissionRequested.set(true); return admissionView.get(); },
-                            providers, authorities,
-                            () -> 102, () -> checkpointYield.get()
-                                    ? readClock.getAndAdd(60_000_000_000L) : readClock.get(),
-                            () -> assertFalse(Thread.holdsLock(store)));
+                    newCollection = () -> configured.newInputs(
+                    worker,
+                    ref -> java.util.concurrent.CompletableFuture.completedFuture(context.controls().stream()
+                            .filter(input -> input.source().equals(ref.source()))
+                            .findFirst()
+                            .orElseThrow()
+                            .image()),
+                    ref -> java.util.concurrent.CompletableFuture.completedFuture(context.outcomes().stream()
+                            .filter(input -> input.source().equals(ref.source()))
+                            .findFirst()
+                            .orElseThrow()
+                            .image()),
+                    ref -> {
+                        admissionRequested.set(true);
+                        return admissionView.get();
+                    },
+                    providers,
+                    authorities,
+                    () -> 102,
+                    () -> checkpointYield.get() ? readClock.getAndAdd(60_000_000_000L) : readClock.get(),
+                    () -> assertFalse(Thread.holdsLock(store)));
             var collection = newCollection.get();
             final long beforeCollection = store.latestSequenceNumber();
             final var sourceBefore = store.appliedShardLogPosition();
             final long sequenceBefore = store.shardMutationSequence();
             final var candidateRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intentStore,
-                                    () -> 102, image, intent, physicalLimits, quotaLimits, ledgerLimits), collection,
-                            collectedLimits, () -> assertFalse(Thread.holdsLock(store)), null);
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                    intentStore, () -> 102, image, intent, physicalLimits, quotaLimits, ledgerLimits),
+                            collection,
+                            collectedLimits,
+                            () -> assertFalse(Thread.holdsLock(store)),
+                            null);
             assertThrows(NullPointerException.class, () -> configured.requireRequest(candidateRequest));
             final var mismatchedRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(intentStore,
-                                    () -> 102, image, intent, physicalLimits,
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                    intentStore,
+                                    () -> 102,
+                                    image,
+                                    intent,
+                                    physicalLimits,
                                     new TargetCheckpointRootVerifier.QuotaAuditLimits(100_001, 256L << 20),
                                     ledgerLimits),
-                            collection, collectedLimits, () -> {}, null);
+                            collection,
+                            collectedLimits,
+                            () -> {},
+                            null);
             assertThrows(IllegalArgumentException.class, () -> configured.requireRequest(mismatchedRequest));
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
             final var receiptOnlyRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            candidateRequest.candidate(), collection, collectedLimits, candidateRequest.protection(),
-                            null, pending -> java.util.concurrent.CompletableFuture.completedFuture(pending));
+                            candidateRequest.candidate(),
+                            collection,
+                            collectedLimits,
+                            candidateRequest.protection(),
+                            null,
+                            pending -> java.util.concurrent.CompletableFuture.completedFuture(pending));
             final var receiptOnly = worker.submitCollectedSemanticCheckpointCandidate(receiptOnlyRequest);
             for (int turn = 0; turn < 4 && receiptOnly.outcome().isEmpty(); turn++) {
                 worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
             }
-            assertTrue(receiptOnly.outcome().orElseThrow().failure().getMessage()
+            assertTrue(receiptOnly
+                    .outcome()
+                    .orElseThrow()
+                    .failure()
+                    .getMessage()
                     .contains("pending intent changed or is absent"));
             assertFalse(admissionRequested.get());
             assertNull(registryDependencies.get());
@@ -8564,32 +9638,41 @@ class TargetCommandStoreTest {
             final var lateRegistration = new java.util.concurrent.CompletableFuture<CheckpointUploadIntent>();
             final var registrationExited = new java.util.concurrent.atomic.AtomicBoolean();
             final var registrationStopRequested = new java.util.concurrent.atomic.AtomicBoolean();
-            final var ownedRegistration = new com.nereusstream.delay.store
-                    .TargetCheckpointCandidateWorkClassExecutor.IntentRegistration() {
-                @Override
-                public java.util.concurrent.CompletableFuture<CheckpointUploadIntent> register(
-                        CheckpointUploadIntent pending) {
-                    return lateRegistration.copy();
-                }
+            final var ownedRegistration =
+                    new com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.IntentRegistration() {
+                        @Override
+                        public java.util.concurrent.CompletableFuture<CheckpointUploadIntent> register(
+                                CheckpointUploadIntent pending) {
+                            return lateRegistration.copy();
+                        }
 
-                @Override
-                public com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt
-                        begin(CheckpointUploadIntent pending) {
-                    return new com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor
-                            .RegistrationAttempt(lateRegistration, registrationExited::get,
+                        @Override
+                        public com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor
+                                        .RegistrationAttempt
+                                begin(CheckpointUploadIntent pending) {
+                            return new com.nereusstream.delay.store.TargetCheckpointCandidateWorkClassExecutor
+                                    .RegistrationAttempt(
+                                    lateRegistration,
+                                    registrationExited::get,
                                     () -> registrationStopRequested.set(true));
-                }
-            };
+                        }
+                    };
             final var expiringRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            candidateRequest.candidate(), collection, collectedLimits, () -> {
+                            candidateRequest.candidate(),
+                            collection,
+                            collectedLimits,
+                            () -> {
                                 candidateRequest.protection().run();
                                 if (!registrationAllowed.get()) {
                                     throw new IllegalStateException("registration protection lost");
                                 }
-                            }, null, ownedRegistration);
+                            },
+                            null,
+                            ownedRegistration);
             final var expiring = worker.submitCollectedSemanticCheckpointCandidate(expiringRequest);
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             registrationAllowed.set(false);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
             assertTrue(registrationStopRequested.get());
@@ -8597,17 +9680,19 @@ class TargetCommandStoreTest {
             assertEquals(expiring.task(), worker.pendingCheckpointTask().orElseThrow());
             assertThrows(IllegalStateException.class, worker::pauseNewTurns);
             assertThrows(IllegalStateException.class, worker::closeSource);
-            assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
-                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> worker.runSourceTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
             assertFalse(lateRegistration.isDone()); // Failure cannot assert that caller-owned I/O ended.
             assertTrue(lateRegistration.complete(intent));
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             assertTrue(expiring.outcome().isEmpty());
             assertEquals(expiring.task(), worker.pendingCheckpointTask().orElseThrow());
             registrationExited.set(true);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
-            assertTrue(expiring.outcome().orElseThrow().failure().getMessage()
-                    .contains("registration protection lost"));
+            assertTrue(
+                    expiring.outcome().orElseThrow().failure().getMessage().contains("registration protection lost"));
             registrationAllowed.set(true);
             assertFalse(admissionRequested.get());
             assertNull(registryDependencies.get());
@@ -8616,36 +9701,59 @@ class TargetCommandStoreTest {
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             final var blockedMetadata = new java.util.concurrent.CountDownLatch(1);
             final var releaseMetadata = new java.util.concurrent.CountDownLatch(1);
-            try (var metadataExecutor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0,
-                    java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(2),
+            try (var metadataExecutor = new java.util.concurrent.ThreadPoolExecutor(
+                    1,
+                    1,
+                    0,
+                    java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(2),
                     new java.util.concurrent.ThreadPoolExecutor.AbortPolicy())) {
                 metadataExecutor.execute(() -> {
                     blockedMetadata.countDown();
-                    try { releaseMetadata.await(); }
-                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                    try {
+                        releaseMetadata.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 });
                 try {
                     assertTrue(blockedMetadata.await(5, java.util.concurrent.TimeUnit.SECONDS));
-                    final var metadataBackend = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
-                            .oxiaPublicationModel(physicalLimits);
-                    final var metadataProvider = new OxiaCheckpointIntentRegistration(metadataBackend,
-                            java.time.Duration.ofSeconds(10), () -> assertFalse(Thread.holdsLock(store)),
+                    final var metadataBackend =
+                            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.oxiaPublicationModel(
+                                    physicalLimits);
+                    final var metadataProvider = new OxiaCheckpointIntentRegistration(
+                            metadataBackend,
+                            java.time.Duration.ofSeconds(10),
+                            () -> assertFalse(Thread.holdsLock(store)),
                             metadataExecutor);
-                    final var stopRequest = new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
-                            .CollectedSemanticRequest(
-                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
-                                    metadataBackend, () -> 102, image, intent,
-                                    physicalLimits, quotaLimits, ledgerLimits),
-                            collection, collectedLimits, candidateRequest.protection(), null, metadataProvider);
+                    final var stopRequest =
+                            new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule
+                                    .CollectedSemanticRequest(
+                                    new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
+                                            metadataBackend,
+                                            () -> 102,
+                                            image,
+                                            intent,
+                                            physicalLimits,
+                                            quotaLimits,
+                                            ledgerLimits),
+                                    collection,
+                                    collectedLimits,
+                                    candidateRequest.protection(),
+                                    null,
+                                    metadataProvider);
                     final var stopped = worker.submitCollectedSemanticCheckpointCandidate(stopRequest);
-                    assertTrue(worker.runCheckpointTurn(
-                            new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                    assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                            .isEmpty());
                     assertEquals(stopped.task(), worker.pendingCheckpointTask().orElseThrow());
                     worker.requestCheckpointRegistrationStop();
-                    assertTrue(stopped.outcome().orElseThrow().failure().getMessage()
+                    assertTrue(stopped.outcome()
+                            .orElseThrow()
+                            .failure()
+                            .getMessage()
                             .contains("registration stopped"));
-                    assertTrue(worker.runCheckpointTurn(
-                            new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isPresent());
+                    assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                            .isPresent());
                     assertTrue(worker.pendingCheckpointTask().isEmpty());
                     assertTrue(metadataBackend.current(intent).isEmpty());
                     assertTrue(metadataExecutor.getQueue().isEmpty());
@@ -8662,8 +9770,12 @@ class TargetCommandStoreTest {
             }
             final var registeringRequest =
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            candidateRequest.candidate(), collection, collectedLimits, candidateRequest.protection(),
-                            null, pending -> {
+                            candidateRequest.candidate(),
+                            collection,
+                            collectedLimits,
+                            candidateRequest.protection(),
+                            null,
+                            pending -> {
                                 assertEquals(intent, pending);
                                 assertFalse(registrationRequested.getAndSet(true));
                                 return waitingRegistration;
@@ -8671,27 +9783,31 @@ class TargetCommandStoreTest {
             var submitted = worker.submitCollectedSemanticCheckpointCandidate(registeringRequest);
             assertFalse(registrationRequested.get());
             for (int turn = 0; turn < 3; turn++) {
-                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                        .isEmpty());
                 assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
                 assertFalse(admissionRequested.get());
                 assertNull(registryDependencies.get());
                 assertEquals(beforeCollection, store.latestSequenceNumber());
                 assertFalse(java.nio.file.Files.exists(image));
-                assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
-                        new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> worker.runSourceTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
             }
             assertTrue(registrationRequested.get());
             intentStore.create(intent);
             waitingRegistration.complete(intent);
             for (int turn = 0; turn < 64 && !admissionRequested.get(); turn++) {
-                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                        .isEmpty());
                 assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
             }
             assertTrue(admissionRequested.get());
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
-            assertThrows(IllegalStateException.class, () -> worker.runSourceTurn(
-                    new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> worker.runSourceTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L), () -> 102));
             assertTrue(admissionView.get().cancel(false));
             for (int turn = 0; turn < 4; turn++) {
                 worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
@@ -8701,7 +9817,8 @@ class TargetCommandStoreTest {
             assertFalse(waitingAdmission.isDone());
             final var retainedCleanup = new RetainedCheckpointInputCleanup();
             waitingAdmission.completeExceptionally(retainedCleanup);
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             assertSame(retainedCleanup, worker.pendingCheckpointIoFailure().orElseThrow());
             assertThrows(IllegalStateException.class, worker::closeSource);
             assertThrows(IllegalStateException.class, worker::pauseNewTurns);
@@ -8710,44 +9827,58 @@ class TargetCommandStoreTest {
             worker.retryPendingCheckpointIoCleanup();
             assertTrue(cleanupRetryRequested.get());
             retainedCleanup.closed.set(true);
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
             cleanupRetryIdle.set(true);
             worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
             assertNotNull(submitted.outcome().orElseThrow().failure());
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             admissionView.set(com.nereusstream.delay.ownership.CheckpointInputFuture.track(
-                    java.util.concurrent.CompletableFuture.completedFuture(images.getFirst().image())));
+                    java.util.concurrent.CompletableFuture.completedFuture(
+                            images.getFirst().image())));
             collection = newCollection.get();
             final var retryCollection = collection;
             submitted = worker.submitCollectedSemanticCheckpointCandidate(
                     new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
-                            candidateRequest.candidate(), retryCollection, collectedLimits,
-                            candidateRequest.protection(), null));
+                            candidateRequest.candidate(),
+                            retryCollection,
+                            collectedLimits,
+                            candidateRequest.protection(),
+                            null));
             for (int turn = 0; turn < 64 && requestedProfile.get() == null; turn++) {
-                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+                assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                        .isEmpty());
                 assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
             }
             assertNotNull(requestedProfile.get());
-            assertTrue(registryDependencies.get().profileUses().stream().anyMatch(use ->
-                    Arrays.equals(use.canonicalBytes(), requestedProfile.get().canonicalBytes())));
+            assertTrue(registryDependencies.get().profileUses().stream()
+                    .anyMatch(use -> Arrays.equals(
+                            use.canonicalBytes(), requestedProfile.get().canonicalBytes())));
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
             checkpointYield.set(true);
-            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L)).isEmpty());
+            assertTrue(worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L))
+                    .isEmpty());
             assertEquals(submitted.task(), worker.pendingCheckpointTask().orElseThrow());
             assertEquals(beforeCollection, store.latestSequenceNumber());
             assertFalse(java.nio.file.Files.exists(image));
             checkpointYield.set(false);
             waitingProfile.complete(profiles.resolve(requestedProfile.get().reference()));
             final boolean rejectLateAdmission = current.phase() == TargetQuotaAttemptBudget.Phase.UNKNOWN;
-            if (rejectLateAdmission) { admissionAllowed.set(false); }
+            if (rejectLateAdmission) {
+                admissionAllowed.set(false);
+            }
             for (int turn = 0; turn < 64 && submitted.outcome().isEmpty(); turn++) {
                 worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
             }
             if (rejectLateAdmission) {
                 assertNotNull(submitted.outcome().orElseThrow().failure());
-                assertTrue(submitted.outcome().orElseThrow().failure().getMessage()
+                assertTrue(submitted
+                        .outcome()
+                        .orElseThrow()
+                        .failure()
+                        .getMessage()
                         .contains("UNAUTHORIZED_SYSTEM_MUTATION"));
                 assertEquals(beforeCollection, store.latestSequenceNumber());
                 assertFalse(java.nio.file.Files.exists(image));
@@ -8757,9 +9888,17 @@ class TargetCommandStoreTest {
                 submitted = worker.submitCollectedSemanticCheckpointCandidate(
                         new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.CollectedSemanticRequest(
                                 new com.nereusstream.delay.ownership.TargetCheckpointCandidateSchedule.Request(
-                                        intentStore, () -> 102, image, intent,
-                                        physicalLimits, quotaLimits, ledgerLimits),
-                                retry, collectedLimits, () -> assertFalse(Thread.holdsLock(store)), null));
+                                        intentStore,
+                                        () -> 102,
+                                        image,
+                                        intent,
+                                        physicalLimits,
+                                        quotaLimits,
+                                        ledgerLimits),
+                                retry,
+                                collectedLimits,
+                                () -> assertFalse(Thread.holdsLock(store)),
+                                null));
                 for (int turn = 0; turn < 64 && submitted.outcome().isEmpty(); turn++) {
                     worker.runCheckpointTurn(new SchedulerBudget(1, 1_000_000, 60_000_000_000L));
                 }
@@ -8769,43 +9908,82 @@ class TargetCommandStoreTest {
             assertEquals(image.toAbsolutePath().normalize(), completed.checkpointPath());
             assertEquals(sourceBefore, store.appliedShardLogPosition());
             assertEquals(sequenceBefore, store.shardMutationSequence());
-            assertArrayEquals(semantics.canonicalBytes(),
+            assertArrayEquals(
+                    semantics.canonicalBytes(),
                     com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotFile.read(image, collectedLimits)
                             .canonicalBytes());
-            assertTrue(requestedUses.stream().anyMatch(use ->
-                    use.reference().profileKind() == ProfileKind.DELIVERY_CAPABILITY));
+            assertTrue(requestedUses.stream()
+                    .anyMatch(use -> use.reference().profileKind() == ProfileKind.DELIVERY_CAPABILITY));
             assertThrows(IllegalStateException.class, retryCollection::get); // Candidate metadata invalidates the cut.
             assertTrue(worker.pendingCheckpointTask().isEmpty());
             assertTrue(intentStore.current(intent).isPresent());
             assertEquals(0, classes.pending(com.nereusstream.delay.scheduler.WorkClass.CHECKPOINT));
         } else {
-            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(store, image, checkpointId,
-                    lineage, physicalLimits, quotaLimits, ledgerLimits, semantics, semanticLimits);
+            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.createSemantic(
+                    store,
+                    image,
+                    checkpointId,
+                    lineage,
+                    physicalLimits,
+                    quotaLimits,
+                    ledgerLimits,
+                    semantics,
+                    semanticLimits);
         }
         final long afterCreate = store.latestSequenceNumber();
         final var files = com.nereusstream.delay.store.CheckpointFileInventory.collect(image, physicalLimits).stream()
-                .map(file -> new com.nereusstream.delay.store.CheckpointManifest.FileEntry(file.name(), file.length(),
-                        file.checksum(), Bytes.utf8("candidate/" + file.name()), Bytes.utf8("immutable-1"), null))
+                .map(file -> new com.nereusstream.delay.store.CheckpointManifest.FileEntry(
+                        file.name(),
+                        file.length(),
+                        file.checksum(),
+                        Bytes.utf8("candidate/" + file.name()),
+                        Bytes.utf8("immutable-1"),
+                        null))
                 .toList();
-        final var manifest = new com.nereusstream.delay.store.CheckpointManifest(checkpointId, lineage, 0, null, null,
-                new com.nereusstream.delay.store.CheckpointManifest.CreatedBy(bytes(8, 0x41), bytes(8, 0x42),
-                        store.runtimeMetadata().lastOpenedOwnerEpoch()),
+        final var manifest = new com.nereusstream.delay.store.CheckpointManifest(
+                checkpointId,
+                lineage,
+                0,
+                null,
+                null,
+                new com.nereusstream.delay.store.CheckpointManifest.CreatedBy(
+                        bytes(8, 0x41), bytes(8, 0x42), store.runtimeMetadata().lastOpenedOwnerEpoch()),
                 new com.nereusstream.delay.store.CheckpointManifest.CreatedAt(
                         900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43), 1, 2, 3, bytes(32, 0x44), 0, null),
-                scope.shard(), store.metadata().dbIdentity(), store.metadata().storeIncarnationUuid(), 2,
-                store.shardMutationSequence(), store.appliedShardLogPosition(), semantics.snapshotDigest(),
-                semantics.semanticInputsDigest(), store.runtimeMetadata().evidenceCursors(), files);
+                scope.shard(),
+                store.metadata().dbIdentity(),
+                store.metadata().storeIncarnationUuid(),
+                2,
+                store.shardMutationSequence(),
+                store.appliedShardLogPosition(),
+                semantics.snapshotDigest(),
+                semantics.semanticInputsDigest(),
+                store.runtimeMetadata().evidenceCursors(),
+                files);
         final var originalControlProof = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
-                image, manifest,
-                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, controls,
+                image,
+                manifest,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                controls,
                 (input, registered, mutation, at) -> keys.getPublic());
         final var originalUses = new java.util.ArrayList<SourcePosition>();
-        final var profileProof = TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
-                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), (ref, originalUse) -> {
+        final var profileProof = TargetCheckpointRootVerifier.auditManifestProfileAuthentication(
+                image,
+                manifest,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                budget(),
+                (ref, originalUse) -> {
                     assertFalse(Thread.holdsLock(store));
                     originalUses.add(originalUse);
                     return profiles.resolve(ref);
-                }, () -> assertFalse(Thread.holdsLock(store)));
+                },
+                () -> assertFalse(Thread.holdsLock(store)));
         assertFalse(originalUses.isEmpty());
         assertTrue(originalUses.stream().anyMatch(source -> source.compareTo(manifest.appliedShardLogPosition()) < 0));
         assertEquals(originalControlProof.root().source(), profileProof.root().source());
@@ -8822,12 +10000,28 @@ class TargetCommandStoreTest {
                     lateCatalog.publish(profile, manifest.appliedShardLogPosition());
                 }
                 final var nativeProfileProof = TargetCheckpointRootVerifier.auditManifestProfileAuthentication(
-                        image, manifest, physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(),
-                        originalCatalog, client.backend()::assertConnectedSession);
-                assertEquals(profileProof.root().source(), nativeProfileProof.root().source());
-                assertThrows(IllegalStateException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
-                                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), lateCatalog,
+                        image,
+                        manifest,
+                        physicalLimits,
+                        quotaLimits,
+                        ledgerLimits,
+                        semanticLimits,
+                        budget(),
+                        originalCatalog,
+                        client.backend()::assertConnectedSession);
+                assertEquals(
+                        profileProof.root().source(), nativeProfileProof.root().source());
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(
+                                image,
+                                manifest,
+                                physicalLimits,
+                                quotaLimits,
+                                ledgerLimits,
+                                semanticLimits,
+                                budget(),
+                                lateCatalog,
                                 client.backend()::assertConnectedSession));
                 System.out.println("Native Oxia Profile semantics visibility authenticated original uses and "
                         + "rejected later-only publication for " + current.phase());
@@ -8836,36 +10030,82 @@ class TargetCommandStoreTest {
             }
         }
 
-        assertThrows(IllegalStateException.class,
-                () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(image, manifest,
-                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(),
-                        (ref, originalUse) -> originalUse.equals(manifest.appliedShardLogPosition())
-                                ? profiles.resolve(ref) : null, () -> {}));
-        final var proof = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,
-                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), history, admissions,
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestProfileAuthentication(
+                        image,
+                        manifest,
+                        physicalLimits,
+                        quotaLimits,
+                        ledgerLimits,
+                        semanticLimits,
+                        budget(),
+                        (ref, originalUse) ->
+                                originalUse.equals(manifest.appliedShardLogPosition()) ? profiles.resolve(ref) : null,
+                        () -> {}));
+        final var proof = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(
+                image,
+                manifest,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                budget(),
+                history,
+                admissions,
                 () -> assertFalse(Thread.holdsLock(store)));
         assertEquals(1, proof.dependencies().admissions().size());
-        assertEquals(current.phase(), proof.dependencies().admissions().getFirst().attempt().phase());
-        assertEquals(current.effectiveCharge(),
+        assertEquals(
+                current.phase(),
+                proof.dependencies().admissions().getFirst().attempt().phase());
+        assertEquals(
+                current.effectiveCharge(),
                 proof.dependencies().admissions().getFirst().attempt().effectiveCharge());
-        assertEquals(dependencies.admissions().getFirst().first().mutation().source(),
+        assertEquals(
+                dependencies.admissions().getFirst().first().mutation().source(),
                 proof.dependencies().admissions().getFirst().first().mutation().source());
         assertEquals(originalControlProof.root().source(), proof.root().source());
-        final var outcomeProof = TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
-                physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), outcomeAuthority,
+        final var outcomeProof = TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(
+                image,
+                manifest,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                budget(),
+                outcomeAuthority,
                 () -> assertFalse(Thread.holdsLock(store)));
-        assertEquals(context.outcomes().size(), outcomeProof.dependencies().outcomeResults().size());
+        assertEquals(
+                context.outcomes().size(),
+                outcomeProof.dependencies().outcomeResults().size());
         final var stageAuthentications = new java.util.concurrent.atomic.AtomicInteger();
         final TargetCheckpointRootVerifier.ImageAuthority completeFixture = (candidate, ledger, snapshot) -> {
             assertFalse(Thread.holdsLock(store));
             assertArrayEquals(manifest.manifestSha256(), candidate.manifestSha256());
-            controls.authenticateSnapshot(ledger.dependencies(), snapshot, semanticLimits,
+            controls.authenticateSnapshot(
+                    ledger.dependencies(),
+                    snapshot,
+                    semanticLimits,
                     (input, registered, mutation, at) -> keys.getPublic());
-            ledger.dependencies().authenticateAdmissionImages(snapshot.admissions(), 32L << 20, budget(),
-                    history, admissions, () -> assertFalse(Thread.holdsLock(store)));
-            snapshot.authenticateProfiles(ledger.dependencies(), semanticLimits, budget(),
-                    (ref, originalUse) -> profiles.resolve(ref), () -> assertFalse(Thread.holdsLock(store)));
-            snapshot.authenticateOutcomes(ledger.dependencies(), semanticLimits, budget(), outcomeAuthority,
+            ledger.dependencies()
+                    .authenticateAdmissionImages(
+                            snapshot.admissions(),
+                            32L << 20,
+                            budget(),
+                            history,
+                            admissions,
+                            () -> assertFalse(Thread.holdsLock(store)));
+            snapshot.authenticateProfiles(
+                    ledger.dependencies(),
+                    semanticLimits,
+                    budget(),
+                    (ref, originalUse) -> profiles.resolve(ref),
+                    () -> assertFalse(Thread.holdsLock(store)));
+            snapshot.authenticateOutcomes(
+                    ledger.dependencies(),
+                    semanticLimits,
+                    budget(),
+                    outcomeAuthority,
                     () -> assertFalse(Thread.holdsLock(store)));
             stageAuthentications.incrementAndGet();
             // Reader/Profile/issuer/Artifact/credential/pin authorities remain explicit test fixtures.
@@ -8877,19 +10117,29 @@ class TargetCommandStoreTest {
         } catch (java.io.IOException unavailable) {
             throw new AssertionError("fixture has no durable ACTIVE pointer", unavailable);
         }
-        final var stageConfig = ShardStoreConfig.defaults(shardRoot.getParent().getParent().getParent());
+        final var stageConfig =
+                ShardStoreConfig.defaults(shardRoot.getParent().getParent().getParent());
         final Path stagedWorkspace;
-        try (var stage = ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(),
-                store.sharedResources(), image, manifest, physicalLimits, quotaLimits, ledgerLimits,
-                semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)))) {
+        try (var stage = ShardStore.openTargetCheckpointRestoreStage(
+                stageConfig,
+                scope.shard(),
+                store.sharedResources(),
+                image,
+                manifest,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                completeFixture,
+                () -> assertFalse(Thread.holdsLock(store)))) {
             final var restored = stage.store();
             stagedWorkspace = restored.dbPath().getParent();
             assertFalse(restored.dbPath().equals(store.dbPath()));
             assertArrayEquals(store.metadata().encode(), restored.metadata().encode());
             assertEquals(store.appliedShardLogPosition(), restored.appliedShardLogPosition());
             assertEquals(store.shardMutationSequence(), restored.shardMutationSequence());
-            TargetStoreBootstrap.reopen(restored, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                    (a, b) -> guard());
+            TargetStoreBootstrap.reopen(
+                    restored, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
             assertEquals(2, stageAuthentications.get());
         }
         assertFalse(java.nio.file.Files.exists(stagedWorkspace));
@@ -8900,19 +10150,47 @@ class TargetCommandStoreTest {
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
         final var missingStageRights = new IllegalStateException("restore image/pin authority unavailable");
-        assertSame(missingStageRights, assertThrows(IllegalStateException.class,
-                () -> ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(),
-                        store.sharedResources(), image, manifest, physicalLimits, quotaLimits, ledgerLimits,
-                        semanticLimits, (candidate, ledger, snapshot) -> { throw missingStageRights; }, () -> {})));
+        assertSame(
+                missingStageRights,
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> ShardStore.openTargetCheckpointRestoreStage(
+                                stageConfig,
+                                scope.shard(),
+                                store.sharedResources(),
+                                image,
+                                manifest,
+                                physicalLimits,
+                                quotaLimits,
+                                ledgerLimits,
+                                semanticLimits,
+                                (candidate, ledger, snapshot) -> {
+                                    throw missingStageRights;
+                                },
+                                () -> {})));
         final var copyAuthentications = new java.util.concurrent.atomic.AtomicInteger();
         final var postCopyRefusal = new IllegalStateException("copied image protection/authority lost");
-        assertSame(postCopyRefusal, assertThrows(IllegalStateException.class,
-                () -> ShardStore.openTargetCheckpointRestoreStage(stageConfig, scope.shard(), store.sharedResources(),
-                        image, manifest, physicalLimits, quotaLimits, ledgerLimits, semanticLimits,
-                        (candidate, ledger, snapshot) -> {
-                            if (copyAuthentications.incrementAndGet() == 2) { throw postCopyRefusal; }
-                            completeFixture.requireAuthenticated(candidate, ledger, snapshot);
-                        }, () -> {})));
+        assertSame(
+                postCopyRefusal,
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> ShardStore.openTargetCheckpointRestoreStage(
+                                stageConfig,
+                                scope.shard(),
+                                store.sharedResources(),
+                                image,
+                                manifest,
+                                physicalLimits,
+                                quotaLimits,
+                                ledgerLimits,
+                                semanticLimits,
+                                (candidate, ledger, snapshot) -> {
+                                    if (copyAuthentications.incrementAndGet() == 2) {
+                                        throw postCopyRefusal;
+                                    }
+                                    completeFixture.requireAuthenticated(candidate, ledger, snapshot);
+                                },
+                                () -> {})));
         assertEquals(2, copyAuthentications.get());
         try (var privateStages = java.nio.file.Files.list(shardRoot.resolve("target-restore-tmp"))) {
             assertEquals(0, privateStages.count());
@@ -8921,204 +10199,421 @@ class TargetCommandStoreTest {
             throw new AssertionError("failed Target stage did not clean only its private directory", failure);
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
-        final var floor = new com.nereusstream.delay.protocol.RecoveryFloorRef(lineage, checkpointId,
-                manifest.manifestSha256(), 1, manifest.appliedShardLogPosition(), manifest.shardMutationSequence(),
+        final var floor = new com.nereusstream.delay.protocol.RecoveryFloorRef(
+                lineage,
+                checkpointId,
+                manifest.manifestSha256(),
+                1,
+                manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence(),
                 manifest.evidenceCursors());
         final var candidate = new com.nereusstream.delay.protocol.RecoveryCandidateRef(
                 com.nereusstream.delay.protocol.RecoveryCandidateKind.CATALOG_CHECKPOINT,
-                lineage, checkpointId, manifest.manifestSha256(), null);
-        final var pin = new com.nereusstream.delay.protocol.RecoveryPin(bytes(16, 0x51),
+                lineage,
+                checkpointId,
+                manifest.manifestSha256(),
+                null);
+        final var pin = new com.nereusstream.delay.protocol.RecoveryPin(
+                bytes(16, 0x51),
                 new com.nereusstream.delay.protocol.ShardSubject(scope.shard()),
-                new OwnerIdentity(bytes(8, 0x52), bytes(8, 0x53), 3, bytes(32, 0x54)), candidate, floor, 1,
+                new OwnerIdentity(bytes(8, 0x52), bytes(8, 0x53), 3, bytes(32, 0x54)),
+                candidate,
+                floor,
+                1,
                 bytes(32, 0x55));
         final var activePin = new java.util.concurrent.atomic.AtomicReference<>(pin);
-        final var catalog = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
-                .restoreCatalogFixture(manifest, activePin);
-        final var failedConfig = ShardStoreConfig.defaults(stageConfig.rootPath()
-                .resolve("target-install-failed-" + current.phase()));
+        final var catalog = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.restoreCatalogFixture(
+                manifest, activePin);
+        final var failedConfig =
+                ShardStoreConfig.defaults(stageConfig.rootPath().resolve("target-install-failed-" + current.phase()));
         try (var restoreResources = new SharedRocksDbResources(failedConfig)) {
             final Runnable revokeAfterMove = () -> {
                 assertFalse(Thread.holdsLock(store));
-                final Path incarnations = failedConfig.rootPath().resolve("shards")
+                final Path incarnations = failedConfig
+                        .rootPath()
+                        .resolve("shards")
                         .resolve(scope.shard().routeIncarnation().uuid().toString())
-                        .resolve(Integer.toUnsignedString(scope.shard().partition())).resolve("incarnations");
+                        .resolve(Integer.toUnsignedString(scope.shard().partition()))
+                        .resolve("incarnations");
                 if (java.nio.file.Files.exists(incarnations)) {
                     try (var entries = java.nio.file.Files.list(incarnations)) {
                         if (entries.anyMatch(path -> java.nio.file.Files.isRegularFile(path.resolve("db/CURRENT")))) {
                             activePin.set(null);
                         }
-                    } catch (java.io.IOException failure) { throw new IllegalStateException(failure); }
+                    } catch (java.io.IOException failure) {
+                        throw new IllegalStateException(failure);
+                    }
                 }
             };
-            final var authentication = new ShardStore.TargetRestoreAuthentication(quotaLimits, ledgerLimits,
-                    semanticLimits, completeFixture, revokeAfterMove, budget());
-            final var failure = assertThrows(IllegalStateException.class,
-                    () -> com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
-                            .restoreTargetThroughWorkClass(
-                            failedConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
-                            physicalLimits, authentication, workClasses()));
+            final var authentication = new ShardStore.TargetRestoreAuthentication(
+                    quotaLimits, ledgerLimits, semanticLimits, completeFixture, revokeAfterMove, budget());
+            final var failure = assertThrows(
+                    IllegalStateException.class,
+                    () ->
+                            com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
+                                    .restoreTargetThroughWorkClass(
+                                            failedConfig,
+                                            scope.shard(),
+                                            restoreResources,
+                                            image,
+                                            manifest,
+                                            catalog,
+                                            pin,
+                                            physicalLimits,
+                                            authentication,
+                                            workClasses()));
             assertNull(activePin.get());
             assertTrue(failure.getCause().getMessage().contains("RecoveryPin is no longer active"));
             assertEquals(0, restoreResources.registeredPhysicalUsageSources());
             try (var filesAfterFailure = java.nio.file.Files.walk(failedConfig.rootPath())) {
-                assertFalse(filesAfterFailure.anyMatch(path -> path.getFileName().toString().equals("ACTIVE")
-                        || path.getFileName().toString().equals("CURRENT")));
-            } catch (java.io.IOException unavailable) { throw new AssertionError(unavailable); }
+                assertFalse(filesAfterFailure.anyMatch(
+                        path -> path.getFileName().toString().equals("ACTIVE")
+                                || path.getFileName().toString().equals("CURRENT")));
+            } catch (java.io.IOException unavailable) {
+                throw new AssertionError(unavailable);
+            }
         }
         activePin.set(pin);
-        final var restoreConfig = ShardStoreConfig.defaults(stageConfig.rootPath()
-                .resolve("target-installed-" + current.phase()));
+        final var restoreConfig =
+                ShardStoreConfig.defaults(stageConfig.rootPath().resolve("target-installed-" + current.phase()));
         final var restoreClasses = workClasses();
         try (var restoreResources = new SharedRocksDbResources(restoreConfig)) {
-            final var authentication = new ShardStore.TargetRestoreAuthentication(quotaLimits, ledgerLimits,
-                    semanticLimits, completeFixture, () -> assertFalse(Thread.holdsLock(store)), budget());
-            try (var restored = com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge
-                    .restoreTargetThroughWorkClass(
-                    restoreConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
-                    physicalLimits, authentication, restoreClasses)) {
-                assertNotEquals(store.metadata().storeIncarnationUuid(), restored.metadata().storeIncarnationUuid());
-                assertArrayEquals(store.metadata().dbIdentity(), restored.metadata().dbIdentity());
+            final var authentication = new ShardStore.TargetRestoreAuthentication(
+                    quotaLimits,
+                    ledgerLimits,
+                    semanticLimits,
+                    completeFixture,
+                    () -> assertFalse(Thread.holdsLock(store)),
+                    budget());
+            try (var restored =
+                    com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.restoreTargetThroughWorkClass(
+                            restoreConfig,
+                            scope.shard(),
+                            restoreResources,
+                            image,
+                            manifest,
+                            catalog,
+                            pin,
+                            physicalLimits,
+                            authentication,
+                            restoreClasses)) {
+                assertNotEquals(
+                        store.metadata().storeIncarnationUuid(),
+                        restored.metadata().storeIncarnationUuid());
+                assertArrayEquals(
+                        store.metadata().dbIdentity(), restored.metadata().dbIdentity());
                 assertEquals(store.appliedShardLogPosition(), restored.appliedShardLogPosition());
                 assertEquals(store.shardMutationSequence(), restored.shardMutationSequence());
-                assertArrayEquals(store.get(ColumnFamily.META, current.key()),
-                        restored.get(ColumnFamily.META, current.key()));
+                assertArrayEquals(
+                        store.get(ColumnFamily.META, current.key()), restored.get(ColumnFamily.META, current.key()));
                 assertNotNull(restored.get(ColumnFamily.META, current.key()));
-                final var reopened = TargetStoreBootstrap.reopen(restored, scope,
-                        new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+                final var reopened = TargetStoreBootstrap.reopen(
+                        restored, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
                 final var position = (KafkaSourcePosition) restored.appliedShardLogPosition();
-                final var assignment = new SourceAssignment(scope.shard(), bytes(32, 0x56), 1,
-                        new KafkaActivationBarrier(scope.shard(), position.authenticatedClusterId(),
-                                position.nativeTopicUuid(), position.offset()));
+                final var assignment = new SourceAssignment(
+                        scope.shard(),
+                        bytes(32, 0x56),
+                        1,
+                        new KafkaActivationBarrier(
+                                scope.shard(),
+                                position.authenticatedClusterId(),
+                                position.nativeTopicUuid(),
+                                position.offset()));
                 final var activationLeases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
-                final var acquiring = activationLeases.acquire(assignment, "pending-install-owner",
-                        bytes(32, 0x57), 1, 10_000).orElseThrow();
+                final var acquiring = activationLeases
+                        .acquire(assignment, "pending-install-owner", bytes(32, 0x57), 1, 10_000)
+                        .orElseThrow();
                 final long installedSequence = restored.latestSequenceNumber();
-                assertThrows(IllegalStateException.class, () -> TargetWorkerOwnerActivation.activate(
-                        reopened, restored, assignment, acquiring, activationLeases, () -> 1));
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetWorkerOwnerActivation.activate(
+                                reopened, restored, assignment, acquiring, activationLeases, () -> 1));
                 assertEquals(installedSequence, restored.latestSequenceNumber());
-                assertEquals(ShardLifecycleState.ACQUIRING,
+                assertEquals(
+                        ShardLifecycleState.ACQUIRING,
                         activationLeases.current(scope.shard()).orElseThrow().state());
-                assertArrayEquals(originalControlProof.root().root().canonicalBytes(),
+                assertArrayEquals(
+                        originalControlProof.root().root().canonicalBytes(),
                         reopened.root().canonicalBytes());
-                assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                assertEquals(
+                        com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                         restored.recoveryMetadata().installState().phase());
                 assertFalse(restored.hasReusableRecoveryProof());
-                assertArrayEquals(restored.metadata().storeIncarnation(),
+                assertArrayEquals(
+                        restored.metadata().storeIncarnation(),
                         restored.recoveryMetadata().lineageBase().storeIncarnation());
                 assertEquals(floor, restored.recoveryMetadata().lastObservedFloor());
-                assertTrue(java.nio.file.Files.isRegularFile(restored.dbPath().getParent().getParent()
-                        .getParent().resolve("ACTIVE")));
+                assertTrue(java.nio.file.Files.isRegularFile(
+                        restored.dbPath().getParent().getParent().getParent().resolve("ACTIVE")));
                 assertEquals(1, restoreResources.registeredPhysicalUsageSources());
-                assertThrows(IllegalStateException.class,
+                assertThrows(
+                        IllegalStateException.class,
                         () -> com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.restoreTarget(
-                                restoreConfig, scope.shard(), restoreResources, image, manifest, catalog, pin,
-                                physicalLimits, authentication));
+                                restoreConfig,
+                                scope.shard(),
+                                restoreResources,
+                                image,
+                                manifest,
+                                catalog,
+                                pin,
+                                physicalLimits,
+                                authentication));
             }
             assertEquals(0, restoreResources.registeredPhysicalUsageSources());
             try (var reopened = ShardStore.openTarget(restoreConfig, scope.shard(), restoreResources)) {
-                assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+                assertEquals(
+                        com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                         reopened.recoveryMetadata().installState().phase());
                 assertFalse(reopened.hasReusableRecoveryProof());
-                final var restoredRoot = TargetStoreBootstrap.reopen(reopened, scope,
-                        new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
-                assertRestoredTargetRecovery(reopened, restoredRoot, scope, current,
-                        context.outcomes().getFirst().image(), catalog, pin, activePin, restoreClasses, ledgerLimits);
+                final var restoredRoot = TargetStoreBootstrap.reopen(
+                        reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
+                assertRestoredTargetRecovery(
+                        reopened,
+                        restoredRoot,
+                        scope,
+                        current,
+                        context.outcomes().getFirst().image(),
+                        catalog,
+                        pin,
+                        activePin,
+                        restoreClasses,
+                        ledgerLimits);
             }
         }
         assertEquals(afterCreate, store.latestSequenceNumber());
         final var created = manifest.createdAt();
-        final var creationEvidence = new TrustedUtcIntervalEvidence(created.earliestEpochMs(), created.latestEpochMs(),
-                TrustedUtcIntervalEvidence.Source.valueOf(created.source()), created.sourceId(),
-                created.sourceConfigGeneration(), created.sampleSequence(), created.monotonicAnchorNs(),
-                created.sourceEvidenceSha256(), created.sourceKeyVersion(), created.sourceSignature());
-        final var creator = new OwnerIdentity(manifest.createdBy().deploymentId(), manifest.createdBy().workerRunId(),
-                manifest.createdBy().ownerEpoch(), bytes(32, 0x60));
-        final var objectProfile = new ProfileRef(Bytes.utf8("candidate-image-test"), 1, bytes(32, 0x61),
+        final var creationEvidence = new TrustedUtcIntervalEvidence(
+                created.earliestEpochMs(),
+                created.latestEpochMs(),
+                TrustedUtcIntervalEvidence.Source.valueOf(created.source()),
+                created.sourceId(),
+                created.sourceConfigGeneration(),
+                created.sampleSequence(),
+                created.monotonicAnchorNs(),
+                created.sourceEvidenceSha256(),
+                created.sourceKeyVersion(),
+                created.sourceSignature());
+        final var creator = new OwnerIdentity(
+                manifest.createdBy().deploymentId(),
+                manifest.createdBy().workerRunId(),
+                manifest.createdBy().ownerEpoch(),
+                bytes(32, 0x60));
+        final var objectProfile = new ProfileRef(
+                Bytes.utf8("candidate-image-test"),
+                1,
+                bytes(32, 0x61),
                 com.nereusstream.delay.protocol.ProfileKind.OBJECT_STORE);
         final var candidatePending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(
-                new com.nereusstream.delay.protocol.ShardSubject(scope.shard()), lineage, checkpointId, creator,
-                store.metadata().storeIncarnation(), bytes(32, 0x62), 1, null, null, objectProfile, creationEvidence,
-                10_000, com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
-        final var candidateImage = new TargetCheckpointRootVerifier.CandidateImage(image, candidatePending, 0,
-                manifest.files(), physicalLimits, quotaLimits, ledgerLimits, semanticLimits, completeFixture,
+                new com.nereusstream.delay.protocol.ShardSubject(scope.shard()),
+                lineage,
+                checkpointId,
+                creator,
+                store.metadata().storeIncarnation(),
+                bytes(32, 0x62),
+                1,
+                null,
+                null,
+                objectProfile,
+                creationEvidence,
+                10_000,
+                com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD,
+                1,
+                null,
+                null);
+        final var candidateImage = new TargetCheckpointRootVerifier.CandidateImage(
+                image,
+                candidatePending,
+                0,
+                manifest.files(),
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                semanticLimits,
+                completeFixture,
                 () -> assertFalse(Thread.holdsLock(store)));
         final var publicationImage = TargetCheckpointRootVerifier.authenticateCandidate(candidateImage);
-        assertArrayEquals(manifest.canonicalJsonBytes(), publicationImage.manifest().canonicalJsonBytes());
-        final var wrongCreator = new OwnerIdentity(creator.deploymentId(), creator.workerRunId(),
-                creator.ownerEpoch() + 1, creator.leaseFencingDigest());
-        final var wrongPending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(candidatePending.shard(),
-                lineage, checkpointId, wrongCreator, store.metadata().storeIncarnation(), bytes(32, 0x62), 1,
-                null, null, objectProfile, creationEvidence, 10_000,
-                com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
-        assertTrue(assertThrows(IllegalArgumentException.class,
-                () -> TargetCheckpointRootVerifier.authenticateCandidate(
-                        new TargetCheckpointRootVerifier.CandidateImage(
-                        image, wrongPending, 0, manifest.files(), physicalLimits, quotaLimits, ledgerLimits,
-                        semanticLimits, (a, b, c) -> { throw new AssertionError("wrong creator reached authority"); },
-                        () -> {}))).getMessage().contains("metadata differs"));
+        assertArrayEquals(
+                manifest.canonicalJsonBytes(), publicationImage.manifest().canonicalJsonBytes());
+        final var wrongCreator = new OwnerIdentity(
+                creator.deploymentId(), creator.workerRunId(), creator.ownerEpoch() + 1, creator.leaseFencingDigest());
+        final var wrongPending = new com.nereusstream.delay.protocol.CheckpointUploadIntent(
+                candidatePending.shard(),
+                lineage,
+                checkpointId,
+                wrongCreator,
+                store.metadata().storeIncarnation(),
+                bytes(32, 0x62),
+                1,
+                null,
+                null,
+                objectProfile,
+                creationEvidence,
+                10_000,
+                com.nereusstream.delay.protocol.CheckpointUploadState.PENDING_UPLOAD,
+                1,
+                null,
+                null);
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                                new TargetCheckpointRootVerifier.CandidateImage(
+                                        image,
+                                        wrongPending,
+                                        0,
+                                        manifest.files(),
+                                        physicalLimits,
+                                        quotaLimits,
+                                        ledgerLimits,
+                                        semanticLimits,
+                                        (a, b, c) -> {
+                                            throw new AssertionError("wrong creator reached authority");
+                                        },
+                                        () -> {})))
+                .getMessage()
+                .contains("metadata differs"));
         final var changedFiles = new java.util.ArrayList<>(manifest.files());
         final var originalFile = changedFiles.getFirst();
-        changedFiles.set(0, new com.nereusstream.delay.store.CheckpointManifest.FileEntry(originalFile.name(),
-                originalFile.length(), bytes(32, 0), originalFile.objectKey(), originalFile.objectVersion(),
-                originalFile.etag()));
-        assertTrue(assertThrows(IllegalArgumentException.class,
-                () -> TargetCheckpointRootVerifier.authenticateCandidate(
-                        new TargetCheckpointRootVerifier.CandidateImage(
-                        image, candidatePending, 0, changedFiles, physicalLimits, quotaLimits, ledgerLimits,
-                        semanticLimits, (a, b, c) -> { throw new AssertionError("wrong file reached authority"); },
-                        () -> {}))).getMessage().contains("file inventory does not match"));
+        changedFiles.set(
+                0,
+                new com.nereusstream.delay.store.CheckpointManifest.FileEntry(
+                        originalFile.name(),
+                        originalFile.length(),
+                        bytes(32, 0),
+                        originalFile.objectKey(),
+                        originalFile.objectVersion(),
+                        originalFile.etag()));
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                                new TargetCheckpointRootVerifier.CandidateImage(
+                                        image,
+                                        candidatePending,
+                                        0,
+                                        changedFiles,
+                                        physicalLimits,
+                                        quotaLimits,
+                                        ledgerLimits,
+                                        semanticLimits,
+                                        (a, b, c) -> {
+                                            throw new AssertionError("wrong file reached authority");
+                                        },
+                                        () -> {})))
+                .getMessage()
+                .contains("file inventory does not match"));
         final var noCandidateRights = new IllegalStateException("candidate image rights unavailable");
-        assertSame(noCandidateRights, assertThrows(IllegalStateException.class,
-                () -> TargetCheckpointRootVerifier.authenticateCandidate(
-                        new TargetCheckpointRootVerifier.CandidateImage(
-                        image, candidatePending, 0, manifest.files(), physicalLimits, quotaLimits, ledgerLimits,
-                        semanticLimits, completeFixture, () -> { throw noCandidateRights; }))));
+        assertSame(
+                noCandidateRights,
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.authenticateCandidate(
+                                new TargetCheckpointRootVerifier.CandidateImage(
+                                        image,
+                                        candidatePending,
+                                        0,
+                                        manifest.files(),
+                                        physicalLimits,
+                                        quotaLimits,
+                                        ledgerLimits,
+                                        semanticLimits,
+                                        completeFixture,
+                                        () -> {
+                                            throw noCandidateRights;
+                                        }))));
         com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.publishTargetFixture(
-                store.sharedResources(), context.workClasses(), publicationImage, physicalLimits,
+                store.sharedResources(),
+                context.workClasses(),
+                publicationImage,
+                physicalLimits,
                 store.dbPath().getParent().resolve("publication-" + current.phase()),
-                (installed, recovery) -> assertPublishedTargetRecovery(installed, scope, current,
-                        context.outcomes().getFirst().image(), recovery, ledgerLimits));
+                (installed, recovery) -> assertPublishedTargetRecovery(
+                        installed, scope, current, context.outcomes().getFirst().image(), recovery, ledgerLimits));
         assertEquals(afterCreate, store.latestSequenceNumber());
 
         final var unavailableRetry = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
-                dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,
+                dependencies,
+                images,
+                context.outcomes(),
+                32L << 20,
+                outcomeHistory,
                 (a, b, mutation, source) -> {
                     final var authorized = outcomeSource.resolve(a, b, mutation, source);
-                    return new TargetPublishOutcomeVerifier.Authorization(authorized.writerKey(),
-                            authorized.activatedTuple(), authorized.activeOwner(), authorized.maximumDecisionWidthMs(),
-                            authorized.maximumBrokerTimestampDivergenceMs(), authorized.maximumMutationEnqueueAgeMs(),
+                    return new TargetPublishOutcomeVerifier.Authorization(
+                            authorized.writerKey(),
+                            authorized.activatedTuple(),
+                            authorized.activeOwner(),
+                            authorized.maximumDecisionWidthMs(),
+                            authorized.maximumBrokerTimestampDivergenceMs(),
+                            authorized.maximumMutationEnqueueAgeMs(),
                             authorized.decisionTime());
-                }, budget(), () -> {});
-        assertThrows(IllegalStateException.class,
-                () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
-                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), unavailableRetry,
+                },
+                budget(),
+                () -> {});
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(
+                        image,
+                        manifest,
+                        physicalLimits,
+                        quotaLimits,
+                        ledgerLimits,
+                        semanticLimits,
+                        budget(),
+                        unavailableRetry,
                         () -> {}));
         if (current.phase() == TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR) {
             final var noResolution = new com.nereusstream.delay.store.TargetCheckpointOutcomeAuthority(
-                    dependencies, images, context.outcomes(), 32L << 20, outcomeHistory,
+                    dependencies,
+                    images,
+                    context.outcomes(),
+                    32L << 20,
+                    outcomeHistory,
                     (a, b, mutation, source) -> {
                         final var authorized = outcomeSource.resolve(a, b, mutation, source);
                         final var evidence = authorized.evidenceContext();
-                        return new TargetPublishOutcomeVerifier.Authorization(authorized.writerKey(),
-                                authorized.activatedTuple(), authorized.activeOwner(),
+                        return new TargetPublishOutcomeVerifier.Authorization(
+                                authorized.writerKey(),
+                                authorized.activatedTuple(),
+                                authorized.activeOwner(),
                                 authorized.maximumDecisionWidthMs(),
                                 authorized.maximumBrokerTimestampDivergenceMs(),
                                 authorized.maximumMutationEnqueueAgeMs(),
-                                authorized.decisionTime(), authorized.retryContext(), evidence == null ? null
-                                        : new TargetPublishOutcomeVerifier.EvidenceContext(evidence.admission(),
-                                                evidence.authority()));
-                    }, budget(), () -> {});
-            assertThrows(IllegalStateException.class,
-                    () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(image, manifest,
-                            physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), noResolution,
+                                authorized.decisionTime(),
+                                authorized.retryContext(),
+                                evidence == null
+                                        ? null
+                                        : new TargetPublishOutcomeVerifier.EvidenceContext(
+                                                evidence.admission(), evidence.authority()));
+                    },
+                    budget(),
+                    () -> {});
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> TargetCheckpointRootVerifier.auditManifestOutcomeAuthentication(
+                            image,
+                            manifest,
+                            physicalLimits,
+                            quotaLimits,
+                            ledgerLimits,
+                            semanticLimits,
+                            budget(),
+                            noResolution,
                             () -> {}));
         }
 
         assertEquals(afterCreate, store.latestSequenceNumber());
-        assertThrows(IllegalArgumentException.class,
-                () -> TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(image, manifest,
-                        physicalLimits, quotaLimits, ledgerLimits, semanticLimits, budget(), history,
-                        (a, b, c, d) -> null, () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(
+                        image,
+                        manifest,
+                        physicalLimits,
+                        quotaLimits,
+                        ledgerLimits,
+                        semanticLimits,
+                        budget(),
+                        history,
+                        (a, b, c, d) -> null,
+                        () -> {}));
         assertEquals(afterCreate, store.latestSequenceNumber());
         System.out.println("Nonempty Target Manifest/image Control and Admission authentication passed for "
                 + current.phase() + "; original first Source/charge retained.");
@@ -9135,38 +10630,54 @@ class TargetCommandStoreTest {
             ShardStore store, TargetPublishAdmissionBody body, SourcePosition source, boolean absent) {
         final var publication = body.publication();
         final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.ID, TargetKeyCodec.message(body.locator().messageId())),
-                TargetMessageRecord.VALUE_TYPE).payload());
+                        store.get(
+                                ColumnFamily.ID,
+                                TargetKeyCodec.message(body.locator().messageId())),
+                        TargetMessageRecord.VALUE_TYPE)
+                .payload());
         final var records = new java.util.concurrent.atomic.AtomicLong();
         final var resource = new com.nereusstream.delay.adapter.PulsarJournalResource(
-                "target-journal-fixture-cluster", bytes(32, 0xF8),
-                "persistent://public/default/target-journal-fixture", 1, source.shardId().partition());
-        final var journal = com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(source.shardId(),
+                "target-journal-fixture-cluster",
+                bytes(32, 0xF8),
+                "persistent://public/default/target-journal-fixture",
+                1,
+                source.shardId().partition());
+        final var journal = com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(
+                source.shardId(),
                 request -> new com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalPosition(
-                        1, records.getAndIncrement(), 0, 1, 100), resource, 16, 1 << 20);
+                        1, records.getAndIncrement(), 0, 1, 100),
+                resource,
+                16,
+                1 << 20);
         final var mapping = journal.appendOrReuseCurrent(
-                com.nereusstream.delay.adapter.PulsarAttemptJournal.ProducerKey.target(
-                        publication.channel(), publication.physical()),
-                com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetJournalIdentity(
-                        publication, message,
-                        com.nereusstream.delay.protocol.PayloadForPublish.inline(message.inlinePayload()),
-                        source)).record().mapping();
+                        com.nereusstream.delay.adapter.PulsarAttemptJournal.ProducerKey.target(
+                                publication.channel(), publication.physical()),
+                        com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetJournalIdentity(
+                                publication,
+                                message,
+                                com.nereusstream.delay.protocol.PayloadForPublish.inline(message.inlinePayload()),
+                                source))
+                .record()
+                .mapping();
         final long generation = publication.channel().context().evidenceGeneration();
         final com.nereusstream.delay.protocol.PublishEvidence evidence;
         if (absent) {
             final var fenced = fencedTargetChannel(publication.channel());
-            assertThrows(com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class,
+            assertThrows(
+                    com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class,
                     () -> journal.targetNotPublishedEvidence(mapping, generation, fenced));
             journal.retireNotPublished(mapping.mappingId());
             evidence = journal.targetNotPublishedEvidence(mapping, generation, fenced);
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(
+                    IllegalArgumentException.class,
                     () -> journal.targetNotPublishedEvidence(mapping, generation, publication.channel()));
         } else {
             journal.markOwnershipStarted(mapping);
             journal.markPublished(mapping);
             evidence = journal.publishedEvidence(mapping, generation, null);
         }
-        final var cursor = journal.evidenceCursor(mapping.producer(), generation).orElseThrow();
+        final var cursor =
+                journal.evidenceCursor(mapping.producer(), generation).orElseThrow();
         if (absent) {
             journal.requireTargetNotPublishedEvidence(mapping, publication, source, cursor, evidence);
         } else {
@@ -9174,13 +10685,23 @@ class TargetCommandStoreTest {
         }
         assertThrows(IllegalStateException.class, cursor::destinationLaneId);
         final var changedScope = new com.nereusstream.delay.protocol.EvidenceCursor.TargetScope(
-                source.shardId(), publication.locator().target(), publication.locator().domain(),
-                publication.locator().accountingIncarnation(), bytes(32, 0xFA));
-        final var other = com.nereusstream.delay.protocol.EvidenceCursor.targetPulsar(changedScope,
-                cursor.resourceToken(), cursor.physicalPartition(), cursor.evidenceGeneration(),
-                cursor.maxBrokerPersistedAtThroughCursor(), cursor.physicalTopic(),
-                cursor.physicalTopicCreationTimestamp(), cursor.ledgerId(), cursor.entryId(),
-                cursor.normalizedBatchIndex(), cursor.batchSize());
+                source.shardId(),
+                publication.locator().target(),
+                publication.locator().domain(),
+                publication.locator().accountingIncarnation(),
+                bytes(32, 0xFA));
+        final var other = com.nereusstream.delay.protocol.EvidenceCursor.targetPulsar(
+                changedScope,
+                cursor.resourceToken(),
+                cursor.physicalPartition(),
+                cursor.evidenceGeneration(),
+                cursor.maxBrokerPersistedAtThroughCursor(),
+                cursor.physicalTopic(),
+                cursor.physicalTopicCreationTimestamp(),
+                cursor.ledgerId(),
+                cursor.entryId(),
+                cursor.normalizedBatchIndex(),
+                cursor.batchSize());
         assertThrows(com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalException.class, () -> {
             if (absent) {
                 journal.requireTargetNotPublishedEvidence(mapping, publication, source, other, evidence);
@@ -9194,22 +10715,44 @@ class TargetCommandStoreTest {
     private static com.nereusstream.delay.protocol.TargetChannelIdentity fencedTargetChannel(
             com.nereusstream.delay.protocol.TargetChannelIdentity admitted) {
         final var old = admitted.context();
-        final var context = new com.nereusstream.delay.protocol.TargetChannelIdentity.Context(old.sourceShard(),
-                old.target(), old.domain(), old.accountingIncarnation(), old.dispatchCompatibilityRef(),
-                old.controlScopeRef(), old.kind(), old.channelSlot(), old.channelGeneration() + 1,
-                old.evidenceGeneration(), old.resourceGuardAttestationDigest());
+        final var context = new com.nereusstream.delay.protocol.TargetChannelIdentity.Context(
+                old.sourceShard(),
+                old.target(),
+                old.domain(),
+                old.accountingIncarnation(),
+                old.dispatchCompatibilityRef(),
+                old.controlScopeRef(),
+                old.kind(),
+                old.channelSlot(),
+                old.channelGeneration() + 1,
+                old.evidenceGeneration(),
+                old.resourceGuardAttestationDigest());
         final var lease = admitted.credentialLease();
-        return new com.nereusstream.delay.protocol.TargetChannelIdentity(context,
-                new com.nereusstream.delay.protocol.CredentialUseLease(lease.profile(), lease.kind(),
-                        context.credentialHolderScope(), lease.secretGeneration(), lease.credentialBindingDigest(),
-                        lease.resolvedCredentialFingerprintDigest(), lease.issuedAt(),
-                        lease.validUntilEpochMs(), lease.protectionRevision()));
+        return new com.nereusstream.delay.protocol.TargetChannelIdentity(
+                context,
+                new com.nereusstream.delay.protocol.CredentialUseLease(
+                        lease.profile(),
+                        lease.kind(),
+                        context.credentialHolderScope(),
+                        lease.secretGeneration(),
+                        lease.credentialBindingDigest(),
+                        lease.resolvedCredentialFingerprintDigest(),
+                        lease.issuedAt(),
+                        lease.validUntilEpochMs(),
+                        lease.protectionRevision()));
     }
 
     private static void assertEvidenceWithNewerWork(
-            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetAdmissionFixture admission, OwnerIdentity owner, KeyPair keys,
-            com.nereusstream.delay.protocol.RetryPolicySemantic policy, ProfileRef capability, int mode) {
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetAdmissionFixture admission,
+            OwnerIdentity owner,
+            KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            ProfileRef capability,
+            int mode) {
         final var image = admission.entry().mutation();
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
         final boolean newerUncertain = mode == 34 || mode == 35;
@@ -9218,38 +10761,87 @@ class TargetCommandStoreTest {
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var unknownAt = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
-        final long observed = Math.max(unknownAt.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
-        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
-                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(32, 0xD0),
-                1, 1, 1, bytes(32, 0xD1), 0, null);
-        final long next = time.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
-                body.locator().messageId(), body.locator().generation(), body.attemptNo(),
-                policy.retryBackoffCap(body.attemptNo()));
-        final long deadline = Math.min(body.publication().expireAtEpochMs(),
+        final long observed = Math.max(
+                unknownAt.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(
+                observed,
+                observed + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xD0),
+                1,
+                1,
+                1,
+                bytes(32, 0xD1),
+                0,
+                null);
+        final long next = time.latestEpochMs()
+                + RetryJitter.delayMs(
+                        RetryJitter.MESSAGE_PUBLISH,
+                        body.locator().messageId(),
+                        body.locator().generation(),
+                        body.attemptNo(),
+                        policy.retryBackoffCap(body.attemptNo()));
+        final long deadline = Math.min(
+                body.publication().expireAtEpochMs(),
                 body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs());
-        final var unknown = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, observed + 10_000,
-                body.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), observed + 10_000,
-                        body.publishAttemptId(), 3, 4, StableCode.ENQUEUE_RESULT_UNCERTAIN, null,
-                        new PublishAdmissionBody.ChargeVector(
-                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(), time,
-                        typedUnknownRetryDecision(policy, body.decisionTime().latestEpochMs(),
-                                deadline, body.attemptNo(), next, StableCode.ENQUEUE_RESULT_UNCERTAIN)),
-                image.authorIdentity(), 1, keys.getPrivate());
+        final var unknown = SystemMutation.signed(
+                scope.shard(),
+                SystemMutationType.PUBLISH_OUTCOME,
+                observed + 10_000,
+                body.publishAttemptId(),
+                PublishOutcomeBody.encodeInitial(
+                        scope.shard(),
+                        observed + 10_000,
+                        body.publishAttemptId(),
+                        3,
+                        4,
+                        StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                        null,
+                        new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                                .canonicalBytes(),
+                        time,
+                        typedUnknownRetryDecision(
+                                policy,
+                                body.decisionTime().latestEpochMs(),
+                                deadline,
+                                body.attemptNo(),
+                                next,
+                                StableCode.ENQUEUE_RESULT_UNCERTAIN)),
+                image.authorIdentity(),
+                1,
+                keys.getPrivate());
         final var history = new TargetPublishOutcomeVerifier.RetryContext(image, image, policy);
-        final var preparedUnknown = outcomes.prepareFirst(budget(), unknown, unknownAt,
-                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true, history));
-        assertEquals(ApplyStatus.APPLIED, outcomes.commit(preparedUnknown, (a, b, c) -> guard()).applyStatus());
+        final var preparedUnknown = outcomes.prepareFirst(
+                budget(),
+                unknown,
+                unknownAt,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                        keys.getPublic(),
+                        ProtocolTuple.currentSystemMutation(),
+                        owner,
+                        10,
+                        10,
+                        100,
+                        (e, f, g, h) -> true,
+                        history));
+        assertEquals(
+                ApplyStatus.APPLIED,
+                outcomes.commit(preparedUnknown, (a, b, c) -> guard()).applyStatus());
         final byte[] key = TargetKeyCodec.message(body.locator().messageId());
         final var retrying = TargetMessageRecord.decode(
-                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
-        assertEquals(TimelineWorkKind.UNCERTAIN_RETRY, retrying.runtime().timeline().workKind());
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+        assertEquals(
+                TimelineWorkKind.UNCERTAIN_RETRY, retrying.runtime().timeline().workKind());
         final var work = retrying.runtime().timeline();
-        final var selected = new com.nereusstream.delay.protocol.TargetHeadRef(work.ordinaryKey(),
-                body.locator().messageId(), body.locator().generation(), work.retryEligibilityAtEpochMs());
+        final var selected = new com.nereusstream.delay.protocol.TargetHeadRef(
+                work.ordinaryKey(),
+                body.locator().messageId(),
+                body.locator().generation(),
+                work.retryEligibilityAtEpochMs());
         final var claims = new TargetClaimStore(backend, scope, lineage, 1, (a, b) -> {});
-        final var plan = claims.prepareClaim(budget(), selected, owner, next, next + 1_000,
-                body.executionBytes(), bytes(32, 0xD2));
+        final var plan = claims.prepareClaim(
+                budget(), selected, owner, next, next + 1_000, body.executionBytes(), bytes(32, 0xD2));
         claims.commit(plan, (a, b, c) -> guard());
         var claim = plan.claim();
         SystemMutation newer = null;
@@ -9259,58 +10851,116 @@ class TargetCommandStoreTest {
         byte[] newerBudgetBytes = null;
         if (newPublisher || newerUncertain) {
             final var last = (KafkaSourcePosition) store.appliedShardLogPosition();
-            final var secondAt = source(last, last.offset() + 1,
-                    Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
+            final var secondAt =
+                    source(last, last.offset() + 1, Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
             final var second = targetAdmission(
                     store, claim, owner, keys, secondAt, body.publication().channel(), capability);
             newer = second.entry().mutation();
             final var admissions = new TargetPublishAdmissionStore(backend, scope, lineage, 16, 1, 1);
-            final var admissionPlan = admissions.prepareFirst(budget(), newer, secondAt,
-                    (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(keys.getPublic(),
-                            ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
-                            (e, f, g, h) -> true, (e, f) -> {}));
-            assertEquals(ApplyStatus.APPLIED, admissions.commit(admissionPlan, (a, b, c) -> guard()).applyStatus());
+            final var admissionPlan = admissions.prepareFirst(
+                    budget(),
+                    newer,
+                    secondAt,
+                    (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
+                            keys.getPublic(),
+                            ProtocolTuple.targetMaterializedPublishAdmission(),
+                            10,
+                            10,
+                            100,
+                            (e, f, g, h) -> true,
+                            (e, f) -> {}));
+            assertEquals(
+                    ApplyStatus.APPLIED,
+                    admissions.commit(admissionPlan, (a, b, c) -> guard()).applyStatus());
             if (newerUncertain) {
                 final var secondBody = TargetPublishAdmissionBody.decode(newer.canonicalBody());
-                final var secondUnknownAt = source(secondAt, secondAt.offset() + 1,
+                final var secondUnknownAt = source(
+                        secondAt,
+                        secondAt.offset() + 1,
                         secondBody.decisionTime().latestEpochMs() + 1);
-                final var secondTime = new TrustedUtcIntervalEvidence(secondUnknownAt.brokerPersistenceTimeEpochMs(),
+                final var secondTime = new TrustedUtcIntervalEvidence(
+                        secondUnknownAt.brokerPersistenceTimeEpochMs(),
                         secondUnknownAt.brokerPersistenceTimeEpochMs() + 1,
                         TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                        bytes(32, 0xD8), 1, 1, 1, bytes(32, 0xD9), 0, null);
-                final long secondNext = secondTime.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
-                        body.locator().messageId(), body.locator().generation(), secondBody.attemptNo(),
-                        policy.retryBackoffCap(secondBody.attemptNo()));
+                        bytes(32, 0xD8),
+                        1,
+                        1,
+                        1,
+                        bytes(32, 0xD9),
+                        0,
+                        null);
+                final long secondNext = secondTime.latestEpochMs()
+                        + RetryJitter.delayMs(
+                                RetryJitter.MESSAGE_PUBLISH,
+                                body.locator().messageId(),
+                                body.locator().generation(),
+                                secondBody.attemptNo(),
+                                policy.retryBackoffCap(secondBody.attemptNo()));
                 final long until = secondUnknownAt.brokerPersistenceTimeEpochMs() + 10_000;
-                newerUnknown = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, until,
-                        secondBody.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), until,
-                                secondBody.publishAttemptId(), 3, 4, StableCode.ENQUEUE_RESULT_UNCERTAIN, null,
-                                new PublishAdmissionBody.ChargeVector(
-                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(),
-                                secondTime, typedUnknownRetryDecision(policy, body.decisionTime().latestEpochMs(),
-                                        deadline, secondBody.attemptNo(), secondNext,
+                newerUnknown = SystemMutation.signed(
+                        scope.shard(),
+                        SystemMutationType.PUBLISH_OUTCOME,
+                        until,
+                        secondBody.publishAttemptId(),
+                        PublishOutcomeBody.encodeInitial(
+                                scope.shard(),
+                                until,
+                                secondBody.publishAttemptId(),
+                                3,
+                                4,
+                                StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                                null,
+                                new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                                        .canonicalBytes(),
+                                secondTime,
+                                typedUnknownRetryDecision(
+                                        policy,
+                                        body.decisionTime().latestEpochMs(),
+                                        deadline,
+                                        secondBody.attemptNo(),
+                                        secondNext,
                                         StableCode.ENQUEUE_RESULT_UNCERTAIN)),
-                        newer.authorIdentity(), 1, keys.getPrivate());
+                        newer.authorIdentity(),
+                        1,
+                        keys.getPrivate());
                 final var secondHistory = new TargetPublishOutcomeVerifier.RetryContext(newer, image, policy);
-                final var secondUnknownPlan = outcomes.prepareFirst(budget(), newerUnknown, secondUnknownAt,
-                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                                ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100,
-                                (e, f, g, h) -> true, secondHistory));
-                assertEquals(ApplyStatus.APPLIED,
+                final var secondUnknownPlan = outcomes.prepareFirst(
+                        budget(),
+                        newerUnknown,
+                        secondUnknownAt,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true,
+                                secondHistory));
+                assertEquals(
+                        ApplyStatus.APPLIED,
                         outcomes.commit(secondUnknownPlan, (a, b, c) -> guard()).applyStatus());
                 newerUnknownBytes = store.get(ColumnFamily.DEDUPE, systemKey(newerUnknown));
                 final var secondRetry = TargetMessageRecord.decode(
-                        TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key),
-                                TargetMessageRecord.VALUE_TYPE).payload());
+                        TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                                .payload());
                 assertEquals(2, secondRetry.runtime().attemptObligations().size());
                 assertTrue(secondRetry.runtime().attemptObligations().stream()
                         .allMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN));
                 final var secondWork = secondRetry.runtime().timeline();
-                final var secondHead = new com.nereusstream.delay.protocol.TargetHeadRef(secondWork.ordinaryKey(),
-                        body.locator().messageId(), body.locator().generation(),
+                final var secondHead = new com.nereusstream.delay.protocol.TargetHeadRef(
+                        secondWork.ordinaryKey(),
+                        body.locator().messageId(),
+                        body.locator().generation(),
                         secondWork.retryEligibilityAtEpochMs());
-                final var secondClaimPlan = claims.prepareClaim(budget(), secondHead, owner, secondNext,
-                        secondNext + 1_000, body.executionBytes(), bytes(32, 0xDA));
+                final var secondClaimPlan = claims.prepareClaim(
+                        budget(),
+                        secondHead,
+                        owner,
+                        secondNext,
+                        secondNext + 1_000,
+                        body.executionBytes(),
+                        bytes(32, 0xDA));
                 claims.commit(secondClaimPlan, (a, b, c) -> guard());
                 claim = secondClaimPlan.claim();
             }
@@ -9322,31 +10972,56 @@ class TargetCommandStoreTest {
         final byte[] claimKey = claim.key();
         final byte[] chargeKey = claim.chargeKey();
         final var before = TargetMessageRecord.decode(
-                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         final var oldUnknown = store.get(ColumnFamily.DEDUPE, systemKey(unknown));
         final byte[] oldBudgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 body.publishAttemptId());
         final var oldBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, oldBudget.phase());
         final var last = (KafkaSourcePosition) store.appliedShardLogPosition();
-        final var at = source(last, last.offset() + 1,
-                Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
-        final var resolvedTime = new TrustedUtcIntervalEvidence(at.brokerPersistenceTimeEpochMs(),
-                at.brokerPersistenceTimeEpochMs() + 1, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                bytes(32, 0xD3), 1, 1, 1, bytes(32, 0xD4), 0, null);
-        final var evidence = published ? targetPublishedAck(
-                body.publication(), body.publication().preparedPublishHash())
-                : targetRejectedEvidence(body.publication(), body.publication().preparedPublishHash(),
+        final var at = source(last, last.offset() + 1, Math.max(last.brokerPersistenceTimeEpochMs() + 1, next));
+        final var resolvedTime = new TrustedUtcIntervalEvidence(
+                at.brokerPersistenceTimeEpochMs(),
+                at.brokerPersistenceTimeEpochMs() + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xD3),
+                1,
+                1,
+                1,
+                bytes(32, 0xD4),
+                0,
+                null);
+        final var evidence = published
+                ? targetPublishedAck(body.publication(), body.publication().preparedPublishHash())
+                : targetRejectedEvidence(
+                        body.publication(),
+                        body.publication().preparedPublishHash(),
                         body.publication().physical().physicalPartition());
-        final var cursor = com.nereusstream.delay.protocol.EvidenceCursor.pulsar(body.locator().target().bytes(),
-                body.locator().accountingIncarnation(), bytes(32, 0xD5), 0, 5, at.brokerPersistenceTimeEpochMs(),
-                "persistent://public/default/multi-attempt-evidence-fixture", 1, 1, 1, 0, 1);
+        final var cursor = com.nereusstream.delay.protocol.EvidenceCursor.pulsar(
+                body.locator().target().bytes(),
+                body.locator().accountingIncarnation(),
+                bytes(32, 0xD5),
+                0,
+                5,
+                at.brokerPersistenceTimeEpochMs(),
+                "persistent://public/default/multi-attempt-evidence-fixture",
+                1,
+                1,
+                1,
+                0,
+                1);
         final StableCode cause = published ? StableCode.OK : StableCode.DESTINATION_DEFINITIVE_RETRIABLE;
-        final long resolutionRetry = resolvedTime.latestEpochMs() + RetryJitter.delayMs(RetryJitter.MESSAGE_PUBLISH,
-                body.locator().messageId(), body.locator().generation(), body.attemptNo(),
-                policy.retryBackoffCap(body.attemptNo()));
+        final long resolutionRetry = resolvedTime.latestEpochMs()
+                + RetryJitter.delayMs(
+                        RetryJitter.MESSAGE_PUBLISH,
+                        body.locator().messageId(),
+                        body.locator().generation(),
+                        body.attemptNo(),
+                        policy.retryBackoffCap(body.attemptNo()));
         final byte[] decision = CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.uint32(out, 1, published ? 1 : 2);
             CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
@@ -9361,18 +11036,43 @@ class TargetCommandStoreTest {
             CanonicalProtobuf.uint32(out, 9, 1);
         });
         final byte[] encoded = PublishOutcomeBody.encodeEvidenceResolution(
-                scope.shard(), at.brokerPersistenceTimeEpochMs()
-                        + 10_000, body.publishAttemptId(), cursor, evidence.canonicalBytes(), cause, published ? 1 : 2,
-                published ? 0 : 1, body.outcomeTransfer(), resolvedTime, decision);
-        final var parsed = PublishOutcomeBody.decodeEvidenceResolution(encoded);
-        final var resolution = SystemMutation.signed(scope.shard(), SystemMutationType.EVIDENCE_RESOLUTION,
+                scope.shard(),
                 at.brokerPersistenceTimeEpochMs() + 10_000,
-                parsed.evidenceResolutionLogicalOperationIdentity(), encoded,
-                AuthorIdentity.service(bytes(16, 0xD6), bytes(16, 0xD7), 5).canonicalBytes(), 1, keys.getPrivate());
-        final var applied = outcomes.prepareFirst(budget(), resolution, at,
-                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true, history,
-                        new TargetPublishOutcomeVerifier.EvidenceContext(image, (e, f, g, h) -> {},
+                body.publishAttemptId(),
+                cursor,
+                evidence.canonicalBytes(),
+                cause,
+                published ? 1 : 2,
+                published ? 0 : 1,
+                body.outcomeTransfer(),
+                resolvedTime,
+                decision);
+        final var parsed = PublishOutcomeBody.decodeEvidenceResolution(encoded);
+        final var resolution = SystemMutation.signed(
+                scope.shard(),
+                SystemMutationType.EVIDENCE_RESOLUTION,
+                at.brokerPersistenceTimeEpochMs() + 10_000,
+                parsed.evidenceResolutionLogicalOperationIdentity(),
+                encoded,
+                AuthorIdentity.service(bytes(16, 0xD6), bytes(16, 0xD7), 5).canonicalBytes(),
+                1,
+                keys.getPrivate());
+        final var applied = outcomes.prepareFirst(
+                budget(),
+                resolution,
+                at,
+                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                        keys.getPublic(),
+                        ProtocolTuple.currentSystemMutation(),
+                        owner,
+                        10,
+                        10,
+                        100,
+                        (e, f, g, h) -> true,
+                        history,
+                        new TargetPublishOutcomeVerifier.EvidenceContext(
+                                image,
+                                (e, f, g, h) -> {},
                                 (publication, actual, actualCursor, first, held, current) -> {
                                     assertEquals(body.publication(), publication);
                                     assertArrayEquals(evidence.canonicalBytes(), actual.canonicalBytes());
@@ -9381,16 +11081,22 @@ class TargetCommandStoreTest {
                                     assertEquals(unknownAt, held);
                                     assertEquals(at, current);
                                 })));
-        assertEquals(ApplyStatus.APPLIED, outcomes.commit(applied, (a, b, c) -> guard()).applyStatus());
+        assertEquals(
+                ApplyStatus.APPLIED,
+                outcomes.commit(applied, (a, b, c) -> guard()).applyStatus());
         final var after = TargetMessageRecord.decode(
-                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
-        assertEquals(before.evidenceOutcome(body.publishAttemptId(), published, false,
-                published ? null : resolutionRetry, claim.work()), after);
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+        assertEquals(
+                before.evidenceOutcome(
+                        body.publishAttemptId(), published, false, published ? null : resolutionRetry, claim.work()),
+                after);
         assertNull(store.get(ColumnFamily.INFLIGHT, claimKey));
         assertNull(store.get(ColumnFamily.META, chargeKey));
         assertArrayEquals(oldUnknown, store.get(ColumnFamily.DEDUPE, systemKey(unknown)));
         final var resolvedBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.META, oldBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolvedBudget.phase());
         assertEquals(oldBudget.commitment(), resolvedBudget.commitment());
         assertEquals(oldBudget.allocated(), resolvedBudget.allocated());
@@ -9399,7 +11105,8 @@ class TargetCommandStoreTest {
         if (newPublisher || newerUncertain) {
             assertArrayEquals(newerBudgetBytes, store.get(ColumnFamily.META, newerBudgetKey));
             final var secondBody = TargetPublishAdmissionBody.decode(newer.canonicalBody());
-            assertEquals(List.of(newerUncertain ? secondBody.obligation().uncertain() : secondBody.obligation()),
+            assertEquals(
+                    List.of(newerUncertain ? secondBody.obligation().uncertain() : secondBody.obligation()),
                     after.runtime().attemptObligations());
             assertEquals(2, after.runtime().admissionsUsed());
             assertEquals(1, after.runtime().uncertainRetryAdmissionsUsed());
@@ -9407,8 +11114,9 @@ class TargetCommandStoreTest {
                 assertEquals(GenerationAggregateState.PUBLISHED, after.aggregateState());
                 assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
                 final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
-                        TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                                store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
+                                TargetTerminalGenerationRecord.VALUE_TYPE)
+                        .payload());
                 assertEquals(after.runtime(), terminal.runtime());
             } else if (newerUncertain) {
                 assertEquals(GenerationAggregateState.UNCERTAIN, after.aggregateState());
@@ -9427,57 +11135,80 @@ class TargetCommandStoreTest {
             final byte[] payloadKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                     after.locator().messageId().bytes());
-            assertEquals(TargetQuotaPayloadOwner.Phase.ACTIVE,
+            assertEquals(
+                    TargetQuotaPayloadOwner.Phase.ACTIVE,
                     TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload()).phase());
+                                            store.get(ColumnFamily.META, payloadKey),
+                                            TargetQuotaPayloadOwner.VALUE_TYPE)
+                                    .payload())
+                            .phase());
             if (newerUncertain) {
                 assertArrayEquals(newerUnknownBytes, store.get(ColumnFamily.DEDUPE, systemKey(newerUnknown)));
-                final var secondBudget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                        newerBudgetBytes, TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                final var secondBudget = TargetQuotaAttemptBudget.decode(
+                        TargetValueEnvelope.decode(newerBudgetBytes, TargetQuotaAttemptBudget.VALUE_TYPE)
+                                .payload());
                 assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, secondBudget.phase());
             }
         } else if (!published) {
-            assertEquals(TimelineWorkKind.DEFINITIVE_RETRY, after.runtime().timeline().workKind());
+            assertEquals(
+                    TimelineWorkKind.DEFINITIVE_RETRY,
+                    after.runtime().timeline().workKind());
             assertFalse(after.runtime().timeline().nativeCandidate());
             assertTrue(after.runtime().attemptObligations().isEmpty());
         }
         if (newPublisher || newerUncertain) {
             final var references = new TargetPublishRecoveryDiscovery(backend, scope, lineage)
-                    .scanRetainedInputs(budget(), null, 4, (a, b) -> guard()).entries();
+                    .scanRetainedInputs(budget(), null, 4, (a, b) -> guard())
+                    .entries();
             final var frames = new java.util.ArrayList<TargetCheckpointAdmissionInputs.Input>();
             for (final var reference : references) {
-                frames.add(new TargetCheckpointAdmissionInputs.Input(reference,
+                frames.add(new TargetCheckpointAdmissionInputs.Input(
+                        reference,
                         Arrays.equals(reference.attempt().publishAttemptId(), body.publishAttemptId())
-                                ? image : newer));
+                                ? image
+                                : newer));
             }
             assertEquals(2, frames.size());
             final var dependencies = liveCheckpointDependencies(backend, store, scope);
             final var joined = dependencies.withAdmissionInputs(frames, 32L << 20);
             assertTrue(joined.admissionImagesComplete());
-            assertArrayEquals(joined.semanticInputsDigest(), dependencies.withAdmissionInputs(
-                    List.of(frames.getLast(), frames.getFirst()), 32L << 20).semanticInputsDigest());
-            assertThrows(IllegalArgumentException.class, () -> dependencies.withAdmissionInputs(
-                    List.of(frames.getFirst(), frames.getFirst()), 32L << 20));
+            assertArrayEquals(
+                    joined.semanticInputsDigest(),
+                    dependencies
+                            .withAdmissionInputs(List.of(frames.getLast(), frames.getFirst()), 32L << 20)
+                            .semanticInputsDigest());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> dependencies.withAdmissionInputs(List.of(frames.getFirst(), frames.getFirst()), 32L << 20));
         }
-        TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                (a, b) -> guard());
+        TargetStoreBootstrap.reopen(
+                store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
     }
 
     private static void assertRecoveryOutcomeSnapshot(
-            TargetWorkerShardRuntime worker, ShardStore store, SystemMutation admission,
-            OwnerIdentity owner, KeyPair keys, com.nereusstream.delay.protocol.RetryPolicySemantic policy,
-            long until, TrustedUtcIntervalEvidence observed, byte[] retry, byte[] transfer, SystemMutation expected) {
+            TargetWorkerShardRuntime worker,
+            ShardStore store,
+            SystemMutation admission,
+            OwnerIdentity owner,
+            KeyPair keys,
+            com.nereusstream.delay.protocol.RetryPolicySemantic policy,
+            long until,
+            TrustedUtcIntervalEvidence observed,
+            byte[] retry,
+            byte[] transfer,
+            SystemMutation expected) {
         final long before = store.latestSequenceNumber();
         final var recovery = worker.readRecoveryAdmission(budget(), admission, () -> 101);
         assertArrayEquals(admission.canonicalEnvelope(), recovery.image().canonicalEnvelope());
-        final var factory = new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(
-                1, keys.getPrivate());
+        final var factory =
+                new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(1, keys.getPrivate());
         final var context = new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
                 until, 4, transfer, observed, retry);
-        assertArrayEquals(expected.encodeFrame(),
+        assertArrayEquals(
+                expected.encodeFrame(),
                 factory.createRecoveryUnknown(recovery, owner, context).encodeFrame());
-        final var successor = new OwnerIdentity(owner.deploymentId(), bytes(16, 0xE6),
-                owner.ownerEpoch() + 1, bytes(32, 0xE7));
+        final var successor =
+                new OwnerIdentity(owner.deploymentId(), bytes(16, 0xE6), owner.ownerEpoch() + 1, bytes(32, 0xE7));
         final var signed = factory.createRecoveryUnknown(recovery, successor, context);
         assertEquals(successor, AuthorIdentity.decode(signed.authorIdentity()).asOwnerIdentity());
         assertTrue(signed.verifySignature(keys.getPublic()));
@@ -9486,28 +11217,49 @@ class TargetCommandStoreTest {
         assertEquals(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, body.stableCode());
         assertEquals(5, body.retryDecision().kind());
         assertFalse(body.retryDecision().hasNextRetryAt());
-        final var source = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(worker,
-                mutation -> { throw new AssertionError("unowned recovery must not append"); });
+        final var source = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(worker, mutation -> {
+            throw new AssertionError("unowned recovery must not append");
+        });
         assertThrows(IllegalStateException.class, () -> source.submit(signed, () -> 101));
-        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
-                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
-                        until, 0, transfer, observed, retry)));
-        final byte[] scheduled = typedUnknownRetryDecision(policy, body.retryDecision().firstAttemptAt(),
-                body.retryDecision().retryDeadline(), recovery.body().attemptNo(),
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> factory.createRecoveryUnknown(
+                        recovery,
+                        owner,
+                        new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                                until, 0, transfer, observed, retry)));
+        final byte[] scheduled = typedUnknownRetryDecision(
+                policy,
+                body.retryDecision().firstAttemptAt(),
+                body.retryDecision().retryDeadline(),
+                recovery.body().attemptNo(),
                 body.retryDecision().firstAttemptAt() + 1);
-        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
-                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
-                        until, 4, transfer, observed, scheduled)));
-        assertThrows(IllegalArgumentException.class, () -> factory.createRecoveryUnknown(recovery, owner,
-                new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
-                        until, 4, new PublishAdmissionBody.ChargeVector(
-                                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(), observed, retry)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> factory.createRecoveryUnknown(
+                        recovery,
+                        owner,
+                        new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                                until, 4, transfer, observed, scheduled)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> factory.createRecoveryUnknown(
+                        recovery,
+                        owner,
+                        new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
+                                until,
+                                4,
+                                new PublishAdmissionBody.ChargeVector(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                                        .canonicalBytes(),
+                                observed,
+                                retry)));
         assertEquals(before, store.latestSequenceNumber());
     }
 
     private static TargetPublishOutcomeVerifier.EvidenceContext publishedEvidenceContext(
             SystemMutation admission, com.nereusstream.delay.protocol.PublishEvidence expected) {
-        final var publication = TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication();
+        final var publication =
+                TargetPublishAdmissionBody.decode(admission.canonicalBody()).publication();
         return new TargetPublishOutcomeVerifier.EvidenceContext(admission, (actual, evidence, first, at) -> {
             assertEquals(publication, actual);
             assertArrayEquals(expected.canonicalBytes(), evidence.canonicalBytes());
@@ -9517,27 +11269,37 @@ class TargetCommandStoreTest {
 
     /** Source/accounting regression; terminal/replay projection and Broker evidence providers remain fixtures. */
     private static void assertLateTargetOutcome(
-            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
             TargetWorkerShardRuntime worker,
             java.util.concurrent.atomic.AtomicReference<SourceRecordConsumer.PolledSourceRecord> pending,
-            TargetAdmissionFixture admission, KeyPair keys, OwnerIdentity owner,
+            TargetAdmissionFixture admission,
+            KeyPair keys,
+            OwnerIdentity owner,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> expected,
-            java.util.concurrent.atomic.AtomicInteger authorityResolutions, int mode) {
-        final var body = TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
+            java.util.concurrent.atomic.AtomicInteger authorityResolutions,
+            int mode) {
+        final var body =
+                TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
         final boolean historical = mode >= 15;
         final int effect = (mode - 12) % 3 + 1;
         terminalOutcomeFixture(backend, store, scope, lineage, body.locator(), historical);
         final byte[] messageKey = TargetKeyCodec.message(body.locator().messageId());
         final byte[] currentBytes = store.get(ColumnFamily.ID, messageKey);
-        final var current = TargetMessageRecord.decode(
-                TargetValueEnvelope.decode(currentBytes, TargetMessageRecord.VALUE_TYPE).payload());
+        final var current =
+                TargetMessageRecord.decode(TargetValueEnvelope.decode(currentBytes, TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         final byte[] terminalKey = TargetTerminalGenerationRecord.key(body.locator());
         final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
-        final byte[] orderKey = TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain());
+                        store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE)
+                .payload());
+        final byte[] orderKey = TargetKeyCodec.orderState(
+                body.locator().target(), body.locator().orderingDomain());
         final byte[] orderBytes = store.get(ColumnFamily.META, orderKey);
-        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                orderBytes, TargetOrderState.VALUE_TYPE).payload());
+        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(orderBytes, TargetOrderState.VALUE_TYPE)
+                .payload());
         if (historical) {
             order.requireTerminalBarrierProjection(terminal);
             assertNull(order.serviceableHead());
@@ -9548,48 +11310,103 @@ class TargetCommandStoreTest {
         final byte[] payloadBytes = store.get(ColumnFamily.META, payloadKey);
         final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
-        final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
-        final var time = new TrustedUtcIntervalEvidence(observed, observed + 1,
-                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(32, 0xA1),
-                1, 1, 1, bytes(32, 0xA2), 0, null);
-        final StableCode cause = effect == 1 ? StableCode.OK
+        final long observed =
+                Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final var time = new TrustedUtcIntervalEvidence(
+                observed,
+                observed + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(32, 0xA1),
+                1,
+                1,
+                1,
+                bytes(32, 0xA2),
+                0,
+                null);
+        final StableCode cause = effect == 1
+                ? StableCode.OK
                 : effect == 2 ? StableCode.DESTINATION_DEFINITIVE_PERMANENT : StableCode.RECOVERY_FIRST_SEND_UNCERTAIN;
-        final var evidence = effect == 1 ? targetPublishedAck(
-                body.publication(), body.publication().preparedPublishHash())
-                : effect == 2 ? targetRejectedEvidence(body.publication(), body.publication().preparedPublishHash(),
-                        body.publication().physical().physicalPartition()) : null;
+        final var evidence = effect == 1
+                ? targetPublishedAck(body.publication(), body.publication().preparedPublishHash())
+                : effect == 2
+                        ? targetRejectedEvidence(
+                                body.publication(),
+                                body.publication().preparedPublishHash(),
+                                body.publication().physical().physicalPartition())
+                        : null;
         expected.set(evidence);
         final var policy = targetOutcomeRetryPolicy(false);
         final byte[] retry = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, effect == 1 ? 1 : effect == 2 ? 3 : 5);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 2, policy.ref().canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 3, body.attemptNo());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 4, body.decisionTime().latestEpochMs());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 5, Math.min(
-                    body.publication().expireAtEpochMs(),
-                    body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out, 4, body.decisionTime().latestEpochMs());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out,
+                    5,
+                    Math.min(
+                            body.publication().expireAtEpochMs(),
+                            body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 7, 1);
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 8, cause.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 9, 1);
         });
-        final byte[] transfer = effect == 3 ? new PublishAdmissionBody.ChargeVector(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes() : body.outcomeTransfer();
-        final var mutation = SystemMutation.signed(scope.shard(), SystemMutationType.PUBLISH_OUTCOME, observed + 10_000,
-                body.publishAttemptId(), PublishOutcomeBody.encodeInitial(scope.shard(), observed + 10_000,
-                        body.publishAttemptId(), effect, effect == 1 ? 0 : effect == 2 ? 2 : 4, cause,
-                        evidence == null ? new byte[0] : evidence.canonicalBytes(), transfer, time, retry),
-                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
-                        owner.leaseFencingDigest()).canonicalBytes(), 1, keys.getPrivate());
+        final byte[] transfer = effect == 3
+                ? new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                        .canonicalBytes()
+                : body.outcomeTransfer();
+        final var mutation = SystemMutation.signed(
+                scope.shard(),
+                SystemMutationType.PUBLISH_OUTCOME,
+                observed + 10_000,
+                body.publishAttemptId(),
+                PublishOutcomeBody.encodeInitial(
+                        scope.shard(),
+                        observed + 10_000,
+                        body.publishAttemptId(),
+                        effect,
+                        effect == 1 ? 0 : effect == 2 ? 2 : 4,
+                        cause,
+                        evidence == null ? new byte[0] : evidence.canonicalBytes(),
+                        transfer,
+                        time,
+                        retry),
+                AuthorIdentity.owner(
+                                owner.deploymentId(),
+                                owner.workerRunId(),
+                                owner.ownerEpoch(),
+                                owner.leaseFencingDigest())
+                        .canonicalBytes(),
+                1,
+                keys.getPrivate());
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
         final byte[] terminalBytes = store.get(ColumnFamily.TERMINAL, terminalKey);
         store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminalKey));
         final long missingSequence = store.latestSequenceNumber();
-        assertThrows(IllegalStateException.class, () -> outcomes.prepareFirst(budget(), mutation, at,
-                (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(keys.getPublic(),
-                        ProtocolTuple.currentSystemMutation(), owner, 10, 10, 100, (e, f, g, h) -> true,
-                        new TargetPublishOutcomeVerifier.RetryContext(admission.entry().mutation(),
-                                admission.entry().mutation(), policy),
-                        effect == 3 ? null : publishedEvidenceContext(admission.entry().mutation(), evidence))));
+        assertThrows(
+                IllegalStateException.class,
+                () -> outcomes.prepareFirst(
+                        budget(),
+                        mutation,
+                        at,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true,
+                                new TargetPublishOutcomeVerifier.RetryContext(
+                                        admission.entry().mutation(),
+                                        admission.entry().mutation(),
+                                        policy),
+                                effect == 3
+                                        ? null
+                                        : publishedEvidenceContext(
+                                                admission.entry().mutation(), evidence))));
         assertEquals(missingSequence, store.latestSequenceNumber());
         assertEquals(priorSource, store.appliedShardLogPosition());
         store.write(batch -> batch.put(ColumnFamily.TERMINAL, terminalKey, terminalBytes));
@@ -9603,43 +11420,58 @@ class TargetCommandStoreTest {
                     ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                     : SourceAcknowledgement.AcknowledgementResult.acked();
         }));
-        assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                        .status());
         assertEquals(at, store.appliedShardLogPosition());
         final var next = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                        store.get(ColumnFamily.TERMINAL, terminalKey), TargetTerminalGenerationRecord.VALUE_TYPE)
+                .payload());
         assertEquals(terminal.terminalCode(), next.terminalCode());
         assertEquals(terminal.runtime().aggregateState(), next.runtime().aggregateState());
         assertEquals(terminal.mutation(), next.mutation());
         assertEquals(terminal.runtime().admissionsUsed(), next.runtime().admissionsUsed());
         assertEquals(effect == 1, next.runtime().possibleDestinationDuplicate());
         assertEquals(terminal.runtime().runtimeRevision() + 1, next.runtime().runtimeRevision());
-        assertEquals(effect == 3 ? List.of(body.obligation().uncertain()) : List.of(),
+        assertEquals(
+                effect == 3 ? List.of(body.obligation().uncertain()) : List.of(),
                 next.runtime().attemptObligations());
         if (historical) {
             assertArrayEquals(currentBytes, store.get(ColumnFamily.ID, messageKey));
-            final var nextOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
-            assertArrayEquals(order.lastAdmittedOrder().encodedKey(), nextOrder.lastAdmittedOrder().encodedKey());
+            final var nextOrder = TargetOrderState.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    order.lastAdmittedOrder().encodedKey(),
+                    nextOrder.lastAdmittedOrder().encodedKey());
             if (effect == 3) {
                 nextOrder.requireTerminalBarrierProjection(next);
                 assertNull(nextOrder.serviceableHead());
             } else {
                 assertNull(nextOrder.barrier());
-                assertEquals(current.locator().messageId(), nextOrder.serviceableHead().messageId());
-                assertEquals(current.locator().generation(), nextOrder.serviceableHead().generation());
+                assertEquals(
+                        current.locator().messageId(),
+                        nextOrder.serviceableHead().messageId());
+                assertEquals(
+                        current.locator().generation(),
+                        nextOrder.serviceableHead().generation());
             }
             assertArrayEquals(payloadBytes, store.get(ColumnFamily.META, payloadKey));
             assertEquals(terminal.stateVersion(), next.stateVersion());
         } else {
-            final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
+            final var after = TargetMessageRecord.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                            .payload());
             assertEquals(current.stateVersion() + 1, after.stateVersion());
             assertEquals(after.runtime(), next.runtime());
             assertEquals(after.stateVersion(), next.stateVersion());
-            final var nextOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
-            assertArrayEquals(order.lastAdmittedOrder().encodedKey(), nextOrder.lastAdmittedOrder().encodedKey());
+            final var nextOrder = TargetOrderState.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    order.lastAdmittedOrder().encodedKey(),
+                    nextOrder.lastAdmittedOrder().encodedKey());
             if (effect == 3) {
                 nextOrder.requireBarrierProjection(after);
             } else {
@@ -9648,77 +11480,163 @@ class TargetCommandStoreTest {
                 assertNull(nextOrder.serviceableHead());
             }
             final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload());
-            assertEquals(effect == 3 ? TargetQuotaPayloadOwner.Phase.ACTIVE : TargetQuotaPayloadOwner.Phase.RETAINED,
+                            store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
+            assertEquals(
+                    effect == 3 ? TargetQuotaPayloadOwner.Phase.ACTIVE : TargetQuotaPayloadOwner.Phase.RETAINED,
                     payload.phase());
         }
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 body.publishAttemptId());
-        final var budget = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
-        assertEquals(effect == 3 ? TargetQuotaAttemptBudget.Phase.UNKNOWN
-                : TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, budget.phase());
+        final var budget = TargetQuotaAttemptBudget.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload());
+        assertEquals(
+                effect == 3
+                        ? TargetQuotaAttemptBudget.Phase.UNKNOWN
+                        : TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR,
+                budget.phase());
         assertEquals(body.commitment(), budget.commitment());
         assertEquals(body.allocated(), budget.allocated());
         assertNull(budget.floorDigest());
         assertEquals(effect == 3 ? 1 : 0, budget.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
         final long applied = store.latestSequenceNumber();
-        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                        .status());
         assertEquals(applied, store.latestSequenceNumber());
         assertEquals(2, acknowledgements.get());
         assertEquals(1, authorityResolutions.get());
     }
 
     private static void terminalOutcomeFixture(
-            TargetStoreBackend backend, ShardStore store, TargetQuotaScope scope, byte[] lineage,
-            TargetMessageLocator locator, boolean historical) {
+            TargetStoreBackend backend,
+            ShardStore store,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetMessageLocator locator,
+            boolean historical) {
         final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
         final byte[] digest = bytes(32, 0xB2);
-        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(budget(), reader -> {
-            final byte[] key = TargetKeyCodec.message(locator.messageId());
-            final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                    reader.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload());
-            final var prior = before.runtime();
-            final var terminalRuntime = new TargetGenerationRuntimeIndex(prior.generation(),
-                    historical ? GenerationAggregateState.SUPERSEDED : GenerationAggregateState.DEAD_LETTER,
-                    CurrentSendWorkKind.NONE, null, null, null, prior.attemptObligations(), prior.admissionsUsed(),
-                    prior.uncertainRetryAdmissionsUsed(), prior.possibleDestinationDuplicate(),
-                    prior.runtimeRevision() + 1);
-            final var nextLocator = historical ? new TargetMessageLocator(locator.messageId(), locator.generation() + 1,
-                    locator.target(), locator.domain(), locator.accountingIncarnation(), locator.orderingMode(),
-                    locator.orderingDomain(), locator.scheduleBindingDigest()) : locator;
-            final var work = historical ? new TargetTimelineWorkRef(nextLocator, TimelineWorkKind.INITIAL_SCHEDULE,
-                    before.deliverAtEpochMs() + 1, before.deliverAtEpochMs() + 1, at.sourceOrderToken(),
-                    1, 1, UncertainRetryAuthority.NONE, null, null, false) : null;
-            final var after = new TargetMessageRecord(nextLocator, before.stateVersion() + 1,
-                    historical ? before.deliverAtEpochMs() + 1 : before.deliverAtEpochMs(), before.expireAtEpochMs(),
-                    historical ? before.deliverAtEpochMs() + 1 : before.retryEligibilityAtEpochMs(),
-                    before.nativeDeliveryPolicy(), historical ? at : before.scheduleSource(), before.inlinePayload(),
-                    before.payloadReference(), historical ? new TargetGenerationRuntimeIndex(nextLocator.generation(),
-                            GenerationAggregateState.SCHEDULED, CurrentSendWorkKind.TIMELINE, work,
-                            null, null, List.of(), 0, 0, false, 1) : terminalRuntime);
-            final var terminal = new TargetTerminalGenerationRecord(locator, after.stateVersion(),
-                    historical ? StableCode.SUPERSEDED : StableCode.DESTINATION_DEFINITIVE_PERMANENT, terminalRuntime,
-                    new TargetQuotaMutation(reader.aggregate().mutation().sequence() + 1, at, digest), lineage);
-            final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
-            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                    reader.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
-            order.requireBarrierProjection(before);
-            final var nextOrder = new TargetOrderState(order.target(), order.orderingDomain(), order.sourceShard(),
-                    order.executionDomain(), order.accountingIncarnation(), order.orderingContract(),
-                    order.stateRevision() + 1, order.controlVersion(), order.gate(),
-                    order.lastAdmittedOrder().encodedKey(), null,
-                    historical ? new TargetOrderBarrier(locator, order.barrier().order().encodedKey(),
-                            terminalRuntime.runtimeRevision(), terminalRuntime.runtimeDigest())
-                            : TargetOrderBarrier.fromMessage(after));
-            return new TargetMessageStore.Input(List.of(new TargetMessageStore.Transition(before, after)),
-                    List.of(new TargetMessageStore.OrderTransition(order, nextOrder)),
-                    List.of(reader.replace(ColumnFamily.TERMINAL, terminal.key(),
-                            TargetTerminalGenerationRecord.VALUE_TYPE, terminal.canonicalBytes())));
-        }, new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1), (a, b, c) -> guard());
+        new TargetMessageStore(backend, 1, 1, 1)
+                .applyAccounted(
+                        budget(),
+                        reader -> {
+                            final byte[] key = TargetKeyCodec.message(locator.messageId());
+                            final var before = TargetMessageRecord.decode(TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                                    .payload());
+                            final var prior = before.runtime();
+                            final var terminalRuntime = new TargetGenerationRuntimeIndex(
+                                    prior.generation(),
+                                    historical
+                                            ? GenerationAggregateState.SUPERSEDED
+                                            : GenerationAggregateState.DEAD_LETTER,
+                                    CurrentSendWorkKind.NONE,
+                                    null,
+                                    null,
+                                    null,
+                                    prior.attemptObligations(),
+                                    prior.admissionsUsed(),
+                                    prior.uncertainRetryAdmissionsUsed(),
+                                    prior.possibleDestinationDuplicate(),
+                                    prior.runtimeRevision() + 1);
+                            final var nextLocator = historical
+                                    ? new TargetMessageLocator(
+                                            locator.messageId(),
+                                            locator.generation() + 1,
+                                            locator.target(),
+                                            locator.domain(),
+                                            locator.accountingIncarnation(),
+                                            locator.orderingMode(),
+                                            locator.orderingDomain(),
+                                            locator.scheduleBindingDigest())
+                                    : locator;
+                            final var work = historical
+                                    ? new TargetTimelineWorkRef(
+                                            nextLocator,
+                                            TimelineWorkKind.INITIAL_SCHEDULE,
+                                            before.deliverAtEpochMs() + 1,
+                                            before.deliverAtEpochMs() + 1,
+                                            at.sourceOrderToken(),
+                                            1,
+                                            1,
+                                            UncertainRetryAuthority.NONE,
+                                            null,
+                                            null,
+                                            false)
+                                    : null;
+                            final var after = new TargetMessageRecord(
+                                    nextLocator,
+                                    before.stateVersion() + 1,
+                                    historical ? before.deliverAtEpochMs() + 1 : before.deliverAtEpochMs(),
+                                    before.expireAtEpochMs(),
+                                    historical ? before.deliverAtEpochMs() + 1 : before.retryEligibilityAtEpochMs(),
+                                    before.nativeDeliveryPolicy(),
+                                    historical ? at : before.scheduleSource(),
+                                    before.inlinePayload(),
+                                    before.payloadReference(),
+                                    historical
+                                            ? new TargetGenerationRuntimeIndex(
+                                                    nextLocator.generation(),
+                                                    GenerationAggregateState.SCHEDULED,
+                                                    CurrentSendWorkKind.TIMELINE,
+                                                    work,
+                                                    null,
+                                                    null,
+                                                    List.of(),
+                                                    0,
+                                                    0,
+                                                    false,
+                                                    1)
+                                            : terminalRuntime);
+                            final var terminal = new TargetTerminalGenerationRecord(
+                                    locator,
+                                    after.stateVersion(),
+                                    historical ? StableCode.SUPERSEDED : StableCode.DESTINATION_DEFINITIVE_PERMANENT,
+                                    terminalRuntime,
+                                    new TargetQuotaMutation(
+                                            reader.aggregate().mutation().sequence() + 1, at, digest),
+                                    lineage);
+                            final byte[] orderKey =
+                                    TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
+                            final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                    .payload());
+                            order.requireBarrierProjection(before);
+                            final var nextOrder = new TargetOrderState(
+                                    order.target(),
+                                    order.orderingDomain(),
+                                    order.sourceShard(),
+                                    order.executionDomain(),
+                                    order.accountingIncarnation(),
+                                    order.orderingContract(),
+                                    order.stateRevision() + 1,
+                                    order.controlVersion(),
+                                    order.gate(),
+                                    order.lastAdmittedOrder().encodedKey(),
+                                    null,
+                                    historical
+                                            ? new TargetOrderBarrier(
+                                                    locator,
+                                                    order.barrier().order().encodedKey(),
+                                                    terminalRuntime.runtimeRevision(),
+                                                    terminalRuntime.runtimeDigest())
+                                            : TargetOrderBarrier.fromMessage(after));
+                            return new TargetMessageStore.Input(
+                                    List.of(new TargetMessageStore.Transition(before, after)),
+                                    List.of(new TargetMessageStore.OrderTransition(order, nextOrder)),
+                                    List.of(reader.replace(
+                                            ColumnFamily.TERMINAL,
+                                            terminal.key(),
+                                            TargetTerminalGenerationRecord.VALUE_TYPE,
+                                            terminal.canonicalBytes())));
+                        },
+                        new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1),
+                        (a, b, c) -> guard());
     }
 
     private static void assertPublishedTargetOutcome(
@@ -9734,17 +11652,27 @@ class TargetCommandStoreTest {
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> expected,
             java.util.concurrent.atomic.AtomicInteger authorityResolutions,
             boolean mismatchedTransfer,
-            WorkClassExecutionRegistry workerClasses, int publishFailure) {
-        final var body = TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
+            WorkClassExecutionRegistry workerClasses,
+            int publishFailure) {
+        final var body =
+                TargetPublishAdmissionBody.decode(admission.entry().mutation().canonicalBody());
         final var publication = body.publication();
         final var before = (KafkaSourcePosition) store.appliedShardLogPosition();
         final int sourceGap = publishFailure == 9 ? 2 : 1;
         final var at = source(before, before.offset() + sourceGap, before.brokerPersistenceTimeEpochMs() + sourceGap);
-        final long observed = Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
+        final long observed =
+                Math.max(at.brokerPersistenceTimeEpochMs(), body.decisionTime().latestEpochMs());
         final var time = new TrustedUtcIntervalEvidence(
-                observed, observed + 1,
+                observed,
+                observed + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                bytes(32, 0xA1), 1, 1, 1, bytes(32, 0xA2), 0, null);
+                bytes(32, 0xA1),
+                1,
+                1,
+                1,
+                bytes(32, 0xA2),
+                0,
+                null);
         final boolean notPublished = publishFailure >= 6;
         final boolean permanent = publishFailure == 6;
         final boolean closed = publishFailure == 9;
@@ -9752,24 +11680,37 @@ class TargetCommandStoreTest {
                 ? permanent ? StableCode.DESTINATION_DEFINITIVE_PERMANENT : StableCode.DESTINATION_DEFINITIVE_RETRIABLE
                 : StableCode.OK;
         final int disposition = notPublished ? permanent ? 2 : publishFailure == 8 ? 3 : 1 : 0;
-        final var evidence = notPublished ? targetRejectedEvidence(publication, publication.preparedPublishHash(),
-                publication.physical().physicalPartition())
+        final var evidence = notPublished
+                ? targetRejectedEvidence(
+                        publication,
+                        publication.preparedPublishHash(),
+                        publication.physical().physicalPartition())
                 : targetPublishedAck(publication, publication.preparedPublishHash());
         expected.set(evidence);
         final var policy = targetOutcomeRetryPolicy(false);
         final var history = new TargetPublishOutcomeVerifier.RetryContext(
                 admission.entry().mutation(), admission.entry().mutation(), policy);
-        final long retryAt = time.latestEpochMs() + RetryJitter.delayMs(
-                RetryJitter.MESSAGE_PUBLISH, body.locator().messageId(), body.locator().generation(),
-                body.attemptNo(), policy.retryBackoffCap(body.attemptNo()));
+        final long retryAt = time.latestEpochMs()
+                + RetryJitter.delayMs(
+                        RetryJitter.MESSAGE_PUBLISH,
+                        body.locator().messageId(),
+                        body.locator().generation(),
+                        body.attemptNo(),
+                        policy.retryBackoffCap(body.attemptNo()));
         final byte[] retry = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1,
-                    notPublished ? permanent ? 3 : publishFailure == 8 ? 4 : 2 : 1);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, policy.ref().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
+                    out, 1, notPublished ? permanent ? 3 : publishFailure == 8 ? 4 : 2 : 1);
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 2, policy.ref().canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 3, body.attemptNo());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 4, body.decisionTime().latestEpochMs());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 5, Math.min(
-                    publication.expireAtEpochMs(), body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out, 4, body.decisionTime().latestEpochMs());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(
+                    out,
+                    5,
+                    Math.min(
+                            publication.expireAtEpochMs(),
+                            body.decisionTime().latestEpochMs() + policy.maxRetryDurationMs()));
             if (notPublished && !permanent) {
                 com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 6, retryAt);
             }
@@ -9778,101 +11719,174 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 9, 1);
         });
         final byte[] encoded = PublishOutcomeBody.encodeInitial(
-                scope.shard(), time.latestEpochMs() + 10_000, body.publishAttemptId(),
-                notPublished ? 2 : 1, disposition, cause, evidence.canonicalBytes(),
-                body.outcomeTransfer(), time, retry);
+                scope.shard(),
+                time.latestEpochMs() + 10_000,
+                body.publishAttemptId(),
+                notPublished ? 2 : 1,
+                disposition,
+                cause,
+                evidence.canonicalBytes(),
+                body.outcomeTransfer(),
+                time,
+                retry);
         final var mutation = SystemMutation.signed(
-                scope.shard(), SystemMutationType.PUBLISH_OUTCOME, time.latestEpochMs() + 10_000,
-                body.publishAttemptId(), encoded,
-                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(),
-                                owner.leaseFencingDigest()).canonicalBytes(), 1, keys.getPrivate());
+                scope.shard(),
+                SystemMutationType.PUBLISH_OUTCOME,
+                time.latestEpochMs() + 10_000,
+                body.publishAttemptId(),
+                encoded,
+                AuthorIdentity.owner(
+                                owner.deploymentId(),
+                                owner.workerRunId(),
+                                owner.ownerEpoch(),
+                                owner.leaseFencingDigest())
+                        .canonicalBytes(),
+                1,
+                keys.getPrivate());
         final var outcomes = new TargetPublishOutcomeStore(backend, scope, lineage, 16, 1, 1);
         final long originalSequence = store.latestSequenceNumber();
-        assertThrows(IllegalStateException.class, () -> outcomes.prepareFirst(
-                budget(), mutation, at, (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
-                        keys.getPublic(), ProtocolTuple.currentSystemMutation(), owner,
-                        10, 10, 100, (e, f, g, h) -> true)));
-        assertThrows(IllegalStateException.class, () -> outcomes.prepareFirst(
-                budget(), mutation, at, (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
-                        keys.getPublic(), ProtocolTuple.currentSystemMutation(), owner,
-                        10, 10, 100, (e, f, g, h) -> true, history,
-                        new TargetPublishOutcomeVerifier.EvidenceContext(admission.entry().mutation(),
-                                (p, e, first, source) -> {
-                                    throw new IllegalStateException("fixture authenticated response is unavailable");
-                                }))));
+        assertThrows(
+                IllegalStateException.class,
+                () -> outcomes.prepareFirst(
+                        budget(),
+                        mutation,
+                        at,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true)));
+        assertThrows(
+                IllegalStateException.class,
+                () -> outcomes.prepareFirst(
+                        budget(),
+                        mutation,
+                        at,
+                        (a, b, c, d) -> new TargetPublishOutcomeVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.currentSystemMutation(),
+                                owner,
+                                10,
+                                10,
+                                100,
+                                (e, f, g, h) -> true,
+                                history,
+                                new TargetPublishOutcomeVerifier.EvidenceContext(
+                                        admission.entry().mutation(), (p, e, first, source) -> {
+                                            throw new IllegalStateException(
+                                                    "fixture authenticated response is unavailable");
+                                        }))));
         assertEquals(originalSequence, store.latestSequenceNumber());
         assertEquals(before, store.appliedShardLogPosition());
         assertNull(store.get(ColumnFamily.DEDUPE, systemKey(mutation)));
         final byte[] messageKey = TargetKeyCodec.message(body.locator().messageId());
-        final var message = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
-        final byte[] orderKey = TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain());
-        final var order = TargetOrderState.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
+        final var message = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
+        final byte[] orderKey = TargetKeyCodec.orderState(
+                body.locator().target(), body.locator().orderingDomain());
+        final var order = TargetOrderState.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
         if (notPublished) {
             assertThrows(IllegalArgumentException.class, () -> targetRejectedEvidence(
-                    publication, bytes(32, 0xEF), publication.physical().physicalPartition())
+                            publication, bytes(32, 0xEF), publication.physical().physicalPartition())
                     .requireOrdinaryTargetNotPublishedBinding(publication));
             assertThrows(IllegalArgumentException.class, () -> targetRejectedEvidence(
-                    publication, publication.preparedPublishHash(), publication.physical().physicalPartition() + 1)
+                            publication,
+                            publication.preparedPublishHash(),
+                            publication.physical().physicalPartition() + 1)
                     .requireOrdinaryTargetNotPublishedBinding(publication));
         }
-        final var bridge = mismatchedTransfer ? null : publishThroughTargetBridge(
-                worker, workerClasses, admission, keys, time, retry, expected, at, publishFailure);
+        final var bridge = mismatchedTransfer
+                ? null
+                : publishThroughTargetBridge(
+                        worker, workerClasses, admission, keys, time, retry, expected, at, publishFailure);
         if (closed) {
-            closeRetryQueueFixture(backend, store, scope, lineage, body.locator().target());
+            closeRetryQueueFixture(
+                    backend, store, scope, lineage, body.locator().target());
         }
         final var actualMutation = mismatchedTransfer
                 ? SystemMutation.signed(
-                        scope.shard(), SystemMutationType.PUBLISH_OUTCOME, time.latestEpochMs() + 10_000,
-                        body.publishAttemptId(), PublishOutcomeBody.encodeInitial(
-                                scope.shard(), time.latestEpochMs() + 10_000, body.publishAttemptId(),
-                                1, 0, StableCode.OK, evidence.canonicalBytes(),
-                                new PublishAdmissionBody.ChargeVector(
-                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).canonicalBytes(),
-                                time, retry),
-                        mutation.authorIdentity(), 1, keys.getPrivate())
+                        scope.shard(),
+                        SystemMutationType.PUBLISH_OUTCOME,
+                        time.latestEpochMs() + 10_000,
+                        body.publishAttemptId(),
+                        PublishOutcomeBody.encodeInitial(
+                                scope.shard(),
+                                time.latestEpochMs() + 10_000,
+                                body.publishAttemptId(),
+                                1,
+                                0,
+                                StableCode.OK,
+                                evidence.canonicalBytes(),
+                                new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                                        .canonicalBytes(),
+                                time,
+                                retry),
+                        mutation.authorIdentity(),
+                        1,
+                        keys.getPrivate())
                 : bridge.publisher().mutation().orElseThrow();
         final var entry = new SourceReplayMutation(actualMutation, at, null, null);
         final var acknowledgements = new java.util.concurrent.atomic.AtomicInteger();
         pending.set(new SourceRecordConsumer.PolledSourceRecord(entry, (actual, result) -> {
             assertEquals(entry, actual);
-            assertEquals(mismatchedTransfer ? ApplyStatus.REJECTED : ApplyStatus.APPLIED,
+            assertEquals(
+                    mismatchedTransfer ? ApplyStatus.REJECTED : ApplyStatus.APPLIED,
                     result.systemMutationResult().applyStatus());
-            assertEquals(mismatchedTransfer ? StableCode.STALE_SYSTEM_MUTATION
-                            : closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
-                            : PublishOutcomeBody.decode(actualMutation.canonicalBody()).stableCode(),
+            assertEquals(
+                    mismatchedTransfer
+                            ? StableCode.STALE_SYSTEM_MUTATION
+                            : closed
+                                    ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED
+                                    : PublishOutcomeBody.decode(actualMutation.canonicalBody())
+                                            .stableCode(),
                     result.systemMutationResult().stableCode());
             return acknowledgements.incrementAndGet() == 1
                     ? SourceAcknowledgement.AcknowledgementResult.unknown(null)
                     : SourceAcknowledgement.AcknowledgementResult.acked();
         }));
-        assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                        .status());
         assertEquals(entry, worker.pendingSourceEntry().orElseThrow());
         assertEquals(at, store.appliedShardLogPosition());
-        final var after = TargetMessageRecord.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE).payload());
+        final var after = TargetMessageRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.ID, messageKey), TargetMessageRecord.VALUE_TYPE)
+                        .payload());
         if (mismatchedTransfer) {
             assertArrayEquals(message.canonicalBytes(), after.canonicalBytes());
-            assertArrayEquals(order.canonicalBytes(), TargetOrderState.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload()).canonicalBytes());
+            assertArrayEquals(
+                    order.canonicalBytes(),
+                    TargetOrderState.decode(TargetValueEnvelope.decode(
+                                            store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                                    .payload())
+                            .canonicalBytes());
             final byte[] rejectedBudgetKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                     body.publishAttemptId());
             final var stillAdmitted = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, rejectedBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.META, rejectedBudgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                    .payload());
             assertEquals(TargetQuotaAttemptBudget.Phase.ADMITTED, stillAdmitted.phase());
             assertEquals(1, stillAdmitted.revision());
             assertNull(store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())));
             final var rejected = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.DEDUPE, systemKey(actualMutation)),
-                    TargetResultRecord.VALUE_TYPE).payload());
-            assertEquals(StableCode.STALE_SYSTEM_MUTATION,
+                            store.get(ColumnFamily.DEDUPE, systemKey(actualMutation)), TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            assertEquals(
+                    StableCode.STALE_SYSTEM_MUTATION,
                     SystemMutationResult.decode(rejected.typedPayload()).stableCode());
             final long appliedSequence = store.latestSequenceNumber();
-            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                            .status());
             assertEquals(appliedSequence, store.latestSequenceNumber());
             assertEquals(2, acknowledgements.get());
             assertEquals(1, authorityResolutions.get());
@@ -9885,37 +11899,47 @@ class TargetCommandStoreTest {
                     new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                     body.publishAttemptId());
             final var unknown = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, unknownKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.META, unknownKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                    .payload());
             assertEquals(TargetQuotaAttemptBudget.Phase.UNKNOWN, unknown.phase());
             assertEquals(body.commitment(), unknown.commitment());
             assertEquals(body.allocated(), unknown.allocated());
             assertEquals(1, unknown.effectiveCharge().amount(CapacityDimension.INFLIGHT_MESSAGES));
             assertNull(store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())));
             final long applied = store.latestSequenceNumber();
-            assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                    worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                    worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                            .status());
             assertEquals(applied, store.latestSequenceNumber());
             assertEquals(2, acknowledgements.get());
             assertTrue(bridge.executor().settleApplied(bridge.handoff(), () -> 101));
             return;
         }
         if (notPublished) {
-            assertNotPublishedProjection(store, body, after, order,
-                    closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED : cause, permanent || closed);
+            assertNotPublishedProjection(
+                    store,
+                    body,
+                    after,
+                    order,
+                    closed ? StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED : cause,
+                    permanent || closed);
         } else {
-            assertArrayEquals(message.publishedOutcome(body.publishAttemptId()).canonicalBytes(),
-                    after.canonicalBytes());
+            assertArrayEquals(
+                    message.publishedOutcome(body.publishAttemptId()).canonicalBytes(), after.canonicalBytes());
             assertEquals(GenerationAggregateState.PUBLISHED, after.aggregateState());
-            final var afterOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
-            assertArrayEquals(order.afterPublishedOutcome(message, after).canonicalBytes(),
-                    afterOrder.canonicalBytes());
+            final var afterOrder = TargetOrderState.decode(
+                    TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload());
+            assertArrayEquals(
+                    order.afterPublishedOutcome(message, after).canonicalBytes(), afterOrder.canonicalBytes());
             assertNull(afterOrder.barrier());
             final byte[] budgetKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                     body.publishAttemptId());
             final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                    .payload());
             assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolved.phase());
             assertEquals(body.commitment(), resolved.commitment());
             assertEquals(body.allocated(), resolved.allocated());
@@ -9925,54 +11949,73 @@ class TargetCommandStoreTest {
                     new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                     body.locator().messageId().bytes());
             final var retained = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                    .payload());
             assertEquals(TargetQuotaPayloadOwner.Phase.RETAINED, retained.phase());
             retained.requireMessagePayload(after);
             final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
-                    TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                            store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator())),
+                            TargetTerminalGenerationRecord.VALUE_TYPE)
+                    .payload());
             terminal.requireOwner(retained);
             assertEquals(after.runtime(), terminal.runtime());
             final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.DEDUPE, systemKey(actualMutation)),
-                    TargetResultRecord.VALUE_TYPE).payload());
-            assertArrayEquals(at.canonicalBytes(),
+                            store.get(ColumnFamily.DEDUPE, systemKey(actualMutation)), TargetResultRecord.VALUE_TYPE)
+                    .payload());
+            assertArrayEquals(
+                    at.canonicalBytes(),
                     SystemMutationResult.decode(first.typedPayload()).appliedSourcePosition());
             final var position = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.DEDUPE, Bytes.concat(
-                            new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
-                            at.canonicalBytes())),
-                    TargetResultRecord.VALUE_TYPE).payload());
+                            store.get(
+                                    ColumnFamily.DEDUPE,
+                                    Bytes.concat(
+                                            new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                                            at.canonicalBytes())),
+                            TargetResultRecord.VALUE_TYPE)
+                    .payload());
             position.requireFirst(first);
         }
         final long appliedSequence = store.latestSequenceNumber();
-        assertEquals(SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
-                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101).status());
+        assertEquals(
+                SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
+                worker.runSourceTurn(new SchedulerBudget(64, 32L << 20, 60_000_000_000L), () -> 101)
+                        .status());
         assertEquals(2, acknowledgements.get());
         assertEquals(1, authorityResolutions.get());
         assertEquals(appliedSequence, store.latestSequenceNumber());
         assertTrue(worker.pendingSourceEntry().isEmpty());
         assertTrue(bridge.executor().settleApplied(bridge.handoff(), () -> 101));
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101));
     }
 
     private static void assertNotPublishedProjection(
-            ShardStore store, TargetPublishAdmissionBody body, TargetMessageRecord after,
-            TargetOrderState order, StableCode cause, boolean permanent) {
-        assertEquals(permanent ? GenerationAggregateState.DEAD_LETTER : GenerationAggregateState.RETRY_WAIT,
+            ShardStore store,
+            TargetPublishAdmissionBody body,
+            TargetMessageRecord after,
+            TargetOrderState order,
+            StableCode cause,
+            boolean permanent) {
+        assertEquals(
+                permanent ? GenerationAggregateState.DEAD_LETTER : GenerationAggregateState.RETRY_WAIT,
                 after.aggregateState());
         assertTrue(after.runtime().attemptObligations().isEmpty());
-        final byte[] orderKey = TargetKeyCodec.orderState(body.locator().target(), body.locator().orderingDomain());
-        final var nextOrder = TargetOrderState.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload());
-        assertArrayEquals(order.lastAdmittedOrder().encodedKey(), nextOrder.lastAdmittedOrder().encodedKey());
+        final byte[] orderKey = TargetKeyCodec.orderState(
+                body.locator().target(), body.locator().orderingDomain());
+        final var nextOrder = TargetOrderState.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                        .payload());
+        assertArrayEquals(
+                order.lastAdmittedOrder().encodedKey(),
+                nextOrder.lastAdmittedOrder().encodedKey());
         assertNull(nextOrder.barrier());
         final byte[] budgetKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                 body.publishAttemptId());
-        final var resolved = TargetQuotaAttemptBudget.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE).payload());
+        final var resolved = TargetQuotaAttemptBudget.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, budgetKey), TargetQuotaAttemptBudget.VALUE_TYPE)
+                        .payload());
         assertEquals(TargetQuotaAttemptBudget.Phase.RESOLVED_AWAITING_FLOOR, resolved.phase());
         assertEquals(body.commitment(), resolved.commitment());
         assertEquals(body.allocated(), resolved.allocated());
@@ -9981,16 +12024,19 @@ class TargetCommandStoreTest {
         final byte[] payloadKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                 body.locator().messageId().bytes());
-        final var payload = TargetQuotaPayloadOwner.decode(TargetValueEnvelope.decode(
-                store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload());
-        assertEquals(permanent ? TargetQuotaPayloadOwner.Phase.RETAINED : TargetQuotaPayloadOwner.Phase.ACTIVE,
+        final var payload = TargetQuotaPayloadOwner.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                        .payload());
+        assertEquals(
+                permanent ? TargetQuotaPayloadOwner.Phase.RETAINED : TargetQuotaPayloadOwner.Phase.ACTIVE,
                 payload.phase());
-        final byte[] rawTerminal = store.get(
-                ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator()));
+        final byte[] rawTerminal =
+                store.get(ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(after.locator()));
         if (permanent) {
             assertEquals(CurrentSendWorkKind.NONE, after.runtime().currentWorkKind());
             final var terminal = TargetTerminalGenerationRecord.decode(
-                    TargetValueEnvelope.decode(rawTerminal, TargetTerminalGenerationRecord.VALUE_TYPE).payload());
+                    TargetValueEnvelope.decode(rawTerminal, TargetTerminalGenerationRecord.VALUE_TYPE)
+                            .payload());
             assertEquals(cause, terminal.terminalCode());
             assertEquals(after.runtime(), terminal.runtime());
             terminal.requireOwner(payload);
@@ -10001,24 +12047,33 @@ class TargetCommandStoreTest {
             assertEquals(body.attemptNo() + 1, work.candidateAttemptNo());
             assertFalse(work.nativeCandidate());
             assertNotNull(nextOrder.serviceableHead());
-            assertArrayEquals(work.canonicalBytes(), TargetValueEnvelope.decode(
-                    store.get(ColumnFamily.TIMELINE, work.ordinaryKey()), TargetTimelineWorkRef.VALUE_TYPE).payload());
-            assertEquals(after.locator().messageId(), nextOrder.serviceableHead().messageId());
+            assertArrayEquals(
+                    work.canonicalBytes(),
+                    TargetValueEnvelope.decode(
+                                    store.get(ColumnFamily.TIMELINE, work.ordinaryKey()),
+                                    TargetTimelineWorkRef.VALUE_TYPE)
+                            .payload());
+            assertEquals(
+                    after.locator().messageId(), nextOrder.serviceableHead().messageId());
         }
     }
 
     private static com.nereusstream.delay.protocol.PublishEvidence targetRejectedEvidence(
             com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
-            byte[] preparedHash, long partition) {
+            byte[] preparedHash,
+            long partition) {
         final byte[] branch = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1,
-                    com.nereusstream.delay.protocol.AdapterKind.PULSAR.wireValue());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2,
-                    publication.physical().resource().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
+                    out, 1, com.nereusstream.delay.protocol.AdapterKind.PULSAR.wireValue());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 2, publication.physical().resource().canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 3, partition);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 4,
-                    com.nereusstream.delay.protocol.ExternalDeliveryIdentity
-                            .publishAttempt(publication.publishAttemptId()).canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out,
+                    4,
+                    com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(
+                                    publication.publishAttemptId())
+                            .canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 5, preparedHash);
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 6, bytes(32, 0xE1));
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 7, 1);
@@ -10027,7 +12082,8 @@ class TargetCommandStoreTest {
         });
         return com.nereusstream.delay.protocol.PublishEvidence.create(
                 com.nereusstream.delay.protocol.PublishEvidenceKind.BROKER_DEFINITIVE_REJECTION,
-                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED, branch);
+                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
+                branch);
     }
 
     private record PublishBridge(
@@ -10036,11 +12092,17 @@ class TargetCommandStoreTest {
             com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor handoff) {}
 
     private static PublishBridge publishThroughTargetBridge(
-            TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes, TargetAdmissionFixture admission,
-            KeyPair keys, TrustedUtcIntervalEvidence time, byte[] none,
+            TargetWorkerShardRuntime worker,
+            WorkClassExecutionRegistry classes,
+            TargetAdmissionFixture admission,
+            KeyPair keys,
+            TrustedUtcIntervalEvidence time,
+            byte[] none,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.PublishEvidence> evidence,
-            KafkaSourcePosition sourceAt, int publishFailure) {
-        final var applied = worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101);
+            KafkaSourcePosition sourceAt,
+            int publishFailure) {
+        final var applied =
+                worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101);
         final var publication = applied.body().publication();
         final var artifacts = com.nereusstream.delay.protocol.ArtifactGenerationSet.current(
                 1, com.nereusstream.delay.protocol.PulsarSourceLock.digest(), bytes(32, 0xC3));
@@ -10062,10 +12124,12 @@ class TargetCommandStoreTest {
 
                     @Override
                     public java.util.concurrent.CompletionStage<com.nereusstream.delay.adapter.DestinationPublishResult>
-                            publishPreparedRecord(com.nereusstream.delay.protocol.PulsarPreparedRecord record,
+                            publishPreparedRecord(
+                                    com.nereusstream.delay.protocol.PulsarPreparedRecord record,
                                     com.nereusstream.delay.protocol.ArtifactGenerationSet set,
                                     com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter
-                                            .PreparedPublishPreflight gate) {
+                                                    .PreparedPublishPreflight
+                                            gate) {
                         final var blocked = gate.check(record, set);
                         if (blocked != null) {
                             return java.util.concurrent.CompletableFuture.completedFuture(blocked);
@@ -10074,73 +12138,114 @@ class TargetCommandStoreTest {
                         if (publishFailure >= 6) {
                             return java.util.concurrent.CompletableFuture.completedFuture(
                                     com.nereusstream.delay.adapter.DestinationPublishResult.definitelyNotPublished(
-                                            publishFailure == 6 ? StableCode.DESTINATION_DEFINITIVE_PERMANENT
+                                            publishFailure == 6
+                                                    ? StableCode.DESTINATION_DEFINITIVE_PERMANENT
                                                     : StableCode.DESTINATION_DEFINITIVE_RETRIABLE,
                                             evidence.get().canonicalBytes()));
                         }
                         final var ack = com.nereusstream.delay.adapter.PulsarSendAckEvidence.publishedRecord(
-                                record, set, record.sequenceAuthority().producerNameHash(), 1, 2, 0, 1,
-                                time.earliestEpochMs(), 21, 1, 1, record.sequenceAuthority().sequenceId(),
-                                bytes(32, 0xDA), bytes(32, 0xDB));
+                                record,
+                                set,
+                                record.sequenceAuthority().producerNameHash(),
+                                1,
+                                2,
+                                0,
+                                1,
+                                time.earliestEpochMs(),
+                                21,
+                                1,
+                                1,
+                                record.sequenceAuthority().sequenceId(),
+                                bytes(32, 0xDA),
+                                bytes(32, 0xDB));
                         evidence.set(ack);
                         return java.util.concurrent.CompletableFuture.completedFuture(
                                 com.nereusstream.delay.adapter.DestinationPublishResult.published(
                                         publication.physical().resource(),
                                         Math.toIntExact(publication.physical().physicalPartition()),
-                                        publication.publishAttemptId(), time.earliestEpochMs(), ack.canonicalBytes()));
+                                        publication.publishAttemptId(),
+                                        time.earliestEpochMs(),
+                                        ack.canonicalBytes()));
                     }
                 };
         final var adapter = new com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter(
                 delegate, pool, classes, Runnable::run);
         final var entry = new java.util.concurrent.atomic.AtomicInteger();
         final var fresh = com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(
-                applied.body().shard(), request -> {
-                    if (publishFailure == 5 || publishFailure == 1
-                            && request.kind() == com.nereusstream.delay.adapter.PulsarAttemptJournal
-                                    .RecordKind.OWNERSHIP_STARTED) {
+                applied.body().shard(),
+                request -> {
+                    if (publishFailure == 5
+                            || publishFailure == 1
+                                    && request.kind()
+                                            == com.nereusstream.delay.adapter.PulsarAttemptJournal.RecordKind
+                                                    .OWNERSHIP_STARTED) {
                         throw new IllegalStateException("fixture uncertain ownership append");
                     }
                     return new com.nereusstream.delay.adapter.PulsarAttemptJournal.JournalPosition(
                             1, entry.getAndIncrement(), 0, 1, time.earliestEpochMs());
-                }, null, 16, 1_000_000);
+                },
+                null,
+                16,
+                1_000_000);
         final var journal = publishFailure == 3
-                ? com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(applied.body().shard(),
-                        request -> { throw new AssertionError("recovered ownership must not append or resend"); },
-                        null, 16, 1_000_000)
+                ? com.nereusstream.delay.adapter.PulsarAttemptJournal.forTargets(
+                        applied.body().shard(),
+                        request -> {
+                            throw new AssertionError("recovered ownership must not append or resend");
+                        },
+                        null,
+                        16,
+                        1_000_000)
                 : fresh;
         if (publishFailure == 3) {
-            final var p = com.nereusstream.delay.protocol.PayloadForPublish.inline(applied.message().inlinePayload());
+            final var p = com.nereusstream.delay.protocol.PayloadForPublish.inline(
+                    applied.message().inlinePayload());
             final var mapped = fresh.appendOrReuseCurrent(
-                    com.nereusstream.delay.adapter.PulsarAttemptJournal.ProducerKey.target(
-                            publication.channel(), publication.physical()),
-                    com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetJournalIdentity(
-                            publication, applied.message(), p, applied.source())).record().mapping();
+                            com.nereusstream.delay.adapter.PulsarAttemptJournal.ProducerKey.target(
+                                    publication.channel(), publication.physical()),
+                            com.nereusstream.delay.adapter.PulsarPreparedRecordFactory.targetJournalIdentity(
+                                    publication, applied.message(), p, applied.source()))
+                    .record()
+                    .mapping();
             fresh.markOwnershipStarted(mapped);
             fresh.records().forEach(journal::replay);
         }
         final var source = new com.nereusstream.delay.ownership.TargetOutcomeWorkClassExecutor(
-                worker, image -> com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome
-                        .persisted(sourceAt));
+                worker,
+                image -> com.nereusstream.delay.ownership.ShardLogMutationAppender.AppendOutcome.persisted(sourceAt));
         final var handoffs = new java.util.concurrent.atomic.AtomicInteger();
         final var executor = new com.nereusstream.delay.ownership.TargetPulsarPublishExecutor(
-                journal, adapter, artifacts,
+                journal,
+                adapter,
+                artifacts,
                 () -> worker.readAppliedAdmission(budget(), admission.entry().mutation(), () -> 101),
                 (p, r, a) -> publishFailure == 2
                         ? com.nereusstream.delay.adapter.DestinationPublishResult.unknown(
-                                StableCode.CAPABILITY_UNAVAILABLE, null) : null,
+                                StableCode.CAPABILITY_UNAVAILABLE, null)
+                        : null,
                 (a, r, result) -> {
                     final boolean unknown = result.disposition()
                             == com.nereusstream.delay.adapter.DestinationPublishResult.Disposition.UNKNOWN;
                     final var policy = targetOutcomeRetryPolicy(false);
-                    final byte[] retry = unknown ? typedUnknownRetryDecision(
-                            policy, a.body().decisionTime().latestEpochMs(), Math.min(publication.expireAtEpochMs(),
-                                    a.body().decisionTime().latestEpochMs() + policy.maxRetryDurationMs()),
-                            a.body().attemptNo(), null, result.stableCode()) : none;
+                    final byte[] retry = unknown
+                            ? typedUnknownRetryDecision(
+                                    policy,
+                                    a.body().decisionTime().latestEpochMs(),
+                                    Math.min(
+                                            publication.expireAtEpochMs(),
+                                            a.body().decisionTime().latestEpochMs() + policy.maxRetryDurationMs()),
+                                    a.body().attemptNo(),
+                                    null,
+                                    result.stableCode())
+                            : none;
                     return new com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory.OutcomeContext(
                             time.latestEpochMs() + 10_000,
-                            unknown ? 4 : publishFailure >= 6
-                                    ? publishFailure == 6 ? 2 : publishFailure == 8 ? 3 : 1 : 0,
-                            a.body().outcomeTransfer(), time, retry);
+                            unknown
+                                    ? 4
+                                    : publishFailure >= 6 ? publishFailure == 6 ? 2 : publishFailure == 8 ? 3 : 1 : 0,
+                            a.body().outcomeTransfer(),
+                            time,
+                            retry);
                 },
                 new com.nereusstream.delay.ownership.TargetPublishOutcomeMutationFactory(1, keys.getPrivate()),
                 image -> {
@@ -10149,17 +12254,26 @@ class TargetCommandStoreTest {
                     if (handoffs.incrementAndGet() == 1) {
                         throw new IllegalStateException("fixture lost queue-acceptance response");
                     }
-                }, Runnable::run);
-        final var payload = com.nereusstream.delay.protocol.PayloadForPublish.inline(applied.message().inlinePayload());
-        final var result = executor.submit(payload,
-                com.nereusstream.delay.protocol.ResolvedPayload.of(applied.message().inlinePayload()));
+                },
+                Runnable::run);
+        final var payload = com.nereusstream.delay.protocol.PayloadForPublish.inline(
+                applied.message().inlinePayload());
+        final var result = executor.submit(
+                payload,
+                com.nereusstream.delay.protocol.ResolvedPayload.of(
+                        applied.message().inlinePayload()));
         assertNotNull(result.failure().orElse(null));
         assertEquals(publishFailure == 0 || publishFailure >= 6 ? 1 : 0, sends.get());
-        assertEquals(publishFailure == 0 ? 3 : publishFailure == 5 ? 0 : publishFailure == 1 ? 1 : 2,
+        assertEquals(
+                publishFailure == 0 ? 3 : publishFailure == 5 ? 0 : publishFailure == 1 ? 1 : 2,
                 journal.records().size());
         final byte[] exact = result.mutation().orElseThrow().encodeFrame();
-        assertEquals(result, executor.submit(payload,
-                com.nereusstream.delay.protocol.ResolvedPayload.of(applied.message().inlinePayload())));
+        assertEquals(
+                result,
+                executor.submit(
+                        payload,
+                        com.nereusstream.delay.protocol.ResolvedPayload.of(
+                                applied.message().inlinePayload())));
         executor.retryCompletion();
         assertTrue(result.handedOff());
         assertArrayEquals(exact, result.mutation().orElseThrow().encodeFrame());
@@ -10172,25 +12286,29 @@ class TargetCommandStoreTest {
     private static com.nereusstream.delay.protocol.PublishEvidence targetPublishedAck(
             com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication, byte[] preparedHash) {
         final byte[] branch = com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 1,
-                    publication.physical().resource().canonicalBytes());
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 2,
-                    publication.physical().physicalPartition());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 1, publication.physical().resource().canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
+                    out, 2, publication.physical().physicalPartition());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 3, 1);
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 4, 2);
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 5, 0);
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 6, publication.deliverAtEpochMs());
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 7, bytes(32, 0xD1));
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(out, 8, 1);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 9,
-                    com.nereusstream.delay.protocol.ExternalDeliveryIdentity
-                            .publishAttempt(publication.publishAttemptId()).canonicalBytes());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out,
+                    9,
+                    com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(
+                                    publication.publishAttemptId())
+                            .canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 10, preparedHash);
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 11, bytes(32, 0xD2));
         });
         return com.nereusstream.delay.protocol.PublishEvidence.create(
                 com.nereusstream.delay.protocol.PublishEvidenceKind.PULSAR_SEND_ACK,
-                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
+                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED,
+                branch);
     }
 
     private static com.nereusstream.delay.protocol.TargetChannelIdentity materializedChannelFixture(
@@ -10204,27 +12322,52 @@ class TargetCommandStoreTest {
         final var prior = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(prior, prior.offset() + 1, prior.brokerPersistenceTimeEpochMs() + 1);
         final var context = new com.nereusstream.delay.protocol.TargetChannelIdentity.Context(
-                scope.shard(), binding.target(), binding.domain(), binding.accountingIncarnation(),
-                binding.offeredDispatchRef(), binding.controlScopeRef(),
+                scope.shard(),
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                binding.offeredDispatchRef(),
+                binding.controlScopeRef(),
                 com.nereusstream.delay.protocol.ChannelKind.PULSAR_DEDUP_PRODUCER,
-                0, 1, 1L, bytes(32, 0xC1));
+                0,
+                1,
+                1L,
+                bytes(32, 0xC1));
         final var issued = new TrustedUtcIntervalEvidence(
-                at.brokerPersistenceTimeEpochMs(), at.brokerPersistenceTimeEpochMs() + 1,
+                at.brokerPersistenceTimeEpochMs(),
+                at.brokerPersistenceTimeEpochMs() + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                bytes(32, 0xA1), 1, 1, 1, bytes(32, 0xA2), 0, null);
+                bytes(32, 0xA1),
+                1,
+                1,
+                1,
+                bytes(32, 0xA2),
+                0,
+                null);
         final var channel = new com.nereusstream.delay.protocol.TargetChannelIdentity(
                 context,
                 new com.nereusstream.delay.protocol.CredentialUseLease(
-                        providerProfile, com.nereusstream.delay.protocol.CredentialUseKind.DESTINATION_CHANNEL,
-                        context.credentialHolderScope(), 1, bytes(32, 0xC2), bytes(32, 0xC3),
-                        issued, claim.deadlineEpochMs() + 1000, 1));
-        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
-                budget(),
-                reader -> new TargetMessageStore.Input(List.of(), List.of(), List.of(reader.replace(
-                        ColumnFamily.META, channel.encodedKey(),
-                        com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE, channel.canonicalBytes()))),
-                new TargetSourceAccounting(scope, lineage, at, bytes(32, 0xC4), 16, 1, 1),
-                (a, b, c) -> guard());
+                        providerProfile,
+                        com.nereusstream.delay.protocol.CredentialUseKind.DESTINATION_CHANNEL,
+                        context.credentialHolderScope(),
+                        1,
+                        bytes(32, 0xC2),
+                        bytes(32, 0xC3),
+                        issued,
+                        claim.deadlineEpochMs() + 1000,
+                        1));
+        new TargetMessageStore(backend, 1, 1, 1)
+                .applyAccounted(
+                        budget(),
+                        reader -> new TargetMessageStore.Input(
+                                List.of(),
+                                List.of(),
+                                List.of(reader.replace(
+                                        ColumnFamily.META, channel.encodedKey(),
+                                        com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE,
+                                                channel.canonicalBytes()))),
+                        new TargetSourceAccounting(scope, lineage, at, bytes(32, 0xC4), 16, 1, 1),
+                        (a, b, c) -> guard());
         return channel;
     }
 
@@ -10237,33 +12380,44 @@ class TargetCommandStoreTest {
         final var priorSource = (KafkaSourcePosition) store.appliedShardLogPosition();
         final var at = source(priorSource, priorSource.offset() + 1, priorSource.brokerPersistenceTimeEpochMs() + 1);
         final byte[] digest = bytes(32, 0xB1);
-        new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
-                budget(),
-                reader -> {
-                    final byte[] key = TargetKeyCodec.state(target);
-                    final var prior = TargetQueueState.decode(TargetValueEnvelope.decode(
-                                    reader.get(ColumnFamily.META, key), TargetQueueState.VALUE_TYPE)
-                            .payload());
-                    final var domains = prior.domains().stream().map(domain -> new TargetDomainState(
-                                    domain.domain(), domain.lifecycle(), domain.dispatchCompatibilityRef(),
-                                    domain.controlScopeRef(), domain.nativePolicyScopeRef(), null, null))
-                            .toList();
-                    final var closed = new TargetQueueState(
-                            target,
-                            TargetQueueState.nextRevision(prior.headRevision()),
-                            TargetQueueState.nextRevision(prior.controlVersion()),
-                            TargetQueueState.AdmissionState.CLOSED,
-                            prior.accountingIncarnation(),
-                            prior.nativeIndexLeadCapMs(),
-                            domains);
-                    closed.requireSuccessorOf(prior);
-                    return new TargetMessageStore.Input(
-                            List.of(), List.of(),
-                            List.of(reader.replace(
-                                    ColumnFamily.META, key, TargetQueueState.VALUE_TYPE, closed.canonicalBytes())));
-                },
-                new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1),
-                (a, b, c) -> guard());
+        new TargetMessageStore(backend, 1, 1, 1)
+                .applyAccounted(
+                        budget(),
+                        reader -> {
+                            final byte[] key = TargetKeyCodec.state(target);
+                            final var prior = TargetQueueState.decode(TargetValueEnvelope.decode(
+                                            reader.get(ColumnFamily.META, key), TargetQueueState.VALUE_TYPE)
+                                    .payload());
+                            final var domains = prior.domains().stream()
+                                    .map(domain -> new TargetDomainState(
+                                            domain.domain(),
+                                            domain.lifecycle(),
+                                            domain.dispatchCompatibilityRef(),
+                                            domain.controlScopeRef(),
+                                            domain.nativePolicyScopeRef(),
+                                            null,
+                                            null))
+                                    .toList();
+                            final var closed = new TargetQueueState(
+                                    target,
+                                    TargetQueueState.nextRevision(prior.headRevision()),
+                                    TargetQueueState.nextRevision(prior.controlVersion()),
+                                    TargetQueueState.AdmissionState.CLOSED,
+                                    prior.accountingIncarnation(),
+                                    prior.nativeIndexLeadCapMs(),
+                                    domains);
+                            closed.requireSuccessorOf(prior);
+                            return new TargetMessageStore.Input(
+                                    List.of(),
+                                    List.of(),
+                                    List.of(reader.replace(
+                                            ColumnFamily.META,
+                                            key,
+                                            TargetQueueState.VALUE_TYPE,
+                                            closed.canonicalBytes())));
+                        },
+                        new TargetSourceAccounting(scope, lineage, at, digest, 16, 1, 1),
+                        (a, b, c) -> guard());
     }
 
     private static com.nereusstream.delay.protocol.RetryPolicySemantic targetOutcomeRetryPolicy(boolean retry) {
@@ -10298,8 +12452,13 @@ class TargetCommandStoreTest {
             long deadline,
             int completedAttempt,
             Long nextRetryAt) {
-        return typedUnknownRetryDecision(policy, firstAttemptAt, deadline, completedAttempt,
-                nextRetryAt, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN);
+        return typedUnknownRetryDecision(
+                policy,
+                firstAttemptAt,
+                deadline,
+                completedAttempt,
+                nextRetryAt,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN);
     }
 
     private static byte[] typedUnknownRetryDecision(
@@ -10307,7 +12466,8 @@ class TargetCommandStoreTest {
             long firstAttemptAt,
             long deadline,
             int completedAttempt,
-            Long nextRetryAt, StableCode cause) {
+            Long nextRetryAt,
+            StableCode cause) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, nextRetryAt == null ? 5 : 2);
             CanonicalProtobuf.bytes(output, 2, policy.ref().canonicalBytes());
@@ -10473,8 +12633,7 @@ class TargetCommandStoreTest {
                 Bytes.sha256(Bytes.utf8("target-expiry-test-proof")),
                 0,
                 null);
-        final var body = new TargetExpireGenerationBody(
-                source.shardId(), retryUntil, messageId, 0, expireAt, proof);
+        final var body = new TargetExpireGenerationBody(source.shardId(), retryUntil, messageId, 0, expireAt, proof);
         final byte[] logicalId = wrongIdentity
                 ? Bytes.sha256(Bytes.utf8("wrong-target-expiry-logical-id"))
                 : body.logicalOperationIdentity();
@@ -10616,8 +12775,13 @@ class TargetCommandStoreTest {
 
     private static com.nereusstream.delay.ownership.TargetWorkerHostRuntime assertCheckpointStartupBeforeTick(
             ShardStore store, TargetWorkerShardRuntime worker, WorkClassExecutionRegistry classes) {
-        final var checkpoint = new com.nereusstream.delay.ownership.TargetCheckpointRuntimeConfig(1000, 0,
-                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), 2048, 32L << 20, 60_000_000_000L,
+        final var checkpoint = new com.nereusstream.delay.ownership.TargetCheckpointRuntimeConfig(
+                1000,
+                0,
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L),
+                2048,
+                32L << 20,
+                60_000_000_000L,
                 java.time.Duration.ofSeconds(10),
                 new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(16, 512L << 10),
                 new com.nereusstream.delay.ownership.TargetCheckpointOutcomeInputs.Limits(16, 512L << 10),
@@ -10627,8 +12791,13 @@ class TargetCommandStoreTest {
                 new CheckpointManifestLimits(1000, 256L << 20, 256L << 20, 1024, 32 << 20, 1000, 1024),
                 new TargetCheckpointRootVerifier.QuotaAuditLimits(100_000, 256L << 20),
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(100_000, 256L << 20, 500_000, 256L << 20));
-        final var workerStore = ShardStoreConfig.defaults(
-                store.dbPath().getParent().getParent().getParent().getParent().getParent().getParent());
+        final var workerStore = ShardStoreConfig.defaults(store.dbPath()
+                .getParent()
+                .getParent()
+                .getParent()
+                .getParent()
+                .getParent()
+                .getParent());
         final var envelope = WorkerRuntimeTestSupport.envelope(workerStore);
         final long[] caps = new long[CapacityDimension.COUNT];
         Arrays.fill(caps, 1L << 30);
@@ -10637,31 +12806,49 @@ class TargetCommandStoreTest {
         caps[CapacityDimension.ROCKSDB_NATIVE_BYTES.wireValue() - 1] = envelope.maxRocksDbNativeBytes();
         caps[CapacityDimension.DIRECT_BUFFER_BYTES.wireValue() - 1] = envelope.maxDirectMemoryBytes();
         caps[CapacityDimension.OTHER_NATIVE_BYTES.wireValue() - 1] = envelope.maxOtherNativeBytes();
-        final var config = new com.nereusstream.delay.ownership.TargetWorkerRuntimeConfig(workerStore, envelope,
-                new CapacityVector(caps), workClassConfig(60_000_000_000L),
-                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1), 1_000_000,
+        final var config = new com.nereusstream.delay.ownership.TargetWorkerRuntimeConfig(
+                workerStore,
+                envelope,
+                new CapacityVector(caps),
+                workClassConfig(60_000_000_000L),
+                new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
+                1_000_000,
                 new com.nereusstream.delay.ownership.SystemWriterAppendBudget.Limits(1, 1_000_000, 1_000_000, 1),
-                new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(2, 2_000_000, 1_000_000,
-                        60_000_000_000L),
-                new com.nereusstream.delay.ownership.TargetSourceBacklogAdmission.Limits(4, 4_000_000, 1000,
-                        60_000_000_000L),
-                new com.nereusstream.delay.ownership.TargetWorkerTargetInventory.Limits(workerStore.maxOwnedShards(),
-                        4, 2, 2, 4096, 32L << 20, 60_000_000_000L),
-                new com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr.Limits(256, 1_000_000, 1_000_000,
-                        4, 16, 32L << 20, 60_000_000_000L),
-                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), java.time.Duration.ofDays(1),
-                new SchedulerBudget(1, 1_000_000, 60_000_000_000L), java.time.Duration.ofDays(1), checkpoint);
-        worker.configureMessageExpiryMaintenance(mutation -> {
-            throw new AssertionError("failed startup must not append expiry");
-        }, () -> { throw new IllegalStateException("expiry startup gate fixture"); });
+                new com.nereusstream.delay.ownership.TargetSourceBacklog.Limits(
+                        2, 2_000_000, 1_000_000, 60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetSourceBacklogAdmission.Limits(
+                        4, 4_000_000, 1000, 60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetWorkerTargetInventory.Limits(
+                        workerStore.maxOwnedShards(), 4, 2, 2, 4096, 32L << 20, 60_000_000_000L),
+                new com.nereusstream.delay.ownership.TargetWorkerOrdinaryDrr.Limits(
+                        256, 1_000_000, 1_000_000, 4, 16, 32L << 20, 60_000_000_000L),
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L),
+                java.time.Duration.ofDays(1),
+                new SchedulerBudget(1, 1_000_000, 60_000_000_000L),
+                java.time.Duration.ofDays(1),
+                checkpoint);
+        worker.configureMessageExpiryMaintenance(
+                mutation -> {
+                    throw new AssertionError("failed startup must not append expiry");
+                },
+                () -> {
+                    throw new IllegalStateException("expiry startup gate fixture");
+                });
         final var requests = new java.util.concurrent.atomic.AtomicInteger();
         final long before = store.latestSequenceNumber();
-        final var failed = assertThrows(IllegalArgumentException.class,
+        final var failed = assertThrows(
+                IllegalArgumentException.class,
                 () -> com.nereusstream.delay.ownership.TargetWorkerHostRuntime.startWithCollectedCheckpoints(
-                        config, classes, store.sharedResources(), List.of(worker), (selected, claim, cut) -> {
+                        config,
+                        classes,
+                        store.sharedResources(),
+                        List.of(worker),
+                        (selected, claim, cut) -> {
                             requests.incrementAndGet();
                             throw new AssertionError("failed schedule registration must not create a request");
-                        }, () -> -1, failure -> {
+                        },
+                        () -> -1,
+                        failure -> {
                             throw new AssertionError("tick ran before successful setup", failure);
                         }));
         assertEquals("nowEpochMs must be non-negative", failed.getMessage());
@@ -10670,12 +12857,18 @@ class TargetCommandStoreTest {
         final var tickFailed = new java.util.concurrent.CountDownLatch(1);
         final var checkpointClock = new java.util.concurrent.atomic.AtomicLong();
         final var started = com.nereusstream.delay.ownership.TargetWorkerHostRuntime.startWithCollectedCheckpoints(
-                config, classes, store.sharedResources(), List.of(worker), (selected, claim, cut) -> {
+                config,
+                classes,
+                store.sharedResources(),
+                List.of(worker),
+                (selected, claim, cut) -> {
                     requests.incrementAndGet();
                     assertEquals(worker, selected);
                     cut.requireCurrent();
                     throw new IllegalStateException("checkpoint startup gate fixture");
-                }, () -> checkpointClock.getAndSet(1000), failure -> tickFailed.countDown());
+                },
+                () -> checkpointClock.getAndSet(1000),
+                failure -> tickFailed.countDown());
         try {
             assertTrue(tickFailed.await(5, java.util.concurrent.TimeUnit.SECONDS));
         } catch (InterruptedException interrupted) {
@@ -10684,7 +12877,9 @@ class TargetCommandStoreTest {
         } finally {
             TargetWorkerHostTestBridge.stopMaintenanceTimer(started);
         }
-        assertEquals("expiry startup gate fixture", started.firstMaintenanceFailure().getCause().getMessage());
+        assertEquals(
+                "expiry startup gate fixture",
+                started.firstMaintenanceFailure().getCause().getMessage());
         assertTrue(Arrays.stream(started.firstMaintenanceFailure().getSuppressed())
                 .anyMatch(failure -> "checkpoint startup gate fixture".equals(failure.getMessage())));
         assertEquals(1, requests.get());
@@ -10795,133 +12990,268 @@ class TargetCommandStoreTest {
                 time);
     }
 
-    private static void assertRestoredTargetRecovery(ShardStore store, TargetStoreBootstrap.Reopened root,
-            TargetQuotaScope scope, TargetQuotaAttemptBudget retained, SystemMutation original,
+    private static void assertRestoredTargetRecovery(
+            ShardStore store,
+            TargetStoreBootstrap.Reopened root,
+            TargetQuotaScope scope,
+            TargetQuotaAttemptBudget retained,
+            SystemMutation original,
             com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
             com.nereusstream.delay.protocol.RecoveryPin oldPin,
             java.util.concurrent.atomic.AtomicReference<com.nereusstream.delay.protocol.RecoveryPin> activePin,
-            WorkClassExecutionRegistry classes, TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
+            WorkClassExecutionRegistry classes,
+            TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         final var at = (KafkaSourcePosition) store.appliedShardLogPosition();
-        final var next = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
-                at.offset() + 1, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
-        final var gap = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
-                at.offset() + 2, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
-        final var assignment = new SourceAssignment(scope.shard(), bytes(32, 0x58), 1,
-                new KafkaActivationBarrier(scope.shard(), at.authenticatedClusterId(), at.nativeTopicUuid(),
-                        at.offset() + 2));
+        final var next = new KafkaSourcePosition(
+                at.shardId(),
+                at.authenticatedClusterId(),
+                at.nativeTopicUuid(),
+                at.offset() + 1,
+                at.leaderEpoch(),
+                at.brokerLogAppendTimeEpochMs());
+        final var gap = new KafkaSourcePosition(
+                at.shardId(),
+                at.authenticatedClusterId(),
+                at.nativeTopicUuid(),
+                at.offset() + 2,
+                at.leaderEpoch(),
+                at.brokerLogAppendTimeEpochMs());
+        final var assignment = new SourceAssignment(
+                scope.shard(),
+                bytes(32, 0x58),
+                1,
+                new KafkaActivationBarrier(
+                        scope.shard(), at.authenticatedClusterId(), at.nativeTopicUuid(), at.offset() + 2));
         final var leases = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
         OwnerLease acquiring;
         do {
             acquiring = leases.acquire(assignment, "target-checkpoint-recovery", bytes(32, 0x59), 1, 10_000)
                     .orElseThrow();
-            if (Long.compareUnsigned(acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch()) > 0) {
+            if (Long.compareUnsigned(
+                            acquiring.ownerEpoch(), store.runtimeMetadata().lastOpenedOwnerEpoch())
+                    > 0) {
                 break;
             }
             assertTrue(leases.release(acquiring));
         } while (true);
-        var recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(oldPin.pinId(), oldPin.shard(),
+        var recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(
+                oldPin.pinId(),
+                oldPin.shard(),
                 new OwnerIdentity(bytes(8, 0x5a), bytes(8, 0x5b), acquiring.ownerEpoch(), bytes(32, 0x5c)),
-                oldPin.candidate(), oldPin.observedFloor(), oldPin.observedCatalogGeneration(), bytes(32, 0x5d));
+                oldPin.candidate(),
+                oldPin.observedFloor(),
+                oldPin.observedCatalogGeneration(),
+                bytes(32, 0x5d));
         activePin.set(recoveryPin);
-        final var authorities = new TargetSourceApplyRuntime.Authorities(leases, SourceReplaySuccessor.strictKafka(),
-                entry -> { throw new AssertionError("duplicate recovery resolved grant"); },
-                entry -> { throw new AssertionError("duplicate recovery resolved Fence"); },
-                entry -> { throw new AssertionError("duplicate recovery resolved expiry"); },
-                entry -> { throw new AssertionError("duplicate recovery resolved Close"); },
-                entry -> { throw new AssertionError("duplicate recovery resolved membership"); },
-                (a, b, mutation) -> guard(), (a, b) -> guard(),
-                entry -> { throw new AssertionError("duplicate recovery resolved Command"); });
+        final var authorities = new TargetSourceApplyRuntime.Authorities(
+                leases,
+                SourceReplaySuccessor.strictKafka(),
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved grant");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved Fence");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved expiry");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved Close");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved membership");
+                },
+                (a, b, mutation) -> guard(),
+                (a, b) -> guard(),
+                entry -> {
+                    throw new AssertionError("duplicate recovery resolved Command");
+                });
         final var limits = new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1);
-        final var satisfiedAssignment = new SourceAssignment(scope.shard(), assignment.assignmentId(),
-                assignment.assignmentEpoch(), new KafkaActivationBarrier(scope.shard(), at.authenticatedClusterId(),
-                        at.nativeTopicUuid(), at.offset() + 1));
-        final var purportedActive = new OwnerLease(scope.shard(), "premature-active-owner",
-                store.runtimeMetadata().lastOpenedOwnerEpoch(), bytes(32, 0x5e), 10_000,
-                new com.nereusstream.delay.ownership.OwnerLeaseContext(satisfiedAssignment.assignmentId(),
-                        satisfiedAssignment.assignmentEpoch(), bytes(32, 0x5f)),
+        final var satisfiedAssignment = new SourceAssignment(
+                scope.shard(),
+                assignment.assignmentId(),
+                assignment.assignmentEpoch(),
+                new KafkaActivationBarrier(
+                        scope.shard(), at.authenticatedClusterId(), at.nativeTopicUuid(), at.offset() + 1));
+        final var purportedActive = new OwnerLease(
+                scope.shard(),
+                "premature-active-owner",
+                store.runtimeMetadata().lastOpenedOwnerEpoch(),
+                bytes(32, 0x5e),
+                10_000,
+                new com.nereusstream.delay.ownership.OwnerLeaseContext(
+                        satisfiedAssignment.assignmentId(), satisfiedAssignment.assignmentEpoch(), bytes(32, 0x5f)),
                 ShardLifecycleState.ACTIVE_FOR_COMMANDS);
-        assertTrue(assertThrows(IllegalStateException.class, () -> new TargetSourceApplyRuntime(root, store,
-                satisfiedAssignment, purportedActive, authorities, limits, System::nanoTime))
-                .getMessage().contains("requires completed checkpoint recovery"));
+        assertTrue(assertThrows(
+                        IllegalStateException.class,
+                        () -> new TargetSourceApplyRuntime(
+                                root,
+                                store,
+                                satisfiedAssignment,
+                                purportedActive,
+                                authorities,
+                                limits,
+                                System::nanoTime))
+                .getMessage()
+                .contains("requires completed checkpoint recovery"));
         final var turns = new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L);
         final byte[] beforeBudget = store.get(ColumnFamily.META, retained.key());
         final long beforeSequence = store.shardMutationSequence();
         final var guardedOwner = acquiring;
         final var guardedPin = recoveryPin;
-        assertTrue(assertThrows(IllegalArgumentException.class,
-                () -> new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
-                        assignment, guardedOwner, authorities, limits,
-                        com.nereusstream.delay.ownership.SourceReplayCursor.of(List.<SourceReplayEntry>of().iterator()),
-                        catalog, guardedPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                        TargetCommandStoreTest::budget, ledgerLimits))
-                .getMessage().contains("requires a guarded Source cursor"));
-        final var missingTail = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
-                assignment, acquiring, authorities, limits,
+        assertTrue(assertThrows(
+                        IllegalArgumentException.class,
+                        () -> new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                                store,
+                                root,
+                                assignment,
+                                guardedOwner,
+                                authorities,
+                                limits,
+                                com.nereusstream.delay.ownership.SourceReplayCursor.of(
+                                        List.<SourceReplayEntry>of().iterator()),
+                                catalog,
+                                guardedPin,
+                                () -> {},
+                                turns,
+                                classes,
+                                () -> 1,
+                                System::nanoTime,
+                                TargetCommandStoreTest::budget,
+                                ledgerLimits))
+                .getMessage()
+                .contains("requires a guarded Source cursor"));
+        final var missingTail = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                root,
+                assignment,
+                acquiring,
+                authorities,
+                limits,
                 com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
                         List.<SourceReplayEntry>of().iterator(), () -> {}),
-                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
+                catalog,
+                recoveryPin,
+                () -> {},
+                turns,
+                classes,
+                () -> 1,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
         assertTrue(assertThrows(IllegalStateException.class, missingTail::runTurn)
-                .getMessage().contains("Source ended before its barrier"));
+                .getMessage()
+                .contains("Source ended before its barrier"));
         assertEquals(at, store.appliedShardLogPosition());
-        assertThrows(IllegalStateException.class, () -> store.completeTargetRecovery(
-                root.view(), store.recoveryMetadata().lineageBase(), guard()));
+        assertThrows(
+                IllegalStateException.class,
+                () -> store.completeTargetRecovery(
+                        root.view(), store.recoveryMetadata().lineageBase(), guard()));
         activePin.set(null);
         final var beforePinLoss = store.latestSequenceNumber();
         assertTrue(assertThrows(IllegalStateException.class, missingTail::runTurn)
-                .getMessage().contains("Pin is no longer active"));
+                .getMessage()
+                .contains("Pin is no longer active"));
         assertEquals(beforePinLoss, store.latestSequenceNumber());
         activePin.set(recoveryPin);
         final var gapCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
                 List.of(new SourceReplayMutation(original, gap, null, null)).iterator(), () -> {});
-        final var gapRecovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
-                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, gapCursor,
-                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
+        final var gapRecovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                TargetStoreBootstrap.reopen(
+                        store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()),
+                assignment,
+                acquiring,
+                authorities,
+                limits,
+                gapCursor,
+                catalog,
+                recoveryPin,
+                () -> {},
+                turns,
+                classes,
+                () -> 1,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
         assertTrue(assertThrows(IllegalStateException.class, gapRecovery::runTurn)
-                .getMessage().contains("source replay has a gap"));
+                .getMessage()
+                .contains("source replay has a gap"));
         assertEquals(at, store.appliedShardLogPosition());
         assertEquals(beforeSequence, store.shardMutationSequence());
         assertTrue(gapCursor.hasNext());
         assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
-        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+        assertEquals(
+                com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                 store.recoveryMetadata().installState().phase());
         final var sourceCurrent = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var guardedCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
                 List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {
-                    if (!sourceCurrent.get()) { throw new IllegalStateException("recovery Source guard changed"); }
+                    if (!sourceCurrent.get()) {
+                        throw new IllegalStateException("recovery Source guard changed");
+                    }
                 });
-        final var lostSource = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
-                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, guardedCursor,
-                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
-        classes.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-source-loss", 1),
+        final var lostSource = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                TargetStoreBootstrap.reopen(
+                        store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()),
+                assignment,
+                acquiring,
+                authorities,
+                limits,
+                guardedCursor,
+                catalog,
+                recoveryPin,
+                () -> {},
+                turns,
+                classes,
+                () -> 1,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
+        classes.submit(
+                new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-source-loss", 1),
                 () -> sourceCurrent.set(false));
         assertTrue(lostSource.runTurn().waitingForWorkClass());
         final var beforeSourceLoss = store.latestSequenceNumber();
         classes.runTurn(new SchedulerBudget(1, 32L << 20, 1_000_000));
         assertEquals(beforeSourceLoss, store.latestSequenceNumber());
         assertTrue(assertThrows(IllegalStateException.class, lostSource::runTurn)
-                .getMessage().contains("Source guard changed"));
+                .getMessage()
+                .contains("Source guard changed"));
         assertEquals(beforeSourceLoss, store.latestSequenceNumber());
         assertEquals(at, store.appliedShardLogPosition());
         assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
-        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
+        assertEquals(
+                com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED,
                 store.recoveryMetadata().installState().phase());
         assertTrue(assertThrows(IllegalStateException.class, guardedCursor::hasNext)
-                .getMessage().contains("Source guard changed"));
+                .getMessage()
+                .contains("Source guard changed"));
         sourceCurrent.set(true);
         assertEquals(next, guardedCursor.peek().position());
         final var lostCursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
                 List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {});
-        final var lostOwner = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
-                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, lostCursor,
-                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
-        classes.submit(new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-owner-loss", 1),
+        final var lostOwner = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                TargetStoreBootstrap.reopen(
+                        store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()),
+                assignment,
+                acquiring,
+                authorities,
+                limits,
+                lostCursor,
+                catalog,
+                recoveryPin,
+                () -> {},
+                turns,
+                classes,
+                () -> 1,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
+        classes.submit(
+                new WorkClassTask(WorkClass.LEASE_FENCE, "target-recovery-owner-loss", 1),
                 () -> assertTrue(leases.release(leases.current(scope.shard()).orElseThrow())));
         assertTrue(lostOwner.runTurn().waitingForWorkClass());
         final var beforeLostOwner = store.latestSequenceNumber();
@@ -10932,17 +13262,35 @@ class TargetCommandStoreTest {
         assertEquals(at, store.appliedShardLogPosition());
         acquiring = leases.acquire(assignment, "target-checkpoint-recovery", bytes(32, 0x59), 1, 10_000)
                 .orElseThrow();
-        recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(oldPin.pinId(), oldPin.shard(),
+        recoveryPin = new com.nereusstream.delay.protocol.RecoveryPin(
+                oldPin.pinId(),
+                oldPin.shard(),
                 new OwnerIdentity(bytes(8, 0x5a), bytes(8, 0x5b), acquiring.ownerEpoch(), bytes(32, 0x5c)),
-                oldPin.candidate(), oldPin.observedFloor(), oldPin.observedCatalogGeneration(), bytes(32, 0x5d));
+                oldPin.candidate(),
+                oldPin.observedFloor(),
+                oldPin.observedCatalogGeneration(),
+                bytes(32, 0x5d));
         activePin.set(recoveryPin);
         final var cursor = com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
                 List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {});
-        final var recovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store,
-                TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                        budget(), (a, b) -> guard()), assignment, acquiring, authorities, limits, cursor,
-                catalog, recoveryPin, () -> {}, turns, classes, () -> 1, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
+        final var recovery = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                TargetStoreBootstrap.reopen(
+                        store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()),
+                assignment,
+                acquiring,
+                authorities,
+                limits,
+                cursor,
+                catalog,
+                recoveryPin,
+                () -> {},
+                turns,
+                classes,
+                () -> 1,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
         final var completed = recovery.runTurn();
         assertTrue(completed.complete());
         assertEquals(1, completed.outcomes().size());
@@ -10950,44 +13298,87 @@ class TargetCommandStoreTest {
         assertEquals(next, store.appliedShardLogPosition());
         assertEquals(beforeSequence + 1, store.shardMutationSequence());
         assertArrayEquals(beforeBudget, store.get(ColumnFamily.META, retained.key()));
-        assertEquals(com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN,
+        assertEquals(
+                com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN,
                 store.recoveryMetadata().installState().phase());
-        assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, recovery.activeLease().state());
+        assertEquals(
+                ShardLifecycleState.ACTIVE_FOR_COMMANDS, recovery.activeLease().state());
         assertTrue(recovery.runTurn().complete());
         System.out.println("C5 protected Target Source duplicate recovery phase=" + retained.phase());
     }
 
-    private static void assertPublishedTargetRecovery(ShardStore store, TargetQuotaScope scope,
-            TargetQuotaAttemptBudget budget, SystemMutation original,
+    private static void assertPublishedTargetRecovery(
+            ShardStore store,
+            TargetQuotaScope scope,
+            TargetQuotaAttemptBudget budget,
+            SystemMutation original,
             com.nereusstream.delay.store.TargetCheckpointCandidateTestBridge.PublishedRecovery recovery,
             TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits) {
         final var at = (KafkaSourcePosition) store.appliedShardLogPosition();
-        final var next = new KafkaSourcePosition(at.shardId(), at.authenticatedClusterId(), at.nativeTopicUuid(),
-                at.offset() + 1, at.leaderEpoch(), at.brokerLogAppendTimeEpochMs());
+        final var next = new KafkaSourcePosition(
+                at.shardId(),
+                at.authenticatedClusterId(),
+                at.nativeTopicUuid(),
+                at.offset() + 1,
+                at.leaderEpoch(),
+                at.brokerLogAppendTimeEpochMs());
         final byte[] retained = store.get(ColumnFamily.META, budget.key());
-        final var root = TargetStoreBootstrap.reopen(store, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20),
-                budget(), (a, b) -> guard(), ledgerLimits);
-        final var authorities = new TargetSourceApplyRuntime.Authorities(recovery.leases(),
-                SourceReplaySuccessor.strictKafka(), entry -> { throw new AssertionError("duplicate grant provider"); },
-                entry -> { throw new AssertionError("duplicate Fence provider"); },
-                entry -> { throw new AssertionError("duplicate expiry provider"); },
-                entry -> { throw new AssertionError("duplicate Close provider"); },
-                entry -> { throw new AssertionError("duplicate membership provider"); },
-                (a, b, mutation) -> guard(), (a, b) -> guard(),
-                entry -> { throw new AssertionError("duplicate Command provider"); });
-        final var coordinator = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(store, root,
-                recovery.assignment(), recovery.acquiring(), authorities,
+        final var root = TargetStoreBootstrap.reopen(
+                store,
+                scope,
+                new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                budget(),
+                (a, b) -> guard(),
+                ledgerLimits);
+        final var authorities = new TargetSourceApplyRuntime.Authorities(
+                recovery.leases(),
+                SourceReplaySuccessor.strictKafka(),
+                entry -> {
+                    throw new AssertionError("duplicate grant provider");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate Fence provider");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate expiry provider");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate Close provider");
+                },
+                entry -> {
+                    throw new AssertionError("duplicate membership provider");
+                },
+                (a, b, mutation) -> guard(),
+                (a, b) -> guard(),
+                entry -> {
+                    throw new AssertionError("duplicate Command provider");
+                });
+        final var coordinator = new com.nereusstream.delay.ownership.TargetOwnerRecoveryCoordinator(
+                store,
+                root,
+                recovery.assignment(),
+                recovery.acquiring(),
+                authorities,
                 new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                 com.nereusstream.delay.ownership.SourceReplayCursor.guarded(
-                        List.of(new SourceReplayMutation(original, next, null, null)).iterator(), () -> {}),
-                recovery.catalog(), recovery.pin(), () -> {},
+                        List.of(new SourceReplayMutation(original, next, null, null))
+                                .iterator(),
+                        () -> {}),
+                recovery.catalog(),
+                recovery.pin(),
+                () -> {},
                 new com.nereusstream.delay.ownership.ReplayTurnBudget(1, 32L << 20, 60_000_000_000L),
-                recovery.workClasses(), System::currentTimeMillis, System::nanoTime,
-                TargetCommandStoreTest::budget, ledgerLimits);
+                recovery.workClasses(),
+                System::currentTimeMillis,
+                System::nanoTime,
+                TargetCommandStoreTest::budget,
+                ledgerLimits);
         assertTrue(coordinator.runTurn().complete());
         assertEquals(next, store.appliedShardLogPosition());
         assertArrayEquals(retained, store.get(ColumnFamily.META, budget.key()));
-        assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, coordinator.activeLease().state());
+        assertEquals(
+                ShardLifecycleState.ACTIVE_FOR_COMMANDS,
+                coordinator.activeLease().state());
         assertEquals(recovery.pin(), recovery.catalog().activeRecoveryPin().orElseThrow());
         assertTrue(recovery.leases().release(coordinator.activeLease()));
         System.out.println("C5 exact published Target -> Catalog Pin -> File download/new incarnation -> "

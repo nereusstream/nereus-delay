@@ -24,7 +24,13 @@ import org.apache.kafka.common.record.TimestampType;
 public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseable {
     // New observations identify this exact guarded SDK revision; retained images keep their original bytes.
     public static final String REQUIRED_K1_SOURCE_COMMIT = "20b6810994057a8afaf173fc300c65ca514b3479";
-    public enum Status { WAITING, ADVANCED, PUBLISHED }
+
+    public enum Status {
+        WAITING,
+        ADVANCED,
+        PUBLISHED
+    }
+
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
     /** Private construction follows an actual guarded Broker read; it is never a DTO publication permission. */
@@ -34,16 +40,40 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         private final GuardedFetchEvidence fetch;
         private final long brokerTime;
         private final long nextOffset;
-        private Observation(TargetKafkaReceiptMapping mapping, PublishEvidence evidence,
-                GuardedFetchEvidence fetch, long brokerTime, long nextOffset) {
-            this.mapping = mapping; this.evidence = evidence; this.fetch = fetch; this.brokerTime = brokerTime;
+
+        private Observation(
+                TargetKafkaReceiptMapping mapping,
+                PublishEvidence evidence,
+                GuardedFetchEvidence fetch,
+                long brokerTime,
+                long nextOffset) {
+            this.mapping = mapping;
+            this.evidence = evidence;
+            this.fetch = fetch;
+            this.brokerTime = brokerTime;
             this.nextOffset = nextOffset;
         }
-        public TargetKafkaReceiptMapping mapping() { return mapping; }
-        public PublishEvidence evidence() { return evidence; }
-        public GuardedFetchEvidence fetch() { return fetch; }
-        public long brokerPersistenceTime() { return brokerTime; }
-        public long nextOffset() { return nextOffset; }
+
+        public TargetKafkaReceiptMapping mapping() {
+            return mapping;
+        }
+
+        public PublishEvidence evidence() {
+            return evidence;
+        }
+
+        public GuardedFetchEvidence fetch() {
+            return fetch;
+        }
+
+        public long brokerPersistenceTime() {
+            return brokerTime;
+        }
+
+        public long nextOffset() {
+            return nextOffset;
+        }
+
         public void requireEvidence(final PublishEvidence candidate) {
             if (!Arrays.equals(evidence.canonicalBytes(), candidate.canonicalBytes())) {
                 throw new IllegalArgumentException("Target receipt candidate differs from actual protected read");
@@ -53,7 +83,9 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
 
     /** Real Source/Owner/resource/credential/retention/pin rights must survive each poll and observation. */
     @FunctionalInterface
-    public interface Protection { void requireCurrent(TargetKafkaReceiptMapping mapping, long nextOffset); }
+    public interface Protection {
+        void requireCurrent(TargetKafkaReceiptMapping mapping, long nextOffset);
+    }
 
     private final TargetKafkaReceiptMapping mapping;
     private final GuardedConsumer<byte[], byte[]> consumer;
@@ -76,22 +108,34 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     private boolean closed;
     private boolean closeCompleted;
 
-    public KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
-            final TargetKafkaReceiptMapping mapping, final Protection protection,
-            final Duration timeout, final int maximumRecords, final int maximumBytes) {
+    public KafkaClientArtifactTargetReceiptReader(
+            final Map<String, Object> configuration,
+            final TargetKafkaReceiptMapping mapping,
+            final Protection protection,
+            final Duration timeout,
+            final int maximumRecords,
+            final int maximumBytes) {
         this(configuration, mapping, protection, timeout, maximumRecords, maximumBytes, false);
     }
 
-    KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
-            final TargetKafkaReceiptMapping mapping, final Protection protection,
-            final Duration timeout, final int maximumRecords, final int maximumBytes,
+    KafkaClientArtifactTargetReceiptReader(
+            final Map<String, Object> configuration,
+            final TargetKafkaReceiptMapping mapping,
+            final Protection protection,
+            final Duration timeout,
+            final int maximumRecords,
+            final int maximumBytes,
             final boolean freezeRecoveryUpperBound) {
-        this(configuration,mapping,protection,timeout,maximumRecords,maximumBytes,freezeRecoveryUpperBound,null);
+        this(configuration, mapping, protection, timeout, maximumRecords, maximumBytes, freezeRecoveryUpperBound, null);
     }
 
-    KafkaClientArtifactTargetReceiptReader(final Map<String, Object> configuration,
-            final TargetKafkaReceiptMapping mapping, final Protection protection,
-            final Duration timeout, final int maximumRecords, final int maximumBytes,
+    KafkaClientArtifactTargetReceiptReader(
+            final Map<String, Object> configuration,
+            final TargetKafkaReceiptMapping mapping,
+            final Protection protection,
+            final Duration timeout,
+            final int maximumRecords,
+            final int maximumBytes,
             final boolean freezeRecoveryUpperBound,
             com.nereusstream.delay.ownership.TargetDestinationSdkBudget.Client sdkBudget) {
         this.sdkBudget = sdkBudget;
@@ -99,8 +143,11 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         this.mapping = Objects.requireNonNull(mapping, "actual retained mapping");
         this.protection = Objects.requireNonNull(protection, "protected read authority");
         this.timeout = Objects.requireNonNull(timeout, "poll deadline");
-        if (timeout.isNegative() || timeout.isZero() || timeout.compareTo(Duration.ofSeconds(60)) > 0
-                || maximumRecords <= 0 || maximumBytes <= 0) {
+        if (timeout.isNegative()
+                || timeout.isZero()
+                || timeout.compareTo(Duration.ofSeconds(60)) > 0
+                || maximumRecords <= 0
+                || maximumBytes <= 0) {
             throw new IllegalArgumentException("Target receipt read requires finite positive bounds");
         }
         this.maximumRecords = maximumRecords;
@@ -110,8 +157,12 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         protection.requireCurrent(mapping, nextOffset);
         final var receipt = mapping.admission().kafkaReceipt();
         final var resource = receipt.receiptResource();
-        guard = new ConsumerResourceGuard(resource.authenticatedClusterId(), receipt.receiptPhysicalTopic(),
-                new Uuid(resource.receiptTopicUuid().getMostSignificantBits(), resource.receiptTopicUuid().getLeastSignificantBits()),
+        guard = new ConsumerResourceGuard(
+                resource.authenticatedClusterId(),
+                receipt.receiptPhysicalTopic(),
+                new Uuid(
+                        resource.receiptTopicUuid().getMostSignificantBits(),
+                        resource.receiptTopicUuid().getLeastSignificantBits()),
                 receipt.receiptPartition());
         partition = guard.topicPartition();
         final Map<String, Object> config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
@@ -124,61 +175,116 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maximumRecords);
         config.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, maximumBytes);
         config.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, maximumBytes);
-        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-        GuardedConsumer<byte[],byte[]> created=null;
-        boolean constructing=false;
+        config.put(
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        config.put(
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
+        GuardedConsumer<byte[], byte[]> created = null;
+        boolean constructing = false;
         try {
-            if(sdkBudget!=null)sdkBudget.beginConstruction();constructing=true;
-            created=KafkaClientArtifactSourceConsumerFactory.create(config,resource.authenticatedClusterId(),
-                    receipt.receiptPhysicalTopic(),resource.receiptTopicUuid(),receipt.receiptPartition(),timeout);
-            created.assign(List.of(partition));created.seek(partition,nextOffset);
-            protection.requireCurrent(mapping,nextOffset);
-            consumer=created;
-        } catch(RuntimeException | Error failure){
-            if(created!=null){final var retained=created;
-                try{retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(sdkBudget!=null)sdkBudget.closed();}
-                catch(RuntimeException | Error closeFailure){final var held=new KafkaClientArtifactTargetCleanupFailure(failure,()->{
-                    retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));if(sdkBudget!=null)sdkBudget.closed();});held.addSuppressed(closeFailure);throw held;}}
-            else if(failure instanceof KafkaClientArtifactTargetCleanupFailure cleanup){
-                throw new KafkaClientArtifactTargetCleanupFailure(cleanup,()->{cleanup.retryClose();if(sdkBudget!=null)sdkBudget.closed();});
-            }else if(sdkBudget!=null){if(constructing)sdkBudget.closed();else sdkBudget.releaseUnstarted();}
+            if (sdkBudget != null) {
+                sdkBudget.beginConstruction();
+            }
+            constructing = true;
+            created = KafkaClientArtifactSourceConsumerFactory.create(
+                    config,
+                    resource.authenticatedClusterId(),
+                    receipt.receiptPhysicalTopic(),
+                    resource.receiptTopicUuid(),
+                    receipt.receiptPartition(),
+                    timeout);
+            created.assign(List.of(partition));
+            created.seek(partition, nextOffset);
+            protection.requireCurrent(mapping, nextOffset);
+            consumer = created;
+        } catch (RuntimeException | Error failure) {
+            if (created != null) {
+                final var retained = created;
+                try {
+                    retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));
+                    if (sdkBudget != null) {
+                        sdkBudget.closed();
+                    }
+                } catch (RuntimeException | Error closeFailure) {
+                    final var held = new KafkaClientArtifactTargetCleanupFailure(failure, () -> {
+                        retained.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));
+                        if (sdkBudget != null) {
+                            sdkBudget.closed();
+                        }
+                    });
+                    held.addSuppressed(closeFailure);
+                    throw held;
+                }
+            } else if (failure instanceof KafkaClientArtifactTargetCleanupFailure cleanup) {
+                throw new KafkaClientArtifactTargetCleanupFailure(cleanup, () -> {
+                    cleanup.retryClose();
+                    if (sdkBudget != null) {
+                        sdkBudget.closed();
+                    }
+                });
+            } else if (sdkBudget != null) {
+                if (constructing) {
+                    sdkBudget.closed();
+                } else {
+                    sdkBudget.releaseUnstarted();
+                }
+            }
             throw failure;
         }
     }
 
     /** Performs one SDK poll and retains its bounded continuation; empty responses never certify absence. */
     public synchronized Turn runTurn() {
-        try { return pollTurn(); }
-        catch (RuntimeException | Error failure) {
+        try {
+            return pollTurn();
+        } catch (RuntimeException | Error failure) {
             // Processing failure must not permit a later poll to skip the partially inspected response.
-            try { close(); } catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+            try {
+                close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
             throw failure;
         }
     }
 
     private Turn pollTurn() {
-        if (closed) { throw new IllegalStateException("Target receipt reader is closed"); }
+        if (closed) {
+            throw new IllegalStateException("Target receipt reader is closed");
+        }
         protection.requireCurrent(mapping, nextOffset);
-        if (observed != null) { return new Turn(Status.PUBLISHED, nextOffset, observed); }
+        if (observed != null) {
+            return new Turn(Status.PUBLISHED, nextOffset, observed);
+        }
         rangeObservation = null;
         processedNextOffset = -1;
         final var records = consumer.pollGuarded(timeout);
         final var proof = KafkaClientArtifactFetchEvidence.requireResponse(records, guard);
-        if (proof == null) { protection.requireCurrent(mapping, nextOffset); return new Turn(Status.WAITING, nextOffset, null); }
-        if (proof.logStartOffset() < 0 || proof.lastStableOffset() < proof.logStartOffset()
+        if (proof == null) {
+            protection.requireCurrent(mapping, nextOffset);
+            return new Turn(Status.WAITING, nextOffset, null);
+        }
+        if (proof.logStartOffset() < 0
+                || proof.lastStableOffset() < proof.logStartOffset()
                 || proof.highWatermark() < proof.lastStableOffset()
                 || proof.logStartOffset() > mapping.admission().kafkaReceipt().scanStartOffset()) {
-            throw new IllegalStateException("Target receipt Fetch lacks same-response log-start/LSO/HW or has lost its original range");
+            throw new IllegalStateException(
+                    "Target receipt Fetch lacks same-response log-start/LSO/HW or has lost its original range");
         }
         protection.requireCurrent(mapping, nextOffset);
         rangeObservation = proof;
         if (freezeRecoveryUpperBound && recoveryUpperBound < 0) {
             recoveryUpperBound = proof.highWatermark();
-            if (recoveryUpperBound < nextOffset) { throw new IllegalStateException("fenced receipt range was truncated"); }
+            if (recoveryUpperBound < nextOffset) {
+                throw new IllegalStateException("fenced receipt range was truncated");
+            }
         }
         final var processed = records.nextOffsets().get(partition);
-        if (processed == null || proof.fetchOffset() > nextOffset || processed.offset() < nextOffset
+        if (processed == null
+                || proof.fetchOffset() > nextOffset
+                || processed.offset() < nextOffset
                 || processed.offset() > proof.lastStableOffset()) {
             throw new IllegalStateException("Target receipt response lacks its paired actual processed continuation");
         }
@@ -187,11 +293,18 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         long bytes = 0;
         for (var record : records.records(partition)) {
             KafkaClientArtifactFetchEvidence.requireRecord(record, proof, guard);
-            if (record.offset() < nextOffset || record.offset() >= proof.lastStableOffset()
-                    || ++count > maximumRecords) { throw new IllegalStateException("Target receipt batch violates its range/LSO/record bound"); }
-            bytes = Math.addExact(bytes, (record.key() == null ? 0 : record.key().length)
-                    + (long) (record.value() == null ? 0 : record.value().length));
-            if (bytes > maximumBytes) { throw new IllegalStateException("Target receipt batch exceeds byte bound"); }
+            if (record.offset() < nextOffset
+                    || record.offset() >= proof.lastStableOffset()
+                    || ++count > maximumRecords) {
+                throw new IllegalStateException("Target receipt batch violates its range/LSO/record bound");
+            }
+            bytes = Math.addExact(
+                    bytes,
+                    (record.key() == null ? 0 : record.key().length)
+                            + (long) (record.value() == null ? 0 : record.value().length));
+            if (bytes > maximumBytes) {
+                throw new IllegalStateException("Target receipt batch exceeds byte bound");
+            }
             nextOffset = Math.addExact(record.offset(), 1);
             if (record.timestampType() != TimestampType.LOG_APPEND_TIME || record.timestamp() < 0) {
                 throw new IllegalStateException("Target receipt resource requires actual Broker LogAppendTime");
@@ -202,11 +315,19 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
             }
             if (Arrays.equals(TargetKafkaReceiptWire.key(mapping), record.key())) {
                 TargetKafkaReceiptWire.requireRecord(mapping, record.key(), record.value());
-                final var uuid = mapping.admission().kafkaReceipt().receiptResource().receiptTopicUuid();
-                final var cursor = EvidenceCursor.targetKafka(TargetKafkaReceiptWire.scope(mapping),
-                        ByteBuffer.allocate(16).putLong(uuid.getMostSignificantBits()).putLong(uuid.getLeastSignificantBits()).array(),
-                        partition.partition(), mapping.admission().channel().context().evidenceGeneration(),
-                        maxBrokerTime, nextOffset, proof.lastStableOffset());
+                final var uuid =
+                        mapping.admission().kafkaReceipt().receiptResource().receiptTopicUuid();
+                final var cursor = EvidenceCursor.targetKafka(
+                        TargetKafkaReceiptWire.scope(mapping),
+                        ByteBuffer.allocate(16)
+                                .putLong(uuid.getMostSignificantBits())
+                                .putLong(uuid.getLeastSignificantBits())
+                                .array(),
+                        partition.partition(),
+                        mapping.admission().channel().context().evidenceGeneration(),
+                        maxBrokerTime,
+                        nextOffset,
+                        proof.lastStableOffset());
                 final var evidence = TargetKafkaReceiptWire.published(mapping, cursor, record.offset());
                 protection.requireCurrent(mapping, nextOffset);
                 observed = new Observation(mapping, evidence, proof, record.timestamp(), nextOffset);
@@ -225,21 +346,42 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
     }
 
     /** Actual same-response range facts; this is not a contiguous-scan or NOT_PUBLISHED certification. */
-    public synchronized Optional<GuardedFetchEvidence> rangeObservation() { return Optional.ofNullable(rangeObservation); }
-    public synchronized long processedNextOffset() { return processedNextOffset; }
-    synchronized long recoveryUpperBound() { return recoveryUpperBound; }
-    synchronized long recoveryMaxBrokerTime() { return recoveryMaxBrokerTime; }
+    public synchronized Optional<GuardedFetchEvidence> rangeObservation() {
+        return Optional.ofNullable(rangeObservation);
+    }
+
+    public synchronized long processedNextOffset() {
+        return processedNextOffset;
+    }
+
+    synchronized long recoveryUpperBound() {
+        return recoveryUpperBound;
+    }
+
+    synchronized long recoveryMaxBrokerTime() {
+        return recoveryMaxBrokerTime;
+    }
 
     public synchronized Optional<byte[]> rangeObservationImage() {
-        if (rangeObservation == null) { return Optional.empty(); }
+        if (rangeObservation == null) {
+            return Optional.empty();
+        }
         final var e = rangeObservation;
         return Optional.of(com.nereusstream.delay.protocol.CanonicalProtobuf.message(out -> {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 1, 2);
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 2, com.nereusstream.delay.protocol.Bytes.utf8(REQUIRED_K1_SOURCE_COMMIT));
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 3, com.nereusstream.delay.protocol.Bytes.utf8(e.authenticatedClusterId()));
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 4, com.nereusstream.delay.protocol.Bytes.utf8(e.canonicalTopic()));
-            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(out, 5, ByteBuffer.allocate(16)
-                    .putLong(e.expectedTopicId().getMostSignificantBits()).putLong(e.expectedTopicId().getLeastSignificantBits()).array());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 2, com.nereusstream.delay.protocol.Bytes.utf8(REQUIRED_K1_SOURCE_COMMIT));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 3, com.nereusstream.delay.protocol.Bytes.utf8(e.authenticatedClusterId()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out, 4, com.nereusstream.delay.protocol.Bytes.utf8(e.canonicalTopic()));
+            com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                    out,
+                    5,
+                    ByteBuffer.allocate(16)
+                            .putLong(e.expectedTopicId().getMostSignificantBits())
+                            .putLong(e.expectedTopicId().getLeastSignificantBits())
+                            .array());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 6, e.partition());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(out, 7, e.requestVersion());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32Bits(out, 8, e.correlationId());
@@ -256,22 +398,28 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
         }));
     }
 
-
     /** Reads the actual loaded SDK JAR, rather than trusting a caller's source-lock string. */
     static byte[] requireSdkIdentity() {
         try {
-            final var location = Objects.requireNonNull(GuardedFetchEvidence.class.getProtectionDomain().getCodeSource(),
-                    "loaded K1 code source").getLocation().toURI();
+            final var location = Objects.requireNonNull(
+                            GuardedFetchEvidence.class.getProtectionDomain().getCodeSource(), "loaded K1 code source")
+                    .getLocation()
+                    .toURI();
             final var path = java.nio.file.Path.of(location);
             final long size = java.nio.file.Files.size(path);
             if (!java.nio.file.Files.isRegularFile(path) || size <= 0 || size > 64L * 1024 * 1024) {
                 throw new IllegalStateException("Target K2 requires a finite source-locked K1 JAR");
             }
             try (var jar = new java.util.jar.JarFile(path.toFile())) {
-                final var entry = Objects.requireNonNull(jar.getJarEntry("kafka/kafka-version.properties"), "K1 version identity");
+                final var entry = Objects.requireNonNull(
+                        jar.getJarEntry("kafka/kafka-version.properties"), "K1 version identity");
                 final byte[] bytes;
-                try (var stream = jar.getInputStream(entry)) { bytes = stream.readNBytes(1025); }
-                if (bytes.length > 1024) { throw new IllegalStateException("K1 version identity exceeds bound"); }
+                try (var stream = jar.getInputStream(entry)) {
+                    bytes = stream.readNBytes(1025);
+                }
+                if (bytes.length > 1024) {
+                    throw new IllegalStateException("K1 version identity exceeds bound");
+                }
                 final var properties = new java.util.Properties();
                 properties.load(new java.io.ByteArrayInputStream(bytes));
                 if (!REQUIRED_K1_SOURCE_COMMIT.equals(properties.getProperty("commitId"))) {
@@ -282,24 +430,40 @@ public final class KafkaClientArtifactTargetReceiptReader implements AutoCloseab
             final byte[] buffer = new byte[65536];
             long read = 0;
             try (var stream = java.nio.file.Files.newInputStream(path)) {
-                for (int count; (count = stream.read(buffer)) != -1;) {
+                for (int count; (count = stream.read(buffer)) != -1; ) {
                     read = Math.addExact(read, count);
-                    if (read > 64L * 1024 * 1024) { throw new IllegalStateException("K1 JAR changed beyond byte bound"); }
+                    if (read > 64L * 1024 * 1024) {
+                        throw new IllegalStateException("K1 JAR changed beyond byte bound");
+                    }
                     digest.update(buffer, 0, count);
                 }
             }
-            if (read != size) { throw new IllegalStateException("K1 JAR identity changed during read"); }
+            if (read != size) {
+                throw new IllegalStateException("K1 JAR identity changed during read");
+            }
             return digest.digest();
         } catch (java.io.IOException | java.net.URISyntaxException | java.security.NoSuchAlgorithmException failure) {
             throw new IllegalStateException("actual K1 JAR/source identity is unavailable", failure);
         }
     }
 
-    public synchronized Optional<Observation> observation() { return Optional.ofNullable(observed); }
-    public synchronized boolean closeCompleted(){return closeCompleted&&(sdkBudget==null||sdkBudget.released());}
-    @Override public synchronized void close() {
+    public synchronized Optional<Observation> observation() {
+        return Optional.ofNullable(observed);
+    }
+
+    public synchronized boolean closeCompleted() {
+        return closeCompleted && (sdkBudget == null || sdkBudget.released());
+    }
+
+    @Override
+    public synchronized void close() {
         closed = true;
-        if (!closeCompleted) { consumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout)); closeCompleted = true; }
-        if(sdkBudget!=null)sdkBudget.closed();
+        if (!closeCompleted) {
+            consumer.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(timeout));
+            closeCompleted = true;
+        }
+        if (sdkBudget != null) {
+            sdkBudget.closed();
+        }
     }
 }

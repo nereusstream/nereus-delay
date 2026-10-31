@@ -24,6 +24,8 @@ public interface TargetSourceBacklogRead {
             this.operation = java.util.Objects.requireNonNull(operation, "operation");
         }
 
-        public TargetSourceBacklogRead operation() { return operation; }
+        public TargetSourceBacklogRead operation() {
+            return operation;
+        }
     }
 }

@@ -416,8 +416,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         final ScheduleResolver resolver = destinationPhysicalTopic == null
                                 ? scheduleResolver()
                                 : scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic);
-                        final DelayShard delayShard = KafkaSmokeWorkerResources.openDelayShard(
-                                store, resolver, trustCatalog);
+                        final DelayShard delayShard =
+                                KafkaSmokeWorkerResources.openDelayShard(store, resolver, trustCatalog);
                         final com.nereusstream.delay.protocol.OwnerIdentity ownerIdentity =
                                 new com.nereusstream.delay.protocol.OwnerIdentity(
                                         bytes(16, 70),
@@ -1030,8 +1030,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
                 boolean assignmentsWithdrawn = false;
-                try (SharedRocksDbResources resources = KafkaSmokeWorkerResources.open(
-                        ShardStoreConfig.defaults(root));
+                try (SharedRocksDbResources resources =
+                                KafkaSmokeWorkerResources.open(ShardStoreConfig.defaults(root));
                         InMemoryCommandTransportRegistry transports = new InMemoryCommandTransportRegistry()) {
                     resources.bindWorkClassExecutionRegistry(workClasses);
                     final InMemoryPayloadProofTrustSetCatalog trustCatalog = new InMemoryPayloadProofTrustSetCatalog();

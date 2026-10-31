@@ -80,35 +80,72 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
 
     /** Opens a distinct source-protected Target Journal namespace; never use an active Lane Journal resource. */
     public static PulsarClientArtifactAttemptJournal openTarget(
-            final PulsarClient client, final ShardId shard, final PulsarJournalResource resource,
-            final String journalProducerName, final String replaySubscriptionName, final Duration responseTimeout,
-            final int maximumRecords, final long maximumRecordBytes, final TargetWriterGuard writerGuard)
+            final PulsarClient client,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final String journalProducerName,
+            final String replaySubscriptionName,
+            final Duration responseTimeout,
+            final int maximumRecords,
+            final long maximumRecordBytes,
+            final TargetWriterGuard writerGuard)
             throws PulsarClientException {
-        return openTarget(client, shard, resource, journalProducerName, replaySubscriptionName, responseTimeout,
-                maximumRecords, maximumRecordBytes, writerGuard, null);
+        return openTarget(
+                client,
+                shard,
+                resource,
+                journalProducerName,
+                replaySubscriptionName,
+                responseTimeout,
+                maximumRecords,
+                maximumRecordBytes,
+                writerGuard,
+                null);
     }
 
     public static PulsarClientArtifactAttemptJournal openTarget(
-            final PulsarClient client, final ShardId shard, final PulsarJournalResource resource,
-            final String journalProducerName, final String replaySubscriptionName, final Duration responseTimeout,
-            final int maximumRecords, final long maximumRecordBytes, final TargetWriterGuard writerGuard,
+            final PulsarClient client,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final String journalProducerName,
+            final String replaySubscriptionName,
+            final Duration responseTimeout,
+            final int maximumRecords,
+            final long maximumRecordBytes,
+            final TargetWriterGuard writerGuard,
             final PulsarAttemptJournal.NegativeReplayAuthority negativeReplayAuthority)
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
         requirePositive(responseTimeout);
-        if (maximumRecords <= 0 || maximumRecordBytes <= 0
-                || maximumRecords == Integer.MAX_VALUE || maximumRecordBytes == Long.MAX_VALUE) {
+        if (maximumRecords <= 0
+                || maximumRecordBytes <= 0
+                || maximumRecords == Integer.MAX_VALUE
+                || maximumRecordBytes == Long.MAX_VALUE) {
             throw new IllegalArgumentException("Target Journal replay limits must be finite and positive");
         }
         final var exactResource = Objects.requireNonNull(resource, "resource");
         final var guard = Objects.requireNonNull(writerGuard, "writerGuard");
         guard.requireActive(shard, exactResource);
         final var producer = PulsarClientArtifactProducerFactory.createExclusiveJournal(
-                client, exactResource.authenticatedClusterId(), exactResource.resourceIncarnation(),
-                exactResource.physicalTopic(), exactResource.physicalTopicCreationTimestamp(), journalProducerName);
+                client,
+                exactResource.authenticatedClusterId(),
+                exactResource.resourceIncarnation(),
+                exactResource.physicalTopic(),
+                exactResource.physicalTopicCreationTimestamp(),
+                journalProducerName);
         try {
-            return new PulsarClientArtifactAttemptJournal(client, producer, shard, exactResource,
-                    replaySubscriptionName, responseTimeout, true, maximumRecords, maximumRecordBytes, guard, negativeReplayAuthority);
+            return new PulsarClientArtifactAttemptJournal(
+                    client,
+                    producer,
+                    shard,
+                    exactResource,
+                    replaySubscriptionName,
+                    responseTimeout,
+                    true,
+                    maximumRecords,
+                    maximumRecordBytes,
+                    guard,
+                    negativeReplayAuthority);
         } catch (RuntimeException | PulsarClientException | Error failure) {
             PulsarClientArtifactProducerClose.afterFailedCreation(client, producer, responseTimeout, failure);
             throw failure;
@@ -148,27 +185,62 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     }
 
     private PulsarClientArtifactAttemptJournal(
-            final PulsarClient client, final Producer<byte[]> producer, final ShardId shard,
-            final PulsarJournalResource resource, final String replaySubscriptionName, final Duration responseTimeout)
+            final PulsarClient client,
+            final Producer<byte[]> producer,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final String replaySubscriptionName,
+            final Duration responseTimeout)
             throws PulsarClientException {
-        this(client, producer, shard, resource, replaySubscriptionName, responseTimeout,
-                false, Integer.MAX_VALUE, Long.MAX_VALUE, null);
+        this(
+                client,
+                producer,
+                shard,
+                resource,
+                replaySubscriptionName,
+                responseTimeout,
+                false,
+                Integer.MAX_VALUE,
+                Long.MAX_VALUE,
+                null);
     }
 
     private PulsarClientArtifactAttemptJournal(
-            final PulsarClient client, final Producer<byte[]> producer, final ShardId shard,
-            final PulsarJournalResource resource, final String replaySubscriptionName, final Duration responseTimeout,
-            final boolean targetNamespace, final int maximumRecords, final long maximumRecordBytes,
+            final PulsarClient client,
+            final Producer<byte[]> producer,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final String replaySubscriptionName,
+            final Duration responseTimeout,
+            final boolean targetNamespace,
+            final int maximumRecords,
+            final long maximumRecordBytes,
             final TargetWriterGuard targetWriterGuard)
             throws PulsarClientException {
-        this(client, producer, shard, resource, replaySubscriptionName, responseTimeout, targetNamespace,
-                maximumRecords, maximumRecordBytes, targetWriterGuard, null);
+        this(
+                client,
+                producer,
+                shard,
+                resource,
+                replaySubscriptionName,
+                responseTimeout,
+                targetNamespace,
+                maximumRecords,
+                maximumRecordBytes,
+                targetWriterGuard,
+                null);
     }
 
     private PulsarClientArtifactAttemptJournal(
-            final PulsarClient client, final Producer<byte[]> producer, final ShardId shard,
-            final PulsarJournalResource resource, final String replaySubscriptionName, final Duration responseTimeout,
-            final boolean targetNamespace, final int maximumRecords, final long maximumRecordBytes,
+            final PulsarClient client,
+            final Producer<byte[]> producer,
+            final ShardId shard,
+            final PulsarJournalResource resource,
+            final String replaySubscriptionName,
+            final Duration responseTimeout,
+            final boolean targetNamespace,
+            final int maximumRecords,
+            final long maximumRecordBytes,
             final TargetWriterGuard targetWriterGuard,
             final PulsarAttemptJournal.NegativeReplayAuthority negativeReplayAuthority)
             throws PulsarClientException {
@@ -223,8 +295,16 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         final String producerName = producer.getProducerName();
         close();
         if (targetNamespace) {
-            return openTarget(client, shard, resource, producerName, replaySubscriptionName, responseTimeout,
-                    maximumRecords, maximumRecordBytes, targetWriterGuard);
+            return openTarget(
+                    client,
+                    shard,
+                    resource,
+                    producerName,
+                    replaySubscriptionName,
+                    responseTimeout,
+                    maximumRecords,
+                    maximumRecordBytes,
+                    targetWriterGuard);
         }
         return open(client, shard, resource, producerName, replaySubscriptionName, responseTimeout);
     }
@@ -232,14 +312,21 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
     @Override
     public PulsarAttemptJournal.JournalPosition append(final PulsarAttemptJournal.AppendRequest request) {
         synchronized (lifecycle) {
-            if (stopping || !readerCloses.isEmpty()) throw new IllegalStateException("original Journal is closing or retains an unclosed reader");
+            if (stopping || !readerCloses.isEmpty()) {
+                throw new IllegalStateException("original Journal is closing or retains an unclosed reader");
+            }
             activeAppends++;
         }
-        try { return appendOwned(request); }
-        finally {
-            synchronized (lifecycle) { activeAppends--; }
+        try {
+            return appendOwned(request);
+        } finally {
+            synchronized (lifecycle) {
+                activeAppends--;
+            }
             final var backend = PulsarClientArtifactOwnedBackendGroup.find(client);
-            if (backend != null) backend.cleanupProgress();
+            if (backend != null) {
+                backend.cleanupProgress();
+            }
         }
     }
 
@@ -250,25 +337,39 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         }
         if (request.kind() == PulsarAttemptJournal.RecordKind.RESOLVED_NOT_PUBLISHED) {
             if (!targetNamespace || negativeReplayAuthority == null) {
-                throw new IllegalStateException("Target v2 writer requires configured authenticated v2 recovery reader");
+                throw new IllegalStateException(
+                        "Target v2 writer requires configured authenticated v2 recovery reader");
             }
-            targetWriterGuard.requireRecordVersion(shard, resource, TargetPulsarAttemptJournalRecordCodec.SETTLEMENT_VERSION);
+            targetWriterGuard.requireRecordVersion(
+                    shard, resource, TargetPulsarAttemptJournalRecordCodec.SETTLEMENT_VERSION);
         }
-        final byte[] payload = targetNamespace ? TargetPulsarAttemptJournalRecordCodec.encode(request)
+        final byte[] payload = targetNamespace
+                ? TargetPulsarAttemptJournalRecordCodec.encode(request)
                 : PulsarAttemptJournalRecordCodec.encode(request);
-        if (targetNamespace && payload.length > maximumRecordBytes) throw new IllegalStateException("Target Journal append exceeds its byte bound");
+        if (targetNamespace && payload.length > maximumRecordBytes) {
+            throw new IllegalStateException("Target Journal append exceeds its byte bound");
+        }
         requireTargetWriter();
         final CompletableFuture<MessageId> completion;
         try {
             final var recovering = recoveryWriter;
             completion = recovering == null
-                    ? PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage().value(payload).sendAsync())
-                    : recovering.nativeSend(this, producer, () -> producer.newMessage().value(payload).sendAsync());
+                    ? PulsarClientArtifactOwnedBackendGroup.nativeSend(
+                            producer, () -> producer.newMessage().value(payload).sendAsync())
+                    : recovering.nativeSend(this, producer, () -> producer.newMessage()
+                            .value(payload)
+                            .sendAsync());
         } catch (RuntimeException failure) {
             throw new IllegalStateException("Attempt Journal append did not reach a durable acknowledgement", failure);
         }
-        synchronized (lifecycle) { nativeAppends.add(completion); }
-        completion.whenComplete((ignored, failure) -> { synchronized (lifecycle) { nativeAppends.remove(completion); } });
+        synchronized (lifecycle) {
+            nativeAppends.add(completion);
+        }
+        completion.whenComplete((ignored, failure) -> {
+            synchronized (lifecycle) {
+                nativeAppends.remove(completion);
+            }
+        });
         final MessageId messageId;
         try {
             messageId = completion.get(responseTimeoutMs, TimeUnit.MILLISECONDS);
@@ -306,7 +407,8 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         Throwable primary = null;
         try {
             requireTargetWriter();
-            consumer = PulsarClientArtifactSourceConsumerFactory.create(client, expectedGuard, resource.physicalTopic(), replaySubscriptionName);
+            consumer = PulsarClientArtifactSourceConsumerFactory.create(
+                    client, expectedGuard, resource.physicalTopic(), replaySubscriptionName);
             PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
                     consumer, expectedGuard, resource.physicalTopic(), resource.partition(), responseTimeout);
             @SuppressWarnings("deprecation")
@@ -342,86 +444,153 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 }
             }
         } catch (PulsarClientException failure) {
-            if (consumer == null) synchronized (lifecycle) { readerOpeningFailure = failure; }
+            if (consumer == null) {
+                synchronized (lifecycle) {
+                    readerOpeningFailure = failure;
+                }
+            }
             primary = failure;
             throw new IllegalStateException("Attempt Journal response-loss readback failed", failure);
         } catch (RuntimeException | Error failure) {
-            if (consumer == null) synchronized (lifecycle) { readerOpeningFailure = failure; }
-            primary = failure; throw failure;
+            if (consumer == null) {
+                synchronized (lifecycle) {
+                    readerOpeningFailure = failure;
+                }
+            }
+            primary = failure;
+            throw failure;
         } finally {
-            if (consumer != null) closeReaderPreserving(consumer, primary);
+            if (consumer != null) {
+                closeReaderPreserving(consumer, primary);
+            }
         }
     }
 
     @Override
     public void close() {
-        synchronized (lifecycle) { stopping = true; }
+        synchronized (lifecycle) {
+            stopping = true;
+        }
         producerClose.close();
     }
 
     void requestManagedClose() {
-        synchronized (lifecycle) { stopping = true; }
+        synchronized (lifecycle) {
+            stopping = true;
+        }
         journal.sealWriter(this);
         progressManagedClose();
     }
+
     void bindRecoveryWriter(PulsarClientArtifactRecoveryJournalWriter original) {
         synchronized (lifecycle) {
-            if (stopping || recoveryWriter != null || !targetNamespace) throw new IllegalStateException("original recovery writer cannot be rebound");
+            if (stopping || recoveryWriter != null || !targetNamespace) {
+                throw new IllegalStateException("original recovery writer cannot be rebound");
+            }
             recoveryWriter = Objects.requireNonNull(original);
         }
     }
-    boolean operationsExited() { synchronized (lifecycle) { return activeAppends == 0; } }
+
+    boolean operationsExited() {
+        synchronized (lifecycle) {
+            return activeAppends == 0;
+        }
+    }
+
     boolean managedNativeClosed() {
         synchronized (lifecycle) {
-            return stopping && activeAppends == 0 && (backendStopped || readerOpeningFailure == null
-                    && nativeAppends.isEmpty() && readerCloses.isEmpty()
-                    && managedProducerClose != null && managedProducerClose.isDone() && !managedProducerClose.isCompletedExceptionally());
+            return stopping
+                    && activeAppends == 0
+                    && (backendStopped
+                            || readerOpeningFailure == null
+                                    && nativeAppends.isEmpty()
+                                    && readerCloses.isEmpty()
+                                    && managedProducerClose != null
+                                    && managedProducerClose.isDone()
+                                    && !managedProducerClose.isCompletedExceptionally());
         }
     }
+
     boolean normallyClosedForHandoff() {
         synchronized (lifecycle) {
-            if (backendStopped) throw new IllegalStateException("shared SDK termination cannot authorize normal Journal handoff");
-            if (readerOpeningFailure != null) throw new IllegalStateException("original Journal retains an uncertain reader opening", readerOpeningFailure);
-            for (var close : readerCloses) {
-                if (close.isCompletedExceptionally()) close.join();
+            if (backendStopped) {
+                throw new IllegalStateException("shared SDK termination cannot authorize normal Journal handoff");
             }
-            if (managedProducerClose != null && managedProducerClose.isCompletedExceptionally()) managedProducerClose.join();
-            return stopping && activeAppends == 0 && nativeAppends.isEmpty() && readerCloses.isEmpty()
-                    && managedProducerClose != null && managedProducerClose.isDone();
+            if (readerOpeningFailure != null) {
+                throw new IllegalStateException(
+                        "original Journal retains an uncertain reader opening", readerOpeningFailure);
+            }
+            for (var close : readerCloses) {
+                if (close.isCompletedExceptionally()) {
+                    close.join();
+                }
+            }
+            if (managedProducerClose != null && managedProducerClose.isCompletedExceptionally()) {
+                managedProducerClose.join();
+            }
+            return stopping
+                    && activeAppends == 0
+                    && nativeAppends.isEmpty()
+                    && readerCloses.isEmpty()
+                    && managedProducerClose != null
+                    && managedProducerClose.isDone();
         }
     }
+
     private void progressManagedClose() {
         synchronized (lifecycle) {
-            if (!stopping || activeAppends != 0 || backendStopped || managedProducerClose != null) return;
+            if (!stopping || activeAppends != 0 || backendStopped || managedProducerClose != null) {
+                return;
+            }
             managedProducerClose = producerClose.normalCloseFuture();
         }
     }
+
     void backendTerminated(PulsarClientArtifactOwnedBackendGroup.TerminationProof proof) {
         proof.requireClient(client);
         synchronized (lifecycle) {
-            if (activeAppends != 0) throw new IllegalStateException("original Journal append has not exited");
-            stopping = true; backendStopped = true; readerCloses.clear();
+            if (activeAppends != 0) {
+                throw new IllegalStateException("original Journal append has not exited");
+            }
+            stopping = true;
+            backendStopped = true;
+            readerCloses.clear();
         }
         journal.sealWriter(this);
     }
+
     private void closeReader(GuardedConsumer<byte[]> consumer) {
         final var closing = PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer);
-        synchronized (lifecycle) { readerCloses.add(closing); }
+        synchronized (lifecycle) {
+            readerCloses.add(closing);
+        }
         closing.whenComplete((ignored, failure) -> {
-            if (failure == null) synchronized (lifecycle) { readerCloses.remove(closing); }
+            if (failure == null) {
+                synchronized (lifecycle) {
+                    readerCloses.remove(closing);
+                }
+            }
         });
-        try { closing.get(responseTimeoutMs, TimeUnit.MILLISECONDS); }
-        catch (InterruptedException failure) {
-            Thread.currentThread().interrupt(); throw new IllegalStateException("original Journal reader close was interrupted", failure);
+        try {
+            closing.get(responseTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("original Journal reader close was interrupted", failure);
         } catch (ExecutionException | TimeoutException failure) {
             throw new IllegalStateException("original Journal reader close is not confirmed", failure);
         }
     }
+
     private void closeReaderPreserving(GuardedConsumer<byte[]> consumer, Throwable primary) {
-        try { closeReader(consumer); }
-        catch (RuntimeException | Error cleanup) {
-            if (primary == null) throw cleanup;
-            if (cleanup != primary) primary.addSuppressed(cleanup);
+        try {
+            closeReader(consumer);
+        } catch (RuntimeException | Error cleanup) {
+            if (primary == null) {
+                throw cleanup;
+            }
+            if (cleanup != primary) {
+                primary.addSuppressed(cleanup);
+            }
         }
     }
 
@@ -463,11 +632,15 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 final var original = decode(message.getData(), position);
                 if (original.kind() == PulsarAttemptJournal.RecordKind.RESOLVED_NOT_PUBLISHED) {
                     if (negativeReplayAuthority == null) {
-                        throw new IllegalStateException("Target v2 recovery reader lacks Source/history authentication");
+                        throw new IllegalStateException(
+                                "Target v2 recovery reader lacks Source/history authentication");
                     }
-                    targetWriterGuard.requireRecordVersion(shard, resource, TargetPulsarAttemptJournalRecordCodec.SETTLEMENT_VERSION);
+                    targetWriterGuard.requireRecordVersion(
+                            shard, resource, TargetPulsarAttemptJournalRecordCodec.SETTLEMENT_VERSION);
                     journal.replay(original, negativeReplayAuthority);
-                } else { journal.replay(original); }
+                } else {
+                    journal.replay(original);
+                }
                 consumer.acknowledge(message);
                 records++;
                 if (message.getMessageId().compareTo(replayThrough) >= 0) {
@@ -475,7 +648,8 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
                 }
             }
         } catch (PulsarClientException | RuntimeException | Error failure) {
-            primary = failure; throw failure;
+            primary = failure;
+            throw failure;
         } finally {
             closeReaderPreserving(consumer, primary);
         }
@@ -505,7 +679,8 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
 
     private PulsarAttemptJournal.JournalRecord decode(
             final byte[] payload, final PulsarAttemptJournal.JournalPosition position) {
-        return targetNamespace ? TargetPulsarAttemptJournalRecordCodec.decode(payload, position)
+        return targetNamespace
+                ? TargetPulsarAttemptJournalRecordCodec.decode(payload, position)
                 : PulsarAttemptJournalRecordCodec.decode(payload, position);
     }
 
@@ -515,14 +690,16 @@ public final class PulsarClientArtifactAttemptJournal implements PulsarAttemptJo
         void requireActive(ShardId shard, PulsarJournalResource resource);
         /** Existing schema/Artifact/eligible-reader activation; old functional guards cannot silently enable v2. */
         default void requireRecordVersion(ShardId shard, PulsarJournalResource resource, int recordVersion) {
-            throw new IllegalStateException("Target Journal record version is not activated by this writer/reader guard");
+            throw new IllegalStateException(
+                    "Target Journal record version is not activated by this writer/reader guard");
         }
-
     }
 
     private void requireTargetWriter() {
         synchronized (lifecycle) {
-            if (stopping) throw new IllegalStateException("original Journal writer is sealed");
+            if (stopping) {
+                throw new IllegalStateException("original Journal writer is sealed");
+            }
         }
         if (targetNamespace) {
             Objects.requireNonNull(targetWriterGuard, "targetWriterGuard").requireActive(shard, resource);

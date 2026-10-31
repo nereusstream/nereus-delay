@@ -30,7 +30,9 @@ public interface RetryPolicyCatalog {
     record Publication(RetryPolicySemantic retry, TerminalPolicySemantic terminal) {
         public Publication {
             java.util.Objects.requireNonNull(retry, "retry");
-            if (terminal != null) { terminal.requireBinding(retry); }
+            if (terminal != null) {
+                terminal.requireBinding(retry);
+            }
         }
     }
 }

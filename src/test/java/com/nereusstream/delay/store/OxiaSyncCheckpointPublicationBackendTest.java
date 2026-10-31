@@ -56,28 +56,33 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final var pending = pending(9, null);
         final var entered = new CountDownLatch(1);
         final var release = new CountDownLatch(1);
-        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy())) {
+        try (var executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2), new ThreadPoolExecutor.AbortPolicy())) {
             records.afterPut = () -> {
                 entered.countDown();
                 try {
-                    if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("I/O gate expired"); }
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("I/O gate expired");
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException(interrupted);
                 }
             };
             try {
-                final var provider = new OxiaCheckpointIntentRegistration(
-                        backend, Duration.ofSeconds(10), () -> {}, executor);
+                final var provider =
+                        new OxiaCheckpointIntentRegistration(backend, Duration.ofSeconds(10), () -> {}, executor);
                 final var attempt = provider.begin(pending);
                 assertTrue(entered.await(5, TimeUnit.SECONDS));
                 attempt.requestStop();
                 assertFalse(attempt.ioExited());
                 assertFalse(attempt.receipt().isDone());
                 release.countDown();
-                assertTrue(assertThrows(ExecutionException.class,
-                        () -> attempt.receipt().get(5, TimeUnit.SECONDS)).getCause().getMessage().contains("stop"));
+                assertTrue(assertThrows(ExecutionException.class, () -> attempt.receipt()
+                                .get(5, TimeUnit.SECONDS))
+                        .getCause()
+                        .getMessage()
+                        .contains("stop"));
                 assertTrue(attempt.ioExited());
                 assertEquals(pending, backend.current(pending).orElseThrow());
                 assertEquals(1, records.putCount);
@@ -94,20 +99,22 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final var pending = pending(8, null);
         final var entered = new CountDownLatch(1);
         final var release = new CountDownLatch(1);
-        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy())) {
+        try (var executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2), new ThreadPoolExecutor.AbortPolicy())) {
             records.afterPut = () -> {
                 entered.countDown();
                 try {
-                    if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException("I/O gate expired"); }
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("I/O gate expired");
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException(interrupted);
                 }
             };
             try {
-                final var provider = new OxiaCheckpointIntentRegistration(
-                        backend, Duration.ofSeconds(10), () -> {}, executor);
+                final var provider =
+                        new OxiaCheckpointIntentRegistration(backend, Duration.ofSeconds(10), () -> {}, executor);
                 final var attempt = provider.begin(pending);
                 assertTrue(entered.await(5, TimeUnit.SECONDS));
                 assertTrue(attempt.receipt().cancel(false));
@@ -130,10 +137,10 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final var records = new FakeRecordClient();
         final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/async-intent-loss", LIMITS);
         final var pending = pending(6, null);
-        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy())) {
-            final var provider = new OxiaCheckpointIntentRegistration(
-                    backend, Duration.ofSeconds(5), () -> {}, executor);
+        try (var executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2), new ThreadPoolExecutor.AbortPolicy())) {
+            final var provider =
+                    new OxiaCheckpointIntentRegistration(backend, Duration.ofSeconds(5), () -> {}, executor);
             records.failNextPutAfterCommit = true;
             assertEquals(pending, provider.register(pending).get(5, TimeUnit.SECONDS));
             assertEquals(pending, backend.current(pending).orElseThrow());
@@ -148,14 +155,20 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final var backend = new OxiaSyncCheckpointPublicationBackend(records, "delay/async-intent-fenced", LIMITS);
         final var pending = pending(7, null);
         final var allowed = new AtomicBoolean(true);
-        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy())) {
-            final var provider = new OxiaCheckpointIntentRegistration(backend, Duration.ofSeconds(5), () -> {
-                if (!allowed.get()) { throw new IllegalStateException("registration Owner lost"); }
-            }, executor);
+        try (var executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2), new ThreadPoolExecutor.AbortPolicy())) {
+            final var provider = new OxiaCheckpointIntentRegistration(
+                    backend,
+                    Duration.ofSeconds(5),
+                    () -> {
+                        if (!allowed.get()) {
+                            throw new IllegalStateException("registration Owner lost");
+                        }
+                    },
+                    executor);
             records.afterPut = () -> allowed.set(false);
-            final var failure = assertThrows(ExecutionException.class,
-                    () -> provider.register(pending).get(5, TimeUnit.SECONDS));
+            final var failure = assertThrows(
+                    ExecutionException.class, () -> provider.register(pending).get(5, TimeUnit.SECONDS));
             assertEquals("registration Owner lost", failure.getCause().getMessage());
             assertEquals(pending, backend.current(pending).orElseThrow());
             assertEquals(1, records.putCount);
@@ -310,7 +323,8 @@ class OxiaSyncCheckpointPublicationBackendTest {
 
         assertEquals(
                 "simulated Oxia session fence",
-                assertThrows(IllegalStateException.class, () -> fenced.createRecoveryPin(pin)).getMessage());
+                assertThrows(IllegalStateException.class, () -> fenced.createRecoveryPin(pin))
+                        .getMessage());
 
         final OxiaSyncCheckpointPublicationBackend reopened =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/fenced-publication-pin-create", LIMITS);

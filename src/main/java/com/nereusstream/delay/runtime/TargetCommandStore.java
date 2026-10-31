@@ -101,7 +101,11 @@ public final class TargetCommandStore {
         private final CommandResult result;
         private final Runnable sampleQualification;
 
-        private Prepared(TargetCommandStore owner, TargetStoreBackend.Prepared batch, CommandResult result, Runnable sampleQualification) {
+        private Prepared(
+                TargetCommandStore owner,
+                TargetStoreBackend.Prepared batch,
+                CommandResult result,
+                Runnable sampleQualification) {
             this.owner = owner;
             this.batch = batch;
             this.result = result;
@@ -198,50 +202,128 @@ public final class TargetCommandStore {
             TargetReservationControls.Authority reservationControls,
             Schedules schedules,
             PayloadProofControls payloadProofs) {
-        return prepareFirst(budget, command, source, policy, controls, reservationControls, schedules, payloadProofs,
+        return prepareFirst(
+                budget,
+                command,
+                source,
+                policy,
+                controls,
+                reservationControls,
+                schedules,
+                payloadProofs,
                 TargetSloObservationSamples.UNAVAILABLE);
     }
 
     public Prepared prepareFirst(
-            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
-            CancellationControls controls, TargetReservationControls.Authority reservationControls,
-            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples) {
-        return prepareFirst(budget, command, source, policy, controls, reservationControls, schedules, payloadProofs, samples, null);
+            BoundedReadBudget budget,
+            PreparedCommand command,
+            SourcePosition source,
+            Policy policy,
+            CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
+            Schedules schedules,
+            PayloadProofControls payloadProofs,
+            TargetSloObservationSamples.Authority samples) {
+        return prepareFirst(
+                budget,
+                command,
+                source,
+                policy,
+                controls,
+                reservationControls,
+                schedules,
+                payloadProofs,
+                samples,
+                null);
     }
 
     public Prepared prepareFirst(
-            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
-            CancellationControls controls, TargetReservationControls.Authority reservationControls,
-            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            BoundedReadBudget budget,
+            PreparedCommand command,
+            SourcePosition source,
+            Policy policy,
+            CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
+            Schedules schedules,
+            PayloadProofControls payloadProofs,
+            TargetSloObservationSamples.Authority samples,
             com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
-        return prepareFirstAuthenticated(budget, command, source, policy, controls, reservationControls,
-                schedules, payloadProofs, samples, null, legacyPrefix);
+        return prepareFirstAuthenticated(
+                budget,
+                command,
+                source,
+                policy,
+                controls,
+                reservationControls,
+                schedules,
+                payloadProofs,
+                samples,
+                null,
+                legacyPrefix);
     }
 
     /** Actual Target-owned legacy raw Command, under the original process-owned migration permit. */
     public Prepared prepareMigrationFirst(
-            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
-            CancellationControls controls, TargetReservationControls.Authority reservationControls,
-            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            BoundedReadBudget budget,
+            PreparedCommand command,
+            SourcePosition source,
+            Policy policy,
+            CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
+            Schedules schedules,
+            PayloadProofControls payloadProofs,
+            TargetSloObservationSamples.Authority samples,
             com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
-        return prepareMigrationFirst(budget, command, source, policy, controls, reservationControls,
-                schedules, payloadProofs, samples, migration, null);
+        return prepareMigrationFirst(
+                budget,
+                command,
+                source,
+                policy,
+                controls,
+                reservationControls,
+                schedules,
+                payloadProofs,
+                samples,
+                migration,
+                null);
     }
 
     public Prepared prepareMigrationFirst(
-            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
-            CancellationControls controls, TargetReservationControls.Authority reservationControls,
-            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            BoundedReadBudget budget,
+            PreparedCommand command,
+            SourcePosition source,
+            Policy policy,
+            CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
+            Schedules schedules,
+            PayloadProofControls payloadProofs,
+            TargetSloObservationSamples.Authority samples,
             com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration,
             com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
-        return prepareFirstAuthenticated(budget, command, source, policy, controls, reservationControls,
-                schedules, payloadProofs, samples, Objects.requireNonNull(migration, "actual migration-owned legacy Command"), legacyPrefix);
+        return prepareFirstAuthenticated(
+                budget,
+                command,
+                source,
+                policy,
+                controls,
+                reservationControls,
+                schedules,
+                payloadProofs,
+                samples,
+                Objects.requireNonNull(migration, "actual migration-owned legacy Command"),
+                legacyPrefix);
     }
 
     private Prepared prepareFirstAuthenticated(
-            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
-            CancellationControls controls, TargetReservationControls.Authority reservationControls,
-            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            BoundedReadBudget budget,
+            PreparedCommand command,
+            SourcePosition source,
+            Policy policy,
+            CancellationControls controls,
+            TargetReservationControls.Authority reservationControls,
+            Schedules schedules,
+            PayloadProofControls payloadProofs,
+            TargetSloObservationSamples.Authority samples,
             com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration,
             com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(samples, "original certification sample authority");
@@ -263,12 +345,16 @@ public final class TargetCommandStore {
         final var batch = messages.prepareAccountedWithQuotaRejection(
                 budget,
                 reader -> {
-                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, command, source);
+                    if (legacyPrefix != null) {
+                        legacyPrefix.requireCurrent(reader, command, source);
+                    }
                     if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
                         throw new IllegalStateException(
                                 "first Command requires a strictly advancing established source");
                     }
-                    if (migration != null) migration.requireCurrent(reader, command, source);
+                    if (migration != null) {
+                        migration.requireCurrent(reader, command, source);
+                    }
                     final var stamp = new TargetQuotaMutation(
                             TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
                     for (var key : List.of(commandKey(command), queryKey(command), positionKey(source))) {
@@ -315,7 +401,8 @@ public final class TargetCommandStore {
                                     stamp,
                                     root,
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
-                                    result, legacyPrefix);
+                                    result,
+                                    legacyPrefix);
                         }
                         decision = ingress(reader, command, body.intent(), null, stamp, root, policy, schedules);
                     } else if (command.type() == CommandType.PREPARE_LARGE_SCHEDULE) {
@@ -333,7 +420,8 @@ public final class TargetCommandStore {
                                     stamp,
                                     root,
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
-                                    result, legacyPrefix);
+                                    result,
+                                    legacyPrefix);
                         }
                         decision = ingress(
                                 reader, command, body.intentWithoutPayload(), body, stamp, root, policy, schedules);
@@ -352,7 +440,8 @@ public final class TargetCommandStore {
                                     stamp,
                                     root,
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
-                                    result, legacyPrefix);
+                                    result,
+                                    legacyPrefix);
                         }
                         decision = commitReservation(
                                 reader, command, body, stamp, root, reservationControls, payloadProofs);
@@ -371,7 +460,8 @@ public final class TargetCommandStore {
                                     stamp,
                                     root,
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
-                                    result, legacyPrefix);
+                                    result,
+                                    legacyPrefix);
                         }
                         decision = modifyMessage(
                                 reader,
@@ -382,7 +472,8 @@ public final class TargetCommandStore {
                                 root,
                                 controls,
                                 reservationControls,
-                                policy, legacyPrefix);
+                                policy,
+                                legacyPrefix);
                     } else if (command.type() == CommandType.RESCHEDULE) {
                         final RescheduleCommandBody body;
                         try {
@@ -398,7 +489,8 @@ public final class TargetCommandStore {
                                     stamp,
                                     root,
                                     unchanged(rejected(StableCode.INVALID_COMMAND, source), root),
-                                    result, legacyPrefix);
+                                    result,
+                                    legacyPrefix);
                         }
                         decision = modifyMessage(
                                 reader,
@@ -409,7 +501,8 @@ public final class TargetCommandStore {
                                 root,
                                 controls,
                                 reservationControls,
-                                policy, legacyPrefix);
+                                policy,
+                                legacyPrefix);
                     } else {
                         throw new IllegalStateException(
                                 "first Target Command business branch is not wired yet; retain source");
@@ -418,32 +511,42 @@ public final class TargetCommandStore {
                     return withResults(reader, command, stamp, root, decision, result, legacyPrefix);
                 },
                 (reader, business) -> {
-                    final var stamp = new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
-                    final var plainAccounting = new TargetSourceAccounting(scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
-                    final var accounting = legacyPrefix == null ? plainAccounting : plainAccounting.withLegacyPrefix(legacyPrefix);
+                    final var stamp = new TargetQuotaMutation(
+                            TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
+                    final var plainAccounting = new TargetSourceAccounting(
+                            scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
+                    final var accounting =
+                            legacyPrefix == null ? plainAccounting : plainAccounting.withLegacyPrefix(legacyPrefix);
                     final var gate = new TargetQuotaStoreGate(scope, lineage, 1);
                     final var operation = ingress[0] != null
-                                            ? command.type() == CommandType.PREPARE_LARGE_SCHEDULE
-                                                    ? TargetQuotaGrantGate.Operation.PREPARE
-                                                    : TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
-                                            : command.type() == CommandType.COMMIT_LARGE_SCHEDULE
-                                                            && result[0].stableCode() == StableCode.SCHEDULED
-                                                    ? TargetQuotaGrantGate.Operation.RESERVATION_COMMIT
-                                                    : command.type() == CommandType.RESCHEDULE
-                                                            ? TargetQuotaGrantGate.Operation.RESCHEDULE
-                                                            : TargetQuotaGrantGate.Operation.CANCEL;
+                            ? command.type() == CommandType.PREPARE_LARGE_SCHEDULE
+                                    ? TargetQuotaGrantGate.Operation.PREPARE
+                                    : TargetQuotaGrantGate.Operation.FIRST_SCHEDULE
+                            : command.type() == CommandType.COMMIT_LARGE_SCHEDULE
+                                            && result[0].stableCode() == StableCode.SCHEDULED
+                                    ? TargetQuotaGrantGate.Operation.RESERVATION_COMMIT
+                                    : command.type() == CommandType.RESCHEDULE
+                                            ? TargetQuotaGrantGate.Operation.RESCHEDULE
+                                            : TargetQuotaGrantGate.Operation.CANCEL;
                     // Preserve the original business capacity decision before charging mandatory certification.
                     final var baseline = accounting.assemble(reader, business);
                     gate.check(reader, baseline, operation, ingress[0]);
-                    final var sample = TargetSloObservationSamples.command(reader, scope, lineage, command, stamp, business, samples);
+                    final var sample = TargetSloObservationSamples.command(
+                            reader, scope, lineage, command, stamp, business, samples);
                     sampleQualification[0] = sample.qualification();
-                    if (sample.edits().isEmpty()) return baseline;
+                    if (sample.edits().isEmpty()) {
+                        return baseline;
+                    }
                     final var observed = new ArrayList<>(business);
                     observed.addAll(sample.edits());
-                    final var assembled = accounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
-                    try { gate.check(reader, assembled, operation, ingress[0]); }
-                    catch (TargetQuotaStoreGate.Rejected capacity) {
-                        throw new IllegalStateException("required Target certification evidence cannot downgrade the original business decision", capacity);
+                    final var assembled =
+                            accounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
+                    try {
+                        gate.check(reader, assembled, operation, ingress[0]);
+                    } catch (TargetQuotaStoreGate.Rejected capacity) {
+                        throw new IllegalStateException(
+                                "required Target certification evidence cannot downgrade the original business decision",
+                                capacity);
                     }
                     return assembled;
                 },
@@ -470,7 +573,8 @@ public final class TargetCommandStore {
                             stamp,
                             root,
                             unchanged(rejected(StableCode.HARD_QUOTA_EXCEEDED, source), root),
-                            result, legacyPrefix);
+                            result,
+                            legacyPrefix);
                 });
         return new Prepared(this, batch, result[0], sampleQualification[0]);
     }
@@ -484,8 +588,15 @@ public final class TargetCommandStore {
         backend.commit(prepared.batch, (metadata, actualScope, mutation) -> {
             final var actual = authority.acquire(metadata, actualScope, mutation);
             return new TargetStoreBackend.CommitGuard() {
-                public void requireCurrent() { prepared.sampleQualification.run(); actual.requireCurrent(); prepared.sampleQualification.run(); }
-                public void close() { actual.close(); }
+                public void requireCurrent() {
+                    prepared.sampleQualification.run();
+                    actual.requireCurrent();
+                    prepared.sampleQualification.run();
+                }
+
+                public void close() {
+                    actual.close();
+                }
             };
         });
         return prepared.result;
@@ -530,8 +641,17 @@ public final class TargetCommandStore {
             final var owner = descriptor(reader, payloadOwner.primaryIdentity());
             requirePayloadAttribution(reader, owner, payloadOwner);
             payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
-                TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
+            if (payloadOwner.phase() == TargetQuotaPayloadOwner.Phase.RELEASED
+                    && payloadOwner.committedPayload() == null) {
+                TargetRetirementSourceHistoryStore.requirePayloadReclaim(
+                        reader,
+                        List.of(),
+                        scope,
+                        lineage,
+                        root.identity(),
+                        payloadOwner,
+                        reader.aggregate().mutation());
+            }
             if (existing != null) {
                 final var message = TargetMessageRecord.decodeForStore(
                         TargetKeyCodec.message(command.delayMessageId()),
@@ -842,8 +962,16 @@ public final class TargetCommandStore {
                 scope.tenantScope());
         reservation.requireOwner(payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
-            TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
+        if (payloadOwner.phase() == TargetQuotaPayloadOwner.Phase.RELEASED && payloadOwner.committedPayload() == null) {
+            TargetRetirementSourceHistoryStore.requirePayloadReclaim(
+                    reader,
+                    List.of(),
+                    scope,
+                    lineage,
+                    root.identity(),
+                    payloadOwner,
+                    reader.aggregate().mutation());
+        }
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
         requirePayloadAttribution(reader, owner, payloadOwner);
         final byte[] bindingKey =
@@ -884,7 +1012,8 @@ public final class TargetCommandStore {
         final var proof = body.proof();
         if (reservation.migrationOrigin() != null) {
             final var receipt = reservation.migrationOrigin().originalReceipt();
-            if (!Arrays.equals(proof.container(), receipt.container()) || !Arrays.equals(proof.objectKey(), receipt.objectKey())) {
+            if (!Arrays.equals(proof.container(), receipt.container())
+                    || !Arrays.equals(proof.objectKey(), receipt.objectKey())) {
                 return unchanged(rejected(StableCode.PAYLOAD_PROOF_INVALID, source), owner);
             }
         }
@@ -910,12 +1039,21 @@ public final class TargetCommandStore {
             if (!reference.equals(reservation.committedPayload())) {
                 return unchanged(rejected(StableCode.PAYLOAD_COMMIT_CONFLICT, source), owner);
             }
-            if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
-                TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
-            }else{
+            if (payloadOwner.phase() == TargetQuotaPayloadOwner.Phase.RELEASED) {
+                TargetRetirementSourceHistoryStore.releasedPayloadOperation(
+                        reader,
+                        List.of(),
+                        scope,
+                        lineage,
+                        root.identity(),
+                        payloadOwner,
+                        reader.aggregate().mutation());
+            } else {
                 final var messageKey = TargetKeyCodec.message(command.delayMessageId());
-                final var message = TargetMessageRecord.decodeForStore(messageKey,
-                        payload(reader,ColumnFamily.ID,messageKey,TargetMessageRecord.VALUE_TYPE),scope.shard());
+                final var message = TargetMessageRecord.decodeForStore(
+                        messageKey,
+                        payload(reader, ColumnFamily.ID, messageKey, TargetMessageRecord.VALUE_TYPE),
+                        scope.shard());
                 payloadOwner.requireMessagePayload(message);
             }
         } else if (reservation.status() == PayloadReservationStatus.ABANDONED) {
@@ -1145,12 +1283,25 @@ public final class TargetCommandStore {
         final byte[] payloadRaw = reader.get(ColumnFamily.META, payloadKey);
         if (raw == null) {
             if (payloadRaw != null) {
-                final var retained=TargetQuotaPayloadOwner.decodeForStore(payloadKey,
-                        TargetValueEnvelope.decode(payloadRaw,TargetQuotaPayloadOwner.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
-                if(retained.phase()==TargetQuotaPayloadOwner.Phase.RELEASED){
-                    if(retained.kind()==TargetQuotaPayloadOwner.Kind.OBJECT&&retained.committedPayload()==null)
-                        TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),retained,reader.aggregate().mutation());
-                    else return modifyReleasedPayload(reader,retained,precondition,reschedule,stamp,root,controls);
+                final var retained = TargetQuotaPayloadOwner.decodeForStore(
+                        payloadKey,
+                        TargetValueEnvelope.decode(payloadRaw, TargetQuotaPayloadOwner.VALUE_TYPE)
+                                .payload(),
+                        scope.shard(),
+                        scope.tenantScope());
+                if (retained.phase() == TargetQuotaPayloadOwner.Phase.RELEASED) {
+                    if (retained.kind() == TargetQuotaPayloadOwner.Kind.OBJECT && retained.committedPayload() == null) {
+                        TargetRetirementSourceHistoryStore.requirePayloadReclaim(
+                                reader,
+                                List.of(),
+                                scope,
+                                lineage,
+                                root.identity(),
+                                retained,
+                                reader.aggregate().mutation());
+                    } else {
+                        return modifyReleasedPayload(reader, retained, precondition, reschedule, stamp, root, controls);
+                    }
                 }
                 return modifyReservation(
                         reader, command, precondition, payloadKey, payloadRaw, stamp, reservationControls);
@@ -1258,21 +1409,26 @@ public final class TargetCommandStore {
         }
         final boolean retainPayload = payloadOwner.summaryQualified()
                 ? TargetPayloadObligationSource.canRetain(reader, after, payloadOwner, payloadOwner.unresolvedCount())
-                : legacyPrefix != null && legacyPrefix.noUnresolvedAfter(reader, payloadOwner, List.of())
-                    && legacyPrefix.noLegacyCustodyAfter(reader, payloadOwner, List.of());
-        final var retained = !retainPayload ? payloadOwner : payloadOwner.retain(stamp, (prior, next, floor) -> {
-            if (floor != null
-                    || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
-                    || !next.mutation().equals(stamp)
-                    || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
-                    || !after.runtime().attemptObligations().isEmpty()) {
-                throw new IllegalStateException("Cancel retention changed exact payload/terminal transition");
-            }
-            next.requireMessagePayload(after);
-        });
+                : legacyPrefix != null
+                        && legacyPrefix.noUnresolvedAfter(reader, payloadOwner, List.of())
+                        && legacyPrefix.noLegacyCustodyAfter(reader, payloadOwner, List.of());
+        final var retained = !retainPayload
+                ? payloadOwner
+                : payloadOwner.retain(stamp, (prior, next, floor) -> {
+                    if (floor != null
+                            || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
+                            || !next.mutation().equals(stamp)
+                            || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
+                            || !after.runtime().attemptObligations().isEmpty()) {
+                        throw new IllegalStateException("Cancel retention changed exact payload/terminal transition");
+                    }
+                    next.requireMessagePayload(after);
+                });
         final var edits = new ArrayList<TargetStoreBackend.Edit>();
-        if (retained != payloadOwner) edits.add(reader.replace(
-                ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        if (retained != payloadOwner) {
+            edits.add(reader.replace(
+                    ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        }
         edits.add(reader.replace(
                 ColumnFamily.TERMINAL,
                 terminal.key(),
@@ -1292,32 +1448,71 @@ public final class TargetCommandStore {
     }
 
     /** A released identity keeps the same terminal command semantics and never re-enters reservation/Schedule. */
-    private Decision modifyReleasedPayload(TargetStoreBackend.Reader reader,TargetQuotaPayloadOwner retained,
-            MessagePrecondition precondition,RescheduleCommandBody reschedule,TargetQuotaMutation stamp,
-            TargetQuotaIncarnation root,CancellationControls controls){
-        final var operation=TargetRetirementSourceHistoryStore.releasedPayloadOperation(reader,List.of(),scope,lineage,
-                root.identity(),retained,reader.aggregate().mutation());
-        final var terminal=TargetTerminalGenerationRecord.decode(payload(reader,ColumnFamily.TERMINAL,
-                TargetTerminalGenerationRecord.key(operation.locator()),TargetTerminalGenerationRecord.VALUE_TYPE));
-        final var owner=descriptor(reader,retained.primaryIdentity());owner.requirePayloadOwner(retained);
-        if((precondition.expectedGeneration()!=null&&precondition.expectedGeneration()!=Integer.toUnsignedLong(terminal.locator().generation()))
-                ||(precondition.expectedStateVersion()!=null&&precondition.expectedStateVersion()!=terminal.stateVersion()))
-            return unchanged(appliedTerminal(StableCode.VERSION_CONFLICT,stamp.source(),terminal),owner);
-        final byte[] bindingKey=TargetKeyCodec.scheduleBinding(terminal.locator().scheduleBindingDigest());
-        final var binding=TargetScheduleBinding.decodeForStore(bindingKey,
-                payload(reader,ColumnFamily.ID,bindingKey,TargetScheduleBinding.VALUE_TYPE),scope.shard());
-        retained.requireInitialBinding(binding);binding.requireLocator(terminal.locator());binding.requireMessageSource(terminal.mutation().source());
-        final var queue=TargetQueueState.decode(payload(reader,ColumnFamily.META,TargetKeyCodec.state(terminal.locator().target()),TargetQueueState.VALUE_TYPE));
-        terminal.locator().requireQueueProjection(queue);binding.requireQueueProjection(queue);
-        controls.closed(reader,binding,stamp.source());
-        final StableCode code=reschedule==null&&terminal.runtime().aggregateState()==GenerationAggregateState.CANCELED
-                ?StableCode.ALREADY_CANCELED:terminal.terminalCode()==StableCode.LANE_CLOSED_BEFORE_ADMISSION
-                    ?reschedule==null?StableCode.ALREADY_DEAD_LETTERED:StableCode.LANE_CLOSED:StableCode.TOO_LATE;
-        return unchanged(appliedTerminal(code,stamp.source(),terminal),owner);
+    private Decision modifyReleasedPayload(
+            TargetStoreBackend.Reader reader,
+            TargetQuotaPayloadOwner retained,
+            MessagePrecondition precondition,
+            RescheduleCommandBody reschedule,
+            TargetQuotaMutation stamp,
+            TargetQuotaIncarnation root,
+            CancellationControls controls) {
+        final var operation = TargetRetirementSourceHistoryStore.releasedPayloadOperation(
+                reader,
+                List.of(),
+                scope,
+                lineage,
+                root.identity(),
+                retained,
+                reader.aggregate().mutation());
+        final var terminal = TargetTerminalGenerationRecord.decode(payload(
+                reader,
+                ColumnFamily.TERMINAL,
+                TargetTerminalGenerationRecord.key(operation.locator()),
+                TargetTerminalGenerationRecord.VALUE_TYPE));
+        final var owner = descriptor(reader, retained.primaryIdentity());
+        owner.requirePayloadOwner(retained);
+        if ((precondition.expectedGeneration() != null
+                        && precondition.expectedGeneration()
+                                != Integer.toUnsignedLong(terminal.locator().generation()))
+                || (precondition.expectedStateVersion() != null
+                        && precondition.expectedStateVersion() != terminal.stateVersion())) {
+            return unchanged(appliedTerminal(StableCode.VERSION_CONFLICT, stamp.source(), terminal), owner);
+        }
+        final byte[] bindingKey =
+                TargetKeyCodec.scheduleBinding(terminal.locator().scheduleBindingDigest());
+        final var binding = TargetScheduleBinding.decodeForStore(
+                bindingKey,
+                payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
+                scope.shard());
+        retained.requireInitialBinding(binding);
+        binding.requireLocator(terminal.locator());
+        binding.requireMessageSource(terminal.mutation().source());
+        final var queue = TargetQueueState.decode(payload(
+                reader,
+                ColumnFamily.META,
+                TargetKeyCodec.state(terminal.locator().target()),
+                TargetQueueState.VALUE_TYPE));
+        terminal.locator().requireQueueProjection(queue);
+        binding.requireQueueProjection(queue);
+        controls.closed(reader, binding, stamp.source());
+        final StableCode code =
+                reschedule == null && terminal.runtime().aggregateState() == GenerationAggregateState.CANCELED
+                        ? StableCode.ALREADY_CANCELED
+                        : terminal.terminalCode() == StableCode.LANE_CLOSED_BEFORE_ADMISSION
+                                ? reschedule == null ? StableCode.ALREADY_DEAD_LETTERED : StableCode.LANE_CLOSED
+                                : StableCode.TOO_LATE;
+        return unchanged(appliedTerminal(code, stamp.source(), terminal), owner);
     }
-    private static CommandResult appliedTerminal(StableCode code,SourcePosition source,TargetTerminalGenerationRecord terminal){
-        return new CommandResult(ApplyStatus.APPLIED,code,terminal.locator().generation(),terminal.stateVersion(),
-                MessageStatus.valueOf(terminal.runtime().aggregateState().name()),source.canonicalBytes());
+
+    private static CommandResult appliedTerminal(
+            StableCode code, SourcePosition source, TargetTerminalGenerationRecord terminal) {
+        return new CommandResult(
+                ApplyStatus.APPLIED,
+                code,
+                terminal.locator().generation(),
+                terminal.stateVersion(),
+                MessageStatus.valueOf(terminal.runtime().aggregateState().name()),
+                source.canonicalBytes());
     }
 
     private Decision reschedule(
@@ -1544,44 +1739,64 @@ public final class TargetCommandStore {
         }
         for (int index = 0; legacyPrefix == null && index < edits.size(); index++) {
             final var edit = edits.get(index);
-            if (edit.family() != ColumnFamily.META || edit.before() != null || edit.after() == null) continue;
+            if (edit.family() != ColumnFamily.META || edit.before() != null || edit.after() == null) {
+                continue;
+            }
             final var value = TargetValueEnvelope.decodeAny(edit.after());
-            if (value.valueType() != TargetQuotaPayloadOwner.VALUE_TYPE) continue;
+            if (value.valueType() != TargetQuotaPayloadOwner.VALUE_TYPE) {
+                continue;
+            }
             final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
                     edit.key(), value.payload(), scope.shard(), scope.tenantScope());
             final byte[] bindingKey = TargetKeyCodec.scheduleBinding(payloadOwner.initialBindingDigest());
             TargetScheduleBinding binding = null;
-            for (var proposed : edits) if (proposed.family() == ColumnFamily.ID
-                    && Arrays.equals(proposed.key(), bindingKey) && proposed.after() != null) {
-                binding = TargetScheduleBinding.decodeForStore(bindingKey,
-                        TargetValueEnvelope.decode(proposed.after(), TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
+            for (var proposed : edits) {
+                if (proposed.family() == ColumnFamily.ID
+                        && Arrays.equals(proposed.key(), bindingKey)
+                        && proposed.after() != null) {
+                    binding = TargetScheduleBinding.decodeForStore(
+                            bindingKey,
+                            TargetValueEnvelope.decode(proposed.after(), TargetScheduleBinding.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                }
             }
             final var initial = Objects.requireNonNull(binding, "fresh payload owner requires its same-batch binding");
             final var qualification = TargetPayloadObligationSummaryBootstrap.fresh(
                     reader, payloadOwner, initial, stamp, List.copyOf(edits));
             final var qualified = payloadOwner.initializeSummary(qualification, stamp, (prior, next, floor) -> {
-                if (floor != null || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
-                        || !next.mutation().equals(stamp))
+                if (floor != null
+                        || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
+                        || !next.mutation().equals(stamp)) {
                     throw new IllegalStateException("fresh payload summary changed its original Source birth");
+                }
                 next.requireInitialBinding(initial);
             });
-            edits.set(index, reader.replace(ColumnFamily.META, qualified.key(),
-                    TargetQuotaPayloadOwner.VALUE_TYPE, qualified.canonicalBytes()));
+            edits.set(
+                    index,
+                    reader.replace(
+                            ColumnFamily.META,
+                            qualified.key(),
+                            TargetQuotaPayloadOwner.VALUE_TYPE,
+                            qualified.canonicalBytes()));
         }
         result[0] = decision.result();
         return new TargetMessageStore.Input(
                 decision.input().messages(), decision.input().orders(), edits);
     }
 
-    private void requirePayloadAttribution(TargetStoreBackend.Reader reader, TargetQuotaIncarnation descriptor,
-            TargetQuotaPayloadOwner owner) {
-        if (!owner.mutation().isLocalMutation() && owner.mutation().sequence() == descriptor.allocation().sequence()
+    private void requirePayloadAttribution(
+            TargetStoreBackend.Reader reader, TargetQuotaIncarnation descriptor, TargetQuotaPayloadOwner owner) {
+        if (!owner.mutation().isLocalMutation()
+                && owner.mutation().sequence() == descriptor.allocation().sequence()
                 && !owner.mutation().equals(descriptor.allocation())) {
             final byte[] key = TargetKeyCodec.scheduleBinding(owner.initialBindingDigest());
-            final var binding = TargetScheduleBinding.decodeForStore(key,
-                    payload(reader, ColumnFamily.ID, key, TargetScheduleBinding.VALUE_TYPE), scope.shard());
+            final var binding = TargetScheduleBinding.decodeForStore(
+                    key, payload(reader, ColumnFamily.ID, key, TargetScheduleBinding.VALUE_TYPE), scope.shard());
             TargetMembershipStoreAuthority.requirePayloadOwner(reader, scope, lineage, descriptor, owner, binding);
-        } else descriptor.requirePayloadOwner(owner);
+        } else {
+            descriptor.requirePayloadOwner(owner);
+        }
     }
 
     private TargetQuotaIncarnation descriptor(TargetStoreBackend.Reader reader, TargetQuotaIdentity identity) {

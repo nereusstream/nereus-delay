@@ -210,9 +210,11 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         pinStore.release(Objects.requireNonNull(pin, "pin"));
     }
 
-    @Override public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
-        return pinStore.replace(expected, replacement, () -> readCatalog().createRecoveryPin(replacement),
-                () -> readCatalog().catalogGeneration());
+    @Override
+    public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+        return pinStore.replace(
+                expected, replacement, () -> readCatalog().createRecoveryPin(replacement), () -> readCatalog()
+                        .catalogGeneration());
     }
 
     /** Reads the active ephemeral pin, failing closed on malformed/sessionless bytes. */

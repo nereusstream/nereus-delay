@@ -238,9 +238,13 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         backend.releaseRecoveryPin(Objects.requireNonNull(pin, "pin"));
     }
 
-    @Override public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
-        final var actual = backend.replaceRecoveryPin(Objects.requireNonNull(expected), Objects.requireNonNull(replacement));
-        if (!replacement.equals(actual)) throw new IllegalStateException("RecoveryPin replacement changed its exact request");
+    @Override
+    public RecoveryPin replaceRecoveryPin(RecoveryPin expected, RecoveryPin replacement) {
+        final var actual =
+                backend.replaceRecoveryPin(Objects.requireNonNull(expected), Objects.requireNonNull(replacement));
+        if (!replacement.equals(actual)) {
+            throw new IllegalStateException("RecoveryPin replacement changed its exact request");
+        }
         return actual;
     }
 

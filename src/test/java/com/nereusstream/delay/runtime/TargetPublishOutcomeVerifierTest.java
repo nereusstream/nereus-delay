@@ -35,49 +35,79 @@ class TargetPublishOutcomeVerifierTest {
         final var key = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var wrongKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var observation = new TrustedUtcIntervalEvidence(
-                100, 105, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                Bytes.utf8("host-clock"), 1, 1, 1, repeated(32, 5), 0, null);
-        final byte[] placeholder = CanonicalProtobuf.message(
-                output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown")));
+                100,
+                105,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("host-clock"),
+                1,
+                1,
+                1,
+                repeated(32, 5),
+                0,
+                null);
+        final byte[] placeholder =
+                CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("unknown")));
         final byte[] attempt = repeated(32, 6);
         final byte[] body = PublishOutcomeBody.encodeInitial(
-                shard, 10_000, attempt, 3, 4, StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
-                null, placeholder, observation, placeholder);
+                shard,
+                10_000,
+                attempt,
+                3,
+                4,
+                StableCode.RECOVERY_FIRST_SEND_UNCERTAIN,
+                null,
+                placeholder,
+                observation,
+                placeholder);
         final var mutation = SystemMutation.signed(
-                shard, SystemMutationType.PUBLISH_OUTCOME, 10_000, attempt, body,
+                shard,
+                SystemMutationType.PUBLISH_OUTCOME,
+                10_000,
+                attempt,
+                body,
                 AuthorIdentity.owner(
                                 writer.deploymentId(), writer.workerRunId(),
                                 writer.ownerEpoch(), writer.leaseFencingDigest())
                         .canonicalBytes(),
-                1, key.getPrivate());
+                1,
+                key.getPrivate());
         final var accepted = TargetPublishOutcomeVerifier.decideFirstApplication(
-                scope, mutation, source,
+                scope,
+                mutation,
+                source,
                 (a, b, c, d) -> authorization(key.getPublic(), ProtocolTuple.currentSystemMutation(), active, true));
         assertNull(accepted.rejection());
         assertArrayEquals(attempt, accepted.body().publishAttemptId());
         assertEquals(
                 StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
                 TargetPublishOutcomeVerifier.decideFirstApplication(
-                                scope, mutation, source,
+                                scope,
+                                mutation,
+                                source,
                                 (a, b, c, d) -> authorization(
                                         wrongKey.getPublic(), ProtocolTuple.currentSystemMutation(), active, true))
                         .rejection());
         assertEquals(
                 StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
                 TargetPublishOutcomeVerifier.decideFirstApplication(
-                                scope, mutation, source,
+                                scope,
+                                mutation,
+                                source,
                                 (a, b, c, d) -> authorization(
                                         key.getPublic(), ProtocolTuple.targetPublishAdmission(), active, true))
                         .rejection());
         assertEquals(
                 StableCode.STALE_SYSTEM_MUTATION,
                 TargetPublishOutcomeVerifier.decideFirstApplication(
-                                scope, mutation, source,
+                                scope,
+                                mutation,
+                                source,
                                 (a, b, c, d) -> authorization(
                                         key.getPublic(), ProtocolTuple.currentSystemMutation(), active, false))
                         .rejection());
-        assertThrows(IllegalStateException.class, () -> TargetPublishOutcomeVerifier.decideFirstApplication(
-                scope, mutation, source, (a, b, c, d) -> {
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetPublishOutcomeVerifier.decideFirstApplication(scope, mutation, source, (a, b, c, d) -> {
                     throw new IllegalStateException("source authority unavailable");
                 }));
     }

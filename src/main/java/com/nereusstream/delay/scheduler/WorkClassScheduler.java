@@ -157,7 +157,9 @@ public final class WorkClassScheduler {
     /** Withdraws one exact still-queued identity without changing fairness debt or invoking its handler. */
     synchronized boolean withdrawQueued(final WorkClassTask task) {
         final var selected = state(Objects.requireNonNull(task).workClass());
-        if (!selected.queue.removeFirstOccurrence(task)) return false;
+        if (!selected.queue.removeFirstOccurrence(task)) {
+            return false;
+        }
         selected.queuedBytes = Math.subtractExact(selected.queuedBytes, task.bytes());
         return true;
     }

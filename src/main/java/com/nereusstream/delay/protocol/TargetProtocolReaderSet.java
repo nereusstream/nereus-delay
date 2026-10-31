@@ -6,83 +6,163 @@ import java.util.List;
 import java.util.Objects;
 
 /** Complete public reader snapshot; its bytes are not membership/session or CONTROL authority by themselves. */
-public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descriptor,List<Reader> readers) {
-    public static final int MAX_BYTES=1<<20;
-    public static final int MAX_READERS=64;
-    private static final byte[] DOMAIN=Bytes.utf8("nereus-delay-target-protocol-eligible-reader-set\0");
-    public record Reader(long revision,ProtocolCapabilityDeclaration declaration) {
-        public Reader { Objects.requireNonNull(declaration);if(revision<=0)throw new IllegalArgumentException("reader publication revision must be positive"); }
-        public byte[] canonicalBytes(){return CanonicalProtobuf.message(out->{
-            CanonicalProtobuf.uint64Bits(out,1,revision);CanonicalProtobuf.bytes(out,2,declaration.canonicalBytes());
-        });}
-    }
-    public TargetProtocolReaderSet {
-        Objects.requireNonNull(descriptor);readers=List.copyOf(readers);
-        if(readers.isEmpty()||readers.size()>MAX_READERS)throw new IllegalArgumentException("Target readers require a complete finite nonempty membership");
-        String prior=null;long bytes=128;
-        for(var reader:readers){
-            final var declaration=reader.declaration();
-            bytes=Math.addExact(bytes,declaration.canonicalBytes().length+32L);
-            if(bytes>MAX_BYTES)throw new IllegalArgumentException("complete Target reader set exceeds byte bound before full encoding");
-            if(prior!=null&&prior.compareTo(declaration.workerId())>=0||!declaration.supports(descriptor)
-                    ||!declaration.supports(descriptor.tuple())||!declaration.supports(descriptor.base()))
-                throw new IllegalArgumentException("Target reader set is duplicate/unsorted or lacks the exact descriptor/base/tuple");
-            prior=declaration.workerId();
+public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descriptor, List<Reader> readers) {
+    public static final int MAX_BYTES = 1 << 20;
+    public static final int MAX_READERS = 64;
+    private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-protocol-eligible-reader-set\0");
+
+    public record Reader(long revision, ProtocolCapabilityDeclaration declaration) {
+        public Reader {
+            Objects.requireNonNull(declaration);
+            if (revision <= 0) {
+                throw new IllegalArgumentException("reader publication revision must be positive");
+            }
+        }
+
+        public byte[] canonicalBytes() {
+            return CanonicalProtobuf.message(out -> {
+                CanonicalProtobuf.uint64Bits(out, 1, revision);
+                CanonicalProtobuf.bytes(out, 2, declaration.canonicalBytes());
+            });
         }
     }
-    private byte[] fields(){return CanonicalProtobuf.message(out->{
-        CanonicalProtobuf.uint32(out,1,1);CanonicalProtobuf.bytes(out,2,descriptor.digest());
-        for(var reader:readers)CanonicalProtobuf.bytes(out,3,reader.canonicalBytes());
-    });}
-    public byte[] digest(){return Bytes.sha256(DOMAIN,fields());}
-    public byte[] canonicalBytes(){
-        final byte[] encoded=Bytes.concat(fields(),CanonicalProtobuf.message(out->CanonicalProtobuf.bytes(out,4,digest())));
-        if(encoded.length>MAX_BYTES)throw new IllegalArgumentException("complete Target reader snapshot exceeds finite byte bound");return encoded;
+
+    public TargetProtocolReaderSet {
+        Objects.requireNonNull(descriptor);
+        readers = List.copyOf(readers);
+        if (readers.isEmpty() || readers.size() > MAX_READERS) {
+            throw new IllegalArgumentException("Target readers require a complete finite nonempty membership");
+        }
+        String prior = null;
+        long bytes = 128;
+        for (var reader : readers) {
+            final var declaration = reader.declaration();
+            bytes = Math.addExact(bytes, declaration.canonicalBytes().length + 32L);
+            if (bytes > MAX_BYTES) {
+                throw new IllegalArgumentException(
+                        "complete Target reader set exceeds byte bound before full encoding");
+            }
+            if (prior != null && prior.compareTo(declaration.workerId()) >= 0
+                    || !declaration.supports(descriptor)
+                    || !declaration.supports(descriptor.tuple())
+                    || !declaration.supports(descriptor.base())) {
+                throw new IllegalArgumentException(
+                        "Target reader set is duplicate/unsorted or lacks the exact descriptor/base/tuple");
+            }
+            prior = declaration.workerId();
+        }
+    }
+
+    private byte[] fields() {
+        return CanonicalProtobuf.message(out -> {
+            CanonicalProtobuf.uint32(out, 1, 1);
+            CanonicalProtobuf.bytes(out, 2, descriptor.digest());
+            for (var reader : readers) {
+                CanonicalProtobuf.bytes(out, 3, reader.canonicalBytes());
+            }
+        });
+    }
+
+    public byte[] digest() {
+        return Bytes.sha256(DOMAIN, fields());
+    }
+
+    public byte[] canonicalBytes() {
+        final byte[] encoded =
+                Bytes.concat(fields(), CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 4, digest())));
+        if (encoded.length > MAX_BYTES) {
+            throw new IllegalArgumentException("complete Target reader snapshot exceeds finite byte bound");
+        }
+        return encoded;
     }
     /** Existing migration data generation remains a separate reader prerequisite for this activation. */
-    public void requireMigrationRootDataReaders(TargetMigrationRoot root){
-        final var rootTuple=root.rootIssuerAuthorization()==null?ProtocolTuple.targetMigrationActivate():ProtocolTuple.targetMigrationActivateRootIssuer();
-        requireMigrationRootDataReaders(rootTuple,root.rootIssuerAuthorization()!=null&&root.rootIssuerAuthorization().schemaVersion()==2);
+    public void requireMigrationRootDataReaders(TargetMigrationRoot root) {
+        final var rootTuple = root.rootIssuerAuthorization() == null
+                ? ProtocolTuple.targetMigrationActivate()
+                : ProtocolTuple.targetMigrationActivateRootIssuer();
+        requireMigrationRootDataReaders(
+                rootTuple,
+                root.rootIssuerAuthorization() != null
+                        && root.rootIssuerAuthorization().schemaVersion() == 2);
     }
     /** Pre-A policy2 is decoded only by explicit Parent readers, alongside the actual migration data matrix. */
-    public void requireMigrationRootIssuerReaders(){
-        if(!descriptor.supportsParentControlCredit())throw new IllegalStateException("pre-A policy2 requires its exact Parent reader descriptor");
-        requireMigrationRootDataReaders(ProtocolTuple.targetMigrationActivateRootIssuer(),true);
+    public void requireMigrationRootIssuerReaders() {
+        if (!descriptor.supportsParentControlCredit()) {
+            throw new IllegalStateException("pre-A policy2 requires its exact Parent reader descriptor");
+        }
+        requireMigrationRootDataReaders(ProtocolTuple.targetMigrationActivateRootIssuer(), true);
     }
-    private boolean sameReaderLocks(TargetProtocolActivationDescriptor value){
-        return value.base().equals(descriptor.base())&&value.workerSourceCommit().equals(descriptor.workerSourceCommit())
-                &&value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())&&Arrays.equals(value.kafkaSdkJar(),descriptor.kafkaSdkJar())
-                &&Arrays.equals(value.pulsarSdkJar(),descriptor.pulsarSdkJar());
+
+    private boolean sameReaderLocks(TargetProtocolActivationDescriptor value) {
+        return value.base().equals(descriptor.base())
+                && value.workerSourceCommit().equals(descriptor.workerSourceCommit())
+                && value.kafkaSourceCommit().equals(descriptor.kafkaSourceCommit())
+                && Arrays.equals(value.kafkaSdkJar(), descriptor.kafkaSdkJar())
+                && Arrays.equals(value.pulsarSdkJar(), descriptor.pulsarSdkJar());
     }
-    private void requireMigrationRootDataReaders(ProtocolTuple rootTuple,boolean issuerV2){
-        for(var reader:readers){final var declaration=reader.declaration();
-            if(!declaration.supports(rootTuple))throw new IllegalStateException("eligible reader lacks the actual migration Root generation");
-            if(issuerV2&&(declaration.version()!=ProtocolCapabilityDeclaration.PARENT_CONTROL_CREDIT_TARGET_VERSION
-                    ||declaration.targetDescriptors().stream().noneMatch(value->value.supportsParentControlCredit()&&sameReaderLocks(value))))
-                throw new IllegalStateException("eligible reader lacks the explicit policy2 codec under the actual binary/SDK locks");
-            final boolean known=declaration.targetDescriptors().stream().anyMatch(value->value.schemaVersion()>=15&&value.schemaVersion()<=21
-                &&(value.nativeMaximum()==71||value.supportsMigrationLogicalFirstArchive()||value.supportsMigrationFullSourceArchive())&&sameReaderLocks(value));
-            if(!known)throw new IllegalStateException("eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");
+
+    private void requireMigrationRootDataReaders(ProtocolTuple rootTuple, boolean issuerV2) {
+        for (var reader : readers) {
+            final var declaration = reader.declaration();
+            if (!declaration.supports(rootTuple)) {
+                throw new IllegalStateException("eligible reader lacks the actual migration Root generation");
+            }
+            if (issuerV2
+                    && (declaration.version() != ProtocolCapabilityDeclaration.PARENT_CONTROL_CREDIT_TARGET_VERSION
+                            || declaration.targetDescriptors().stream()
+                                    .noneMatch(
+                                            value -> value.supportsParentControlCredit() && sameReaderLocks(value)))) {
+                throw new IllegalStateException(
+                        "eligible reader lacks the explicit policy2 codec under the actual binary/SDK locks");
+            }
+            final boolean known = declaration.targetDescriptors().stream()
+                    .anyMatch(value -> value.schemaVersion() >= 15
+                            && value.schemaVersion() <= 21
+                            && (value.nativeMaximum() == 71
+                                    || value.supportsMigrationLogicalFirstArchive()
+                                    || value.supportsMigrationFullSourceArchive())
+                            && sameReaderLocks(value));
+            if (!known) {
+                throw new IllegalStateException(
+                        "eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");
+            }
         }
     }
-    public void requireMembership(List<String> completeEligibleWorkerIds){
-        final var expected=new ArrayList<>(completeEligibleWorkerIds);expected.sort(String::compareTo);
-        if(!expected.equals(readers.stream().map(r->r.declaration().workerId()).toList()))
-            throw new IllegalStateException("Target reader evidence omits/changes original complete eligible membership");
+
+    public void requireMembership(List<String> completeEligibleWorkerIds) {
+        final var expected = new ArrayList<>(completeEligibleWorkerIds);
+        expected.sort(String::compareTo);
+        if (!expected.equals(
+                readers.stream().map(r -> r.declaration().workerId()).toList())) {
+            throw new IllegalStateException(
+                    "Target reader evidence omits/changes original complete eligible membership");
+        }
     }
-    public static TargetProtocolReaderSet decode(byte[] encoded,TargetProtocolActivationDescriptor descriptor){
-        final var f=TargetCompatibilityCodec.read(encoded,MAX_BYTES,MAX_READERS+3,true,"Target reader snapshot");
-        if(f.size()<4||QueryCodecSupport.uint(f.get(0),1)!=1||!Arrays.equals(QueryCodecSupport.fixed(f.get(1),2,32),descriptor.digest()))
+
+    public static TargetProtocolReaderSet decode(byte[] encoded, TargetProtocolActivationDescriptor descriptor) {
+        final var f =
+                TargetCompatibilityCodec.read(encoded, MAX_BYTES, MAX_READERS + 3, true, "Target reader snapshot");
+        if (f.size() < 4
+                || QueryCodecSupport.uint(f.get(0), 1) != 1
+                || !Arrays.equals(QueryCodecSupport.fixed(f.get(1), 2, 32), descriptor.digest())) {
             throw new IllegalArgumentException("Target reader snapshot version/descriptor mismatch");
-        int n=2;final List<Reader> readers=new ArrayList<>();
-        while(n<f.size()&&f.get(n).number()==3){
-            final var r=TargetCompatibilityCodec.read(QueryCodecSupport.bytes(f.get(n++),3),MAX_BYTES,2,false,"Target reader publication");
-            QueryCodecSupport.requireNumbers(r,new int[]{1,2},"Target reader publication");
-            readers.add(new Reader(QueryCodecSupport.uint(r.get(0),1),ProtocolCapabilityDeclaration.decode(QueryCodecSupport.bytes(r.get(1),2))));
         }
-        QueryCodecSupport.requireNumbers(f.subList(n,f.size()),new int[]{4},"Target reader evidence seal");
-        final var set=new TargetProtocolReaderSet(descriptor,readers);
-        if(!Arrays.equals(QueryCodecSupport.fixed(f.get(n),4,32),set.digest()))throw new IllegalArgumentException("Target reader evidence digest mismatch");
-        QueryCodecSupport.requireCanonical(encoded,set.canonicalBytes(),"Target reader snapshot");return set;
+        int n = 2;
+        final List<Reader> readers = new ArrayList<>();
+        while (n < f.size() && f.get(n).number() == 3) {
+            final var r = TargetCompatibilityCodec.read(
+                    QueryCodecSupport.bytes(f.get(n++), 3), MAX_BYTES, 2, false, "Target reader publication");
+            QueryCodecSupport.requireNumbers(r, new int[] {1, 2}, "Target reader publication");
+            readers.add(new Reader(
+                    QueryCodecSupport.uint(r.get(0), 1),
+                    ProtocolCapabilityDeclaration.decode(QueryCodecSupport.bytes(r.get(1), 2))));
+        }
+        QueryCodecSupport.requireNumbers(f.subList(n, f.size()), new int[] {4}, "Target reader evidence seal");
+        final var set = new TargetProtocolReaderSet(descriptor, readers);
+        if (!Arrays.equals(QueryCodecSupport.fixed(f.get(n), 4, 32), set.digest())) {
+            throw new IllegalArgumentException("Target reader evidence digest mismatch");
+        }
+        QueryCodecSupport.requireCanonical(encoded, set.canonicalBytes(), "Target reader snapshot");
+        return set;
     }
 }

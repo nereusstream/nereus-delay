@@ -89,6 +89,7 @@ public final class ShardStore implements AutoCloseable {
     private final RocksDB db;
     /** Small output reused to inspect bounded-read key prefixes and value sizes before full allocation. */
     private final byte[] boundedReadKeyProbe = new byte[2];
+
     private final byte[] boundedReadValueProbe = new byte[1];
     private final ColumnFamilyHandle defaultColumnFamilyHandle;
     private final DBOptions dbOptions;
@@ -101,6 +102,7 @@ public final class ShardStore implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     /** First close fences all Store operations; native teardown may be retried. */
     private volatile boolean closeStarted;
+
     private TargetShardInstall targetInstall;
     private boolean inspectionOnly;
 
@@ -119,6 +121,7 @@ public final class ShardStore implements AutoCloseable {
      * is to close and reopen the Store from its durable image.
      */
     private volatile boolean writeOutcomeUncertain;
+
     private volatile boolean ownerEpochWriteFenced;
 
     private volatile StoreRuntimeMetadata runtimeMetadata;
@@ -217,8 +220,8 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Opens only a separately protected migration candidate; normal Worker/recovery open rejects PREPARED. */
-    public static ShardStore openMigrationTarget(final ShardStoreConfig config, final ShardId shardId,
-            final SharedRocksDbResources resources) {
+    public static ShardStore openMigrationTarget(
+            final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
         return openTargetFormat(config, shardId, resources, false, true);
     }
 
@@ -228,13 +231,17 @@ public final class ShardStore implements AutoCloseable {
         return openTargetFormat(config, shardId, resources, true);
     }
 
-    private static ShardStore openTargetFormat(ShardStoreConfig config, ShardId shardId,
-            SharedRocksDbResources resources, boolean fresh) {
+    private static ShardStore openTargetFormat(
+            ShardStoreConfig config, ShardId shardId, SharedRocksDbResources resources, boolean fresh) {
         return openTargetFormat(config, shardId, resources, fresh, false);
     }
 
-    private static ShardStore openTargetFormat(ShardStoreConfig config, ShardId shardId,
-            SharedRocksDbResources resources, boolean fresh, boolean migration) {
+    private static ShardStore openTargetFormat(
+            ShardStoreConfig config,
+            ShardId shardId,
+            SharedRocksDbResources resources,
+            boolean fresh,
+            boolean migration) {
         resources.requireConfig(config);
         TargetShardInstall exclusion = null;
         ShardStore opened = null;
@@ -248,40 +255,67 @@ public final class ShardStore implements AutoCloseable {
                 }
                 for (var name : List.of("incarnations", "restore-tmp", "install-intents")) {
                     final Path directory = root.resolve(name);
-                    if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) continue;
+                    if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+                        continue;
+                    }
                     if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
                         throw new IOException("unsafe Target initialization state directory");
                     }
                     try (var entries = Files.newDirectoryStream(directory)) {
-                        if (entries.iterator().hasNext()) throw new IOException("fresh Target initialization cannot adopt unfinished state");
+                        if (entries.iterator().hasNext()) {
+                            throw new IOException("fresh Target initialization cannot adopt unfinished state");
+                        }
                     }
                 }
-                db = root.resolve("incarnations").resolve(UUID.randomUUID().toString()).resolve("db");
-            } else if (db == null) throw new IOException("Target open requires a valid ACTIVE pointer; orphan adoption requires protected repair");
+                db = root.resolve("incarnations")
+                        .resolve(UUID.randomUUID().toString())
+                        .resolve("db");
+            } else if (db == null) {
+                throw new IOException(
+                        "Target open requires a valid ACTIVE pointer; orphan adoption requires protected repair");
+            }
             if (Files.isSymbolicLink(root.resolve("install-intents"))) {
                 throw new IOException("Target install intent directory must not be a symbolic link");
             }
-            if (!fresh && Files.exists(root.resolve("install-intents").resolve(storeUuidFromPath(db) + ".intent"), LinkOption.NOFOLLOW_LINKS)
+            if (!fresh
+                    && Files.exists(
+                            root.resolve("install-intents").resolve(storeUuidFromPath(db) + ".intent"),
+                            LinkOption.NOFOLLOW_LINKS)
                     && !exclusion.read(storeUuidFromPath(db)).published()) {
                 throw new IOException("Target ACTIVE publication still requires protected install completion");
             }
             opened = openAtPath(config, shardId, db, resources, null, true, true, 2);
-            if (!migration) com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(opened);
+            if (!migration) {
+                com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(opened);
+            }
             if (fresh) {
                 forceIncarnationBeforeActivePointer(db);
-                if (Files.exists(root.resolve("ACTIVE"), LinkOption.NOFOLLOW_LINKS)) throw new IOException("another Target ACTIVE appeared");
+                if (Files.exists(root.resolve("ACTIVE"), LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException("another Target ACTIVE appeared");
+                }
                 writeActivePointer(root, storeUuidFromPath(db));
             }
-            opened.targetInstall = exclusion; exclusion = null;
+            opened.targetInstall = exclusion;
+            exclusion = null;
             return opened;
         } catch (IOException | RocksDBException | RuntimeException | Error failure) {
-            if (opened != null) closeForRestoreCleanup(opened, failure);
+            if (opened != null) {
+                closeForRestoreCleanup(opened, failure);
+            }
             if (exclusion != null) {
                 final var cleanup = new TargetInstallCleanup(exclusion, failure, opened);
-                try { cleanup.release(); } catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
-                if (!cleanup.cleanupComplete()) failure.addSuppressed(cleanup);
+                try {
+                    cleanup.release();
+                } catch (RuntimeException | Error closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                if (!cleanup.cleanupComplete()) {
+                    failure.addSuppressed(cleanup);
+                }
             }
-            if (failure instanceof Error fatal) throw fatal;
+            if (failure instanceof Error fatal) {
+                throw fatal;
+            }
             throw new IllegalStateException("cannot open original Target Store", failure);
         }
     }
@@ -335,8 +369,12 @@ public final class ShardStore implements AutoCloseable {
 
             opened = openAtPath(config, shardId, replayDb, resources, null, false, false, 1, true);
             if (!opened.shardId().equals(shardId)
-                    || !java.util.Arrays.equals(opened.metadata().dbIdentity(), sourceProof.metadata().dbIdentity())
-                    || !opened.metadata().storeIncarnationUuid().equals(sourceProof.metadata().storeIncarnationUuid())
+                    || !java.util.Arrays.equals(
+                            opened.metadata().dbIdentity(),
+                            sourceProof.metadata().dbIdentity())
+                    || !opened.metadata()
+                            .storeIncarnationUuid()
+                            .equals(sourceProof.metadata().storeIncarnationUuid())
                     || !Bytes.constantTimeEquals(
                             opened.runtimeMetadata().lastCheckpointId(), sourceProof.checkpointId())
                     || !Bytes.constantTimeEquals(
@@ -359,12 +397,18 @@ public final class ShardStore implements AutoCloseable {
      * Opens an authenticated format-2 checkpoint only as a private restore preparation. No ACTIVE pointer,
      * owned-Shard registration, new incarnation or Source/replay/installation authority is published.
      */
-    public static TargetCheckpointRestoreStage openTargetCheckpointRestoreStage(ShardStoreConfig config,
-            ShardId shardId, SharedRocksDbResources resources, Path checkpointPath, CheckpointManifest manifest,
-            CheckpointManifestLimits physicalLimits, TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+    public static TargetCheckpointRestoreStage openTargetCheckpointRestoreStage(
+            ShardStoreConfig config,
+            ShardId shardId,
+            SharedRocksDbResources resources,
+            Path checkpointPath,
+            CheckpointManifest manifest,
+            CheckpointManifestLimits physicalLimits,
+            TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             TargetCheckpointSemanticSnapshot.Limits semanticLimits,
-            TargetCheckpointRootVerifier.ImageAuthority authentication, Runnable protection) {
+            TargetCheckpointRootVerifier.ImageAuthority authentication,
+            Runnable protection) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(resources, "resources").requireConfig(config);
         Objects.requireNonNull(authentication, "authentication");
@@ -376,8 +420,15 @@ public final class ShardStore implements AutoCloseable {
         ShardStore opened = null;
         try (var permit = resources.acquireCheckpointDownloadPermit()) {
             permit.requireActive(resources);
-            final var source = TargetCheckpointRootVerifier.auditManifestImageAuthentication(checkpointPath, manifest,
-                    physicalLimits, quotaLimits, ledgerLimits, semanticLimits, authentication, protection);
+            final var source = TargetCheckpointRootVerifier.auditManifestImageAuthentication(
+                    checkpointPath,
+                    manifest,
+                    physicalLimits,
+                    quotaLimits,
+                    ledgerLimits,
+                    semanticLimits,
+                    authentication,
+                    protection);
             final Path stageRoot = prepareShardRoot(config, shardId).resolve("target-restore-tmp");
             ensureRealDirectory(stageRoot);
             workspace = stageRoot.resolve(UUID.randomUUID().toString());
@@ -385,18 +436,32 @@ public final class ShardStore implements AutoCloseable {
             final Path copiedDb = workspace.resolve("db");
             protection.run();
             copyTree(checkpointPath, copiedDb);
-            final var copied = TargetCheckpointRootVerifier.auditManifestImageAuthentication(copiedDb, manifest,
-                    physicalLimits, quotaLimits, ledgerLimits, semanticLimits, authentication, protection);
-            if (!Arrays.equals(source.root().metadata().encode(), copied.root().metadata().encode())
-                    || !Arrays.equals(source.root().source().canonicalBytes(), copied.root().source().canonicalBytes())
+            final var copied = TargetCheckpointRootVerifier.auditManifestImageAuthentication(
+                    copiedDb,
+                    manifest,
+                    physicalLimits,
+                    quotaLimits,
+                    ledgerLimits,
+                    semanticLimits,
+                    authentication,
+                    protection);
+            if (!Arrays.equals(
+                            source.root().metadata().encode(),
+                            copied.root().metadata().encode())
+                    || !Arrays.equals(
+                            source.root().source().canonicalBytes(),
+                            copied.root().source().canonicalBytes())
                     || source.root().mutationSequence() != copied.root().mutationSequence()
-                    || !Arrays.equals(source.root().aggregate().canonicalBytes(),
+                    || !Arrays.equals(
+                            source.root().aggregate().canonicalBytes(),
                             copied.root().aggregate().canonicalBytes())) {
                 throw new IOException("Target restore stage differs from the authenticated source image");
             }
             opened = openAtPath(config, shardId, copiedDb, resources, null, false, false, 2, false);
-            if (!Arrays.equals(opened.metadata().encode(), source.root().metadata().encode())
-                    || !Arrays.equals(opened.appliedShardLogPosition().canonicalBytes(),
+            if (!Arrays.equals(
+                            opened.metadata().encode(), source.root().metadata().encode())
+                    || !Arrays.equals(
+                            opened.appliedShardLogPosition().canonicalBytes(),
                             source.root().source().canonicalBytes())
                     || opened.shardMutationSequence() != source.root().mutationSequence()) {
                 throw new IOException("Target restore stage identity changed during open");
@@ -418,14 +483,17 @@ public final class ShardStore implements AutoCloseable {
                 requireTargetRestoreWorkspace(workspace, workspace.getParent());
                 deleteTree(workspace);
                 forceDirectory(workspace.getParent());
+            } catch (IOException | RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
             }
-            catch (IOException | RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
         }
     }
 
     private static void requireTargetRestoreWorkspace(Path workspace, Path stageRoot) throws IOException {
-        if (!workspace.getParent().equals(stageRoot) || !stageRoot.getFileName().toString().equals("target-restore-tmp")
-                || Files.isSymbolicLink(stageRoot) || Files.isSymbolicLink(workspace)
+        if (!workspace.getParent().equals(stageRoot)
+                || !stageRoot.getFileName().toString().equals("target-restore-tmp")
+                || Files.isSymbolicLink(stageRoot)
+                || Files.isSymbolicLink(workspace)
                 || !Files.isDirectory(stageRoot, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Target restore workspace is no longer a private directory");
         }
@@ -447,15 +515,21 @@ public final class ShardStore implements AutoCloseable {
         }
 
         public synchronized ShardStore store() {
-            if (closed) { throw new IllegalStateException("Target restore stage is closed"); }
+            if (closed) {
+                throw new IllegalStateException("Target restore stage is closed");
+            }
             protection.run();
             return store;
         }
 
         @Override
         public synchronized void close() {
-            if (closed) { return; }
-            if (!store.isClosed()) { store.close(); }
+            if (closed) {
+                return;
+            }
+            if (!store.isClosed()) {
+                store.close();
+            }
             try {
                 requireTargetRestoreWorkspace(workspace, stageRoot);
                 deleteTree(workspace);
@@ -468,14 +542,18 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static void requireSameLegacyCheckpointProof(
-            final LegacyCheckpointImageInspector.ImageProof left,
-            final LegacyCheckpointImageInspector.ImageProof right) throws IOException {
-        if (!java.util.Arrays.equals(left.metadata().dbIdentity(), right.metadata().dbIdentity())
-                || !left.metadata().storeIncarnationUuid().equals(right.metadata().storeIncarnationUuid())
+            final LegacyCheckpointImageInspector.ImageProof left, final LegacyCheckpointImageInspector.ImageProof right)
+            throws IOException {
+        if (!java.util.Arrays.equals(
+                        left.metadata().dbIdentity(), right.metadata().dbIdentity())
+                || !left.metadata()
+                        .storeIncarnationUuid()
+                        .equals(right.metadata().storeIncarnationUuid())
                 || !Bytes.constantTimeEquals(left.checkpointId(), right.checkpointId())
                 || left.mutationSequence() != right.mutationSequence()
                 || !Bytes.constantTimeEquals(
-                        left.appliedSourcePosition().canonicalBytes(), right.appliedSourcePosition().canonicalBytes())
+                        left.appliedSourcePosition().canonicalBytes(),
+                        right.appliedSourcePosition().canonicalBytes())
                 || left.physicalBytes() != right.physicalBytes()) {
             throw new IOException("legacy replay copy does not match its source checkpoint proof");
         }
@@ -788,24 +866,53 @@ public final class ShardStore implements AutoCloseable {
      * Installs a fully authenticated Target image under the exact published Catalog/RecoveryPin. The returned
      * Store is INSTALLED, not recovery-reusable or Owner-active; protected Source replay/activation is separate.
      */
-    static ShardStore restoreTargetFromCheckpoint(ShardStoreConfig config, ShardId shardId,
-            SharedRocksDbResources resources, Path checkpointPath, CheckpointManifest manifest,
-            RecoveryCatalogAuthority catalog, RecoveryPin pin, CheckpointManifestLimits limits,
+    static ShardStore restoreTargetFromCheckpoint(
+            ShardStoreConfig config,
+            ShardId shardId,
+            SharedRocksDbResources resources,
+            Path checkpointPath,
+            CheckpointManifest manifest,
+            RecoveryCatalogAuthority catalog,
+            RecoveryPin pin,
+            CheckpointManifestLimits limits,
             TargetRestoreAuthentication authentication) {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(pin, "pin");
         Objects.requireNonNull(manifest, "manifest");
-        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, pin, limits,
-                null, Objects.requireNonNull(authentication, "authentication"));
+        return restoreWithRecoveryGuard(
+                config,
+                shardId,
+                resources,
+                checkpointPath,
+                manifest,
+                catalog,
+                pin,
+                limits,
+                null,
+                Objects.requireNonNull(authentication, "authentication"));
     }
 
-    static ShardStore restoreTargetFromCheckpointWithDownloadPermit(ShardStoreConfig config, ShardId shardId,
-            SharedRocksDbResources resources, Path checkpointPath, CheckpointManifest manifest,
-            RecoveryCatalogAuthority catalog, RecoveryPin pin, CheckpointManifestLimits limits,
-            SharedRocksDbResources.CheckpointDownloadPermit permit, TargetRestoreAuthentication authentication) {
-        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath,
-                Objects.requireNonNull(manifest, "manifest"), Objects.requireNonNull(catalog, "catalog"),
-                Objects.requireNonNull(pin, "pin"), limits, Objects.requireNonNull(permit, "permit"),
+    static ShardStore restoreTargetFromCheckpointWithDownloadPermit(
+            ShardStoreConfig config,
+            ShardId shardId,
+            SharedRocksDbResources resources,
+            Path checkpointPath,
+            CheckpointManifest manifest,
+            RecoveryCatalogAuthority catalog,
+            RecoveryPin pin,
+            CheckpointManifestLimits limits,
+            SharedRocksDbResources.CheckpointDownloadPermit permit,
+            TargetRestoreAuthentication authentication) {
+        return restoreWithRecoveryGuard(
+                config,
+                shardId,
+                resources,
+                checkpointPath,
+                Objects.requireNonNull(manifest, "manifest"),
+                Objects.requireNonNull(catalog, "catalog"),
+                Objects.requireNonNull(pin, "pin"),
+                limits,
+                Objects.requireNonNull(permit, "permit"),
                 Objects.requireNonNull(authentication, "authentication"));
     }
 
@@ -851,8 +958,8 @@ public final class ShardStore implements AutoCloseable {
             final RecoveryPin pin,
             final CheckpointManifestLimits limits,
             final SharedRocksDbResources.CheckpointDownloadPermit downloadPermit) {
-        return restoreWithRecoveryGuard(config, shardId, resources, checkpointPath, manifest, catalog, pin, limits,
-                downloadPermit, null);
+        return restoreWithRecoveryGuard(
+                config, shardId, resources, checkpointPath, manifest, catalog, pin, limits, downloadPermit, null);
     }
 
     private static ShardStore restoreWithRecoveryGuard(
@@ -933,9 +1040,15 @@ public final class ShardStore implements AutoCloseable {
                 if (target == null) {
                     validateCheckpointManifest(shardId, checkpointPath, manifest, limits);
                 } else {
-                    targetProof = TargetCheckpointRootVerifier.auditManifestImageAuthentication(checkpointPath,
-                            manifest, limits, target.quotaLimits(), target.ledgerLimits(), target.semanticLimits(),
-                            target.authority(), target.protection());
+                    targetProof = TargetCheckpointRootVerifier.auditManifestImageAuthentication(
+                            checkpointPath,
+                            manifest,
+                            limits,
+                            target.quotaLimits(),
+                            target.ledgerLimits(),
+                            target.semanticLimits(),
+                            target.authority(),
+                            target.protection());
                 }
             }
             ensureRealDirectoryPath(shardRoot.resolve("incarnations"));
@@ -946,8 +1059,13 @@ public final class ShardStore implements AutoCloseable {
             if (target != null) {
                 target.protection().run();
                 validateRecoveryPin(shardId, manifest, catalog, pin);
-                installIntent = new com.nereusstream.delay.protocol.TargetCheckpointInstallIntent(pin, uuidBytes(storeUuid),
-                        uuidBytes(manifest.sourceStoreIncarnation()), manifest.dbIdentity(), manifest.appliedShardLogPosition(), false);
+                installIntent = new com.nereusstream.delay.protocol.TargetCheckpointInstallIntent(
+                        pin,
+                        uuidBytes(storeUuid),
+                        uuidBytes(manifest.sourceStoreIncarnation()),
+                        manifest.dbIdentity(),
+                        manifest.appliedShardLogPosition(),
+                        false);
                 targetExclusion.create(installIntent);
                 target.protection().run();
             }
@@ -961,15 +1079,21 @@ public final class ShardStore implements AutoCloseable {
                 if (target == null) {
                     validateCheckpointManifest(shardId, stagedDb, manifest, limits);
                 } else {
-                    final var copied = TargetCheckpointRootVerifier.auditManifestImageAuthentication(stagedDb,
-                            manifest, limits, target.quotaLimits(), target.ledgerLimits(), target.semanticLimits(),
-                            target.authority(), target.protection());
+                    final var copied = TargetCheckpointRootVerifier.auditManifestImageAuthentication(
+                            stagedDb,
+                            manifest,
+                            limits,
+                            target.quotaLimits(),
+                            target.ledgerLimits(),
+                            target.semanticLimits(),
+                            target.authority(),
+                            target.protection());
                     requireSameTargetRestoreProof(targetProof.root(), copied.root());
                     targetProof = copied;
                 }
             }
-            staged = openAtPath(config, shardId, stagedDb, resources, null, false, target == null, expectedFormat,
-                    target == null);
+            staged = openAtPath(
+                    config, shardId, stagedDb, resources, null, false, target == null, expectedFormat, target == null);
             if (!staged.shardId().equals(shardId)) {
                 throw new IOException("restored DB shard identity mismatch");
             }
@@ -991,7 +1115,9 @@ public final class ShardStore implements AutoCloseable {
             staged.close();
             staged = null;
             if (pin != null) {
-                if (target != null) { target.protection().run(); }
+                if (target != null) {
+                    target.protection().run();
+                }
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
             final RecoveryCandidateRef installedCandidate = manifest == null
@@ -1003,8 +1129,16 @@ public final class ShardStore implements AutoCloseable {
                             manifest.manifestSha256(),
                             uuidBytes(storeUuid));
             final RecoveryFloorRef observedFloor = pin == null ? null : pin.observedFloor();
-            prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false, target == null,
-                    expectedFormat, target == null);
+            prepared = openAtPath(
+                    config,
+                    shardId,
+                    stagedDb,
+                    resources,
+                    storeUuid,
+                    false,
+                    target == null,
+                    expectedFormat,
+                    target == null);
             if (!prepared.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
             }
@@ -1018,7 +1152,9 @@ public final class ShardStore implements AutoCloseable {
             // worker-owned incarnation namespace; a pin check from before the
             // probe is not an installation authority.
             if (pin != null) {
-                if (target != null) { target.protection().run(); }
+                if (target != null) {
+                    target.protection().run();
+                }
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
             ensureRealDirectoryPath(activeDb.getParent());
@@ -1046,7 +1182,9 @@ public final class ShardStore implements AutoCloseable {
             // while the installed DB was being opened, fail closed and let
             // cleanup remove the unpublished incarnation.
             if (pin != null) {
-                if (target != null) { target.protection().run(); }
+                if (target != null) {
+                    target.protection().run();
+                }
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
             if (target != null && hasActiveDb(shardRoot)) {
@@ -1058,7 +1196,8 @@ public final class ShardStore implements AutoCloseable {
                 target.protection().run();
                 validateRecoveryPin(shardId, manifest, catalog, pin);
                 targetExclusion.markPublished(installIntent);
-                installed.targetInstall = targetExclusion; targetExclusion = null;
+                installed.targetInstall = targetExclusion;
+                targetExclusion = null;
             }
             returningInstalled = true;
             return installed;
@@ -1073,7 +1212,8 @@ public final class ShardStore implements AutoCloseable {
                     staged,
                     prepared,
                     installed,
-                    primaryFailure, target != null);
+                    primaryFailure,
+                    target != null);
             throw (IllegalStateException) primaryFailure;
         } catch (RuntimeException exception) {
             // A failed staged open/metadata validation can surface as a
@@ -1095,7 +1235,8 @@ public final class ShardStore implements AutoCloseable {
                     staged,
                     prepared,
                     installed,
-                    primaryFailure, target != null);
+                    primaryFailure,
+                    target != null);
             throw (IllegalStateException) primaryFailure;
         } catch (Error exception) {
             // Native/JVM errors are still allowed to escape, but once the
@@ -1114,22 +1255,31 @@ public final class ShardStore implements AutoCloseable {
                         staged,
                         prepared,
                         installed,
-                        primaryFailure, target != null);
+                        primaryFailure,
+                        target != null);
             }
             throw exception;
         } finally {
             Throwable targetCleanupFailure = null;
             if (targetExclusion != null) {
-                final var cleanup = new TargetInstallCleanup(targetExclusion, primaryFailure, staged, prepared, installed);
-                try { cleanup.release(); }
-                catch (RuntimeException | Error cleanupFailure) {
-                    if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
-                    else targetCleanupFailure = cleanupFailure;
+                final var cleanup =
+                        new TargetInstallCleanup(targetExclusion, primaryFailure, staged, prepared, installed);
+                try {
+                    cleanup.release();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    if (primaryFailure != null) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else {
+                        targetCleanupFailure = cleanupFailure;
+                    }
                 }
                 if (!cleanup.cleanupComplete()) {
-                    if (primaryFailure != null) primaryFailure.addSuppressed(cleanup);
-                    else {
-                        if (targetCleanupFailure != null) cleanup.addSuppressed(targetCleanupFailure);
+                    if (primaryFailure != null) {
+                        primaryFailure.addSuppressed(cleanup);
+                    } else {
+                        if (targetCleanupFailure != null) {
+                            cleanup.addSuppressed(targetCleanupFailure);
+                        }
                         targetCleanupFailure = cleanup;
                     }
                 }
@@ -1140,7 +1290,9 @@ public final class ShardStore implements AutoCloseable {
                 } catch (RuntimeException | Error cleanupFailure) {
                     if (returningInstalled && installed != null && !installed.isClosed()) {
                         closeForRestoreCleanup(installed, cleanupFailure);
-                        if (!installed.isClosed()) cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
+                        if (!installed.isClosed()) {
+                            cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
+                        }
                     }
                     if (primaryFailure != null && cleanupFailure != primaryFailure) {
                         primaryFailure.addSuppressed(cleanupFailure);
@@ -1154,7 +1306,9 @@ public final class ShardStore implements AutoCloseable {
                 } catch (RuntimeException | Error cleanupFailure) {
                     if (returningInstalled && installed != null && !installed.isClosed()) {
                         closeForRestoreCleanup(installed, cleanupFailure);
-                        if (!installed.isClosed()) cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
+                        if (!installed.isClosed()) {
+                            cleanupFailure.addSuppressed(new RestoreNativeCleanup(null, null, installed));
+                        }
                     }
                     if (primaryFailure != null && cleanupFailure != primaryFailure) {
                         primaryFailure.addSuppressed(cleanupFailure);
@@ -1163,28 +1317,45 @@ public final class ShardStore implements AutoCloseable {
                     }
                 }
             }
-            if (targetCleanupFailure != null) throwUnchecked(targetCleanupFailure);
+            if (targetCleanupFailure != null) {
+                throwUnchecked(targetCleanupFailure);
+            }
         }
     }
 
-    private static void requireSameTargetRestoreProof(TargetCheckpointRootVerifier.RootProof source,
-            TargetCheckpointRootVerifier.RootProof copied) throws IOException {
+    private static void requireSameTargetRestoreProof(
+            TargetCheckpointRootVerifier.RootProof source, TargetCheckpointRootVerifier.RootProof copied)
+            throws IOException {
         if (!Arrays.equals(source.metadata().encode(), copied.metadata().encode())
-                || !Arrays.equals(source.source().canonicalBytes(), copied.source().canonicalBytes())
+                || !Arrays.equals(
+                        source.source().canonicalBytes(), copied.source().canonicalBytes())
                 || source.mutationSequence() != copied.mutationSequence()
                 || !Arrays.equals(source.root().canonicalBytes(), copied.root().canonicalBytes())
-                || !Arrays.equals(source.bookkeeping().canonicalBytes(), copied.bookkeeping().canonicalBytes())
-                || !Arrays.equals(source.aggregate().canonicalBytes(), copied.aggregate().canonicalBytes())) {
+                || !Arrays.equals(
+                        source.bookkeeping().canonicalBytes(),
+                        copied.bookkeeping().canonicalBytes())
+                || !Arrays.equals(
+                        source.aggregate().canonicalBytes(), copied.aggregate().canonicalBytes())) {
             throw new IOException("copied Target restore image differs from the authenticated source");
         }
     }
 
     /** Exact-UUID crash continuation; the original image is a private authenticated download, never the candidate. */
-    static ShardStore repairTargetFromCheckpointWithDownloadPermit(ShardStoreConfig config, ShardId shard,
-            SharedRocksDbResources resources, Path image, CheckpointManifest manifest, RecoveryCatalogAuthority catalog,
-            RecoveryPin pin, CheckpointManifestLimits limits, SharedRocksDbResources.CheckpointDownloadPermit permit,
-            TargetRestoreAuthentication target, UUID attempt) {
-        Objects.requireNonNull(attempt); Objects.requireNonNull(target); permit.requireActive(resources);
+    static ShardStore repairTargetFromCheckpointWithDownloadPermit(
+            ShardStoreConfig config,
+            ShardId shard,
+            SharedRocksDbResources resources,
+            Path image,
+            CheckpointManifest manifest,
+            RecoveryCatalogAuthority catalog,
+            RecoveryPin pin,
+            CheckpointManifestLimits limits,
+            SharedRocksDbResources.CheckpointDownloadPermit permit,
+            TargetRestoreAuthentication target,
+            UUID attempt) {
+        Objects.requireNonNull(attempt);
+        Objects.requireNonNull(target);
+        permit.requireActive(resources);
         TargetShardInstall exclusion = null;
         ShardStore reference = null, candidate = null, installed = null;
         Throwable primary = null;
@@ -1197,77 +1368,125 @@ public final class ShardStore implements AutoCloseable {
                     || !Arrays.equals(intent.origin().candidate().manifestSha256(), manifest.manifestSha256())
                     || !Arrays.equals(intent.sourceIncarnation(), uuidBytes(manifest.sourceStoreIncarnation()))
                     || !Arrays.equals(intent.dbIdentity(), manifest.dbIdentity())
-                    || !Arrays.equals(intent.source().canonicalBytes(), manifest.appliedShardLogPosition().canonicalBytes())) {
+                    || !Arrays.equals(
+                            intent.source().canonicalBytes(),
+                            manifest.appliedShardLogPosition().canonicalBytes())) {
                 throw new IOException("repair changed its original published image/Shard provenance");
             }
-            final Path staging = root.resolve("restore-tmp").resolve(attempt.toString()).resolve("db");
-            final Path moved = root.resolve("incarnations").resolve(attempt.toString()).resolve("db");
+            final Path staging =
+                    root.resolve("restore-tmp").resolve(attempt.toString()).resolve("db");
+            final Path moved =
+                    root.resolve("incarnations").resolve(attempt.toString()).resolve("db");
             final boolean stagedExists = Files.exists(staging, LinkOption.NOFOLLOW_LINKS);
             final boolean movedExists = Files.exists(moved, LinkOption.NOFOLLOW_LINKS);
-            if (stagedExists == movedExists) throw new IOException("repair requires exactly one original candidate directory");
+            if (stagedExists == movedExists) {
+                throw new IOException("repair requires exactly one original candidate directory");
+            }
             final Path active = existingActiveDbPath(root);
-            if (active != null && !active.equals(moved)) throw new IOException("repair cannot replace another ACTIVE incarnation");
-            if (intent.published()) throw new IOException("published intent requires ordinary protected INSTALLED recovery, never STAGED repair");
+            if (active != null && !active.equals(moved)) {
+                throw new IOException("repair cannot replace another ACTIVE incarnation");
+            }
+            if (intent.published()) {
+                throw new IOException(
+                        "published intent requires ordinary protected INSTALLED recovery, never STAGED repair");
+            }
             final Path selected = stagedExists ? staging : moved;
             ensureRealDbPath(config, selected, false);
             CheckpointFileInventory.collect(selected, limits);
             final Runnable guard = () -> {
-                target.protection().run(); validateRecoveryPin(shard, manifest, catalog, pin);
+                target.protection().run();
+                validateRecoveryPin(shard, manifest, catalog, pin);
             };
             guard.run();
-            final var source = TargetCheckpointRootVerifier.auditManifestImageAuthentication(image, manifest, limits,
-                    target.quotaLimits(), target.ledgerLimits(), target.semanticLimits(), target.authority(), guard);
+            final var source = TargetCheckpointRootVerifier.auditManifestImageAuthentication(
+                    image,
+                    manifest,
+                    limits,
+                    target.quotaLimits(),
+                    target.ledgerLimits(),
+                    target.semanticLimits(),
+                    target.authority(),
+                    guard);
             final RecoveryCandidateRef base = new RecoveryCandidateRef(
-                    com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE, manifest.recoveryLineageId(),
-                    manifest.checkpointId(), manifest.manifestSha256(), uuidBytes(attempt));
+                    com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE,
+                    manifest.recoveryLineageId(),
+                    manifest.checkpointId(),
+                    manifest.manifestSha256(),
+                    uuidBytes(attempt));
             final var variants = new ArrayList<List<byte[]>>(8);
             reference = openAtPath(config, shard, image, resources, null, false, false, 2, false);
             variants.add(reference.installMetadata(target.installationBudget()));
-            guard.run(); reference.writeCleanCloseProjection();
+            guard.run();
+            reference.writeCleanCloseProjection();
             variants.add(reference.installMetadata(target.installationBudget()));
-            reference.fenceForUncleanClose(); reference.close(); reference = null;
-            guard.run(); reference = openAtPath(config, shard, image, resources, attempt, false, false, 2, false);
+            reference.fenceForUncleanClose();
+            reference.close();
+            reference = null;
+            guard.run();
+            reference = openAtPath(config, shard, image, resources, attempt, false, false, 2, false);
             variants.add(reference.installMetadata(target.installationBudget()));
             // The original failed-open/close path may close after identity rewrite but before the new base batch.
-            guard.run(); reference.writeCleanCloseProjection();
+            guard.run();
+            reference.writeCleanCloseProjection();
             variants.add(reference.installMetadata(target.installationBudget()));
-            guard.run(); reference.recordRecoveryMetadata(base, intent.origin().observedFloor());
+            guard.run();
+            reference.recordRecoveryMetadata(base, intent.origin().observedFloor());
             variants.add(reference.installMetadata(target.installationBudget()));
-            guard.run(); reference.writeCleanCloseProjection();
+            guard.run();
+            reference.writeCleanCloseProjection();
             variants.add(reference.installMetadata(target.installationBudget()));
-            guard.run(); reference.writeInstalledProjection(manifest);
+            guard.run();
+            reference.writeInstalledProjection(manifest);
             variants.add(reference.installMetadata(target.installationBudget()));
-            guard.run(); reference.writeCleanCloseProjection();
+            guard.run();
+            reference.writeCleanCloseProjection();
             variants.add(reference.installMetadata(target.installationBudget()));
 
-            guard.run(); candidate = openAtPath(config, shard, selected, resources, null, false, false, 2, false, true);
+            guard.run();
+            candidate = openAtPath(config, shard, selected, resources, null, false, false, 2, false, true);
             final var actualMetadata = candidate.installMetadata(target.installationBudget());
             boolean matches = false;
-            // An already moved candidate must have completed the prepare/close; ACTIVE additionally requires final install.
+            // An already moved candidate must have completed the prepare/close; ACTIVE additionally requires final
+            // install.
             for (int phase = active != null ? 6 : movedExists ? 5 : 0; phase < variants.size(); phase++) {
                 boolean equal = true;
                 for (int index = 0; index < actualMetadata.size(); index++) {
-                    equal &= Arrays.equals(actualMetadata.get(index), variants.get(phase).get(index));
+                    equal &= Arrays.equals(
+                            actualMetadata.get(index), variants.get(phase).get(index));
                 }
                 matches |= equal;
             }
-            if (!matches) throw new IOException("candidate metadata is not an exact original install transformation");
+            if (!matches) {
+                throw new IOException("candidate metadata is not an exact original install transformation");
+            }
             requireSameInstallBusiness(reference, candidate, target.installationBudget(), target.ledgerLimits(), guard);
-            final boolean originalIdentity = Arrays.equals(candidate.metadata().storeIncarnation(), intent.sourceIncarnation());
-            candidate.close(); candidate = null;
-            reference.fenceForUncleanClose(); reference.close(); reference = null;
+            final boolean originalIdentity =
+                    Arrays.equals(candidate.metadata().storeIncarnation(), intent.sourceIncarnation());
+            candidate.close();
+            candidate = null;
+            reference.fenceForUncleanClose();
+            reference.close();
+            reference = null;
             guard.run();
             if (originalIdentity) {
                 candidate = openAtPath(config, shard, selected, resources, null, false, false, 2, false);
-                guard.run(); candidate.writeCleanCloseProjection();
-                candidate.fenceForUncleanClose(); candidate.close(); candidate = null;
+                guard.run();
+                candidate.writeCleanCloseProjection();
+                candidate.fenceForUncleanClose();
+                candidate.close();
+                candidate = null;
             }
             candidate = openAtPath(config, shard, selected, resources, attempt, false, false, 2, false);
-            guard.run(); candidate.recordRecoveryMetadata(base, intent.origin().observedFloor());
+            guard.run();
+            candidate.recordRecoveryMetadata(base, intent.origin().observedFloor());
             // The proof precedes every candidate mutation. Failed cleanup must not add another close projection.
-            guard.run(); candidate.writeInstalledProjection(manifest);
-            candidate.fenceForUncleanClose(); candidate.close(); candidate = null;
-            guard.run(); exclusion.requireHeld();
+            guard.run();
+            candidate.writeInstalledProjection(manifest);
+            candidate.fenceForUncleanClose();
+            candidate.close();
+            candidate = null;
+            guard.run();
+            exclusion.requireHeld();
             if (stagedExists) {
                 ensureRealDirectoryPath(moved.getParent());
                 Files.move(staging, moved, StandardCopyOption.ATOMIC_MOVE);
@@ -1278,32 +1497,52 @@ public final class ShardStore implements AutoCloseable {
             installed = openAtPath(config, shard, moved, resources, null, true, false, 2);
             auditTargetRestoreOpen(installed, source.root(), target);
             forceIncarnationBeforeActivePointer(moved);
-            guard.run(); exclusion.requireHeld();
+            guard.run();
+            exclusion.requireHeld();
             final Path currentActive = existingActiveDbPath(root);
-            if (currentActive == null) writeActivePointer(root, attempt);
-            else if (!currentActive.equals(moved)) throw new IOException("repair lost its original ACTIVE publication");
-            else forceDirectory(root);
-            guard.run(); exclusion.markPublished(intent);
-            installed.targetInstall = exclusion; exclusion = null;
+            if (currentActive == null) {
+                writeActivePointer(root, attempt);
+            } else if (!currentActive.equals(moved)) {
+                throw new IOException("repair lost its original ACTIVE publication");
+            } else {
+                forceDirectory(root);
+            }
+            guard.run();
+            exclusion.markPublished(intent);
+            installed.targetInstall = exclusion;
+            exclusion = null;
             return installed;
         } catch (IOException | RocksDBException | RuntimeException | Error failure) {
             primary = failure;
             for (var store : new ShardStore[] {reference, candidate, installed}) {
                 if (store != null && !store.isClosed()) {
-                    store.fenceForUncleanClose(); closeForRestoreCleanup(store, failure);
+                    store.fenceForUncleanClose();
+                    closeForRestoreCleanup(store, failure);
                 }
             }
-            if (failure instanceof Error fatal) throw fatal;
-            throw new IllegalStateException("original Target checkpoint repair failed; candidate and intent are retained", failure);
+            if (failure instanceof Error fatal) {
+                throw fatal;
+            }
+            throw new IllegalStateException(
+                    "original Target checkpoint repair failed; candidate and intent are retained", failure);
         } finally {
             if (exclusion != null) {
                 final var cleanup = new TargetInstallCleanup(exclusion, primary, reference, candidate, installed);
-                try { cleanup.release(); }
-                catch (RuntimeException | Error failure) {
-                    if (primary != null) primary.addSuppressed(failure); else throw failure;
+                try {
+                    cleanup.release();
+                } catch (RuntimeException | Error failure) {
+                    if (primary != null) {
+                        primary.addSuppressed(failure);
+                    } else {
+                        throw failure;
+                    }
                 }
                 if (!cleanup.cleanupComplete()) {
-                    if (primary != null) primary.addSuppressed(cleanup); else throw cleanup;
+                    if (primary != null) {
+                        primary.addSuppressed(cleanup);
+                    } else {
+                        throw cleanup;
+                    }
                 }
             }
         }
@@ -1311,64 +1550,106 @@ public final class ShardStore implements AutoCloseable {
 
     private static List<byte[]> installMetadataKeys() {
         final var keys = new ArrayList<byte[]>();
-        for (int key : new int[] {2,4,6,7,8,9}) keys.add(KeyCodec.metaFixed(key));
-        for (int key = 1; key <= 4; key++) keys.add(KeyCodec.metaRecovery(key));
+        for (int key : new int[] {2, 4, 6, 7, 8, 9}) {
+            keys.add(KeyCodec.metaFixed(key));
+        }
+        for (int key = 1; key <= 4; key++) {
+            keys.add(KeyCodec.metaRecovery(key));
+        }
         return keys;
     }
+
     private List<byte[]> installMetadata(BoundedReadBudget budget) {
         return readWithBudget(budget, () -> {
-            final var values = new ArrayList<byte[]>();
-            for (var key : installMetadataKeys()) values.add(get(ColumnFamily.META, key));
-            return values;
-        }).value();
+                    final var values = new ArrayList<byte[]>();
+                    for (var key : installMetadataKeys()) {
+                        values.add(get(ColumnFamily.META, key));
+                    }
+                    return values;
+                })
+                .value();
     }
+
     private void writeInstalledProjection(CheckpointManifest manifest) {
         final var nextRuntime = runtimeMetadata().withCleanCloseMarker(false);
-        final var nextRecovery = recoveryMetadata().withInstallState(new RecoveryInstallState(
-                RecoveryInstallPhase.INSTALLED, metadata.storeIncarnation(), manifest.checkpointId()));
-        write(batch -> { batch.putRuntimeMetadata(nextRuntime); batch.putRecoveryMetadata(nextRecovery); });
+        final var nextRecovery = recoveryMetadata()
+                .withInstallState(new RecoveryInstallState(
+                        RecoveryInstallPhase.INSTALLED, metadata.storeIncarnation(), manifest.checkpointId()));
+        write(batch -> {
+            batch.putRuntimeMetadata(nextRuntime);
+            batch.putRecoveryMetadata(nextRecovery);
+        });
     }
-    private static void requireSameInstallBusiness(ShardStore expected, ShardStore actual, BoundedReadBudget budget,
-            TargetCheckpointRootVerifier.LedgerAuditLimits limits, Runnable guard) throws RocksDBException, IOException {
+
+    private static void requireSameInstallBusiness(
+            ShardStore expected,
+            ShardStore actual,
+            BoundedReadBudget budget,
+            TargetCheckpointRootVerifier.LedgerAuditLimits limits,
+            Runnable guard)
+            throws RocksDBException, IOException {
         final var skipped = installMetadataKeys();
         final long[] records = new long[2], bytes = new long[2];
         for (var family : ColumnFamily.values()) {
             guard.run();
             try (var left = expected.db.newIterator(expected.handles.get(family));
                     var right = actual.db.newIterator(actual.handles.get(family))) {
-                left.seekToFirst(); right.seekToFirst();
+                left.seekToFirst();
+                right.seekToFirst();
                 while (true) {
                     final var a = nextInstallBusiness(left, family, skipped, budget, limits, records, bytes, 0);
                     final var b = nextInstallBusiness(right, family, skipped, budget, limits, records, bytes, 1);
                     if (a == null || b == null) {
-                        if (a != b) throw new IOException("candidate business key set differs from the original image");
+                        if (a != b) {
+                            throw new IOException("candidate business key set differs from the original image");
+                        }
                         break;
                     }
                     if (!Arrays.equals(a.key(), b.key()) || !Arrays.equals(a.value(), b.value())) {
                         throw new IOException("candidate business bytes differ from the original image");
                     }
                 }
-                left.status(); right.status();
+                left.status();
+                right.status();
             }
         }
         guard.run();
     }
-    private static KeyValue nextInstallBusiness(RocksIterator iterator, ColumnFamily family, List<byte[]> skipped,
-            BoundedReadBudget budget, TargetCheckpointRootVerifier.LedgerAuditLimits limits,
-            long[] records, long[] bytes, int side) throws RocksDBException {
+
+    private static KeyValue nextInstallBusiness(
+            RocksIterator iterator,
+            ColumnFamily family,
+            List<byte[]> skipped,
+            BoundedReadBudget budget,
+            TargetCheckpointRootVerifier.LedgerAuditLimits limits,
+            long[] records,
+            long[] bytes,
+            int side)
+            throws RocksDBException {
         final byte[] probe = new byte[1];
         while (iterator.isValid()) {
-            if (!budget.beforeRead()) throw budget.incomplete();
+            if (!budget.beforeRead()) {
+                throw budget.incomplete();
+            }
             final int keyLength = iterator.key(probe), valueLength = iterator.value(probe);
-            if (keyLength < 0 || valueLength < 0 || ++records[side] > limits.maxRecords()
-                    || (bytes[side] = Math.addExact(bytes[side], (long) keyLength + valueLength)) > limits.maxKeyValueBytes()) {
+            if (keyLength < 0
+                    || valueLength < 0
+                    || ++records[side] > limits.maxRecords()
+                    || (bytes[side] = Math.addExact(bytes[side], (long) keyLength + valueLength))
+                            > limits.maxKeyValueBytes()) {
                 throw new IllegalStateException("complete install comparison exceeded its finite ledger limit");
             }
-            if (!budget.tryCharge(keyLength, valueLength)) throw budget.incomplete();
+            if (!budget.tryCharge(keyLength, valueLength)) {
+                throw budget.incomplete();
+            }
             final byte[] key = iterator.key(), value = iterator.value();
-            if (key.length != keyLength || value.length != valueLength) throw new IllegalStateException("candidate changed during inspection");
+            if (key.length != keyLength || value.length != valueLength) {
+                throw new IllegalStateException("candidate changed during inspection");
+            }
             iterator.next();
-            if (family == ColumnFamily.META && skipped.stream().anyMatch(k -> Arrays.equals(k, key))) continue;
+            if (family == ColumnFamily.META && skipped.stream().anyMatch(k -> Arrays.equals(k, key))) {
+                continue;
+            }
             return new KeyValue(key, value);
         }
         iterator.status();
@@ -1378,27 +1659,42 @@ public final class ShardStore implements AutoCloseable {
     private void writeCleanCloseProjection() {
         final var cleanRuntime = runtimeMetadata.withCleanCloseMarker(true);
         final var cleanRecovery = recoveryMetadata.withInstallState(new RecoveryInstallState(
-                pendingTargetInstall(metadata, recoveryMetadata) ? RecoveryInstallPhase.INSTALLED : RecoveryInstallPhase.CLOSED_CLEAN,
-                metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
-        write(batch -> { batch.putRuntimeMetadata(cleanRuntime); batch.putRecoveryMetadata(cleanRecovery); });
+                pendingTargetInstall(metadata, recoveryMetadata)
+                        ? RecoveryInstallPhase.INSTALLED
+                        : RecoveryInstallPhase.CLOSED_CLEAN,
+                metadata.storeIncarnation(),
+                recoveryMetadata.checkpointId()));
+        write(batch -> {
+            batch.putRuntimeMetadata(cleanRuntime);
+            batch.putRecoveryMetadata(cleanRecovery);
+        });
     }
 
     /** Store incarnation may change; accounting incarnation, lineage and all original business bytes may not. */
-    private static void auditTargetRestoreOpen(ShardStore opened, TargetCheckpointRootVerifier.RootProof source,
-            TargetRestoreAuthentication target) throws IOException {
+    private static void auditTargetRestoreOpen(
+            ShardStore opened, TargetCheckpointRootVerifier.RootProof source, TargetRestoreAuthentication target)
+            throws IOException {
         target.protection().run();
         final var metadata = opened.metadata();
-        if (metadata.storeFormatVersion() != 2 || !metadata.shardId().equals(source.metadata().shardId())
+        if (metadata.storeFormatVersion() != 2
+                || !metadata.shardId().equals(source.metadata().shardId())
                 || !Arrays.equals(metadata.dbIdentity(), source.metadata().dbIdentity())
-                || !Arrays.equals(opened.appliedShardLogPosition().canonicalBytes(), source.source().canonicalBytes())
+                || !Arrays.equals(
+                        opened.appliedShardLogPosition().canonicalBytes(),
+                        source.source().canonicalBytes())
                 || opened.shardMutationSequence() != source.mutationSequence()) {
             throw new IOException("opened Target restore Store differs from its source/accounting identity");
         }
-        final var installedProof = new TargetCheckpointRootVerifier.RootProof(metadata, source.source(),
-                source.mutationSequence(), source.root(), source.bookkeeping(), source.aggregate());
+        final var installedProof = new TargetCheckpointRootVerifier.RootProof(
+                metadata,
+                source.source(),
+                source.mutationSequence(),
+                source.root(),
+                source.bookkeeping(),
+                source.aggregate());
         final var audited = opened.readWithBudget(target.installationBudget(), () -> {
-            TargetCheckpointRootVerifier.auditLiveStoreLedger(opened, installedProof, target.ledgerLimits(),
-                    target.installationBudget());
+            TargetCheckpointRootVerifier.auditLiveStoreLedger(
+                    opened, installedProof, target.ledgerLimits(), target.installationBudget());
             return installedProof;
         });
         opened.withReadView(audited.view(), () -> null);
@@ -1414,7 +1710,8 @@ public final class ShardStore implements AutoCloseable {
             final ShardStore staged,
             final ShardStore prepared,
             final ShardStore installed,
-            final Throwable failure, final boolean preserveTargetCandidate) {
+            final Throwable failure,
+            final boolean preserveTargetCandidate) {
         // A failed close fences the Store but may leave a native handle open
         // for a later retry. Never delete a directory while one of these
         // restore probes still owns that directory; doing so would turn a
@@ -1429,7 +1726,9 @@ public final class ShardStore implements AutoCloseable {
             failure.addSuppressed(new RestoreNativeCleanup(staged, prepared, installed));
         }
         // Intent-bound Target candidates remain diagnostic/recovery evidence. Native exit is not disk retirement.
-        if (preserveTargetCandidate) return;
+        if (preserveTargetCandidate) {
+            return;
+        }
         if (activeDbMoved && activeDbSafe && canRemoveUnpublishedActiveDb(shardRoot, storeUuid)) {
             try {
                 deleteTree(activeDb);
@@ -1472,26 +1771,54 @@ public final class ShardStore implements AutoCloseable {
         private final transient ShardStore[] stores;
         private final transient Throwable openingFailure;
         private boolean released;
+
         private TargetInstallCleanup(TargetShardInstall exclusion, Throwable openingFailure, ShardStore... stores) {
-            super("original Target install exclusion/native handles remain owned"); this.exclusion = exclusion; this.stores = stores;
+            super("original Target install exclusion/native handles remain owned");
+            this.exclusion = exclusion;
+            this.stores = stores;
             this.openingFailure = openingFailure;
         }
+
         private synchronized void release() {
-            for (var store : stores) if (store != null && !store.isClosed()) return;
-            if (pendingStoreOpening(openingFailure, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) return;
+            for (var store : stores) {
+                if (store != null && !store.isClosed()) {
+                    return;
+                }
+            }
+            if (pendingStoreOpening(
+                    openingFailure, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
+                return;
+            }
             if (!released) {
-                try { exclusion.close(); released = true; }
-                catch (IOException failure) { throw new IllegalStateException("cannot release original Target install exclusion", failure); }
+                try {
+                    exclusion.close();
+                    released = true;
+                } catch (IOException failure) {
+                    throw new IllegalStateException("cannot release original Target install exclusion", failure);
+                }
             }
         }
-        @Override public synchronized boolean cleanupComplete() { return released; }
-        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+
+        @Override
+        public synchronized boolean cleanupComplete() {
+            return released;
+        }
+
+        @Override
+        public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
             try {
-                for (var store : stores) if (store != null && !store.isClosed()) store.close();
+                for (var store : stores) {
+                    if (store != null && !store.isClosed()) {
+                        store.close();
+                    }
+                }
                 release();
-                return released ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                return released
+                        ? java.util.concurrent.CompletableFuture.completedFuture(null)
                         : java.util.concurrent.CompletableFuture.failedFuture(this);
-            } catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+            } catch (RuntimeException | Error failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
         }
     }
 
@@ -1499,21 +1826,39 @@ public final class ShardStore implements AutoCloseable {
             implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final transient ShardStore[] stores;
+
         private RestoreNativeCleanup(ShardStore staged, ShardStore prepared, ShardStore installed) {
-            super("original restore native handles remain live"); stores = new ShardStore[] {staged, prepared, installed};
+            super("original restore native handles remain live");
+            stores = new ShardStore[] {staged, prepared, installed};
         }
-        @Override public synchronized boolean cleanupComplete() {
-            for (var store : stores) if (store != null && !store.isClosed()) return false;
+
+        @Override
+        public synchronized boolean cleanupComplete() {
+            for (var store : stores) {
+                if (store != null && !store.isClosed()) {
+                    return false;
+                }
+            }
             return true;
         }
-        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+
+        @Override
+        public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
             Throwable first = null;
             for (var store : stores) {
-                if (store == null || store.isClosed()) continue;
-                try { store.close(); }
-                catch (RuntimeException | Error failure) { if (first == null) first = failure; }
+                if (store == null || store.isClosed()) {
+                    continue;
+                }
+                try {
+                    store.close();
+                } catch (RuntimeException | Error failure) {
+                    if (first == null) {
+                        first = failure;
+                    }
+                }
             }
-            return first == null ? java.util.concurrent.CompletableFuture.completedFuture(null)
+            return first == null
+                    ? java.util.concurrent.CompletableFuture.completedFuture(null)
                     : java.util.concurrent.CompletableFuture.failedFuture(first);
         }
     }
@@ -1529,56 +1874,113 @@ public final class ShardStore implements AutoCloseable {
         private transient SharedRocksDbResources resources;
         private transient ShardId shard;
         private boolean dbSlot, ownedSlot, acquireSlot, nativeClosed, attached;
-        private RawStoreOpeningCleanup(RocksDB db, List<ColumnFamilyHandle> handles,
-                List<ColumnFamilyOptions> options, DBOptions dbOptions, Throwable failure) {
+
+        private RawStoreOpeningCleanup(
+                RocksDB db,
+                List<ColumnFamilyHandle> handles,
+                List<ColumnFamilyOptions> options,
+                DBOptions dbOptions,
+                Throwable failure) {
             super("original Store opening JNI cleanup remains owned", failure);
-            this.db = db; this.handles = handles; this.options = options; this.dbOptions = dbOptions;
+            this.db = db;
+            this.handles = handles;
+            this.options = options;
+            this.dbOptions = dbOptions;
         }
-        private synchronized void retainSlots(SharedRocksDbResources resources, ShardId shard,
-                boolean dbSlot, boolean ownedSlot, boolean acquireSlot) {
-            if (attached) throw new IllegalStateException("original opening slots were already transferred");
-            this.resources = resources; this.shard = shard; this.dbSlot = dbSlot;
-            this.ownedSlot = ownedSlot; this.acquireSlot = acquireSlot; attached = true;
+
+        private synchronized void retainSlots(
+                SharedRocksDbResources resources,
+                ShardId shard,
+                boolean dbSlot,
+                boolean ownedSlot,
+                boolean acquireSlot) {
+            if (attached) {
+                throw new IllegalStateException("original opening slots were already transferred");
+            }
+            this.resources = resources;
+            this.shard = shard;
+            this.dbSlot = dbSlot;
+            this.ownedSlot = ownedSlot;
+            this.acquireSlot = acquireSlot;
+            attached = true;
         }
-        @Override public synchronized boolean cleanupComplete() {
+
+        @Override
+        public synchronized boolean cleanupComplete() {
             return attached && nativeClosed && !dbSlot && !ownedSlot && !acquireSlot;
         }
-        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
-            if (!attached) return java.util.concurrent.CompletableFuture.failedFuture(this);
+
+        @Override
+        public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            if (!attached) {
+                return java.util.concurrent.CompletableFuture.failedFuture(this);
+            }
             if (!nativeClosed) {
                 final var failure = closeHandles(db, handles, options, dbOptions);
-                if (failure != null) return java.util.concurrent.CompletableFuture.failedFuture(failure);
+                if (failure != null) {
+                    return java.util.concurrent.CompletableFuture.failedFuture(failure);
+                }
                 nativeClosed = true;
             }
             try {
-                if (dbSlot) { resources.releaseDbSlot(); dbSlot = false; }
-                if (ownedSlot) { resources.releaseOwnedShardSlot(shard); ownedSlot = false; }
-                if (acquireSlot) { resources.releaseShardAcquireSlot(); acquireSlot = false; }
+                if (dbSlot) {
+                    resources.releaseDbSlot();
+                    dbSlot = false;
+                }
+                if (ownedSlot) {
+                    resources.releaseOwnedShardSlot(shard);
+                    ownedSlot = false;
+                }
+                if (acquireSlot) {
+                    resources.releaseShardAcquireSlot();
+                    acquireSlot = false;
+                }
                 return java.util.concurrent.CompletableFuture.completedFuture(null);
-            } catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+            } catch (RuntimeException | Error failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
         }
     }
 
     private static boolean pendingStoreOpening(Throwable failure, java.util.Set<Throwable> seen) {
-        if (failure == null || !seen.add(failure)) return false;
+        if (failure == null || !seen.add(failure)) {
+            return false;
+        }
         if (failure instanceof RawStoreOpeningCleanup raw && !raw.cleanupComplete()
-                || failure instanceof RestoreNativeCleanup nativeOwner && !nativeOwner.cleanupComplete()) return true;
-        if (pendingStoreOpening(failure.getCause(), seen)) return true;
-        for (var child : failure.getSuppressed()) if (pendingStoreOpening(child, seen)) return true;
+                || failure instanceof RestoreNativeCleanup nativeOwner && !nativeOwner.cleanupComplete()) {
+            return true;
+        }
+        if (pendingStoreOpening(failure.getCause(), seen)) {
+            return true;
+        }
+        for (var child : failure.getSuppressed()) {
+            if (pendingStoreOpening(child, seen)) {
+                return true;
+            }
+        }
         return false;
     }
 
     /** Only repository-minted, unexposed native-opening/install owners are retried, never arbitrary authority callbacks. */
     public static boolean retryTargetOpeningCleanup(Throwable failure) {
-        return retryTargetOpeningCleanup(failure, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
+        return retryTargetOpeningCleanup(
+                failure, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
     }
+
     private static boolean retryTargetOpeningCleanup(Throwable failure, java.util.Set<Throwable> seen) {
-        if (failure == null || !seen.add(failure)) return true;
+        if (failure == null || !seen.add(failure)) {
+            return true;
+        }
         boolean complete = retryTargetOpeningCleanup(failure.getCause(), seen);
-        for (var child : failure.getSuppressed()) complete &= retryTargetOpeningCleanup(child, seen);
-        if (failure instanceof RawStoreOpeningCleanup || failure instanceof RestoreNativeCleanup || failure instanceof TargetInstallCleanup) {
+        for (var child : failure.getSuppressed()) {
+            complete &= retryTargetOpeningCleanup(child, seen);
+        }
+        if (failure instanceof RawStoreOpeningCleanup
+                || failure instanceof RestoreNativeCleanup
+                || failure instanceof TargetInstallCleanup) {
             final var cleanup = (com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup) failure;
-            cleanup.retryCleanup(); complete &= cleanup.cleanupComplete();
+            cleanup.retryCleanup();
+            complete &= cleanup.cleanupComplete();
         }
         return complete;
     }
@@ -2036,15 +2438,36 @@ public final class ShardStore implements AutoCloseable {
             final int expectedFormat,
             final boolean registerPhysicalUsage)
             throws IOException, RocksDBException {
-        return openAtPath(config, shardId, dbPath, resources, restoreStoreIncarnation, acquireOwnedSlot,
-                publishOpenMarkers, expectedFormat, registerPhysicalUsage, false);
+        return openAtPath(
+                config,
+                shardId,
+                dbPath,
+                resources,
+                restoreStoreIncarnation,
+                acquireOwnedSlot,
+                publishOpenMarkers,
+                expectedFormat,
+                registerPhysicalUsage,
+                false);
     }
 
-    private static ShardStore openAtPath(ShardStoreConfig config, ShardId shardId, Path dbPath,
-            SharedRocksDbResources resources, UUID restoreStoreIncarnation, boolean acquireOwnedSlot,
-            boolean publishOpenMarkers, int expectedFormat, boolean registerPhysicalUsage, boolean inspectionOnly)
+    private static ShardStore openAtPath(
+            ShardStoreConfig config,
+            ShardId shardId,
+            Path dbPath,
+            SharedRocksDbResources resources,
+            UUID restoreStoreIncarnation,
+            boolean acquireOwnedSlot,
+            boolean publishOpenMarkers,
+            int expectedFormat,
+            boolean registerPhysicalUsage,
+            boolean inspectionOnly)
             throws IOException, RocksDBException {
-        if (inspectionOnly && (restoreStoreIncarnation != null || acquireOwnedSlot || publishOpenMarkers || registerPhysicalUsage)) {
+        if (inspectionOnly
+                && (restoreStoreIncarnation != null
+                        || acquireOwnedSlot
+                        || publishOpenMarkers
+                        || registerPhysicalUsage)) {
             throw new IllegalArgumentException("private inspection cannot rewrite or register a Store");
         }
         resources.requireConfig(config);
@@ -2070,7 +2493,8 @@ public final class ShardStore implements AutoCloseable {
                     acquireOwnedSlot,
                     publishOpenMarkers,
                     expectedFormat,
-                    registerPhysicalUsage, inspectionOnly);
+                    registerPhysicalUsage,
+                    inspectionOnly);
             resources.releaseShardAcquireSlot();
             acquireSlotAcquired = false;
             return opened;
@@ -2079,12 +2503,16 @@ public final class ShardStore implements AutoCloseable {
             if (opened == null) {
                 if (exception instanceof RawStoreOpeningCleanup raw) {
                     raw.retainSlots(resources, shardId, dbSlotAcquired, ownedSlotAcquired, acquireSlotAcquired);
-                    dbSlotAcquired = false; ownedSlotAcquired = false; acquireSlotAcquired = false;
+                    dbSlotAcquired = false;
+                    ownedSlotAcquired = false;
+                    acquireSlotAcquired = false;
                 }
                 for (var child : exception.getSuppressed()) {
                     if (child instanceof RawStoreOpeningCleanup raw) {
                         raw.retainSlots(resources, shardId, dbSlotAcquired, ownedSlotAcquired, acquireSlotAcquired);
-                        dbSlotAcquired = false; ownedSlotAcquired = false; acquireSlotAcquired = false;
+                        dbSlotAcquired = false;
+                        ownedSlotAcquired = false;
+                        acquireSlotAcquired = false;
                     }
                 }
             }
@@ -2108,7 +2536,9 @@ public final class ShardStore implements AutoCloseable {
                 // uncertain native handle cannot be released underneath.
                 dbSlotAcquired = false;
                 ownedSlotAcquired = false;
-                if (!opened.isClosed()) exception.addSuppressed(new RestoreNativeCleanup(opened, null, null));
+                if (!opened.isClosed()) {
+                    exception.addSuppressed(new RestoreNativeCleanup(opened, null, null));
+                }
             }
             // The DB slot is acquired after the owned slot. Release only the
             // slots that this invocation actually acquired, but keep trying
@@ -2155,7 +2585,8 @@ public final class ShardStore implements AutoCloseable {
             final boolean ownsShardSlot,
             final boolean publishOpenMarkers,
             final int expectedFormat,
-            final boolean registerPhysicalUsage, final boolean inspectionOnly)
+            final boolean registerPhysicalUsage,
+            final boolean inspectionOnly)
             throws IOException, RocksDBException {
         // Files.createDirectories(dbPath) follows a symlink in any missing
         // parent component. That would let a raced or pre-planted
@@ -2169,7 +2600,9 @@ public final class ShardStore implements AutoCloseable {
             throw new IOException("RocksDB CURRENT must not be a symbolic link: " + current);
         }
         final boolean existing = Files.isRegularFile(current, java.nio.file.LinkOption.NOFOLLOW_LINKS);
-        if (inspectionOnly && !existing) throw new IOException("private inspection requires an existing complete DB");
+        if (inspectionOnly && !existing) {
+            throw new IOException("private inspection requires an existing complete DB");
+        }
         final List<ColumnFamilyOptions> cfOptions = new ArrayList<>();
         final List<ColumnFamilyDescriptor> descriptors = descriptors(config, resources, existing, cfOptions, dbPath);
         final DBOptions dbOptions = new DBOptions()
@@ -2193,12 +2626,14 @@ public final class ShardStore implements AutoCloseable {
         final List<ColumnFamilyHandle> openedHandles = new ArrayList<>();
         final RocksDB db;
         try {
-            db = inspectionOnly ? RocksDB.openReadOnly(dbOptions, dbPath.toString(), descriptors, openedHandles)
+            db = inspectionOnly
+                    ? RocksDB.openReadOnly(dbOptions, dbPath.toString(), descriptors, openedHandles)
                     : RocksDB.open(dbOptions, dbPath.toString(), descriptors, openedHandles);
         } catch (RocksDBException | RuntimeException | Error exception) {
             final Throwable cleanupFailure = closeHandles(null, openedHandles, cfOptions, dbOptions);
             if (cleanupFailure != null) {
-                exception.addSuppressed(new RawStoreOpeningCleanup(null, openedHandles, cfOptions, dbOptions, cleanupFailure));
+                exception.addSuppressed(
+                        new RawStoreOpeningCleanup(null, openedHandles, cfOptions, dbOptions, cleanupFailure));
             }
             throw exception;
         }
@@ -2264,7 +2699,9 @@ public final class ShardStore implements AutoCloseable {
                             "shard identity mismatch: expected " + shardId + " got " + metadata.shardId());
                 }
                 final UUID pathStoreIncarnation = incarnationFromPath(dbPath);
-                if (!inspectionOnly && pathStoreIncarnation != null && !pathStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
+                if (!inspectionOnly
+                        && pathStoreIncarnation != null
+                        && !pathStoreIncarnation.equals(metadata.storeIncarnationUuid())) {
                     throw new IllegalStateException("store incarnation does not match DB path: expected "
                             + pathStoreIncarnation + " got " + metadata.storeIncarnationUuid());
                 }
@@ -2276,9 +2713,14 @@ public final class ShardStore implements AutoCloseable {
                     || Bytes.readU32be(format, 0) != expectedFormat) {
                 throw new IllegalStateException("Store format does not match the explicitly selected reader");
             }
-            if (expectedFormat == 1 && publishOpenMarkers && db.get(handles.get(ColumnFamily.META),
-                    com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(shardId)) != null)
+            if (expectedFormat == 1
+                    && publishOpenMarkers
+                    && db.get(
+                                    handles.get(ColumnFamily.META),
+                                    com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(shardId))
+                            != null) {
                 throw new IllegalStateException("migration shadow cannot reopen as an ordinary legacy writer");
+            }
             if (restoreStoreIncarnation != null && identityBytes != null) {
                 final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
                 final StoreMetadata restored = new StoreMetadata(
@@ -2296,10 +2738,11 @@ public final class ShardStore implements AutoCloseable {
             final byte[] controlSnapshotBytes =
                     optionalFixedValue(db, handles.get(ColumnFamily.META), META_CONTROL_SNAPSHOT);
             final CompatibleControlSnapshot controlSnapshot = expectedFormat == 1 && controlSnapshotBytes != null
-                    ? CompatibleControlSnapshot.decode(controlSnapshotBytes) : null;
+                    ? CompatibleControlSnapshot.decode(controlSnapshotBytes)
+                    : null;
             if (expectedFormat == 2 && controlSnapshotBytes != null) {
-                final var targetControl = com.nereusstream.delay.protocol.TargetInitialControlSnapshot.decode(
-                        controlSnapshotBytes);
+                final var targetControl =
+                        com.nereusstream.delay.protocol.TargetInitialControlSnapshot.decode(controlSnapshotBytes);
                 if (!shardId.equals(targetControl.input().scope().shard())) {
                     throw new IllegalStateException("persisted Target control snapshot belongs to another Shard");
                 }
@@ -2312,8 +2755,8 @@ public final class ShardStore implements AutoCloseable {
             final RuntimeMetadataRead runtimeRead = readRuntimeMetadata(db, handles.get(ColumnFamily.META));
             runtimeMetadata = runtimeRead.metadata();
             StoreRuntimeMetadata.requireEvidenceCursorScope(runtimeMetadata.evidenceCursors(), expectedFormat, shardId);
-            StoreRecoveryMetadata recoveryMetadata =
-                    readRecoveryMetadata(db, handles.get(ColumnFamily.META), metadata, restoreStoreIncarnation != null || inspectionOnly);
+            StoreRecoveryMetadata recoveryMetadata = readRecoveryMetadata(
+                    db, handles.get(ColumnFamily.META), metadata, restoreStoreIncarnation != null || inspectionOnly);
             final long closedIngressDeadlineThrough = runtimeRead.closedIngressDeadlineThrough();
             if (publishOpenMarkers) {
                 if (runtimeMetadata.cleanCloseMarker()) {
@@ -2350,11 +2793,15 @@ public final class ShardStore implements AutoCloseable {
                     controlSnapshot,
                     closedIngressDeadlineThrough);
             result.inspectionOnly = inspectionOnly;
-            if (inspectionOnly) result.cleanCloseAttempted = true;
+            if (inspectionOnly) {
+                result.cleanCloseAttempted = true;
+            }
             if (registerPhysicalUsage) {
-                if (expectedFormat == 1 && !publishOpenMarkers)
+                if (expectedFormat == 1 && !publishOpenMarkers) {
                     resources.registerPrivateCopyPhysicalUsage(shardId, result.physicalUsageSource);
-                else resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
+                } else {
+                    resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
+                }
             }
             keepOpen = true;
             return result;
@@ -2366,7 +2813,8 @@ public final class ShardStore implements AutoCloseable {
                 final Throwable cleanupFailure = closeHandles(db, openedHandles, cfOptions, dbOptions);
                 if (cleanupFailure != null) {
                     if (primaryFailure != null) {
-                        primaryFailure.addSuppressed(new RawStoreOpeningCleanup(db, openedHandles, cfOptions, dbOptions, cleanupFailure));
+                        primaryFailure.addSuppressed(
+                                new RawStoreOpeningCleanup(db, openedHandles, cfOptions, dbOptions, cleanupFailure));
                     } else {
                         throw new RawStoreOpeningCleanup(db, openedHandles, cfOptions, dbOptions, cleanupFailure);
                     }
@@ -2385,7 +2833,8 @@ public final class ShardStore implements AutoCloseable {
         ensureRealDbPath(config, dbPath, true);
     }
 
-    private static void ensureRealDbPath(final ShardStoreConfig config, final Path dbPath, boolean create) throws IOException {
+    private static void ensureRealDbPath(final ShardStoreConfig config, final Path dbPath, boolean create)
+            throws IOException {
         final Path root = config.rootPath().toAbsolutePath().normalize();
         final Path target = dbPath.toAbsolutePath().normalize();
         if (target.equals(root) || !target.startsWith(root)) {
@@ -2395,7 +2844,9 @@ public final class ShardStore implements AutoCloseable {
         for (Path component : root.relativize(target)) {
             cursor = cursor.resolve(component);
             if (!Files.exists(cursor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                if (!create) throw new IOException("inspection DB path component is missing: " + cursor);
+                if (!create) {
+                    throw new IOException("inspection DB path component is missing: " + cursor);
+                }
                 try {
                     Files.createDirectory(cursor);
                 } catch (java.nio.file.FileAlreadyExistsException racedCreate) {
@@ -2498,7 +2949,8 @@ public final class ShardStore implements AutoCloseable {
     }
 
     private static boolean pendingTargetInstall(StoreMetadata metadata, StoreRecoveryMetadata recovery) {
-        return metadata.storeFormatVersion() == 2 && recovery.installState() != null
+        return metadata.storeFormatVersion() == 2
+                && recovery.installState() != null
                 && recovery.installState().phase() == RecoveryInstallPhase.INSTALLED;
     }
 
@@ -2815,7 +3267,9 @@ public final class ShardStore implements AutoCloseable {
             }
         }
         try {
-            if (db != null) db.close();
+            if (db != null) {
+                db.close();
+            }
         } catch (RuntimeException | Error closeException) {
             failure = appendCloseFailure(failure, closeException);
         }
@@ -2956,14 +3410,19 @@ public final class ShardStore implements AutoCloseable {
      * CATCHING_UP Owner/session, accepted Source barrier/continuity and original Catalog/Pin/resource protections.
      * Guard acquisition and full ledger/provider reads occur before entering this Store monitor.
      */
-    public synchronized void completeTargetRecovery(final ReadView audited,
-            final RecoveryCandidateRef expectedBase, final TargetStoreBackend.CommitGuard guard) {
+    public synchronized void completeTargetRecovery(
+            final ReadView audited,
+            final RecoveryCandidateRef expectedBase,
+            final TargetStoreBackend.CommitGuard guard) {
         ensureOpen();
         requireReadView(Objects.requireNonNull(audited, "audited"));
         Objects.requireNonNull(expectedBase, "expectedBase");
         Objects.requireNonNull(guard, "guard");
-        if (!pendingTargetInstall(metadata, recoveryMetadata) || recoveryMetadata.lineageBase() == null
-                || !Arrays.equals(expectedBase.canonicalBytes(), recoveryMetadata.lineageBase().canonicalBytes())) {
+        if (!pendingTargetInstall(metadata, recoveryMetadata)
+                || recoveryMetadata.lineageBase() == null
+                || !Arrays.equals(
+                        expectedBase.canonicalBytes(),
+                        recoveryMetadata.lineageBase().canonicalBytes())) {
             throw new IllegalStateException("Target recovery completion lacks its exact pending install/base");
         }
         guard.requireCurrent();
@@ -3008,7 +3467,8 @@ public final class ShardStore implements AutoCloseable {
         }
         final RecoveryInstallState state = new RecoveryInstallState(
                 pendingTargetInstall(metadata, recoveryMetadata)
-                        ? RecoveryInstallPhase.INSTALLED : RecoveryInstallPhase.OPEN,
+                        ? RecoveryInstallPhase.INSTALLED
+                        : RecoveryInstallPhase.OPEN,
                 metadata.storeIncarnation(),
                 lineageBase == null ? null : lineageBase.checkpointId());
         final StoreRecoveryMetadata next = new StoreRecoveryMetadata(
@@ -3202,21 +3662,33 @@ public final class ShardStore implements AutoCloseable {
 
     /** Local comparison for an already protected payload-summary fold, including local Native writes. */
     public synchronized void requirePayloadSummaryReadView(final ReadView view) {
-        ensureOpen(); Objects.requireNonNull(view, "view");
-        if (view.store != this) throw new IllegalArgumentException("payload summary view belongs to another Store");
-        if (view.successfulWrites != successfulWriteCalls || view.sequenceNumber != db.getLatestSequenceNumber()
-                || view.runtimeMetadata != runtimeMetadata)
+        ensureOpen();
+        Objects.requireNonNull(view, "view");
+        if (view.store != this) {
+            throw new IllegalArgumentException("payload summary view belongs to another Store");
+        }
+        if (view.successfulWrites != successfulWriteCalls
+                || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata) {
             throw new com.nereusstream.delay.runtime.TargetPayloadObligationSummaryBootstrap.ViewChanged();
+        }
     }
 
     /** Local comparison for the original opaque maintenance flight, also valid inside its bounded read plan. */
-    public synchronized void requireMigrationReadView(final ReadView view,
+    public synchronized void requireMigrationReadView(
+            final ReadView view,
             final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate candidate) {
-        ensureOpen(); Objects.requireNonNull(candidate).requireStore(this); Objects.requireNonNull(view);
-        if (view.store != this) throw new IllegalArgumentException("migration view belongs to another Native Store");
-        if (view.successfulWrites != successfulWriteCalls || view.sequenceNumber != db.getLatestSequenceNumber()
-                || view.runtimeMetadata != runtimeMetadata)
+        ensureOpen();
+        Objects.requireNonNull(candidate).requireStore(this);
+        Objects.requireNonNull(view);
+        if (view.store != this) {
+            throw new IllegalArgumentException("migration view belongs to another Native Store");
+        }
+        if (view.successfulWrites != successfulWriteCalls
+                || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata) {
             throw new com.nereusstream.delay.runtime.TargetMigrationImporter.ViewChanged(null);
+        }
     }
 
     /** Publishes a completed read plan under the same Store monitor used by its commit fence. */
@@ -3550,7 +4022,9 @@ public final class ShardStore implements AutoCloseable {
     /** Package-local native boundary used to inject an ambiguous write response in Store tests. */
     synchronized void write(final BatchOperation operation, final NativeWriteOperation nativeWrite) {
         ensureOpen();
-        if (inspectionOnly) throw new IllegalStateException("private inspection cannot write a Store");
+        if (inspectionOnly) {
+            throw new IllegalStateException("private inspection cannot write a Store");
+        }
         if (activeReadBudget != null) {
             throw new IllegalStateException("a read plan cannot commit a WriteBatch");
         }
@@ -3690,29 +4164,47 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Immutable offline candidate; does not write a normal checkpoint marker or publish READY/Catalog state. */
-    public synchronized Path createMigrationPreparedCheckpoint(final Path checkpointPath,
-            final ReadView cut, final com.nereusstream.delay.protocol.TargetMigrationPlan plan,
+    public synchronized Path createMigrationPreparedCheckpoint(
+            final Path checkpointPath,
+            final ReadView cut,
+            final com.nereusstream.delay.protocol.TargetMigrationPlan plan,
             final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
-            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits, final Runnable localProtection) {
-        ensureOpen(); requireReadView(cut); Objects.requireNonNull(localProtection).run();
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
+            final Runnable localProtection) {
+        ensureOpen();
+        requireReadView(cut);
+        Objects.requireNonNull(localProtection).run();
         com.nereusstream.delay.runtime.TargetMigrationStore.requirePrepared(this, plan);
-        if (Files.exists(checkpointPath, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(checkpointPath))
+        if (Files.exists(checkpointPath, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(checkpointPath)) {
             throw new IllegalArgumentException("migration candidate target already exists");
+        }
         boolean acquired = false;
         try {
-            resources.acquireCheckpointCreateSlot(); acquired = true;
+            resources.acquireCheckpointCreateSlot();
+            acquired = true;
             final Path parent = checkpointPath.toAbsolutePath().getParent();
-            if (parent == null) throw new IOException("migration candidate has no parent");
-            ensureRealDirectoryPath(parent); localProtection.run();
-            try (Checkpoint checkpoint = Checkpoint.create(db)) { checkpoint.createCheckpoint(checkpointPath.toString()); }
-            TargetCheckpointRootVerifier.auditMigrationPreparedImage(checkpointPath, plan, physicalLimits, quotaLimits, ledgerLimits);
-            localProtection.run(); requireReadView(cut); forceDirectory(checkpointPath); forceDirectory(parent);
+            if (parent == null) {
+                throw new IOException("migration candidate has no parent");
+            }
+            ensureRealDirectoryPath(parent);
+            localProtection.run();
+            try (Checkpoint checkpoint = Checkpoint.create(db)) {
+                checkpoint.createCheckpoint(checkpointPath.toString());
+            }
+            TargetCheckpointRootVerifier.auditMigrationPreparedImage(
+                    checkpointPath, plan, physicalLimits, quotaLimits, ledgerLimits);
+            localProtection.run();
+            requireReadView(cut);
+            forceDirectory(checkpointPath);
+            forceDirectory(parent);
             return checkpointPath;
         } catch (IOException | RocksDBException failure) {
             throw new IllegalStateException("cannot create bounded migration-prepared image", failure);
         } finally {
-            if (acquired) resources.releaseCheckpointCreateSlot();
+            if (acquired) {
+                resources.releaseCheckpointCreateSlot();
+            }
         }
     }
 
@@ -3775,8 +4267,11 @@ public final class ShardStore implements AutoCloseable {
         return checkpointPath;
     }
 
-    public synchronized Path createTargetSemanticCheckpointCandidate(final Path checkpointPath,
-            final byte[] checkpointId, final byte[] expectedLineage, final CheckpointManifestLimits physicalLimits,
+    public synchronized Path createTargetSemanticCheckpointCandidate(
+            final Path checkpointPath,
+            final byte[] checkpointId,
+            final byte[] expectedLineage,
+            final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final TargetCheckpointSemanticSnapshot snapshot,
@@ -3785,13 +4280,24 @@ public final class ShardStore implements AutoCloseable {
         snapshot.requireCut(metadata, appliedShardLogPosition(), shardMutationSequence(), expectedLineage);
         return createCheckpointImage(checkpointPath, checkpointId, 2, candidate -> {
             TargetCheckpointSemanticSnapshotFile.writeNew(candidate, snapshot, semanticLimits);
-            TargetCheckpointRootVerifier.auditLocalCandidate(candidate, this, expectedLineage, checkpointId,
-                    physicalLimits, quotaLimits, ledgerLimits, snapshot, semanticLimits);
+            TargetCheckpointRootVerifier.auditLocalCandidate(
+                    candidate,
+                    this,
+                    expectedLineage,
+                    checkpointId,
+                    physicalLimits,
+                    quotaLimits,
+                    ledgerLimits,
+                    snapshot,
+                    semanticLimits);
         });
     }
 
-    synchronized Path reuseTargetSemanticCheckpointCandidate(final Path checkpointPath,
-            final byte[] checkpointId, final byte[] expectedLineage, final CheckpointManifestLimits physicalLimits,
+    synchronized Path reuseTargetSemanticCheckpointCandidate(
+            final Path checkpointPath,
+            final byte[] checkpointId,
+            final byte[] expectedLineage,
+            final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
             final TargetCheckpointSemanticSnapshot snapshot,
@@ -3803,8 +4309,16 @@ public final class ShardStore implements AutoCloseable {
             throw new IllegalStateException("Target semantic candidate checkpoint identity differs from live Store");
         }
         final var stored = TargetCheckpointSemanticSnapshotFile.requireExact(checkpointPath, snapshot, semanticLimits);
-        TargetCheckpointRootVerifier.auditLocalCandidate(checkpointPath, this, expectedLineage, checkpointId,
-                physicalLimits, quotaLimits, ledgerLimits, stored, semanticLimits);
+        TargetCheckpointRootVerifier.auditLocalCandidate(
+                checkpointPath,
+                this,
+                expectedLineage,
+                checkpointId,
+                physicalLimits,
+                quotaLimits,
+                ledgerLimits,
+                stored,
+                semanticLimits);
         return checkpointPath;
     }
 
@@ -4051,8 +4565,11 @@ public final class ShardStore implements AutoCloseable {
         // the cache/rate limiter while this Store still owns a native handle.
         if (nativeTeardownComplete()) {
             if (registersPhysicalUsage) {
-                try { resources.unregisterPhysicalUsage(shardId, physicalUsageSource); }
-                catch (RuntimeException | Error failure) { closeFailure = appendCloseFailure(closeFailure, failure); }
+                try {
+                    resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
+                } catch (RuntimeException | Error failure) {
+                    closeFailure = appendCloseFailure(closeFailure, failure);
+                }
             }
             if (!dbSlotReleased) {
                 try {
@@ -4071,9 +4588,14 @@ public final class ShardStore implements AutoCloseable {
                 }
             }
             if (targetInstall != null) {
-                try { targetInstall.close(); targetInstall = null; }
-                catch (IOException failure) { closeFailure = appendCloseFailure(closeFailure,
-                        new IllegalStateException("cannot release original Target install exclusion", failure)); }
+                try {
+                    targetInstall.close();
+                    targetInstall = null;
+                } catch (IOException failure) {
+                    closeFailure = appendCloseFailure(
+                            closeFailure,
+                            new IllegalStateException("cannot release original Target install exclusion", failure));
+                }
             }
         }
         if (closeFailure == null
@@ -4097,7 +4619,9 @@ public final class ShardStore implements AutoCloseable {
      * native SDK I/O may still be pending outside it. No clean marker or successful checkpoint is manufactured.
      */
     public synchronized void fenceForUncleanClose() {
-        if (closed.get()) { return; }
+        if (closed.get()) {
+            return;
+        }
         cleanCloseAttempted = true;
         closeStarted = true;
     }
@@ -4106,7 +4630,9 @@ public final class ShardStore implements AutoCloseable {
     public synchronized FrozenSourceCut freezeTargetSourceCut(SourcePosition expected, long expectedSequence) {
         ensureOpen();
         final SourcePosition actual = appliedShardLogPosition();
-        if (metadata.storeFormatVersion() != 2 || actual == null || expected == null
+        if (metadata.storeFormatVersion() != 2
+                || actual == null
+                || expected == null
                 || !Arrays.equals(actual.canonicalBytes(), expected.canonicalBytes())
                 || db.getLatestSequenceNumber() != expectedSequence) {
             throw new IllegalStateException("Source cut changed before its original Store commit barrier");
@@ -4121,22 +4647,42 @@ public final class ShardStore implements AutoCloseable {
         private final SourcePosition position;
         private final long sequence;
         private final byte[] incarnation;
+
         private FrozenSourceCut(ShardStore original, SourcePosition position, long sequence, byte[] incarnation) {
-            this.original = original; this.position = position; this.sequence = sequence; this.incarnation = Bytes.copy(incarnation);
+            this.original = original;
+            this.position = position;
+            this.sequence = sequence;
+            this.incarnation = Bytes.copy(incarnation);
         }
-        public SourcePosition position() { return position; }
-        public byte[] storeIncarnation() { return Bytes.copy(incarnation); }
+
+        public SourcePosition position() {
+            return position;
+        }
+
+        public byte[] storeIncarnation() {
+            return Bytes.copy(incarnation);
+        }
+
         public void requireCurrent() {
             synchronized (original) {
-                if (!original.closeStarted || !original.cleanCloseAttempted || original.writeOutcomeUncertain
+                if (!original.closeStarted
+                        || !original.cleanCloseAttempted
+                        || original.writeOutcomeUncertain
                         || !Arrays.equals(incarnation, original.metadata.storeIncarnation())
                         || !original.dbClosed && original.db.getLatestSequenceNumber() != sequence) {
                     throw new IllegalStateException("original frozen Source cut is no longer retained");
                 }
             }
         }
-        public void closeOriginal() { requireCurrent(); original.close(); }
-        public boolean originalClosed() { return original.isClosed(); }
+
+        public void closeOriginal() {
+            requireCurrent();
+            original.close();
+        }
+
+        public boolean originalClosed() {
+            return original.isClosed();
+        }
     }
 
     private boolean allOptionsClosed() {
@@ -4327,21 +4873,31 @@ public final class ShardStore implements AutoCloseable {
         }
 
         /** One narrow shadow decoder declaration, authorized only by the actual Target first/POS proof. */
-        public void putMigrationShadowControlSnapshot(final CompatibleControlSnapshot next,
-                final com.nereusstream.delay.runtime.TargetMigrationTargetApplied proof) throws RocksDBException {
+        public void putMigrationShadowControlSnapshot(
+                final CompatibleControlSnapshot next,
+                final com.nereusstream.delay.runtime.TargetMigrationTargetApplied proof)
+                throws RocksDBException {
             Objects.requireNonNull(proof, "actual Target-applied shadow proof").requireStore(owner);
             Objects.requireNonNull(next, "shadow control snapshot");
-            if (owner.metadata.storeFormatVersion() != 1 || currentControlSnapshot == null || controlSnapshot != null
+            if (owner.metadata.storeFormatVersion() != 1
+                    || currentControlSnapshot == null
+                    || controlSnapshot != null
                     || !currentControlSnapshot.shard().equals(next.shard())
                     || !currentControlSnapshot.profiles().equals(next.profiles())
-                    || !currentControlSnapshot.initialQuotaGrant().equals(next.initialQuotaGrant()))
-                throw new IllegalStateException("shadow declaration cannot change original Shard/Profile/grant authority");
+                    || !currentControlSnapshot.initialQuotaGrant().equals(next.initialQuotaGrant())) {
+                throw new IllegalStateException(
+                        "shadow declaration cannot change original Shard/Profile/grant authority");
+            }
             final var expected = new java.util.HashSet<>(currentControlSnapshot.protocolTuples());
             expected.add(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress());
             if (!expected.equals(new java.util.HashSet<>(next.protocolTuples()))
-                    || next.protocolTuples().size() != expected.size())
-                throw new IllegalStateException("shadow declaration permits only the explicit original migration-progress tuple");
-            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT),
+                    || next.protocolTuples().size() != expected.size()) {
+                throw new IllegalStateException(
+                        "shadow declaration permits only the explicit original migration-progress tuple");
+            }
+            batch.put(
+                    handle(ColumnFamily.META),
+                    KeyCodec.metaFixed(META_CONTROL_SNAPSHOT),
                     ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
             controlSnapshot = next;
         }
@@ -4370,11 +4926,16 @@ public final class ShardStore implements AutoCloseable {
             if (owner.metadata.storeFormatVersion() != 2 || runtimeMetadata != null) {
                 throw new IllegalStateException("invalid or competing Target cursor seed update");
             }
-            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_EVIDENCE_CURSORS),
+            batch.put(
+                    handle(ColumnFamily.META),
+                    KeyCodec.metaFixed(META_EVIDENCE_CURSORS),
                     ValueEnvelope.encode(META_FIXED_VALUE_TYPE, StoreRuntimeMetadata.encodeEvidenceCursors(cursors)));
-            runtimeMetadata = new StoreRuntimeMetadata(currentRuntimeMetadata.lastIngressFenceProofId(),
-                    currentRuntimeMetadata.lastCheckpointId(), currentRuntimeMetadata.lastOpenedOwnerEpoch(),
-                    false, cursors);
+            runtimeMetadata = new StoreRuntimeMetadata(
+                    currentRuntimeMetadata.lastIngressFenceProofId(),
+                    currentRuntimeMetadata.lastCheckpointId(),
+                    currentRuntimeMetadata.lastOpenedOwnerEpoch(),
+                    false,
+                    cursors);
         }
 
         /** Advances the source-ordered ingress fence in the same atomic WriteBatch. */

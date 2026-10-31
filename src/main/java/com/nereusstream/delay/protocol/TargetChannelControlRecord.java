@@ -18,8 +18,10 @@ public final class TargetChannelControlRecord {
     private final byte[] digest;
 
     public TargetChannelControlRecord(
-            final TargetChannelControlBody body, final TargetQuotaMutation mutation,
-            final ControlAuthor author, final byte[] lineage) {
+            final TargetChannelControlBody body,
+            final TargetQuotaMutation mutation,
+            final ControlAuthor author,
+            final byte[] lineage) {
         this.body = Objects.requireNonNull(body, "body");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
         this.author = Objects.requireNonNull(author, "author");
@@ -31,12 +33,29 @@ public final class TargetChannelControlRecord {
         digest = Bytes.sha256(DIGEST_DOMAIN, fields());
     }
 
-    public TargetChannelControlBody body() { return body; }
-    public TargetQuotaMutation mutation() { return mutation; }
-    public ControlAuthor author() { return author; }
-    public byte[] recoveryLineage() { return Bytes.copy(lineage); }
-    public byte[] digest() { return Bytes.copy(digest); }
-    public byte[] key() { return TargetKeyCodec.channelControl(body.logicalIdentity()); }
+    public TargetChannelControlBody body() {
+        return body;
+    }
+
+    public TargetQuotaMutation mutation() {
+        return mutation;
+    }
+
+    public ControlAuthor author() {
+        return author;
+    }
+
+    public byte[] recoveryLineage() {
+        return Bytes.copy(lineage);
+    }
+
+    public byte[] digest() {
+        return Bytes.copy(digest);
+    }
+
+    public byte[] key() {
+        return TargetKeyCodec.channelControl(body.logicalIdentity());
+    }
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
@@ -56,8 +75,8 @@ public final class TargetChannelControlRecord {
     }
 
     public static TargetChannelControlRecord decode(final byte[] encoded) {
-        final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 6, false,
-                "Target channel Control record");
+        final var fields =
+                TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 6, false, "Target channel Control record");
         QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6}, "Target channel Control record");
         if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unknown channel Control record version");

@@ -57,15 +57,22 @@ public final class CheckpointRestoreCoordinator {
         return restore(request, pin, null);
     }
 
-    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin,
+    ShardStore restore(
+            final CheckpointDownloadRequest request,
+            final RecoveryPin pin,
             final ShardStore.TargetRestoreAuthentication authentication) {
         return restore(request, pin, authentication, null);
     }
 
-    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin,
-            final ShardStore.TargetRestoreAuthentication authentication, final UUID repairTarget) {
+    ShardStore restore(
+            final CheckpointDownloadRequest request,
+            final RecoveryPin pin,
+            final ShardStore.TargetRestoreAuthentication authentication,
+            final UUID repairTarget) {
         requireRestoreSubmission(request, pin, authentication);
-        if (repairTarget != null && authentication == null) throw new IllegalArgumentException("Target repair needs original image authentication");
+        if (repairTarget != null && authentication == null) {
+            throw new IllegalArgumentException("Target repair needs original image authentication");
+        }
         if (authentication != null) {
             authentication.protection().run();
             ShardStore.validateRecoveryPin(shardId, request.manifest(), catalog, pin);
@@ -98,13 +105,40 @@ public final class CheckpointRestoreCoordinator {
             }
             validateDownloadedInventory(materialized, request.manifest());
             restored = repairTarget != null
-                    ? ShardStore.repairTargetFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
-                            request.manifest(), catalog, pin, limits, downloadPermit, authentication, repairTarget)
+                    ? ShardStore.repairTargetFromCheckpointWithDownloadPermit(
+                            config,
+                            shardId,
+                            resources,
+                            materialized,
+                            request.manifest(),
+                            catalog,
+                            pin,
+                            limits,
+                            downloadPermit,
+                            authentication,
+                            repairTarget)
                     : authentication == null
-                    ? ShardStore.restoreFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
-                            request.manifest(), catalog, pin, limits, downloadPermit)
-                    : ShardStore.restoreTargetFromCheckpointWithDownloadPermit(config, shardId, resources, materialized,
-                            request.manifest(), catalog, pin, limits, downloadPermit, authentication);
+                            ? ShardStore.restoreFromCheckpointWithDownloadPermit(
+                                    config,
+                                    shardId,
+                                    resources,
+                                    materialized,
+                                    request.manifest(),
+                                    catalog,
+                                    pin,
+                                    limits,
+                                    downloadPermit)
+                            : ShardStore.restoreTargetFromCheckpointWithDownloadPermit(
+                                    config,
+                                    shardId,
+                                    resources,
+                                    materialized,
+                                    request.manifest(),
+                                    catalog,
+                                    pin,
+                                    limits,
+                                    downloadPermit,
+                                    authentication);
             deleteTree(attemptRoot);
             return restored;
         } catch (RuntimeException | Error failure) {
@@ -119,8 +153,11 @@ public final class CheckpointRestoreCoordinator {
             if (pendingCleanup(failure, null, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
                 failure.addSuppressed(new DownloadTreeCleanup(attemptRoot, failure));
             } else {
-                try { deleteTree(attemptRoot); }
-                catch (RuntimeException | Error cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+                try {
+                    deleteTree(attemptRoot);
+                } catch (RuntimeException | Error cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
             }
             throw failure;
         } finally {
@@ -131,10 +168,21 @@ public final class CheckpointRestoreCoordinator {
     }
 
     private static boolean pendingCleanup(Throwable failure, Throwable excluded, java.util.Set<Throwable> seen) {
-        if (failure == null || failure == excluded || !seen.add(failure)) return false;
-        if (failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) return true;
-        if (pendingCleanup(failure.getCause(), excluded, seen)) return true;
-        for (var child : failure.getSuppressed()) if (pendingCleanup(child, excluded, seen)) return true;
+        if (failure == null || failure == excluded || !seen.add(failure)) {
+            return false;
+        }
+        if (failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                && !cleanup.cleanupComplete()) {
+            return true;
+        }
+        if (pendingCleanup(failure.getCause(), excluded, seen)) {
+            return true;
+        }
+        for (var child : failure.getSuppressed()) {
+            if (pendingCleanup(child, excluded, seen)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -145,16 +193,31 @@ public final class CheckpointRestoreCoordinator {
         private final transient Path originalTree;
         private final transient Throwable originalFailure;
         private boolean deleted;
+
         private DownloadTreeCleanup(Path tree, Throwable failure) {
-            super("original checkpoint download tree awaits native cleanup"); originalTree = tree; originalFailure = failure;
+            super("original checkpoint download tree awaits native cleanup");
+            originalTree = tree;
+            originalFailure = failure;
         }
-        @Override public synchronized boolean cleanupComplete() { return deleted; }
-        @Override public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
-            if (pendingCleanup(originalFailure, this, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
+
+        @Override
+        public synchronized boolean cleanupComplete() {
+            return deleted;
+        }
+
+        @Override
+        public synchronized java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            if (pendingCleanup(
+                    originalFailure, this, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
                 return java.util.concurrent.CompletableFuture.failedFuture(this);
             }
-            try { deleteTree(originalTree); deleted = true; return java.util.concurrent.CompletableFuture.completedFuture(null); }
-            catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+            try {
+                deleteTree(originalTree);
+                deleted = true;
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            } catch (RuntimeException | Error failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
         }
     }
 
@@ -163,11 +226,25 @@ public final class CheckpointRestoreCoordinator {
             implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final transient ShardStore store;
-        private RestoredStoreCleanup(ShardStore store) { super("original installed Store cleanup remains live"); this.store = store; }
-        @Override public boolean cleanupComplete() { return store.isClosed(); }
-        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
-            try { store.close(); return java.util.concurrent.CompletableFuture.completedFuture(null); }
-            catch (RuntimeException | Error failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+
+        private RestoredStoreCleanup(ShardStore store) {
+            super("original installed Store cleanup remains live");
+            this.store = store;
+        }
+
+        @Override
+        public boolean cleanupComplete() {
+            return store.isClosed();
+        }
+
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            try {
+                store.close();
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            } catch (RuntimeException | Error failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
         }
     }
 
@@ -180,7 +257,9 @@ public final class CheckpointRestoreCoordinator {
         requireRestoreSubmission(request, pin, null);
     }
 
-    void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPin pin,
+    void requireRestoreSubmission(
+            final CheckpointDownloadRequest request,
+            final RecoveryPin pin,
             final ShardStore.TargetRestoreAuthentication target) {
         final CheckpointDownloadRequest exact = Objects.requireNonNull(request, "request");
         if (!shardId.equals(exact.manifest().shardId())) {

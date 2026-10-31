@@ -22,7 +22,9 @@ public final class TargetWorkerShardFleetRuntime {
 
         void requireFleetComposition(WorkClassExecutionRegistry workClasses, SharedRocksDbResources resources);
 
-        default Optional<WorkClassTask> pendingCheckpointTask() { return Optional.empty(); }
+        default Optional<WorkClassTask> pendingCheckpointTask() {
+            return Optional.empty();
+        }
 
         SourceApplyCoordinator.TurnResult runSourceTurn(SchedulerBudget budget, LongSupplier ownerClock);
 
@@ -36,15 +38,29 @@ public final class TargetWorkerShardFleetRuntime {
             return Optional.empty();
         }
 
-        default Optional<TargetPulsarPublishRuntime.Turn> runPublishMaintenanceTurn() { return Optional.empty(); }
+        default Optional<TargetPulsarPublishRuntime.Turn> runPublishMaintenanceTurn() {
+            return Optional.empty();
+        }
 
         default Optional<TargetPublishRecoveryMaintenance.Turn> runPublishRecoveryMaintenanceTurn() {
             return Optional.empty();
         }
-        default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() { return Optional.empty(); }
-        default Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() { return Optional.empty(); }
-        default Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn(){return Optional.empty();}
-        default Optional<WorkClassTask> runSloFinalMaintenanceTurn(){return Optional.empty();}
+
+        default Optional<WorkClassTask> runPublicationResourceMaintenanceTurn() {
+            return Optional.empty();
+        }
+
+        default Optional<TargetResourceReclaimMaintenance.Turn> runResourceReclaimMaintenanceTurn() {
+            return Optional.empty();
+        }
+
+        default Optional<WorkClassTask> runSloCustodyExportMaintenanceTurn() {
+            return Optional.empty();
+        }
+
+        default Optional<WorkClassTask> runSloFinalMaintenanceTurn() {
+            return Optional.empty();
+        }
     }
 
     public record SourceTurn(ShardId shardId, SourceApplyCoordinator.TurnResult result) {
@@ -222,7 +238,9 @@ public final class TargetWorkerShardFleetRuntime {
             final java.util.function.Function<ShardTurns, Optional<SourceApplyCoordinator.TurnResult>> admission) {
         Objects.requireNonNull(admission, "admission");
         requireNotInSelectedTurn();
-        if (shards.isEmpty()) { return Optional.empty(); }
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(sourceCursor);
         sourceCursor = sourceCursor == shards.size() - 1 ? 0 : sourceCursor + 1;
         activeTurnThread = Thread.currentThread();
@@ -247,7 +265,9 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(maintenanceCursor);
         maintenanceCursor = maintenanceCursor == shards.size() - 1 ? 0 : maintenanceCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new MaintenanceTurn(selected.shardId(), selected.runMaintenanceTurn(budget)));
@@ -266,7 +286,9 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(messageExpiryCursor);
         messageExpiryCursor = messageExpiryCursor == shards.size() - 1 ? 0 : messageExpiryCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
         try {
             return Optional.of(new MessageExpiryTurn(selected.shardId(), selected.runMessageExpiryMaintenanceTurn()));
@@ -283,70 +305,118 @@ public final class TargetWorkerShardFleetRuntime {
         }
     }
 
-    synchronized Optional<WorkClassTask> runNextSloCustodyTurnIfPresent(){
-        requireNotInSelectedTurn();if(shards.isEmpty())return Optional.empty();
-        final int index=sloCustodyCursor>=shards.size()?0:sloCustodyCursor;
-        final var selected=shards.get(index);sloCustodyCursor=index==shards.size()-1?0:index+1;
-        if(selected.pendingCheckpointTask().isPresent())return Optional.empty();
-        activeTurnThread=Thread.currentThread();
-        try{return selected.runSloCustodyExportMaintenanceTurn();}
-        catch(RuntimeException failure){throw new MaintenanceDispatchFailure(selected.shardId(),failure);}
-        finally{activeTurnThread=null;}
+    synchronized Optional<WorkClassTask> runNextSloCustodyTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
+        final int index = sloCustodyCursor >= shards.size() ? 0 : sloCustodyCursor;
+        final var selected = shards.get(index);
+        sloCustodyCursor = index == shards.size() - 1 ? 0 : index + 1;
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
+        activeTurnThread = Thread.currentThread();
+        try {
+            return selected.runSloCustodyExportMaintenanceTurn();
+        } catch (RuntimeException failure) {
+            throw new MaintenanceDispatchFailure(selected.shardId(), failure);
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
-    synchronized Optional<WorkClassTask> runNextSloFinalTurnIfPresent(){
-        requireNotInSelectedTurn();if(shards.isEmpty())return Optional.empty();
-        final int index=sloFinalCursor>=shards.size()?0:sloFinalCursor;
-        final var selected=shards.get(index);sloFinalCursor=index==shards.size()-1?0:index+1;
-        if(selected.pendingCheckpointTask().isPresent())return Optional.empty();
-        activeTurnThread=Thread.currentThread();
-        try{return selected.runSloFinalMaintenanceTurn();}
-        catch(RuntimeException failure){throw new MaintenanceDispatchFailure(selected.shardId(),failure);}
-        finally{activeTurnThread=null;}
+    synchronized Optional<WorkClassTask> runNextSloFinalTurnIfPresent() {
+        requireNotInSelectedTurn();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
+        final int index = sloFinalCursor >= shards.size() ? 0 : sloFinalCursor;
+        final var selected = shards.get(index);
+        sloFinalCursor = index == shards.size() - 1 ? 0 : index + 1;
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
+        activeTurnThread = Thread.currentThread();
+        try {
+            return selected.runSloFinalMaintenanceTurn();
+        } catch (RuntimeException failure) {
+            throw new MaintenanceDispatchFailure(selected.shardId(), failure);
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     synchronized Optional<TargetResourceReclaimMaintenance.Turn> runNextResourceReclaimTurnIfPresent() {
         requireNotInSelectedTurn();
-        if (shards.isEmpty()) return Optional.empty();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(resourceReclaimCursor);
         resourceReclaimCursor = resourceReclaimCursor == shards.size() - 1 ? 0 : resourceReclaimCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) return Optional.empty();
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
-        try { return selected.runResourceReclaimMaintenanceTurn(); }
-        finally { activeTurnThread = null; }
+        try {
+            return selected.runResourceReclaimMaintenanceTurn();
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     synchronized Optional<TargetJournalNegativeSettlementMaintenance.Turn> runNextJournalSettlementTurnIfPresent() {
         requireNotInSelectedTurn();
-        if (shards.isEmpty()) { return Optional.empty(); }
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(journalSettlementCursor);
         journalSettlementCursor = journalSettlementCursor == shards.size() - 1 ? 0 : journalSettlementCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
-        try { return selected.runJournalSettlementMaintenanceTurn(); }
-        finally { activeTurnThread = null; }
+        try {
+            return selected.runJournalSettlementMaintenanceTurn();
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     synchronized Optional<TargetPulsarPublishRuntime.Turn> runNextPublishTurnIfPresent() {
         requireNotInSelectedTurn();
-        if (shards.isEmpty()) { return Optional.empty(); }
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(publishCursor);
         publishCursor = publishCursor == shards.size() - 1 ? 0 : publishCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
-        try { return selected.runPublishMaintenanceTurn(); }
-        finally { activeTurnThread = null; }
+        try {
+            return selected.runPublishMaintenanceTurn();
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     synchronized Optional<WorkClassTask> runNextPublicationResourceTurnIfPresent() {
         requireNotInSelectedTurn();
-        if (shards.isEmpty()) return Optional.empty();
+        if (shards.isEmpty()) {
+            return Optional.empty();
+        }
         final var selected = shards.get(publicationResourceCursor);
         publicationResourceCursor = publicationResourceCursor == shards.size() - 1 ? 0 : publicationResourceCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) return Optional.empty();
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
-        try { return selected.runPublicationResourceMaintenanceTurn(); }
-        finally { activeTurnThread = null; }
+        try {
+            return selected.runPublicationResourceMaintenanceTurn();
+        } finally {
+            activeTurnThread = null;
+        }
     }
 
     /** Independent rotation; incomplete asynchronous history never blocks another Shard's recovery selection. */
@@ -357,11 +427,13 @@ public final class TargetWorkerShardFleetRuntime {
         }
         final var selected = shards.get(publishRecoveryCursor);
         publishRecoveryCursor = publishRecoveryCursor == shards.size() - 1 ? 0 : publishRecoveryCursor + 1;
-        if (selected.pendingCheckpointTask().isPresent()) { return Optional.empty(); }
+        if (selected.pendingCheckpointTask().isPresent()) {
+            return Optional.empty();
+        }
         activeTurnThread = Thread.currentThread();
         try {
-            return Optional.of(new PublishRecoveryTurn(
-                    selected.shardId(), selected.runPublishRecoveryMaintenanceTurn()));
+            return Optional.of(
+                    new PublishRecoveryTurn(selected.shardId(), selected.runPublishRecoveryMaintenanceTurn()));
         } finally {
             activeTurnThread = null;
         }

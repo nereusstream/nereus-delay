@@ -54,14 +54,7 @@ final class PulsarSmokeWorkerResources {
                 64 * MIB,
                 10_000);
         final var observation = new WorkerRuntimeResourceObservation(
-                256 * MIB,
-                128 * MIB,
-                256 * MIB,
-                cgroupLimitBytes,
-                maxProcessOpenFiles,
-                1,
-                filesystemBytes,
-                12 * GIB);
+                256 * MIB, 128 * MIB, 256 * MIB, cgroupLimitBytes, maxProcessOpenFiles, 1, filesystemBytes, 12 * GIB);
         return new SharedRocksDbResources(config, envelope, observation);
     }
 

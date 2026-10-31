@@ -1,7 +1,7 @@
 package com.nereusstream.delay.runtime;
 
-import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
+import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -37,8 +37,11 @@ public final class TargetPublishAdmissionStore {
         private final TargetMessageRecord message;
         private final com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping;
 
-        private Applied(SystemMutation image, TargetPublishAdmissionBody body,
-                SourcePosition source, TargetMessageRecord message,
+        private Applied(
+                SystemMutation image,
+                TargetPublishAdmissionBody body,
+                SourcePosition source,
+                TargetMessageRecord message,
                 com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping) {
             this.image = image;
             this.body = body;
@@ -47,38 +50,77 @@ public final class TargetPublishAdmissionStore {
             this.kafkaMapping = kafkaMapping;
         }
 
-        public SystemMutation image() { return image; }
-        public TargetPublishAdmissionBody body() { return body; }
-        public SourcePosition source() { return source; }
-        public TargetMessageRecord message() { return message; }
-        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() { return kafkaMapping; }
+        public SystemMutation image() {
+            return image;
+        }
+
+        public TargetPublishAdmissionBody body() {
+            return body;
+        }
+
+        public SourcePosition source() {
+            return source;
+        }
+
+        public TargetMessageRecord message() {
+            return message;
+        }
+
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() {
+            return kafkaMapping;
+        }
 
         public void requireSame(final Applied current) {
             if (!Arrays.equals(image.canonicalEnvelope(), current.image.canonicalEnvelope())
                     || !Arrays.equals(source.canonicalBytes(), current.source.canonicalBytes())
                     || !Arrays.equals(message.canonicalBytes(), current.message.canonicalBytes())
                     || (kafkaMapping == null) != (current.kafkaMapping == null)
-                    || kafkaMapping != null && !Arrays.equals(kafkaMapping.canonicalBytes(), current.kafkaMapping.canonicalBytes())) {
+                    || kafkaMapping != null
+                            && !Arrays.equals(kafkaMapping.canonicalBytes(), current.kafkaMapping.canonicalBytes())) {
                 throw new IllegalStateException("Target send snapshot changed after its applied Admission read");
             }
         }
     }
-    private record Facts(SystemMutation image, TargetPublishAdmissionBody body,
-            SourcePosition source, RetainedGeneration generation,
+
+    private record Facts(
+            SystemMutation image,
+            TargetPublishAdmissionBody body,
+            SourcePosition source,
+            RetainedGeneration generation,
             com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping) {}
 
     /** Retained admitted facts; the current Message can be newer than the admitted terminal generation. */
     public static final class Recovery {
         private final Facts retained;
 
-        private Recovery(Facts retained) { this.retained = retained; }
+        private Recovery(Facts retained) {
+            this.retained = retained;
+        }
 
-        public SystemMutation image() { return retained.image(); }
-        public TargetPublishAdmissionBody body() { return retained.body(); }
-        public SourcePosition source() { return retained.source(); }
-        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() { return retained.kafkaMapping(); }
-        public TargetMessageRecord message() { return retained.generation().current(); }
-        public TargetGenerationRuntimeIndex runtime() { return retained.generation().runtime(); }
+        public SystemMutation image() {
+            return retained.image();
+        }
+
+        public TargetPublishAdmissionBody body() {
+            return retained.body();
+        }
+
+        public SourcePosition source() {
+            return retained.source();
+        }
+
+        public com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping() {
+            return retained.kafkaMapping();
+        }
+
+        public TargetMessageRecord message() {
+            return retained.generation().current();
+        }
+
+        public TargetGenerationRuntimeIndex runtime() {
+            return retained.generation().runtime();
+        }
+
         public java.util.Optional<TargetTerminalGenerationRecord> terminal() {
             return java.util.Optional.ofNullable(retained.generation().terminal());
         }
@@ -93,7 +135,8 @@ public final class TargetPublishAdmissionStore {
         private Prepared(
                 final TargetPublishAdmissionStore owner,
                 final TargetStoreBackend.Prepared batch,
-                final SystemMutationResult result, final Runnable sampleQualification) {
+                final SystemMutationResult result,
+                final Runnable sampleQualification) {
             this.owner = owner;
             this.batch = batch;
             this.result = result;
@@ -142,10 +185,12 @@ public final class TargetPublishAdmissionStore {
 
     /** Verifies current PUBLISHING work, Store identity, full signed image and retained first/budget/source joins. */
     public Applied readApplied(
-            final BoundedReadBudget budget, final SystemMutation image,
+            final BoundedReadBudget budget,
+            final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
         final var facts = readFacts(budget, image, authority, true);
-        return new Applied(facts.image(), facts.body(), facts.source(), facts.generation().current(), facts.kafkaMapping());
+        return new Applied(
+                facts.image(), facts.body(), facts.source(), facts.generation().current(), facts.kafkaMapping());
     }
 
     /**
@@ -153,49 +198,72 @@ public final class TargetPublishAdmissionStore {
      * Source position, apply Admission, allocate an attempt, or grant SDK submission authority.
      */
     public void requireCurrentSubmission(
-            final BoundedReadBudget budget, final SystemMutation image,
+            final BoundedReadBudget budget,
+            final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
         Objects.requireNonNull(image, "image");
-        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION || !image.shardId().equals(scope.shard())) {
+        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || !image.shardId().equals(scope.shard())) {
             throw new IllegalArgumentException("Target Admission submission belongs to another operation/Shard");
         }
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
         final var author = com.nereusstream.delay.protocol.AuthorIdentity.decode(image.authorIdentity());
-        if (!body.shard().equals(scope.shard()) || body.retryUntilEpochMs() != image.retryUntilEpochMs()
+        if (!body.shard().equals(scope.shard())
+                || body.retryUntilEpochMs() != image.retryUntilEpochMs()
                 || !Arrays.equals(body.publishAttemptId(), image.logicalOperationIdentity())
                 || !body.owner().equals(author.asOwnerIdentity())) {
             throw new IllegalArgumentException("Target Admission submission changes its signed body identity");
         }
-        backend.guardedRead(Objects.requireNonNull(budget, "budget"), reader -> {
-            if (!Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
-                throw new IllegalStateException("Target Admission submission belongs to another Store incarnation");
-            }
-            currentClaim(reader, body);
-            reader.requireWithinElapsedBudget();
-            return Boolean.TRUE;
-        }, Objects.requireNonNull(authority, "readAuthority"));
+        backend.guardedRead(
+                Objects.requireNonNull(budget, "budget"),
+                reader -> {
+                    if (!Arrays.equals(
+                            body.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                        throw new IllegalStateException(
+                                "Target Admission submission belongs to another Store incarnation");
+                    }
+                    currentClaim(reader, body);
+                    reader.requireWithinElapsedBudget();
+                    return Boolean.TRUE;
+                },
+                Objects.requireNonNull(authority, "readAuthority"));
     }
 
     /** Materializes exact committed Claim and Source-applied channel facts; this only prepares an unsigned request. */
     public TargetPublishAdmissionBody prepareBody(
-            final BoundedReadBudget budget, final TargetClaimRecord expected,
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
             final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
             final com.nereusstream.delay.protocol.ProfileRef capability,
-            final byte[] artifacts, final long retryUntilEpochMs,
+            final byte[] artifacts,
+            final long retryUntilEpochMs,
             final com.nereusstream.delay.protocol.CapacityVector commitment,
             final com.nereusstream.delay.protocol.CapacityVector allocated,
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
             final com.nereusstream.delay.semantic.TargetNativePolicyAuthority policies,
             final TargetStoreBackend.ReadAuthority authority) {
-        return prepareBody(budget, expected, channel, capability, artifacts, retryUntilEpochMs, commitment,
-                allocated, time, policies, null, authority);
+        return prepareBody(
+                budget,
+                expected,
+                channel,
+                capability,
+                artifacts,
+                retryUntilEpochMs,
+                commitment,
+                allocated,
+                time,
+                policies,
+                null,
+                authority);
     }
 
     public TargetPublishAdmissionBody prepareBody(
-            final BoundedReadBudget budget, final TargetClaimRecord expected,
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
             final com.nereusstream.delay.protocol.TargetChannelIdentity channel,
             final com.nereusstream.delay.protocol.ProfileRef capability,
-            final byte[] artifacts, final long retryUntilEpochMs,
+            final byte[] artifacts,
+            final long retryUntilEpochMs,
             final com.nereusstream.delay.protocol.CapacityVector commitment,
             final com.nereusstream.delay.protocol.CapacityVector allocated,
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
@@ -203,201 +271,345 @@ public final class TargetPublishAdmissionStore {
             final com.nereusstream.delay.protocol.TargetKafkaReceiptBinding kafkaReceipt,
             final TargetStoreBackend.ReadAuthority authority) {
         if ((channel.context().kind() == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT)
-                != (kafkaReceipt != null)) { throw new StaleAdmission(); }
+                != (kafkaReceipt != null)) {
+            throw new StaleAdmission();
+        }
         Objects.requireNonNull(expected, "expectedClaim");
         Objects.requireNonNull(channel, "channel");
-        return backend.guardedRead(budget, reader -> {
-            final var locator = expected.work().locator();
-            final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
-            final byte[] raw = reader.get(ColumnFamily.ID, messageKey);
-            if (raw == null) { throw new StaleAdmission(); }
-            final var message = TargetMessageRecord.decodeForStore(messageKey,
-                    TargetValueEnvelope.decode(raw, TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
-            TargetMigrationStore.requireSendAllowed(reader, locator.messageId(), locator.generation());
-            final var claim = TargetClaimStore.current(reader, message);
-            if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
-                    || !Arrays.equals(claim.storeIncarnation(), reader.metadata().storeIncarnation())) {
-                throw new StaleAdmission();
-            }
-            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(locator.scheduleBindingDigest());
-            final byte[] bindingRaw = reader.get(ColumnFamily.ID, bindingKey);
-            final byte[] identityKey = TargetKeyCodec.identity(locator.target());
-            final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
-            if (bindingRaw == null || identityRaw == null) {
-                throw new IllegalStateException("Claim publication lacks its applied binding/Target identity");
-            }
-            final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(bindingKey,
-                    TargetValueEnvelope.decode(bindingRaw,
-                            com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
-            TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
-            final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(identityKey,
-                    TargetValueEnvelope.decode(identityRaw,
-                            com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE).payload());
-            final int attemptNo = claim.work().candidateAttemptNo();
-            final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(claim.claimId(),
-                    locator.messageId(), Integer.toUnsignedLong(locator.generation()), Integer.toUnsignedLong(attemptNo));
-            final var obligation = new AttemptObligationRef(attempt, locator.generation(), AttemptLedgerState.PUBLISHING,
-                    com.nereusstream.delay.store.KeyCodec.inflight((byte) 2, claim.owner().ownerEpoch(), attempt));
-            final TargetPublishAdmissionBody body;
-            if (claim.selected().nativeCandidate()) {
-                if (claim.policyHead() == null) {
-                    throw new IllegalStateException("legacy Native Claim has no frozen policy head; revoke before reselecting");
-                }
-                final var nativeScope = TargetNativePolicyStoreAuthority.requireScope(
-                        reader, scope, claim.policyHead().scopeDigest());
-                nativeScope.requireQueue(queue(reader, message));
-                final var publication = Objects.requireNonNull(policies, "nativePolicies")
-                        .requireCurrent(nativeScope.digest());
-                final long actionAt = message.deliverAtEpochMs() - publication.head().snapshot().effectiveLeadMs();
-                final com.nereusstream.delay.protocol.TargetNativePolicySnapshot snapshot;
-                try {
-                    snapshot = com.nereusstream.delay.scheduler.TargetNativePolicyChecks.freezeCurrent(
-                            nativeScope, claim.policyHead(), message.deliverAtEpochMs(), actionAt, policies,
-                            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), reader.source(), time);
-                } catch (IllegalArgumentException ineligible) {
-                    throw new StaleAdmission();
-                }
-                final var frozen = com.nereusstream.delay.protocol.TargetNativePublicationBinding.fromClaim(
-                        claim, message, binding, physical, channel, capability, artifacts,
-                        nativeScope, snapshot, claim.policyHead(), actionAt);
-                body = TargetPublishAdmissionBody.nativeMaterialized(scope.shard(), retryUntilEpochMs, claim.owner(),
-                        claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
-                        claim.executionBytes(), commitment, allocated, time, frozen, claim);
-            } else {
-                final var frozen = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
-                        claim, message, binding, physical, channel, capability, artifacts);
-                body = kafkaReceipt == null ? new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
-                        claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
-                        claim.executionBytes(), commitment, allocated, time, frozen, claim)
-                        : new TargetPublishAdmissionBody(scope.shard(), retryUntilEpochMs, claim.owner(),
-                                claim.storeIncarnation(), claim.claimId(), locator, attemptNo, attempt, obligation,
-                                claim.executionBytes(), commitment, allocated, time, frozen, claim, kafkaReceipt);
-            }
-            currentClaim(reader, body);
-            reader.requireWithinElapsedBudget();
-            return body;
-        }, Objects.requireNonNull(authority, "readAuthority"));
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final var locator = expected.work().locator();
+                    final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
+                    final byte[] raw = reader.get(ColumnFamily.ID, messageKey);
+                    if (raw == null) {
+                        throw new StaleAdmission();
+                    }
+                    final var message = TargetMessageRecord.decodeForStore(
+                            messageKey,
+                            TargetValueEnvelope.decode(raw, TargetMessageRecord.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    TargetMigrationStore.requireSendAllowed(reader, locator.messageId(), locator.generation());
+                    final var claim = TargetClaimStore.current(reader, message);
+                    if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
+                            || !Arrays.equals(
+                                    claim.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                        throw new StaleAdmission();
+                    }
+                    final byte[] bindingKey = TargetKeyCodec.scheduleBinding(locator.scheduleBindingDigest());
+                    final byte[] bindingRaw = reader.get(ColumnFamily.ID, bindingKey);
+                    final byte[] identityKey = TargetKeyCodec.identity(locator.target());
+                    final byte[] identityRaw = reader.get(ColumnFamily.META, identityKey);
+                    if (bindingRaw == null || identityRaw == null) {
+                        throw new IllegalStateException("Claim publication lacks its applied binding/Target identity");
+                    }
+                    final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(
+                            bindingKey,
+                            TargetValueEnvelope.decode(
+                                            bindingRaw,
+                                            com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
+                    final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(
+                            identityKey,
+                            TargetValueEnvelope.decode(
+                                            identityRaw,
+                                            com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE)
+                                    .payload());
+                    final int attemptNo = claim.work().candidateAttemptNo();
+                    final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(
+                            claim.claimId(),
+                            locator.messageId(),
+                            Integer.toUnsignedLong(locator.generation()),
+                            Integer.toUnsignedLong(attemptNo));
+                    final var obligation = new AttemptObligationRef(
+                            attempt,
+                            locator.generation(),
+                            AttemptLedgerState.PUBLISHING,
+                            com.nereusstream.delay.store.KeyCodec.inflight(
+                                    (byte) 2, claim.owner().ownerEpoch(), attempt));
+                    final TargetPublishAdmissionBody body;
+                    if (claim.selected().nativeCandidate()) {
+                        if (claim.policyHead() == null) {
+                            throw new IllegalStateException(
+                                    "legacy Native Claim has no frozen policy head; revoke before reselecting");
+                        }
+                        final var nativeScope = TargetNativePolicyStoreAuthority.requireScope(
+                                reader, scope, claim.policyHead().scopeDigest());
+                        nativeScope.requireQueue(queue(reader, message));
+                        final var publication = Objects.requireNonNull(policies, "nativePolicies")
+                                .requireCurrent(nativeScope.digest());
+                        final long actionAt = message.deliverAtEpochMs()
+                                - publication.head().snapshot().effectiveLeadMs();
+                        final com.nereusstream.delay.protocol.TargetNativePolicySnapshot snapshot;
+                        try {
+                            snapshot = com.nereusstream.delay.scheduler.TargetNativePolicyChecks.freezeCurrent(
+                                    nativeScope,
+                                    claim.policyHead(),
+                                    message.deliverAtEpochMs(),
+                                    actionAt,
+                                    policies,
+                                    TargetNativePolicyStoreAuthority.inView(reader, scope, lineage),
+                                    reader.source(),
+                                    time);
+                        } catch (IllegalArgumentException ineligible) {
+                            throw new StaleAdmission();
+                        }
+                        final var frozen = com.nereusstream.delay.protocol.TargetNativePublicationBinding.fromClaim(
+                                claim,
+                                message,
+                                binding,
+                                physical,
+                                channel,
+                                capability,
+                                artifacts,
+                                nativeScope,
+                                snapshot,
+                                claim.policyHead(),
+                                actionAt);
+                        body = TargetPublishAdmissionBody.nativeMaterialized(
+                                scope.shard(),
+                                retryUntilEpochMs,
+                                claim.owner(),
+                                claim.storeIncarnation(),
+                                claim.claimId(),
+                                locator,
+                                attemptNo,
+                                attempt,
+                                obligation,
+                                claim.executionBytes(),
+                                commitment,
+                                allocated,
+                                time,
+                                frozen,
+                                claim);
+                    } else {
+                        final var frozen = com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding.fromClaim(
+                                claim, message, binding, physical, channel, capability, artifacts);
+                        body = kafkaReceipt == null
+                                ? new TargetPublishAdmissionBody(
+                                        scope.shard(),
+                                        retryUntilEpochMs,
+                                        claim.owner(),
+                                        claim.storeIncarnation(),
+                                        claim.claimId(),
+                                        locator,
+                                        attemptNo,
+                                        attempt,
+                                        obligation,
+                                        claim.executionBytes(),
+                                        commitment,
+                                        allocated,
+                                        time,
+                                        frozen,
+                                        claim)
+                                : new TargetPublishAdmissionBody(
+                                        scope.shard(),
+                                        retryUntilEpochMs,
+                                        claim.owner(),
+                                        claim.storeIncarnation(),
+                                        claim.claimId(),
+                                        locator,
+                                        attemptNo,
+                                        attempt,
+                                        obligation,
+                                        claim.executionBytes(),
+                                        commitment,
+                                        allocated,
+                                        time,
+                                        frozen,
+                                        claim,
+                                        kafkaReceipt);
+                    }
+                    currentClaim(reader, body);
+                    reader.requireWithinElapsedBudget();
+                    return body;
+                },
+                Objects.requireNonNull(authority, "readAuthority"));
     }
 
     /** Before a first Journal ownership marker, revalidate only the frozen lease and historical Admission trust. */
-    public void requireNativeOwnership(final BoundedReadBudget budget, final Applied expected,
+    public void requireNativeOwnership(
+            final BoundedReadBudget budget,
+            final Applied expected,
             final com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence time,
             final TargetStoreBackend.ReadAuthority authority) {
         expected.requireSame(readApplied(budget, expected.image(), authority));
         final var nativeBinding = Objects.requireNonNull(expected.body().nativePublication(), "nativePublication");
-        backend.guardedRead(budget, reader -> {
-            com.nereusstream.delay.scheduler.TargetNativePolicyChecks.requireFrozen(nativeBinding.policyScope(),
-                    nativeBinding.policySnapshot(), nativeBinding.deliverAtEpochMs(), nativeBinding.actionAtEpochMs(),
-                    TargetNativePolicyStoreAuthority.inView(reader, scope, lineage), expected.source(), time, false);
-            final var lease = nativeBinding.channel().credentialLease();
-            if (time.latestEpochMs() >= lease.validUntilEpochMs()
-                    || time.latestEpochMs() >= nativeBinding.expireAtEpochMs()) {
-                throw new IllegalArgumentException("Native first ownership exceeds its frozen credential/message lease");
-            }
-            reader.requireWithinElapsedBudget();
-            return Boolean.TRUE;
-        }, authority);
+        backend.guardedRead(
+                budget,
+                reader -> {
+                    com.nereusstream.delay.scheduler.TargetNativePolicyChecks.requireFrozen(
+                            nativeBinding.policyScope(),
+                            nativeBinding.policySnapshot(),
+                            nativeBinding.deliverAtEpochMs(),
+                            nativeBinding.actionAtEpochMs(),
+                            TargetNativePolicyStoreAuthority.inView(reader, scope, lineage),
+                            expected.source(),
+                            time,
+                            false);
+                    final var lease = nativeBinding.channel().credentialLease();
+                    if (time.latestEpochMs() >= lease.validUntilEpochMs()
+                            || time.latestEpochMs() >= nativeBinding.expireAtEpochMs()) {
+                        throw new IllegalArgumentException(
+                                "Native first ownership exceeds its frozen credential/message lease");
+                    }
+                    reader.requireWithinElapsedBudget();
+                    return Boolean.TRUE;
+                },
+                authority);
     }
 
     /** Reads old Owner/Store Admission facts under the current read guard; this never authorizes a first send. */
     public Recovery readRecovery(
-            final BoundedReadBudget budget, final SystemMutation image,
+            final BoundedReadBudget budget,
+            final SystemMutation image,
             final TargetStoreBackend.ReadAuthority authority) {
         return new Recovery(readFacts(budget, image, authority, false));
     }
 
     private Facts readFacts(
-            final BoundedReadBudget budget, final SystemMutation image,
-            final TargetStoreBackend.ReadAuthority authority, final boolean firstSend) {
+            final BoundedReadBudget budget,
+            final SystemMutation image,
+            final TargetStoreBackend.ReadAuthority authority,
+            final boolean firstSend) {
         Objects.requireNonNull(image, "image");
-        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION || !image.shardId().equals(scope.shard())) {
+        if (image.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                || !image.shardId().equals(scope.shard())) {
             throw new IllegalArgumentException("Target send image belongs to another operation/Shard");
         }
         final var body = TargetPublishAdmissionBody.decode(image.canonicalBody());
         if (firstSend && !body.materialized()) {
             throw new IllegalArgumentException("Target send requires materialized Admission v4/v5");
         }
-        return backend.guardedRead(budget, reader -> {
-            if (firstSend && !Arrays.equals(body.storeIncarnation(), reader.metadata().storeIncarnation())) {
-                throw new IllegalStateException("Target first send belongs to another Store incarnation");
-            }
-            final byte[] raw = reader.get(ColumnFamily.DEDUPE, systemResultKey(image));
-            if (raw == null) {
-                throw new IllegalStateException("Target first send lacks its retained Admission first result");
-            }
-            final var first = TargetResultRecord.decode(
-                    TargetValueEnvelope.decode(raw, TargetResultRecord.VALUE_TYPE).payload());
-            first.requireOwner(root(reader));
-            first.mutation().requireAtOrBefore(reader.aggregate().mutation());
-            final var result = SystemMutationResult.decode(first.typedPayload());
-            final byte[] budgetKey = Bytes.concat(
-                    new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
-                    body.publishAttemptId());
-            final var attempt = TargetQuotaAttemptBudget.decodeForStore(
-                    budgetKey, TargetValueEnvelope.decode(required(reader, ColumnFamily.META, budgetKey),
-                            TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
-            final var generation = retainedGeneration(reader, scope, lineage, body.locator());
-            final var runtime = generation.runtime();
-            if (firstSend) {
-                TargetMigrationStore.requireSendAllowed(reader, body.locator().messageId(), body.locator().generation());
-                final byte[] bindingKey = TargetKeyCodec.scheduleBinding(body.locator().scheduleBindingDigest());
-                final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(bindingKey,
-                        TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, bindingKey),
-                                com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
-                binding.requireLocator(body.locator());
-                TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
-            }
-            if (first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
-                    || !Arrays.equals(first.logicalId(), image.systemMutationId())
-                    || !Arrays.equals(result.mutationId(), image.systemMutationId())
-                    || !Arrays.equals(result.mutationHash(), image.mutationHash())
-                    || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
-                    || result.retryUntilEpochMs() != image.retryUntilEpochMs()
-                    || result.mutationType() != SystemMutationType.TARGET_PUBLISH_ADMISSION
-                    || result.applyStatus() != ApplyStatus.APPLIED || result.stableCode() != StableCode.OK
-                    || !Arrays.equals(first.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
-                    || !Arrays.equals(result.appliedSourcePosition(), first.mutation().source().canonicalBytes())
-                    || !attempt.mutation().equals(first.mutation())
-                    || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
-                    || !Arrays.equals(attempt.admissionDigest(), image.mutationHash())
-                    || attempt.executionBytes() != body.executionBytes()
-                    || !attempt.commitment().equals(body.commitment()) || !attempt.allocated().equals(body.allocated())
-                    || !attempt.locator().equals(body.locator())
-                    || firstSend && generation.terminal() != null
-                    || (runtime.terminal()
-                            ? Integer.compareUnsigned(body.attemptNo(), runtime.admissionsUsed()) > 0
-                            : runtime.currentWorkKind() != CurrentSendWorkKind.PUBLISHING
-                                    || !Arrays.equals(runtime.publishAttemptId(), body.publishAttemptId())
-                                    || runtime.admissionsUsed() != body.attemptNo())
-                    || !runtime.attemptObligations().contains(body.obligation())) {
-                throw new IllegalStateException("Target Admission image differs from actual retained work/proof");
-            }
-            com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping = null;
-            if (body.kafkaReceipt() != null) {
-                final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
-                final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                        TargetValueEnvelope.decode(required(reader, ColumnFamily.META, slotKey),
-                                com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-                if (slot.pendingMappingId() == null) { throw new IllegalStateException("admitted Target K2 has no pending Source slot"); }
-                final byte[] mappingKey = Bytes.concat(new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT}, slot.pendingMappingId());
-                kafkaMapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(mappingKey,
-                        TargetValueEnvelope.decode(required(reader, ColumnFamily.META, mappingKey),
-                                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE).payload(), scope.shard());
-                kafkaMapping.requireOriginal(image, first.mutation().source());
-                slot.requirePending(kafkaMapping);
-                if (firstSend) { TargetExternalEvidenceStore.readAdoption(reader, kafkaMapping, scope, lineage); }
-                if (!kafkaMapping.mutation().equals(first.mutation()) || !slot.mutation().equals(first.mutation())
-                        || !Arrays.equals(kafkaMapping.recoveryLineage(), lineage)
-                        || !Arrays.equals(slot.recoveryLineage(), lineage)) {
-                    throw new IllegalStateException("Target K2 mapping/slot differ from actual Admission first batch");
-                }
-            } else if (firstSend && body.materialized() && body.channel().context().kind()
-                    == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
-                throw new IllegalStateException("historical Target K2 Admission without v6 context has no first-send authority");
-            }
-            reader.requireWithinElapsedBudget();
-            return new Facts(image, body, first.mutation().source(), generation, kafkaMapping);
-        }, Objects.requireNonNull(authority, "authority"));
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    if (firstSend
+                            && !Arrays.equals(
+                                    body.storeIncarnation(), reader.metadata().storeIncarnation())) {
+                        throw new IllegalStateException("Target first send belongs to another Store incarnation");
+                    }
+                    final byte[] raw = reader.get(ColumnFamily.DEDUPE, systemResultKey(image));
+                    if (raw == null) {
+                        throw new IllegalStateException("Target first send lacks its retained Admission first result");
+                    }
+                    final var first =
+                            TargetResultRecord.decode(TargetValueEnvelope.decode(raw, TargetResultRecord.VALUE_TYPE)
+                                    .payload());
+                    first.requireOwner(root(reader));
+                    first.mutation().requireAtOrBefore(reader.aggregate().mutation());
+                    final var result = SystemMutationResult.decode(first.typedPayload());
+                    final byte[] budgetKey = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
+                            body.publishAttemptId());
+                    final var attempt = TargetQuotaAttemptBudget.decodeForStore(
+                            budgetKey,
+                            TargetValueEnvelope.decode(
+                                            required(reader, ColumnFamily.META, budgetKey),
+                                            TargetQuotaAttemptBudget.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+                    final var generation = retainedGeneration(reader, scope, lineage, body.locator());
+                    final var runtime = generation.runtime();
+                    if (firstSend) {
+                        TargetMigrationStore.requireSendAllowed(
+                                reader,
+                                body.locator().messageId(),
+                                body.locator().generation());
+                        final byte[] bindingKey =
+                                TargetKeyCodec.scheduleBinding(body.locator().scheduleBindingDigest());
+                        final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(
+                                bindingKey,
+                                TargetValueEnvelope.decode(
+                                                required(reader, ColumnFamily.ID, bindingKey),
+                                                com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
+                                        .payload(),
+                                scope.shard());
+                        binding.requireLocator(body.locator());
+                        TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
+                    }
+                    if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                            || first.allocation() != null
+                            || !Arrays.equals(first.logicalId(), image.systemMutationId())
+                            || !Arrays.equals(result.mutationId(), image.systemMutationId())
+                            || !Arrays.equals(result.mutationHash(), image.mutationHash())
+                            || !Arrays.equals(result.authorIdentity(), image.authorIdentity())
+                            || result.retryUntilEpochMs() != image.retryUntilEpochMs()
+                            || result.mutationType() != SystemMutationType.TARGET_PUBLISH_ADMISSION
+                            || result.applyStatus() != ApplyStatus.APPLIED
+                            || result.stableCode() != StableCode.OK
+                            || !Arrays.equals(
+                                    first.mutation().mutationDigest(), Bytes.sha256(image.canonicalEnvelope()))
+                            || !Arrays.equals(
+                                    result.appliedSourcePosition(),
+                                    first.mutation().source().canonicalBytes())
+                            || !attempt.mutation().equals(first.mutation())
+                            || attempt.phase() != TargetQuotaAttemptBudget.Phase.ADMITTED
+                            || !Arrays.equals(attempt.admissionDigest(), image.mutationHash())
+                            || attempt.executionBytes() != body.executionBytes()
+                            || !attempt.commitment().equals(body.commitment())
+                            || !attempt.allocated().equals(body.allocated())
+                            || !attempt.locator().equals(body.locator())
+                            || firstSend && generation.terminal() != null
+                            || (runtime.terminal()
+                                    ? Integer.compareUnsigned(body.attemptNo(), runtime.admissionsUsed()) > 0
+                                    : runtime.currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                                            || !Arrays.equals(runtime.publishAttemptId(), body.publishAttemptId())
+                                            || runtime.admissionsUsed() != body.attemptNo())
+                            || !runtime.attemptObligations().contains(body.obligation())) {
+                        throw new IllegalStateException(
+                                "Target Admission image differs from actual retained work/proof");
+                    }
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptMapping kafkaMapping = null;
+                    if (body.kafkaReceipt() != null) {
+                        final byte[] slotKey =
+                                com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
+                        final var slot = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                                slotKey,
+                                TargetValueEnvelope.decode(
+                                                required(reader, ColumnFamily.META, slotKey),
+                                                com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                                        .payload(),
+                                scope.shard());
+                        if (slot.pendingMappingId() == null) {
+                            throw new IllegalStateException("admitted Target K2 has no pending Source slot");
+                        }
+                        final byte[] mappingKey = Bytes.concat(
+                                new byte[] {TargetKeyCodec.KAFKA_RECEIPT_MAPPING_TAG, TargetKeyCodec.KEY_FORMAT},
+                                slot.pendingMappingId());
+                        kafkaMapping = com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.decodeForStore(
+                                mappingKey,
+                                TargetValueEnvelope.decode(
+                                                required(reader, ColumnFamily.META, mappingKey),
+                                                com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE)
+                                        .payload(),
+                                scope.shard());
+                        kafkaMapping.requireOriginal(image, first.mutation().source());
+                        slot.requirePending(kafkaMapping);
+                        if (firstSend) {
+                            TargetExternalEvidenceStore.readAdoption(reader, kafkaMapping, scope, lineage);
+                        }
+                        if (!kafkaMapping.mutation().equals(first.mutation())
+                                || !slot.mutation().equals(first.mutation())
+                                || !Arrays.equals(kafkaMapping.recoveryLineage(), lineage)
+                                || !Arrays.equals(slot.recoveryLineage(), lineage)) {
+                            throw new IllegalStateException(
+                                    "Target K2 mapping/slot differ from actual Admission first batch");
+                        }
+                    } else if (firstSend
+                            && body.materialized()
+                            && body.channel().context().kind()
+                                    == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
+                        throw new IllegalStateException(
+                                "historical Target K2 Admission without v6 context has no first-send authority");
+                    }
+                    reader.requireWithinElapsedBudget();
+                    return new Facts(image, body, first.mutation().source(), generation, kafkaMapping);
+                },
+                Objects.requireNonNull(authority, "authority"));
     }
 
     record RetainedGeneration(TargetMessageRecord current, TargetTerminalGenerationRecord terminal) {
@@ -410,8 +622,11 @@ public final class TargetPublishAdmissionStore {
     static RetainedGeneration retainedGeneration(
             TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage, TargetMessageLocator locator) {
         final byte[] key = TargetKeyCodec.message(locator.messageId());
-        final var current = TargetMessageRecord.decodeForStore(key, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+        final var current = TargetMessageRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, key), TargetMessageRecord.VALUE_TYPE)
+                        .payload(),
+                scope.shard());
         final boolean historical = !current.locator().equals(locator);
         if (historical && Integer.compareUnsigned(current.locator().generation(), locator.generation()) <= 0) {
             throw new IllegalStateException("Target retained Admission points to another or future generation");
@@ -420,20 +635,27 @@ public final class TargetPublishAdmissionStore {
             return new RetainedGeneration(current, null);
         }
         final var terminal = TargetTerminalGenerationRecord.decode(TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
-                TargetTerminalGenerationRecord.VALUE_TYPE).payload());
-        if (!terminal.locator().equals(locator) || !Arrays.equals(terminal.recoveryLineage(), lineage)
-                || !historical && (terminal.stateVersion() != current.stateVersion()
-                        || !terminal.runtime().equals(current.runtime()))) {
+                        required(reader, ColumnFamily.TERMINAL, TargetTerminalGenerationRecord.key(locator)),
+                        TargetTerminalGenerationRecord.VALUE_TYPE)
+                .payload());
+        if (!terminal.locator().equals(locator)
+                || !Arrays.equals(terminal.recoveryLineage(), lineage)
+                || !historical
+                        && (terminal.stateVersion() != current.stateVersion()
+                                || !terminal.runtime().equals(current.runtime()))) {
             throw new IllegalStateException("Target retained Admission lacks its exact terminal generation");
         }
         terminal.mutation().requireAtOrBefore(reader.aggregate().mutation());
         final byte[] payloadKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
                 locator.messageId().bytes());
-        final var payload = TargetQuotaPayloadOwner.decodeForStore(payloadKey, TargetValueEnvelope.decode(
-                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE).payload(),
-                scope.shard(), scope.tenantScope());
+        final var payload = TargetQuotaPayloadOwner.decodeForStore(
+                payloadKey,
+                TargetValueEnvelope.decode(
+                                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                scope.tenantScope());
         terminal.requireOwner(payload);
         payload.requireMessagePayload(current);
         payload.mutation().requireAtOrBefore(reader.aggregate().mutation());
@@ -445,11 +667,16 @@ public final class TargetPublishAdmissionStore {
                 && !terminal.runtime().attemptObligations().isEmpty()) {
             final byte[] queueKey = TargetKeyCodec.state(locator.target());
             final var queue = TargetQueueState.decode(TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.META, queueKey), TargetQueueState.VALUE_TYPE).payload());
+                            required(reader, ColumnFamily.META, queueKey), TargetQueueState.VALUE_TYPE)
+                    .payload());
             final byte[] orderKey = TargetKeyCodec.orderState(locator.target(), locator.orderingDomain());
-            final var order = TargetOrderState.decodeForStore(orderKey, TargetValueEnvelope.decode(
-                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE).payload(),
-                    scope.shard(), queue);
+            final var order = TargetOrderState.decodeForStore(
+                    orderKey,
+                    TargetValueEnvelope.decode(
+                                    required(reader, ColumnFamily.META, orderKey), TargetOrderState.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    queue);
             if (historical) {
                 order.requireTerminalBarrierProjection(terminal);
             } else {
@@ -473,21 +700,28 @@ public final class TargetPublishAdmissionStore {
             final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
             final TargetPublishAdmissionVerifier.Authority authority) {
-        return prepareFirst(budget,mutation,source,authority,TargetSloObservationSamples.UNAVAILABLE);
+        return prepareFirst(budget, mutation, source, authority, TargetSloObservationSamples.UNAVAILABLE);
     }
 
-    public Prepared prepareFirst(final BoundedReadBudget budget,final SystemMutation mutation,
-            final com.nereusstream.delay.protocol.SourcePosition source,final TargetPublishAdmissionVerifier.Authority authority,
-            final TargetSloObservationSamples.Authority samples){
+    public Prepared prepareFirst(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetPublishAdmissionVerifier.Authority authority,
+            final TargetSloObservationSamples.Authority samples) {
         return prepareFirst(budget, mutation, source, authority, samples, null);
     }
 
-    public Prepared prepareFirst(final BoundedReadBudget budget, final SystemMutation mutation,
-            final com.nereusstream.delay.protocol.SourcePosition source, final TargetPublishAdmissionVerifier.Authority authority,
-            final TargetSloObservationSamples.Authority samples, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
+    public Prepared prepareFirst(
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final com.nereusstream.delay.protocol.SourcePosition source,
+            final TargetPublishAdmissionVerifier.Authority authority,
+            final TargetSloObservationSamples.Authority samples,
+            final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
-        Objects.requireNonNull(samples,"original Admission sample authority");
+        Objects.requireNonNull(samples, "original Admission sample authority");
         TargetSourcePosition.requireBounded(source);
         if (mutation.type() != SystemMutationType.TARGET_PUBLISH_ADMISSION
                 || !scope.shard().equals(mutation.shardId())
@@ -495,22 +729,32 @@ public final class TargetPublishAdmissionStore {
             throw new IllegalArgumentException("Target Admission mutation/source differs from its Shard scope");
         }
         final SystemMutationResult[] applied = new SystemMutationResult[1];
-        final Runnable[] sampleQualification = {()->{}};
+        final Runnable[] sampleQualification = {() -> {}};
         final var sourceAccounting = new TargetSourceAccounting(
-                scope,
-                lineage,
-                source,
-                Bytes.sha256(mutation.canonicalEnvelope()),
-                maximumCounters,
-                maximumTargets,
-                maximumDomains).withLegacyPrefix(legacyPrefix);
+                        scope,
+                        lineage,
+                        source,
+                        Bytes.sha256(mutation.canonicalEnvelope()),
+                        maximumCounters,
+                        maximumTargets,
+                        maximumDomains)
+                .withLegacyPrefix(legacyPrefix);
         final TargetMessageStore.AccountingAssembler accounting = grants.wrap(
                 (reader, business) -> {
-                    final var sample=TargetSloObservationSamples.admission(reader,scope,lineage,mutation,
-                            stamp(reader,source,mutation),business,Objects.requireNonNull(applied[0]),samples);
-                    sampleQualification[0]=sample.qualification();
-                    final var observed=new ArrayList<>(business);observed.addAll(sample.edits());
-                    final var mutationPlan = sourceAccounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
+                    final var sample = TargetSloObservationSamples.admission(
+                            reader,
+                            scope,
+                            lineage,
+                            mutation,
+                            stamp(reader, source, mutation),
+                            business,
+                            Objects.requireNonNull(applied[0]),
+                            samples);
+                    sampleQualification[0] = sample.qualification();
+                    final var observed = new ArrayList<>(business);
+                    observed.addAll(sample.edits());
+                    final var mutationPlan =
+                            sourceAccounting.withScopeFees(sample.scopeFees()).assemble(reader, observed);
                     if (applied[0].applyStatus() == ApplyStatus.APPLIED
                             && mutationPlan.quota().changes().isEmpty()) {
                         throw new IllegalStateException("accepted Target Admission has no Target accounting change");
@@ -522,22 +766,24 @@ public final class TargetPublishAdmissionStore {
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
-                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
+                    if (legacyPrefix != null) {
+                        legacyPrefix.requireCurrent(reader, mutation, source);
+                    }
                     requireFirstPosition(reader, source);
                     final var stamp = stamp(reader, source, mutation);
                     final var decision = reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
                             ? null
                             : TargetPublishAdmissionVerifier.decideFirstApplication(scope, mutation, source, authority);
-                    StableCode rejection = decision == null
-                            ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED : decision.rejection();
+                    StableCode rejection =
+                            decision == null ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED : decision.rejection();
                     List<TargetMessageStore.Transition> transitions = List.of();
                     List<TargetMessageStore.OrderTransition> orders = List.of();
                     final var extra = new ArrayList<TargetStoreBackend.Edit>();
                     if (rejection == null) {
                         try {
                             final var projection = admission(reader, decision, mutation, source, stamp, legacyPrefix);
-                            transitions = List.of(new TargetMessageStore.Transition(
-                                    projection.before(), projection.after()));
+                            transitions =
+                                    List.of(new TargetMessageStore.Transition(projection.before(), projection.after()));
                             orders = projection.order() == null ? List.of() : List.of(projection.order());
                             extra.addAll(projection.extra());
                         } catch (StaleAdmission stale) {
@@ -554,21 +800,29 @@ public final class TargetPublishAdmissionStore {
                     return new TargetMessageStore.Input(transitions, orders, extra);
                 },
                 accounting);
-        return new Prepared(this, batch, Objects.requireNonNull(applied[0], "Target Admission result"),sampleQualification[0]);
+        return new Prepared(
+                this, batch, Objects.requireNonNull(applied[0], "Target Admission result"), sampleQualification[0]);
     }
 
-    public SystemMutationResult commit(
-            final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
+    public SystemMutationResult commit(final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {
             throw new IllegalArgumentException("Target Admission plan belongs to another Store wrapper");
         }
-        Objects.requireNonNull(authority,"writeAuthority");prepared.sampleQualification.run();
-        backend.commit(prepared.batch,(metadata,actualScope,mutation)->{
-            final var actual=authority.acquire(metadata,actualScope,mutation);
-            return new TargetStoreBackend.CommitGuard(){
-                public void requireCurrent(){prepared.sampleQualification.run();actual.requireCurrent();prepared.sampleQualification.run();}
-                public void close(){actual.close();}
+        Objects.requireNonNull(authority, "writeAuthority");
+        prepared.sampleQualification.run();
+        backend.commit(prepared.batch, (metadata, actualScope, mutation) -> {
+            final var actual = authority.acquire(metadata, actualScope, mutation);
+            return new TargetStoreBackend.CommitGuard() {
+                public void requireCurrent() {
+                    prepared.sampleQualification.run();
+                    actual.requireCurrent();
+                    prepared.sampleQualification.run();
+                }
+
+                public void close() {
+                    actual.close();
+                }
             };
         });
         return prepared.result;
@@ -586,7 +840,8 @@ public final class TargetPublishAdmissionStore {
         }
         final var before = TargetMessageRecord.decodeForStore(
                 messageKey,
-                TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE).payload(),
+                TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE)
+                        .payload(),
                 scope.shard());
         if (!before.locator().equals(locator)
                 || before.runtime().currentWorkKind() != CurrentSendWorkKind.CLAIMED
@@ -598,8 +853,8 @@ public final class TargetPublishAdmissionStore {
         if (rawClaim == null) {
             throw new StaleAdmission();
         }
-        final var claim = TargetClaimRecord.decode(
-                TargetValueEnvelope.decode(rawClaim, TargetClaimRecord.VALUE_TYPE).payload());
+        final var claim = TargetClaimRecord.decode(TargetValueEnvelope.decode(rawClaim, TargetClaimRecord.VALUE_TYPE)
+                .payload());
         claim.requireStored(claimKey);
         if (!claim.owner().equals(body.owner())
                 || !Arrays.equals(claim.storeIncarnation(), body.storeIncarnation())
@@ -633,20 +888,20 @@ public final class TargetPublishAdmissionStore {
             }
             final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(
                     bindingKey,
-                    TargetValueEnvelope.decode(bindingRaw,
-                                    com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
+                    TargetValueEnvelope.decode(
+                                    bindingRaw, com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
                             .payload(),
                     scope.shard());
             TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
             final var identity = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(
                     identityKey,
-                    TargetValueEnvelope.decode(identityRaw,
-                                    com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE)
+                    TargetValueEnvelope.decode(
+                                    identityRaw, com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE)
                             .payload());
             final var channel = com.nereusstream.delay.protocol.TargetChannelIdentity.decodeForStore(
                     channelKey,
-                    TargetValueEnvelope.decode(channelRaw,
-                                    com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE)
+                    TargetValueEnvelope.decode(
+                                    channelRaw, com.nereusstream.delay.protocol.TargetChannelIdentity.VALUE_TYPE)
                             .payload(),
                     scope.shard());
             if (!Arrays.equals(identity.canonicalBytes(), frozenPhysical.canonicalBytes())) {
@@ -670,7 +925,9 @@ public final class TargetPublishAdmissionStore {
                 nativePublication.policyScope().requireQueue(queue(reader, before));
                 final var storedScope = TargetNativePolicyStoreAuthority.requireScope(
                         reader, scope, nativePublication.policyScope().digest());
-                if (!storedScope.equals(nativePublication.policyScope())) { throw new StaleAdmission(); }
+                if (!storedScope.equals(nativePublication.policyScope())) {
+                    throw new StaleAdmission();
+                }
             }
             if (body.decisionTime().latestEpochMs() >= channel.credentialLease().validUntilEpochMs()
                     || body.decisionTime().latestEpochMs() >= claim.deadlineEpochMs()) {
@@ -685,7 +942,8 @@ public final class TargetPublishAdmissionStore {
             final TargetPublishAdmissionVerifier.Decision decision,
             final SystemMutation mutation,
             final com.nereusstream.delay.protocol.SourcePosition source,
-            final TargetQuotaMutation stamp, final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
+            final TargetQuotaMutation stamp,
+            final TargetPayloadSummaryLegacyPrefix.EventPermit legacyPrefix) {
         final var body = decision.body();
         final var current = currentClaim(reader, body);
         final var before = current.message();
@@ -694,7 +952,8 @@ public final class TargetPublishAdmissionStore {
         final byte[] claimKey = claim.key();
         final var time = body.decisionTime();
         final long requiredEarliest = body.nativePublication() != null
-                ? body.nativePublication().actionAtEpochMs() : claim.work().ordinaryEligibilityAtEpochMs();
+                ? body.nativePublication().actionAtEpochMs()
+                : claim.work().ordinaryEligibilityAtEpochMs();
         final long notAfter = before.expireAtEpochMs();
         final long brokerBound;
         try {
@@ -705,8 +964,10 @@ public final class TargetPublishAdmissionStore {
             throw new StaleAdmission();
         }
         if (body.materialized()
-                && brokerBound >= Math.min(
-                        claim.deadlineEpochMs(), body.channel().credentialLease().validUntilEpochMs())) {
+                && brokerBound
+                        >= Math.min(
+                                claim.deadlineEpochMs(),
+                                body.channel().credentialLease().validUntilEpochMs())) {
             throw new StaleAdmission();
         }
         if (time.earliestEpochMs() < requiredEarliest
@@ -718,22 +979,31 @@ public final class TargetPublishAdmissionStore {
         if (body.nativePublication() != null) {
             final var nativeBinding = body.nativePublication();
             final var policies = decision.authorization().nativePolicies();
-            final var observed = policies.requireCurrent(nativeBinding.policyScope().digest());
+            final var observed =
+                    policies.requireCurrent(nativeBinding.policyScope().digest());
             if (!observed.head().ref(observed.revision()).equals(nativeBinding.policyHead())) {
                 throw new StaleAdmission();
             }
             final com.nereusstream.delay.protocol.TargetNativePolicySnapshot frozen;
             try {
                 com.nereusstream.delay.scheduler.TargetNativePolicyChecks.requireFrozen(
-                        nativeBinding.policyScope(), observed.head().snapshot(), nativeBinding.deliverAtEpochMs(),
-                        nativeBinding.actionAtEpochMs(), TargetNativePolicyStoreAuthority.inView(reader, scope, lineage),
-                        source, time, true);
+                        nativeBinding.policyScope(),
+                        observed.head().snapshot(),
+                        nativeBinding.deliverAtEpochMs(),
+                        nativeBinding.actionAtEpochMs(),
+                        TargetNativePolicyStoreAuthority.inView(reader, scope, lineage),
+                        source,
+                        time,
+                        true);
                 frozen = observed.head().snapshot();
             } catch (IllegalArgumentException ineligible) {
                 throw new StaleAdmission();
             }
-            if (!observed.sameHead(policies.requireCurrent(nativeBinding.policyScope().digest()))
-                    || !Arrays.equals(frozen.canonicalBytes(), nativeBinding.policySnapshot().canonicalBytes())
+            if (!observed.sameHead(
+                            policies.requireCurrent(nativeBinding.policyScope().digest()))
+                    || !Arrays.equals(
+                            frozen.canonicalBytes(),
+                            nativeBinding.policySnapshot().canonicalBytes())
                     || brokerBound >= frozen.validUntilEpochMs()) {
                 throw new StaleAdmission();
             }
@@ -764,39 +1034,64 @@ public final class TargetPublishAdmissionStore {
         if (body.kafkaReceipt() != null) {
             final byte[] slotKey = com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.key(body.channel());
             final byte[] slotRaw = reader.get(ColumnFamily.META, slotKey);
-            final var previous = slotRaw == null ? null
-                    : com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(slotKey,
-                            TargetValueEnvelope.decode(slotRaw, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE).payload(), scope.shard());
-            if (previous != null && (previous.pendingMappingId() != null
-                    || !Arrays.equals(previous.recoveryLineage(), lineage))) { throw new StaleAdmission(); }
-            if (previous != null && previous.lastAllocatedSequence() == -1L) { throw new StaleAdmission(); }
+            final var previous = slotRaw == null
+                    ? null
+                    : com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.decodeForStore(
+                            slotKey,
+                            TargetValueEnvelope.decode(
+                                            slotRaw, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE)
+                                    .payload(),
+                            scope.shard());
+            if (previous != null
+                    && (previous.pendingMappingId() != null || !Arrays.equals(previous.recoveryLineage(), lineage))) {
+                throw new StaleAdmission();
+            }
+            if (previous != null && previous.lastAllocatedSequence() == -1L) {
+                throw new StaleAdmission();
+            }
             final long sequence = previous == null ? 1 : previous.nextSequence();
-            final var mapping = new com.nereusstream.delay.protocol.TargetKafkaReceiptMapping(body, mutation.mutationHash(), stamp, sequence, lineage);
-            if (reader.get(ColumnFamily.META, mapping.key()) != null) { throw new IllegalStateException("new Source mapping already exists"); }
-            final var slot = new com.nereusstream.delay.protocol.TargetKafkaReceiptSlot(body.channel(), sequence, mapping.mappingId(), stamp, lineage);
-            receiptEdits.add(reader.replace(ColumnFamily.META, mapping.key(), com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE, mapping.canonicalBytes()));
-            receiptEdits.add(reader.replace(ColumnFamily.META, slotKey, com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE, slot.canonicalBytes()));
+            final var mapping = new com.nereusstream.delay.protocol.TargetKafkaReceiptMapping(
+                    body, mutation.mutationHash(), stamp, sequence, lineage);
+            if (reader.get(ColumnFamily.META, mapping.key()) != null) {
+                throw new IllegalStateException("new Source mapping already exists");
+            }
+            final var slot = new com.nereusstream.delay.protocol.TargetKafkaReceiptSlot(
+                    body.channel(), sequence, mapping.mappingId(), stamp, lineage);
+            receiptEdits.add(reader.replace(
+                    ColumnFamily.META,
+                    mapping.key(),
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptMapping.VALUE_TYPE,
+                    mapping.canonicalBytes()));
+            receiptEdits.add(reader.replace(
+                    ColumnFamily.META,
+                    slotKey,
+                    com.nereusstream.delay.protocol.TargetKafkaReceiptSlot.VALUE_TYPE,
+                    slot.canonicalBytes()));
             final var artifacts = decision.authorization().materialization().externalEvidence(body, source);
-            receiptEdits.addAll(TargetExternalEvidenceStore.adopt(reader, scope, lineage, mapping, attemptBudget, artifacts));
+            receiptEdits.addAll(
+                    TargetExternalEvidenceStore.adopt(reader, scope, lineage, mapping, attemptBudget, artifacts));
         }
         final var payloadOwner = TargetPayloadObligationSource.owner(reader, scope, lineage, locator.messageId());
         payloadOwner.requireMessagePayload(before);
         final TargetQuotaPayloadOwner nextOwner;
         if (payloadOwner.summaryQualified()) {
             nextOwner = payloadOwner.admitAttempt(attemptBudget, stamp, (prior, next, floor) -> {
-                if (prior != payloadOwner || floor != null || !next.summaryMutation().equals(stamp)) {
+                if (prior != payloadOwner
+                        || floor != null
+                        || !next.summaryMutation().equals(stamp)) {
                     throw new IllegalStateException("Admission summary changed its original payload owner/Source");
                 }
             });
         } else {
-            Objects.requireNonNull(legacyPrefix, "unqualified payload Admission requires its original finite v1 prefix permit")
+            Objects.requireNonNull(
+                            legacyPrefix, "unqualified payload Admission requires its original finite v1 prefix permit")
                     .requireCurrent(reader, mutation, source);
             nextOwner = null;
         }
         final var obligation = body.obligation();
         final var admitted = claim.admitted(before, obligation, body.attemptNo());
-        final TargetStoreBackend.Edit claimEdit = reader.replace(
-                ColumnFamily.INFLIGHT, claimKey, TargetClaimRecord.VALUE_TYPE, null);
+        final TargetStoreBackend.Edit claimEdit =
+                reader.replace(ColumnFamily.INFLIGHT, claimKey, TargetClaimRecord.VALUE_TYPE, null);
         final TargetStoreBackend.Edit chargeEdit = reader.replace(
                 ColumnFamily.META,
                 claim.chargeKey(),
@@ -809,13 +1104,15 @@ public final class TargetPublishAdmissionStore {
                 attemptBudget.canonicalBytes());
         final List<TargetMessageStore.OrderTransition> order = strictOrder(reader, before, admitted);
         receiptEdits.addAll(List.of(claimEdit, chargeEdit, budgetEdit));
-        if (nextOwner != null) receiptEdits.add(reader.replace(ColumnFamily.META, nextOwner.key(),
-                TargetQuotaPayloadOwner.VALUE_TYPE, nextOwner.canonicalBytes()));
+        if (nextOwner != null) {
+            receiptEdits.add(reader.replace(
+                    ColumnFamily.META,
+                    nextOwner.key(),
+                    TargetQuotaPayloadOwner.VALUE_TYPE,
+                    nextOwner.canonicalBytes()));
+        }
         return new AdmissionProjection(
-                before,
-                admitted,
-                order.isEmpty() ? null : order.getFirst(),
-                List.copyOf(receiptEdits));
+                before, admitted, order.isEmpty() ? null : order.getFirst(), List.copyOf(receiptEdits));
     }
 
     private List<TargetMessageStore.OrderTransition> strictOrder(
@@ -825,7 +1122,8 @@ public final class TargetPublishAdmissionStore {
         if (before.locator().orderingMode() != com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO) {
             return List.of();
         }
-        final byte[] key = TargetKeyCodec.orderState(before.locator().target(), before.locator().orderingDomain());
+        final byte[] key = TargetKeyCodec.orderState(
+                before.locator().target(), before.locator().orderingDomain());
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null) {
             throw new IllegalStateException("strict Target Admission lacks its durable order state");
@@ -875,16 +1173,9 @@ public final class TargetPublishAdmissionStore {
         final var first = TargetResultRecord.system(root, outcome, stamp, null, authority);
         final var position = TargetResultRecord.position(root, first, stamp, authority);
         return List.of(
+                reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()),
                 reader.replace(
-                        ColumnFamily.DEDUPE,
-                        first.key(),
-                        TargetResultRecord.VALUE_TYPE,
-                        first.canonicalBytes()),
-                reader.replace(
-                        ColumnFamily.DEDUPE,
-                        position.key(),
-                        TargetResultRecord.VALUE_TYPE,
-                        position.canonicalBytes()));
+                        ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
     }
 
     private static void requireFirstPosition(
@@ -930,7 +1221,8 @@ public final class TargetPublishAdmissionStore {
         }
         final var descriptor = TargetQuotaIncarnation.decodeForStore(
                 key,
-                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE).payload(),
+                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE)
+                        .payload(),
                 scope.shard(),
                 scope.tenantScope());
         if (!descriptor.identity().equals(identity) || !Arrays.equals(descriptor.recoveryLineage(), lineage)) {
@@ -956,8 +1248,7 @@ public final class TargetPublishAdmissionStore {
 
     private static byte[] positionResultKey(final com.nereusstream.delay.protocol.SourcePosition source) {
         return Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
-                source.canonicalBytes());
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
     }
 
     private record AdmissionProjection(

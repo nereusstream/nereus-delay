@@ -24,27 +24,46 @@ public final class PulsarClientArtifactSourceConsumerFactory {
 
     private PulsarClientArtifactSourceConsumerFactory() {}
 
-    public static GuardedConsumer<byte[]> createVerifiedSource(PulsarClientArtifactOwnedBackendGroup group,
-            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt, TopicResourceGuard guard,
-            String physicalTopic, String subscriptionName,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) throws PulsarClientException {
+    public static GuardedConsumer<byte[]> createVerifiedSource(
+            PulsarClientArtifactOwnedBackendGroup group,
+            com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
+            TopicResourceGuard guard,
+            String physicalTopic,
+            String subscriptionName,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time)
+            throws PulsarClientException {
         group.addSourceAuthorization(receipt);
         final var authorization = receipt.authorization();
         final var resource = authorization.resource().pulsar();
-        if (!physicalTopic.equals(authorization.physicalTopic()) || !guard.authenticatedClusterId().equals(resource.authenticatedClusterId())
+        if (!physicalTopic.equals(authorization.physicalTopic())
+                || !guard.authenticatedClusterId().equals(resource.authenticatedClusterId())
                 || !java.util.Arrays.equals(guard.resourceIncarnation(), resource.resourceIncarnation())
                 || guard.topicCreationTimestamp() != resource.physicalTopicCreationTimestamp()) {
             throw new IllegalStateException("P1 Source subscribe differs from its signed resource");
         }
-        authorization.requireName(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, subscriptionName);
-        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
-        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, time.get());
-        receipt.requireOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, time.get());
+        authorization.requireName(
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME,
+                subscriptionName);
+        receipt.requireOperation(
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
+        receipt.requireOperation(
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.CONSUME, time.get());
+        receipt.requireOperation(
+                com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, time.get());
         final var consumer = create(group, guard, physicalTopic, subscriptionName);
-        try { receipt.requireActive(time.get()); return consumer; }
-        catch (RuntimeException | Error failure) {
-            try { PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer).get(group.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
-            catch (Exception cleanup) { if (cleanup instanceof InterruptedException) Thread.currentThread().interrupt(); failure.addSuppressed(cleanup); }
+        try {
+            receipt.requireActive(time.get());
+            return consumer;
+        } catch (RuntimeException | Error failure) {
+            try {
+                PulsarClientArtifactOwnedBackendGroup.closeConsumer(consumer)
+                        .get(group.operationTimeoutMs(), TimeUnit.MILLISECONDS);
+            } catch (Exception cleanup) {
+                if (cleanup instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
     }
@@ -82,7 +101,9 @@ public final class PulsarClientArtifactSourceConsumerFactory {
             throws PulsarClientException {
         Objects.requireNonNull(client, "client");
         final var actualGroup = PulsarClientArtifactOwnedBackendGroup.find(client);
-        if (actualGroup != null) { actualGroup.requireSourceSubscription(guard, physicalTopic, subscriptionName, subscriptionType); }
+        if (actualGroup != null) {
+            actualGroup.requireSourceSubscription(guard, physicalTopic, subscriptionName, subscriptionType);
+        }
         final var builder = client.newConsumer(Schema.BYTES)
                 .topic(Objects.requireNonNull(physicalTopic, "physicalTopic"))
                 .subscriptionName(Objects.requireNonNull(subscriptionName, "subscriptionName"))
@@ -97,21 +118,30 @@ public final class PulsarClientArtifactSourceConsumerFactory {
         }
         final Consumer<byte[]> consumer;
         final var owned = PulsarClientArtifactOwnedBackendGroup.find(client);
-        if (owned == null) { consumer = builder.subscribe(); }
-        else {
-            try { consumer = PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder)
-                    .get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
-            catch (Exception failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+        if (owned == null) {
+            consumer = builder.subscribe();
+        } else {
+            try {
+                consumer = PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder)
+                        .get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS);
+            } catch (Exception failure) {
+                if (failure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 throw PulsarClientException.unwrap(failure);
             }
         }
         if (!(consumer instanceof GuardedConsumer<?> guarded)) {
             try {
-                if (owned == null) { consumer.close(); }
-                else { owned.closeNative(consumer).get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS); }
+                if (owned == null) {
+                    consumer.close();
+                } else {
+                    owned.closeNative(consumer).get(owned.operationTimeoutMs(), TimeUnit.MILLISECONDS);
+                }
             } catch (Exception failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                if (failure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 throw new IllegalStateException("P1 guarded consumer did not implement the proof API", failure);
             }
             throw new IllegalStateException("P1 guarded consumer did not implement the proof API");
@@ -125,8 +155,12 @@ public final class PulsarClientArtifactSourceConsumerFactory {
         return result;
     }
 
-    public static GuardedConsumer<byte[]> create(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard guard,
-            String physicalTopic, String subscriptionName) throws PulsarClientException {
+    public static GuardedConsumer<byte[]> create(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard guard,
+            String physicalTopic,
+            String subscriptionName)
+            throws PulsarClientException {
         return create(group.nativeClientForFactory(), guard, physicalTopic, subscriptionName);
     }
 }

@@ -12,9 +12,11 @@ import java.util.concurrent.CompletionStage;
 
 /** Pulsar target adapter requiring a Broker guard for every SEND. */
 public final class PinnedPulsarDestinationAdapter implements DestinationPublishAdapter {
-    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+    @Override
+    public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
         return transport.ownedBackendGroup();
     }
+
     private final PulsarTargetResource resource;
     private final PulsarDestinationTransport transport;
     private final PulsarDestinationTimingPolicy timingPolicy;
@@ -91,7 +93,8 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     @Override
     public CompletionStage<DestinationPublishResult> publishPreparedRecord(
-            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
             final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
@@ -180,7 +183,8 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     }
 
     private CompletionStage<DestinationPublishResult> publishPreparedRecordOpen(
-            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
             final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
         final BrokerResourceIdentity target = record.template().targetResource();
         if (target.kind() != BrokerResourceIdentity.Kind.PULSAR
@@ -198,7 +202,8 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         }
         final CompletionStage<DestinationPublishResult> result;
         try {
-            result = ownershipGate == null ? transport.publishPreparedRecord(record, artifacts)
+            result = ownershipGate == null
+                    ? transport.publishPreparedRecord(record, artifacts)
                     : transport.publishPreparedRecord(record, artifacts, ownershipGate);
         } catch (RuntimeException exception) {
             return UnobservedDestinationPublishStage.unknown();
@@ -221,28 +226,39 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
             final BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(gate, "ownership gate");
-        return closeGuard.invokeIfOpen(() -> {
-            final var physical = request.publication().physical();
-            if (request.publication().channel().context().kind()
-                    != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
-                    || physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
-                    || !resource.authenticatedClusterId().equals(physical.resource().pulsar().authenticatedClusterId())
-                    || !java.util.Arrays.equals(resource.resourceIncarnation(), physical.resource().pulsar().resourceIncarnation())
-                    || !resource.physicalTopic().equals(physical.resource().pulsar().physicalTopic())
-                    || resource.physicalTopicCreationTimestamp() != physical.resource().pulsar().physicalTopicCreationTimestamp()
-                    || Integer.toUnsignedLong(resource.partition()) != physical.physicalPartition()) {
-                return completed(DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, null));
-            }
-            try {
-                final var stage = transport.publishTargetOrdinary(request, gate);
-                if (stage == null) { return UnobservedDestinationPublishStage.unknown(); }
-                final var handled = stage.handle((value, failure) -> failure == null && value != null
-                        ? validate(value) : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
-                return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
-            } catch (RuntimeException unobservedOwnership) {
-                return UnobservedDestinationPublishStage.unknown();
-            }
-        }, () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+        return closeGuard.invokeIfOpen(
+                () -> {
+                    final var physical = request.publication().physical();
+                    if (request.publication().channel().context().kind()
+                                    != com.nereusstream.delay.protocol.ChannelKind.BASELINE_PRODUCER
+                            || physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
+                            || !resource.authenticatedClusterId()
+                                    .equals(physical.resource().pulsar().authenticatedClusterId())
+                            || !java.util.Arrays.equals(
+                                    resource.resourceIncarnation(),
+                                    physical.resource().pulsar().resourceIncarnation())
+                            || !resource.physicalTopic()
+                                    .equals(physical.resource().pulsar().physicalTopic())
+                            || resource.physicalTopicCreationTimestamp()
+                                    != physical.resource().pulsar().physicalTopicCreationTimestamp()
+                            || Integer.toUnsignedLong(resource.partition()) != physical.physicalPartition()) {
+                        return completed(
+                                DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, null));
+                    }
+                    try {
+                        final var stage = transport.publishTargetOrdinary(request, gate);
+                        if (stage == null) {
+                            return UnobservedDestinationPublishStage.unknown();
+                        }
+                        final var handled = stage.handle((value, failure) -> failure == null && value != null
+                                ? validate(value)
+                                : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                        return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
+                    } catch (RuntimeException unobservedOwnership) {
+                        return UnobservedDestinationPublishStage.unknown();
+                    }
+                },
+                () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
     }
 
     @Override
@@ -275,7 +291,10 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
 
     @FunctionalInterface
     public interface PulsarDestinationTransport extends AutoCloseable {
-        default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+        default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+            return null;
+        }
+
         CompletionStage<DestinationPublishResult> publish(PulsarDestinationRequest request);
 
         /** Current final-record hook; legacy transports fail closed by default. */
@@ -288,7 +307,8 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         }
 
         default CompletionStage<DestinationPublishResult> publishPreparedRecord(
-                final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+                final PulsarPreparedRecord record,
+                final ArtifactGenerationSet artifacts,
                 final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
             Objects.requireNonNull(ownershipGate, "ownershipGate");
             return CompletableFuture.completedFuture(

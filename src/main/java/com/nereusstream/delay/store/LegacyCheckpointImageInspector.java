@@ -153,8 +153,7 @@ public final class LegacyCheckpointImageInspector {
         }
     }
 
-    private static int readU32(final RocksDB db, final ColumnFamilyHandle meta, final int key)
-            throws RocksDBException {
+    private static int readU32(final RocksDB db, final ColumnFamilyHandle meta, final int key) throws RocksDBException {
         final byte[] value = readMetadataValue(db, meta, key);
         if (value.length != 4) {
             throw new IllegalArgumentException("legacy checkpoint fixed metadata has an invalid uint32 length");

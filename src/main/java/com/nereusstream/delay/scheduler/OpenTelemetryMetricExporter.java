@@ -1,10 +1,10 @@
 package com.nereusstream.delay.scheduler;
 
-import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.ObservationExporter;
-import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.ObservationStatus;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Instrument;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.Metric;
 import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.MetricEvent;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.ObservationExporter;
+import com.nereusstream.delay.scheduler.BoundedAsyncMetricExporter.ObservationStatus;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.LongHistogram;
 import io.opentelemetry.api.metrics.Meter;
@@ -48,13 +48,15 @@ public final class OpenTelemetryMetricExporter implements ObservationExporter {
             if (metric.instrument() == Instrument.COUNTER) {
                 counterInstruments.put(
                         metric,
-                        exactMeter.counterBuilder(metric.instrumentName())
+                        exactMeter
+                                .counterBuilder(metric.instrumentName())
                                 .setUnit(unit(metric))
                                 .build());
             } else {
                 histogramInstruments.put(
                         metric,
-                        exactMeter.histogramBuilder(metric.instrumentName())
+                        exactMeter
+                                .histogramBuilder(metric.instrumentName())
                                 .ofLongs()
                                 .setUnit(unit(metric))
                                 .build());
@@ -63,21 +65,38 @@ public final class OpenTelemetryMetricExporter implements ObservationExporter {
         counters = Map.copyOf(counterInstruments);
         histograms = Map.copyOf(histogramInstruments);
         final String prefix = "nereus.target.observation.";
-        final String[] signals = {"dropped_full", "rejected_after_close", "export_failures",
-                "dropped_at_worker_stop", "dropped_before_context", "status_export_failures"};
+        final String[] signals = {
+            "dropped_full",
+            "rejected_after_close",
+            "export_failures",
+            "dropped_at_worker_stop",
+            "dropped_before_context",
+            "status_export_failures"
+        };
         gapCounters = new LongCounter[signals.length];
         for (int index = 0; index < signals.length; index++) {
-            gapCounters[index] = exactMeter.counterBuilder(prefix + signals[index]).setUnit("1").build();
+            gapCounters[index] = exactMeter
+                    .counterBuilder(prefix + signals[index])
+                    .setUnit("1")
+                    .build();
         }
-        priorProcessUnknown = exactMeter.counterBuilder(prefix + "prior_process_coverage_unknown").setUnit("1").build();
+        priorProcessUnknown = exactMeter
+                .counterBuilder(prefix + "prior_process_coverage_unknown")
+                .setUnit("1")
+                .build();
     }
 
-    @Override public boolean supportsObservationStatus() { return statusSink != null; }
+    @Override
+    public boolean supportsObservationStatus() {
+        return statusSink != null;
+    }
 
     @Override
     public void export(final MetricEvent event) {
         final MetricEvent exact = Objects.requireNonNull(event, "event");
-        if (exact.observation() != null) exportObservationStatus(exact.observation());
+        if (exact.observation() != null) {
+            exportObservationStatus(exact.observation());
+        }
         if (exact.metric().instrument() == Instrument.COUNTER) {
             counters.get(exact.metric()).add(exact.value());
         } else {
@@ -88,8 +107,12 @@ public final class OpenTelemetryMetricExporter implements ObservationExporter {
     @Override
     public synchronized void exportObservationStatus(final ObservationStatus status) {
         final var exact = Objects.requireNonNull(status, "ordinary observation status");
-        if (statusSink == null) throw new IllegalStateException("OpenTelemetry ordinary context/status consumer is absent");
-        if (exact.equals(lastStatus)) return;
+        if (statusSink == null) {
+            throw new IllegalStateException("OpenTelemetry ordinary context/status consumer is absent");
+        }
+        if (exact.equals(lastStatus)) {
+            return;
+        }
         // Exact identities/cuts go only to the explicit sink. No UUID, Target, Shard or generation metric labels.
         statusSink.accept(exact);
         if (!exact.context().processInstance().equals(recordedInstance)) {
@@ -98,12 +121,22 @@ public final class OpenTelemetryMetricExporter implements ObservationExporter {
             recordedInstance = exact.context().processInstance();
         }
         final var gap = exact.gap();
-        final long[] cumulative = {gap.droppedFull(), gap.rejectedAfterClose(), gap.exportFailures(),
-                gap.droppedAtWorkerStop(), gap.droppedBeforeContext(), exact.statusExportFailures()};
+        final long[] cumulative = {
+            gap.droppedFull(),
+            gap.rejectedAfterClose(),
+            gap.exportFailures(),
+            gap.droppedAtWorkerStop(),
+            gap.droppedBeforeContext(),
+            exact.statusExportFailures()
+        };
         for (int index = 0; index < cumulative.length; index++) {
             final long delta = Math.subtractExact(cumulative[index], recordedGaps[index]);
-            if (delta < 0) throw new IllegalArgumentException("ordinary gap counters regressed within the same process instance");
-            if (delta != 0) gapCounters[index].add(delta);
+            if (delta < 0) {
+                throw new IllegalArgumentException("ordinary gap counters regressed within the same process instance");
+            }
+            if (delta != 0) {
+                gapCounters[index].add(delta);
+            }
             recordedGaps[index] = cumulative[index];
         }
         lastStatus = exact;

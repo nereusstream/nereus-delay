@@ -20,7 +20,9 @@ final class KafkaClientArtifactFetchEvidence {
                 throw new IllegalStateException("Kafka guarded Fetch returned a foreign topic partition");
             }
         }
-        if (records.isEmpty()) { return null; }
+        if (records.isEmpty()) {
+            return null;
+        }
         return requireResponse(records, guard);
     }
 
@@ -30,10 +32,14 @@ final class KafkaClientArtifactFetchEvidence {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(guard, "guard");
         for (TopicPartition partition : records.partitions()) {
-            if (!guard.topicPartition().equals(partition)) { throw new IllegalStateException("Kafka guarded Fetch returned a foreign partition"); }
+            if (!guard.topicPartition().equals(partition)) {
+                throw new IllegalStateException("Kafka guarded Fetch returned a foreign partition");
+            }
         }
         final GuardedFetchEvidence evidence = records.fetchEvidence();
-        if (evidence == null && records.isEmpty()) { return null; }
+        if (evidence == null && records.isEmpty()) {
+            return null;
+        }
         if (evidence == null
                 || evidence.requestVersion() < 13
                 || !guard.authenticatedClusterId().equals(evidence.authenticatedClusterId())

@@ -4133,23 +4133,23 @@ class DelayShardTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, shard.apply(first, firstPosition).stableCode());
-            assertEquals(StableCode.SCHEDULED, shard.apply(second, secondPosition).stableCode());
+            assertEquals(
+                    StableCode.SCHEDULED, shard.apply(second, secondPosition).stableCode());
             final LaneRecord readyLane = shard.updateLaneReadiness(lane, RuntimeReadiness.READY);
 
-            final byte[] correctTail = KeyCodec.timelineDue(
-                    lane, 3_000, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
-            final byte[] damagedTail = KeyCodec.timelineDue(
-                    lane, 3_001, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
+            final byte[] correctTail =
+                    KeyCodec.timelineDue(lane, 3_000, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
+            final byte[] damagedTail =
+                    KeyCodec.timelineDue(lane, 3_001, secondPosition.sourceOrderToken(), second.delayMessageId(), 0);
             store.write(batch -> {
                 batch.delete(ColumnFamily.TIMELINE, correctTail);
                 batch.putValue(
-                        ColumnFamily.TIMELINE,
-                        1,
-                        damagedTail,
-                        new TimelineEntry(second.delayMessageId(), 0).encode());
+                        ColumnFamily.TIMELINE, 1, damagedTail, new TimelineEntry(second.delayMessageId(), 0).encode());
             });
 
-            assertEquals(first.delayMessageId(), shard.discoverReady(10_000, 1).get(0).messageId());
+            assertEquals(
+                    first.delayMessageId(),
+                    shard.discoverReady(10_000, 1).get(0).messageId());
             final byte[] readyKey =
                     KeyCodec.timelineReady(readyLane.nextEligibleAtEpochMs(), lane, readyLane.laneVersion());
             final byte[] readyBeforeAudit = store.get(ColumnFamily.TIMELINE, readyKey);
@@ -4158,7 +4158,9 @@ class DelayShardTest {
             assertThrows(IllegalStateException.class, shard::rebuildReadyIndexes);
             assertEquals(sequenceBeforeAudit, store.latestSequenceNumber());
             assertArrayEquals(readyBeforeAudit, store.get(ColumnFamily.TIMELINE, readyKey));
-            assertEquals(first.delayMessageId(), shard.discoverReady(10_000, 1).get(0).messageId());
+            assertEquals(
+                    first.delayMessageId(),
+                    shard.discoverReady(10_000, 1).get(0).messageId());
         }
     }
 

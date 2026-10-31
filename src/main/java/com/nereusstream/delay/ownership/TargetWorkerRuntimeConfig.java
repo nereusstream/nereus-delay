@@ -57,11 +57,14 @@ public record TargetWorkerRuntimeConfig(
         Objects.requireNonNull(maintenanceTurn, "maintenanceTurn");
         Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
         Objects.requireNonNull(checkpoint, "checkpoint").requireWorkClasses(workClasses);
-        requireSourceOperationEnvelope(source, workClasses, maximumSourceFrameBytes,
+        requireSourceOperationEnvelope(
+                source,
+                workClasses,
+                maximumSourceFrameBytes,
                 com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.basic());
         resources.validate(store);
-        WorkerCapacityAdmission.requireFits(resources, hardCaps, List.of(),
-                CapacityVector.empty(), CapacityVector.empty());
+        WorkerCapacityAdmission.requireFits(
+                resources, hardCaps, List.of(), CapacityVector.empty(), CapacityVector.empty());
         if (backlogRead.maximumFrameBytes() != maximumSourceFrameBytes
                 || backlogGrowth.bytes() < maximumSourceFrameBytes) {
             throw new IllegalArgumentException("Source backlog configuration cannot serve the declared frame");
@@ -70,14 +73,18 @@ public record TargetWorkerRuntimeConfig(
                 || systemWriter.writers() > hardCaps.amount(CapacityDimension.ADAPTER_PRODUCERS)) {
             throw new IllegalArgumentException("system writer limits differ from configured Source/producer envelope");
         }
-        for (var dimension : List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS,
-                CapacityDimension.PHYSICAL_REQUESTS, CapacityDimension.ZOMBIE_REQUESTS)) {
+        for (var dimension : List.of(
+                CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS,
+                CapacityDimension.PHYSICAL_REQUESTS,
+                CapacityDimension.ZOMBIE_REQUESTS)) {
             if (systemWriter.records() > hardCaps.amount(dimension)) {
                 throw new IllegalArgumentException("system writer records exceed " + dimension);
             }
         }
-        for (var dimension : List.of(CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES,
-                CapacityDimension.PHYSICAL_BYTES, CapacityDimension.ZOMBIE_BYTES)) {
+        for (var dimension : List.of(
+                CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES,
+                CapacityDimension.PHYSICAL_BYTES,
+                CapacityDimension.ZOMBIE_BYTES)) {
             if (systemWriter.bytes() > hardCaps.amount(dimension)) {
                 throw new IllegalArgumentException("system writer bytes exceed " + dimension);
             }
@@ -91,8 +98,10 @@ public record TargetWorkerRuntimeConfig(
         }
         if (ordinaryTurn.maxBytes() < ordinary.sendEnvelopeBytes()
                 || ordinaryTurn.maxElapsedNanos() < ordinary.readElapsedNanos()
-                || ordinaryRecheckInterval.isZero() || ordinaryRecheckInterval.isNegative()
-                || maintenanceInterval.isZero() || maintenanceInterval.isNegative()) {
+                || ordinaryRecheckInterval.isZero()
+                || ordinaryRecheckInterval.isNegative()
+                || maintenanceInterval.isZero()
+                || maintenanceInterval.isNegative()) {
             throw new IllegalArgumentException("ordinary turn/recheck cannot serve its configured envelope");
         }
         try {
@@ -105,45 +114,76 @@ public record TargetWorkerRuntimeConfig(
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Target service/recheck bounds overflow", overflow);
         }
-        requireFiniteCounts(source.records(), source.counters(), inventory.maximumShards(), inventory.maximumTargets(),
-                inventory.pageTargets(), inventory.maximumPagesPerShard(), inventory.readRecords(),
-                ordinary.maximumVisitsPerTurn(), ordinary.readRecords(), ordinaryTurn.maxMessages(),
-                maintenanceTurn.maxMessages(), checkpoint.settlementTurn().maxMessages());
-        requireFiniteAmounts(source.bytes(), source.elapsedNanos(), inventory.readBytes(), inventory.readElapsedNanos(),
-                ordinary.quantumBytes(), ordinary.maximumCostBytes(), ordinary.sendEnvelopeBytes(),
-                ordinary.readBytes(), ordinary.readElapsedNanos(), ordinaryTurn.maxBytes(), ordinaryTurn.maxElapsedNanos(),
-                maintenanceTurn.maxBytes(), maintenanceTurn.maxElapsedNanos(), ordinaryRecheckInterval.toNanos(),
-                maintenanceInterval.toNanos(), checkpoint.settlementTurn().maxBytes(),
-                checkpoint.settlementTurn().maxElapsedNanos(), workClasses.maxEventLoopClassDelayNanos(),
-                workClasses.maxBorrowedResourceHoldNanos(), workClasses.totalResourceRecords(), workClasses.totalResourceBytes());
+        requireFiniteCounts(
+                source.records(),
+                source.counters(),
+                inventory.maximumShards(),
+                inventory.maximumTargets(),
+                inventory.pageTargets(),
+                inventory.maximumPagesPerShard(),
+                inventory.readRecords(),
+                ordinary.maximumVisitsPerTurn(),
+                ordinary.readRecords(),
+                ordinaryTurn.maxMessages(),
+                maintenanceTurn.maxMessages(),
+                checkpoint.settlementTurn().maxMessages());
+        requireFiniteAmounts(
+                source.bytes(),
+                source.elapsedNanos(),
+                inventory.readBytes(),
+                inventory.readElapsedNanos(),
+                ordinary.quantumBytes(),
+                ordinary.maximumCostBytes(),
+                ordinary.sendEnvelopeBytes(),
+                ordinary.readBytes(),
+                ordinary.readElapsedNanos(),
+                ordinaryTurn.maxBytes(),
+                ordinaryTurn.maxElapsedNanos(),
+                maintenanceTurn.maxBytes(),
+                maintenanceTurn.maxElapsedNanos(),
+                ordinaryRecheckInterval.toNanos(),
+                maintenanceInterval.toNanos(),
+                checkpoint.settlementTurn().maxBytes(),
+                checkpoint.settlementTurn().maxElapsedNanos(),
+                workClasses.maxEventLoopClassDelayNanos(),
+                workClasses.maxBorrowedResourceHoldNanos(),
+                workClasses.totalResourceRecords(),
+                workClasses.totalResourceBytes());
         for (var policy : workClasses.policies().values()) {
             requireFiniteCounts(policy.weight(), policy.maxQueueRecords(), policy.maxRecordsPerTurn());
-            requireFiniteAmounts(policy.maxQueueBytes(), policy.maxBytesPerTurn(), policy.maxTimePerTurnNanos(),
-                    policy.nonBorrowableMinimumRecords(), policy.nonBorrowableMinimumBytes());
+            requireFiniteAmounts(
+                    policy.maxQueueBytes(),
+                    policy.maxBytesPerTurn(),
+                    policy.maxTimePerTurnNanos(),
+                    policy.nonBorrowableMinimumRecords(),
+                    policy.nonBorrowableMinimumBytes());
         }
         final var sourcePolicy = workClasses.policies().get(WorkClass.SOURCE_APPLY);
-        if (maximumSourceFrameBytes <= 0 || maximumSourceFrameBytes >= Integer.MAX_VALUE
+        if (maximumSourceFrameBytes <= 0
+                || maximumSourceFrameBytes >= Integer.MAX_VALUE
                 || sourcePolicy.maxBytesPerTurn() < maximumSourceApplyTaskBytes(maximumSourceFrameBytes)
                 || sourcePolicy.maxTimePerTurnNanos() < source.elapsedNanos()
                 || workClasses.maxBorrowedResourceHoldNanos() < source.elapsedNanos()) {
             throw new IllegalArgumentException("SOURCE_APPLY policy is below the source action envelope");
         }
-        workClasses.requireTaskServiceable(new WorkClassTask(WorkClass.SOURCE_APPLY,
-                "target-configured-source-apply", maximumSourceApplyTaskBytes(maximumSourceFrameBytes)));
-        workClasses.requireTaskServiceable(new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-configured-system-frame", maximumSourceFrameBytes));
+        workClasses.requireTaskServiceable(new WorkClassTask(
+                WorkClass.SOURCE_APPLY,
+                "target-configured-source-apply",
+                maximumSourceApplyTaskBytes(maximumSourceFrameBytes)));
+        workClasses.requireTaskServiceable(new WorkClassTask(
+                WorkClass.OUTCOME_AND_CONTROL, "target-configured-system-frame", maximumSourceFrameBytes));
         final var duePolicy = workClasses.policies().get(WorkClass.DUE_SCHEDULER);
         if (duePolicy.maxBytesPerTurn() < ordinary.sendEnvelopeBytes()
                 || duePolicy.maxTimePerTurnNanos() < ordinary.readElapsedNanos()) {
             throw new IllegalArgumentException("DUE_SCHEDULER policy cannot serve the configured ordinary envelope");
         }
-        workClasses.requireTaskServiceable(new WorkClassTask(WorkClass.DUE_SCHEDULER,
-                "target-configured-ordinary-send", ordinary.sendEnvelopeBytes()));
+        workClasses.requireTaskServiceable(new WorkClassTask(
+                WorkClass.DUE_SCHEDULER, "target-configured-ordinary-send", ordinary.sendEnvelopeBytes()));
     }
 
     /** One checked process-level admission over actual external Shard envelopes; never reconstruct per message. */
-    public void requireCapacity(List<ShardCapacityEnvelope> shards, CapacityVector fixedCost,
-            CapacityVector transitionDemand) {
+    public void requireCapacity(
+            List<ShardCapacityEnvelope> shards, CapacityVector fixedCost, CapacityVector transitionDemand) {
         if (Objects.requireNonNull(shards, "shards").size() > store.maxOwnedShards()) {
             throw new IllegalArgumentException("committed Shard envelopes exceed Worker ownership limit");
         }
@@ -170,20 +210,22 @@ public record TargetWorkerRuntimeConfig(
         return new TargetPublishAdmissionMutationFactory(keyVersion, key, maximumSourceFrameBytes);
     }
 
-    public TargetChannelControlMutationFactory newChannelControlFactory(final int keyVersion,
-            final java.security.PrivateKey key, final long queryPolicyVersion) {
+    public TargetChannelControlMutationFactory newChannelControlFactory(
+            final int keyVersion, final java.security.PrivateKey key, final long queryPolicyVersion) {
         return new TargetChannelControlMutationFactory(keyVersion, key, queryPolicyVersion, maximumSourceFrameBytes);
     }
 
     public TargetSourceBacklogAdmission newSourceIngressAdmission(
-            Function<ShardId, TargetSourceBacklog.Snapshot> snapshots, TrustedClock clock, LongSupplier nanos,
+            Function<ShardId, TargetSourceBacklog.Snapshot> snapshots,
+            TrustedClock clock,
+            LongSupplier nanos,
             BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {
         return new TargetSourceBacklogAdmission(backlogGrowth, snapshots, clock, nanos, protection);
     }
 
     public TargetSourceBacklogCache newSourceBacklogCache(ThreadPoolExecutor executor, LongSupplier nanos) {
-        return new TargetSourceBacklogCache(store.maxOwnedShards(), backlogGrowth.maximumObservationAgeNanos(),
-                executor, nanos);
+        return new TargetSourceBacklogCache(
+                store.maxOwnedShards(), backlogGrowth.maximumObservationAgeNanos(), executor, nanos);
     }
 
     public SchedulerBudget sourceTurn() {
@@ -199,25 +241,35 @@ public record TargetWorkerRuntimeConfig(
     /** Native plan work is independent of the queued frame/position and of provider-held content. */
     public void requireSourceOperationEnvelope(
             com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
-        if(Objects.requireNonNull(required).requiresSourceFrameQualification())
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("complete Source service requires its original frame qualification");
+        if (Objects.requireNonNull(required).requiresSourceFrameQualification()) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "complete Source service requires its original frame qualification");
+        }
         requireSourceOperationEnvelope(source, workClasses, maximumSourceFrameBytes, Objects.requireNonNull(required));
     }
 
-    private static void requireSourceOperationEnvelope(TargetSourceApplyRuntime.Limits limits,
-            WorkClassRuntimeConfig classes, long maximumFrameBytes,
+    private static void requireSourceOperationEnvelope(
+            TargetSourceApplyRuntime.Limits limits,
+            WorkClassRuntimeConfig classes,
+            long maximumFrameBytes,
             com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
-        final boolean fixed=required.requiresSourceFrameQualification();
-        if (maximumFrameBytes<(fixed?required.fixedMaximumFrameBytes():required.maximumFrameBytes())
-                ||limits.records() < Math.max(required.readRecords(), required.writeRecords())
-                || limits.bytes() < Math.max(fixed?required.fixedReadBytes():required.readBytes(), fixed?required.fixedWriteBytes():required.writeBytes())
+        final boolean fixed = required.requiresSourceFrameQualification();
+        if (maximumFrameBytes < (fixed ? required.fixedMaximumFrameBytes() : required.maximumFrameBytes())
+                || limits.records() < Math.max(required.readRecords(), required.writeRecords())
+                || limits.bytes()
+                        < Math.max(
+                                fixed ? required.fixedReadBytes() : required.readBytes(),
+                                fixed ? required.fixedWriteBytes() : required.writeBytes())
                 || limits.counters() < required.maximumCounters()
-                || limits.domains() < required.maximumDomains())
+                || limits.domains() < required.maximumDomains()) {
             throw new IllegalArgumentException("Source limits cannot serve the complete legal Native operation family");
+        }
         final var policy = classes.policies().get(WorkClass.SOURCE_APPLY);
         if (policy.maxTimePerTurnNanos() < limits.elapsedNanos()
-                || classes.maxBorrowedResourceHoldNanos() < limits.elapsedNanos())
-            throw new IllegalArgumentException("Source operation exceeds the original action/borrowed-resource time window");
+                || classes.maxBorrowedResourceHoldNanos() < limits.elapsedNanos()) {
+            throw new IllegalArgumentException(
+                    "Source operation exceeds the original action/borrowed-resource time window");
+        }
     }
 
     private static long maximumSourceApplyTaskBytes(long maximumFrameBytes) {
@@ -226,13 +278,17 @@ public record TargetWorkerRuntimeConfig(
 
     private static void requireFiniteCounts(int... values) {
         for (int value : values) {
-            if (value == Integer.MAX_VALUE) throw new IllegalArgumentException("Target scheduling/read count is unbounded");
+            if (value == Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("Target scheduling/read count is unbounded");
+            }
         }
     }
 
     private static void requireFiniteAmounts(long... values) {
         for (long value : values) {
-            if (value == Long.MAX_VALUE) throw new IllegalArgumentException("Target scheduling/read byte or time bound is unbounded");
+            if (value == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("Target scheduling/read byte or time bound is unbounded");
+            }
         }
     }
 

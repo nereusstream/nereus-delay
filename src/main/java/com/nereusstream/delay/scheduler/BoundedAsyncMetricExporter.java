@@ -22,6 +22,7 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
     private static final int EVENT_PAYLOAD_BYTES = 1 + Long.BYTES;
     /** Metric payload plus shared context reference, generation and fixed-size cumulative gap/status fields. */
     public static final int OBSERVED_EVENT_PAYLOAD_BYTES = EVENT_PAYLOAD_BYTES + 16 + 8 * Long.BYTES + 3;
+
     private static final AtomicLong THREAD_IDS = new AtomicLong();
 
     public enum Instrument {
@@ -47,8 +48,7 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         TARGET_INVENTORY_SCAN_BUDGET_RECORDS(13, Instrument.HISTOGRAM, "nereus.target.inventory.scan.budget.records"),
         TARGET_INVENTORY_SCAN_BUDGET_BYTES(14, Instrument.HISTOGRAM, "nereus.target.inventory.scan.budget.bytes"),
         TARGET_INVENTORY_REBUILD_DURATION_NANOS(15, Instrument.HISTOGRAM, "nereus.target.inventory.rebuild.duration"),
-        TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH(
-                16, Instrument.HISTOGRAM, "nereus.target.inventory.active.message.depth"),
+        TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH(16, Instrument.HISTOGRAM, "nereus.target.inventory.active.message.depth"),
         TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE(
                 17, Instrument.COUNTER, "nereus.target.inventory.active.message.depth.unavailable"),
         TARGET_PHYSICAL_PUBLISH_STAGE_DURATION_NANOS(
@@ -80,7 +80,9 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
     }
 
     public record MetricEvent(Metric metric, long value, ObservationStatus observation) {
-        public MetricEvent(Metric metric, long value) { this(metric, value, null); }
+        public MetricEvent(Metric metric, long value) {
+            this(metric, value, null);
+        }
 
         public MetricEvent {
             Objects.requireNonNull(metric, "metric");
@@ -96,16 +98,25 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
     }
 
     /** Known losses in this instance only. Prior-process loss and population coverage remain UNKNOWN in context. */
-    public record ExportGap(long droppedFull, long rejectedAfterClose, long exportFailures,
-            long droppedAtWorkerStop, long droppedBeforeContext) {
+    public record ExportGap(
+            long droppedFull,
+            long rejectedAfterClose,
+            long exportFailures,
+            long droppedAtWorkerStop,
+            long droppedBeforeContext) {
         public long knownLostEvents() {
-            return Math.addExact(Math.addExact(droppedFull, rejectedAfterClose),
+            return Math.addExact(
+                    Math.addExact(droppedFull, rejectedAfterClose),
                     Math.addExact(Math.addExact(exportFailures, droppedAtWorkerStop), droppedBeforeContext));
         }
     }
 
-    public record ObservationStatus(OrdinaryObservationContext context, ExportGap gap,
-            long statusExportFailures, boolean accepting, boolean queueDrained) {
+    public record ObservationStatus(
+            OrdinaryObservationContext context,
+            ExportGap gap,
+            long statusExportFailures,
+            boolean accepting,
+            boolean queueDrained) {
         public ObservationStatus {
             Objects.requireNonNull(context, "ordinary observation context");
             Objects.requireNonNull(gap, "known current-instance gaps");
@@ -127,14 +138,18 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
 
     /** Explicit capability: old functional exporters cannot silently discard coverage notifications. */
     public interface ObservationExporter extends Exporter {
-        default boolean supportsObservationStatus() { return false; }
+        default boolean supportsObservationStatus() {
+            return false;
+        }
+
         void exportObservationStatus(ObservationStatus status) throws Exception;
     }
 
     public static ObservationExporter requireObservationExporter(Exporter exporter) {
         if (!(Objects.requireNonNull(exporter, "exporter") instanceof ObservationExporter qualified)
                 || !qualified.supportsObservationStatus()) {
-            throw new IllegalArgumentException("configured ordinary observation requires an explicit context/status consumer");
+            throw new IllegalArgumentException(
+                    "configured ordinary observation requires an explicit context/status consumer");
         }
         return qualified;
     }
@@ -160,11 +175,32 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
             Throwable firstExportFailure,
             long droppedBeforeContext,
             ObservationStatus observationStatus) {
-        public Snapshot(long accepted, long exported, long droppedFull, long rejectedAfterClose,
-                long exportFailures, long droppedAtWorkerStop, int pendingRecords, long pendingBytes,
-                boolean closed, boolean workerTerminated, Throwable firstExportFailure) {
-            this(accepted, exported, droppedFull, rejectedAfterClose, exportFailures, droppedAtWorkerStop,
-                    pendingRecords, pendingBytes, closed, workerTerminated, firstExportFailure, 0, null);
+        public Snapshot(
+                long accepted,
+                long exported,
+                long droppedFull,
+                long rejectedAfterClose,
+                long exportFailures,
+                long droppedAtWorkerStop,
+                int pendingRecords,
+                long pendingBytes,
+                boolean closed,
+                boolean workerTerminated,
+                Throwable firstExportFailure) {
+            this(
+                    accepted,
+                    exported,
+                    droppedFull,
+                    rejectedAfterClose,
+                    exportFailures,
+                    droppedAtWorkerStop,
+                    pendingRecords,
+                    pendingBytes,
+                    closed,
+                    workerTerminated,
+                    firstExportFailure,
+                    0,
+                    null);
         }
 
         public long gapEvents() {
@@ -207,7 +243,9 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         this(limits, exporter, null);
     }
 
-    public BoundedAsyncMetricExporter(final Limits limits, final Exporter exporter,
+    public BoundedAsyncMetricExporter(
+            final Limits limits,
+            final Exporter exporter,
             final OrdinaryObservationConfiguration observationConfiguration) {
         this.limits = Objects.requireNonNull(limits, "limits");
         this.exporter = Objects.requireNonNull(exporter, "exporter");
@@ -226,8 +264,11 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         final var exact = Objects.requireNonNull(context, "actual ordinary observation context");
         lock.lock();
         try {
-            if (!accepting || observationConfiguration == null || observationContext != null
-                    || !observationConfiguration.equals(exact.configuration()) || !limits.equals(exact.queue())) {
+            if (!accepting
+                    || observationConfiguration == null
+                    || observationContext != null
+                    || !observationConfiguration.equals(exact.configuration())
+                    || !limits.equals(exact.queue())) {
                 throw new IllegalStateException("ordinary observation context is absent, changed or already installed");
             }
             observationContext = exact;
@@ -243,7 +284,9 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
             if (observationConfiguration != null && observationContext == null) {
                 throw new IllegalStateException("configured observation has no actual Source boundary");
             }
-        } finally { lock.unlock(); }
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -263,23 +306,27 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
                 droppedBeforeContext++;
                 return OfferResult.DROPPED_BEFORE_CONTEXT;
             }
-            final int eventBytes = observationContext == null ? requested.canonicalPayloadBytes()
-                    : OBSERVED_EVENT_PAYLOAD_BYTES;
+            final int eventBytes =
+                    observationContext == null ? requested.canonicalPayloadBytes() : OBSERVED_EVENT_PAYLOAD_BYTES;
             if (pendingRecords >= limits.maximumPendingRecords()
                     || pendingBytes > limits.maximumPendingBytes() - eventBytes) {
                 droppedFull.incrementAndGet();
                 markStatusChanged();
                 return OfferResult.DROPPED_FULL;
             }
-            final MetricEvent exact = observationContext == null ? requested
+            final MetricEvent exact = observationContext == null
+                    ? requested
                     : new MetricEvent(requested.metric(), requested.value(), observationStatus());
             pending.addLast(exact);
             pendingRecords++;
             pendingBytes += eventBytes;
             accepted.incrementAndGet();
             // A later observation supplies another finite retry opportunity after a status outage.
-            if (observationConfiguration != null && statusDirty
-                    && statusAttempts >= observationConfiguration.maximumStatusAttempts()) statusAttempts = 0;
+            if (observationConfiguration != null
+                    && statusDirty
+                    && statusAttempts >= observationConfiguration.maximumStatusAttempts()) {
+                statusAttempts = 0;
+            }
             changed.signal();
             return OfferResult.ACCEPTED;
         } finally {
@@ -379,10 +426,13 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
                 lock.lock();
                 try {
                     while (true) {
-                        final boolean retryable = observationContext != null && statusDirty
+                        final boolean retryable = observationContext != null
+                                && statusDirty
                                 && statusAttempts < observationConfiguration.maximumStatusAttempts();
                         final long retryWait = retryable && statusRetryPending
-                                ? observationConfiguration.statusRetryNanos() - (System.nanoTime() - lastStatusAttemptNanos) : 0;
+                                ? observationConfiguration.statusRetryNanos()
+                                        - (System.nanoTime() - lastStatusAttemptNanos)
+                                : 0;
                         if (retryable && retryWait <= 0 && (preferStatus || pending.isEmpty())) {
                             status = observationStatus();
                             revision = statusRevision;
@@ -393,13 +443,16 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
                         }
                         if (!pending.isEmpty()) {
                             final var queued = pending.removeFirst();
-                            event = observationContext == null ? queued
+                            event = observationContext == null
+                                    ? queued
                                     : new MetricEvent(queued.metric(), queued.value(), observationStatus());
                             preferStatus = true;
                             break;
                         }
                         if (retryable) {
-                            if (retryWait > 0) changed.awaitNanos(retryWait);
+                            if (retryWait > 0) {
+                                changed.awaitNanos(retryWait);
+                            }
                         } else if (!accepting) {
                             return;
                         } else {
@@ -462,7 +515,9 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         try {
             pendingRecords--;
             pendingBytes -= event.canonicalPayloadBytes();
-            if (pendingRecords == 0 && !accepting) markStatusChanged();
+            if (pendingRecords == 0 && !accepting) {
+                markStatusChanged();
+            }
         } finally {
             lock.unlock();
         }
@@ -470,24 +525,38 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
 
     /** Coalesced control state bypasses the full metric queue and remains retained after finite retry exhaustion. */
     private void markStatusChanged() {
-        if (observationContext == null) return;
+        if (observationContext == null) {
+            return;
+        }
         statusRevision++;
-        if (!statusDirty || statusAttempts >= observationConfiguration.maximumStatusAttempts()) statusAttempts = 0;
+        if (!statusDirty || statusAttempts >= observationConfiguration.maximumStatusAttempts()) {
+            statusAttempts = 0;
+        }
         statusDirty = true;
         changed.signal();
     }
 
     private ObservationStatus observationStatus() {
-        return new ObservationStatus(observationContext,
-                new ExportGap(droppedFull.get(), rejectedAfterClose.get(), exportFailures.get(),
-                        droppedAtWorkerStop.get(), droppedBeforeContext),
-                statusExportFailures, accepting, !accepting && pendingRecords == 0);
+        return new ObservationStatus(
+                observationContext,
+                new ExportGap(
+                        droppedFull.get(),
+                        rejectedAfterClose.get(),
+                        exportFailures.get(),
+                        droppedAtWorkerStop.get(),
+                        droppedBeforeContext),
+                statusExportFailures,
+                accepting,
+                !accepting && pendingRecords == 0);
     }
 
     private void eventFailed() {
         lock.lock();
-        try { markStatusChanged(); }
-        finally { lock.unlock(); }
+        try {
+            markStatusChanged();
+        } finally {
+            lock.unlock();
+        }
     }
 
     private void exportStatus(ObservationStatus status, long revision) {
@@ -495,10 +564,14 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
             observationExporter.exportObservationStatus(status);
             lock.lock();
             try {
-                if (revision == statusRevision) statusDirty = false;
+                if (revision == statusRevision) {
+                    statusDirty = false;
+                }
                 statusAttempts = 0;
                 statusRetryPending = false;
-            } finally { lock.unlock(); }
+            } finally {
+                lock.unlock();
+            }
         } catch (Exception failure) {
             statusFailed(failure);
         } catch (Error fatal) {
@@ -513,6 +586,8 @@ public final class BoundedAsyncMetricExporter implements AutoCloseable {
         try {
             statusExportFailures++;
             statusRetryPending = true;
-        } finally { lock.unlock(); }
+        } finally {
+            lock.unlock();
+        }
     }
 }

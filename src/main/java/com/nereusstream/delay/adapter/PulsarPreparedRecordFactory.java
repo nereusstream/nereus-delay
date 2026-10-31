@@ -51,11 +51,14 @@ public final class PulsarPreparedRecordFactory {
         requireTargetMessage(publication, message, payload);
         final var template = targetTemplate(publication, payload);
         final var record = new PulsarPreparedRecord(
-                template, template.recordTemplateHash(), resolved, sequence,
+                template,
+                template.recordTemplateHash(),
+                resolved,
+                sequence,
                 ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()),
                 publication.preparedPublishHash(),
-                PulsarReservedProperties.all(template.reservedMetadata(), publication.publishAttemptId(),
-                        publication.preparedPublishHash()),
+                PulsarReservedProperties.all(
+                        template.reservedMetadata(), publication.publishAttemptId(), publication.preparedPublishHash()),
                 Objects.requireNonNull(artifacts, "artifacts").setDigest());
         requireTargetBinding(publication, record, artifacts);
         return record;
@@ -63,45 +66,67 @@ public final class PulsarPreparedRecordFactory {
 
     /** Fixes the exact mapping input; the caller must bind admissionSource to the applied v4 first result. */
     public static PulsarAttemptJournal.CurrentAttemptIdentity targetJournalIdentity(
-            final TargetOrdinaryPublicationBinding publication, final TargetMessageRecord message,
-            final PayloadForPublish payload, final SourcePosition admissionSource) {
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetMessageRecord message,
+            final PayloadForPublish payload,
+            final SourcePosition admissionSource) {
         requireTargetMessage(publication, message, payload);
         TargetSourcePosition.requireBounded(admissionSource);
-        if (!admissionSource.shardId().equals(publication.locator().messageId().routingId().shardId())) {
+        if (!admissionSource
+                .shardId()
+                .equals(publication.locator().messageId().routingId().shardId())) {
             throw new IllegalArgumentException("Target Journal source differs from the admitted Source Shard");
         }
         final var template = targetTemplate(publication, payload);
         return new PulsarAttemptJournal.CurrentAttemptIdentity(
-                publication.locator().messageId(), publication.locator().generation(), publication.publishAttemptId(),
-                publication.preparedPublishHash(), template.recordTemplateHash(), template.deliveryContract(),
-                admissionSource.canonicalBytes(), publication.artifactGenerationSetDigest());
+                publication.locator().messageId(),
+                publication.locator().generation(),
+                publication.publishAttemptId(),
+                publication.preparedPublishHash(),
+                template.recordTemplateHash(),
+                template.deliveryContract(),
+                admissionSource.canonicalBytes(),
+                publication.artifactGenerationSetDigest());
     }
 
     /** Exact Target mapping join; mapping DTO still needs the Journal/Writer/first-send gate before sending. */
     public static PulsarPreparedRecord targetManaged(
-            final TargetOrdinaryPublicationBinding publication, final TargetMessageRecord message,
-            final PayloadForPublish payload, final ResolvedPayload resolved,
-            final PulsarAttemptJournal.Mapping mapping, final ArtifactGenerationSet artifacts) {
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetMessageRecord message,
+            final PayloadForPublish payload,
+            final ResolvedPayload resolved,
+            final PulsarAttemptJournal.Mapping mapping,
+            final ArtifactGenerationSet artifacts) {
         Objects.requireNonNull(mapping, "mapping");
         if (!mapping.producer().isTarget()
-                || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
+                || !Arrays.equals(
+                        mapping.producer().targetChannel().canonicalBytes(),
                         publication.channel().canonicalBytes())) {
             throw new IllegalArgumentException("Target record changes its frozen mapping channel");
         }
         final var expected = PulsarAttemptJournal.Mapping.createCurrent(
                 mapping.shard(), PulsarAttemptJournal.ProducerKey.target(publication.channel(), publication.physical()),
-                mapping.sequenceId(), targetJournalIdentity(publication, message, payload,
-                        TargetSourcePosition.decode(mapping.sourcePosition())));
+                mapping.sequenceId(),
+                        targetJournalIdentity(
+                                publication, message, payload, TargetSourcePosition.decode(mapping.sourcePosition())));
         if (!Arrays.equals(expected.canonicalBytes(), mapping.canonicalBytes())) {
             throw new IllegalArgumentException("Target record differs from its full Journal mapping");
         }
-        return targetManaged(publication, message, payload, resolved,
-                PulsarSequenceAuthority.managedJournal(mapping.mappingId(), mapping.sequenceId(),
-                        mapping.producer().stableProducerNameHash()), artifacts);
+        return targetManaged(
+                publication,
+                message,
+                payload,
+                resolved,
+                PulsarSequenceAuthority.managedJournal(
+                        mapping.mappingId(),
+                        mapping.sequenceId(),
+                        mapping.producer().stableProducerNameHash()),
+                artifacts);
     }
 
     private static void requireTargetMessage(
-            final TargetOrdinaryPublicationBinding publication, final TargetMessageRecord message,
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetMessageRecord message,
             final PayloadForPublish payload) {
         Objects.requireNonNull(publication, "publication");
         Objects.requireNonNull(message, "message");
@@ -115,8 +140,8 @@ public final class PulsarPreparedRecordFactory {
                         ? !payload.hasInlinePayload()
                                 || !Arrays.equals(message.inlinePayload(), payload.inlinePayload())
                         : !payload.hasObject()
-                                || !message.payloadReference().equals(
-                                        PayloadReference.fromDescriptor(payload.object())))) {
+                                || !message.payloadReference()
+                                        .equals(PayloadReference.fromDescriptor(payload.object())))) {
             throw new IllegalArgumentException("Target record differs from the exact newly admitted Message/payload");
         }
     }
@@ -129,12 +154,14 @@ public final class PulsarPreparedRecordFactory {
         Objects.requireNonNull(publication, "publication");
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
-        if (!record.template().equals(targetTemplate(publication, record.template().payload()))
+        if (!record.template()
+                        .equals(targetTemplate(publication, record.template().payload()))
                 || record.sequenceAuthority().kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
-                || !Arrays.equals(record.sequenceAuthority().producerNameHash(),
+                || !Arrays.equals(
+                        record.sequenceAuthority().producerNameHash(),
                         Bytes.sha256(publication.channel().context().producerIdentity()))
-                || !record.externalIdentity().equals(
-                        ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()))
+                || !record.externalIdentity()
+                        .equals(ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()))
                 || !Arrays.equals(record.preparedIdentityHash(), publication.preparedPublishHash())
                 || !Arrays.equals(record.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())
                 || !Arrays.equals(artifacts.setDigest(), publication.artifactGenerationSetDigest())) {
@@ -156,14 +183,23 @@ public final class PulsarPreparedRecordFactory {
         }
         final var metadata = publication.adapterMetadata().pulsar();
         final byte[] keyBytes = metadata.partitionKey();
-        final var key = keyBytes == null ? PulsarKey.none()
+        final var key = keyBytes == null
+                ? PulsarKey.none()
                 : metadata.keyEncoding() == PulsarMetadata.KeyEncoding.UTF8
-                        ? PulsarKey.utf8(keyBytes) : PulsarKey.binary(keyBytes);
+                        ? PulsarKey.utf8(keyBytes)
+                        : PulsarKey.binary(keyBytes);
         return new PulsarRecordTemplate(
-                publication.physical().resource(), publication.physical().physicalPartition(), key,
-                metadata.orderingKey(), metadata.properties(), publication.eventTimeEpochMs(),
-                publication.reservedMetadata(), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, null,
-                payload, publication.artifactGenerationSetDigest());
+                publication.physical().resource(),
+                publication.physical().physicalPartition(),
+                key,
+                metadata.orderingKey(),
+                metadata.properties(),
+                publication.eventTimeEpochMs(),
+                publication.reservedMetadata(),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
+                payload,
+                publication.artifactGenerationSetDigest());
     }
 
     /**
@@ -180,11 +216,14 @@ public final class PulsarPreparedRecordFactory {
         requireTargetMessage(publication, message, payload);
         final var template = targetTemplate(publication, payload);
         final var record = new PulsarPreparedRecord(
-                template, template.recordTemplateHash(), resolved, sequence,
+                template,
+                template.recordTemplateHash(),
+                resolved,
+                sequence,
                 ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()),
                 publication.preparedPublishHash(),
-                PulsarReservedProperties.all(template.reservedMetadata(), publication.publishAttemptId(),
-                        publication.preparedPublishHash()),
+                PulsarReservedProperties.all(
+                        template.reservedMetadata(), publication.publishAttemptId(), publication.preparedPublishHash()),
                 Objects.requireNonNull(artifacts, "artifacts").setDigest());
         requireTargetBinding(publication, record, artifacts);
         return record;
@@ -192,45 +231,67 @@ public final class PulsarPreparedRecordFactory {
 
     /** Fixes the exact mapping input; the caller must bind admissionSource to the applied v5 first result. */
     public static PulsarAttemptJournal.CurrentAttemptIdentity targetJournalIdentity(
-            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication, final TargetMessageRecord message,
-            final PayloadForPublish payload, final SourcePosition admissionSource) {
+            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final TargetMessageRecord message,
+            final PayloadForPublish payload,
+            final SourcePosition admissionSource) {
         requireTargetMessage(publication, message, payload);
         TargetSourcePosition.requireBounded(admissionSource);
-        if (!admissionSource.shardId().equals(publication.locator().messageId().routingId().shardId())) {
+        if (!admissionSource
+                .shardId()
+                .equals(publication.locator().messageId().routingId().shardId())) {
             throw new IllegalArgumentException("Target Journal source differs from the admitted Source Shard");
         }
         final var template = targetTemplate(publication, payload);
         return new PulsarAttemptJournal.CurrentAttemptIdentity(
-                publication.locator().messageId(), publication.locator().generation(), publication.publishAttemptId(),
-                publication.preparedPublishHash(), template.recordTemplateHash(), template.deliveryContract(),
-                admissionSource.canonicalBytes(), publication.artifactGenerationSetDigest());
+                publication.locator().messageId(),
+                publication.locator().generation(),
+                publication.publishAttemptId(),
+                publication.preparedPublishHash(),
+                template.recordTemplateHash(),
+                template.deliveryContract(),
+                admissionSource.canonicalBytes(),
+                publication.artifactGenerationSetDigest());
     }
 
     /** Exact Target mapping join; mapping DTO still needs the Journal/Writer/first-send gate before sending. */
     public static PulsarPreparedRecord targetManaged(
-            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication, final TargetMessageRecord message,
-            final PayloadForPublish payload, final ResolvedPayload resolved,
-            final PulsarAttemptJournal.Mapping mapping, final ArtifactGenerationSet artifacts) {
+            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final TargetMessageRecord message,
+            final PayloadForPublish payload,
+            final ResolvedPayload resolved,
+            final PulsarAttemptJournal.Mapping mapping,
+            final ArtifactGenerationSet artifacts) {
         Objects.requireNonNull(mapping, "mapping");
         if (!mapping.producer().isTarget()
-                || !Arrays.equals(mapping.producer().targetChannel().canonicalBytes(),
+                || !Arrays.equals(
+                        mapping.producer().targetChannel().canonicalBytes(),
                         publication.channel().canonicalBytes())) {
             throw new IllegalArgumentException("Target record changes its frozen mapping channel");
         }
         final var expected = PulsarAttemptJournal.Mapping.createCurrent(
                 mapping.shard(), PulsarAttemptJournal.ProducerKey.target(publication.channel(), publication.physical()),
-                mapping.sequenceId(), targetJournalIdentity(publication, message, payload,
-                        TargetSourcePosition.decode(mapping.sourcePosition())));
+                mapping.sequenceId(),
+                        targetJournalIdentity(
+                                publication, message, payload, TargetSourcePosition.decode(mapping.sourcePosition())));
         if (!Arrays.equals(expected.canonicalBytes(), mapping.canonicalBytes())) {
             throw new IllegalArgumentException("Target record differs from its full Journal mapping");
         }
-        return targetManaged(publication, message, payload, resolved,
-                PulsarSequenceAuthority.managedJournal(mapping.mappingId(), mapping.sequenceId(),
-                        mapping.producer().stableProducerNameHash()), artifacts);
+        return targetManaged(
+                publication,
+                message,
+                payload,
+                resolved,
+                PulsarSequenceAuthority.managedJournal(
+                        mapping.mappingId(),
+                        mapping.sequenceId(),
+                        mapping.producer().stableProducerNameHash()),
+                artifacts);
     }
 
     private static void requireTargetMessage(
-            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication, final TargetMessageRecord message,
+            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final TargetMessageRecord message,
             final PayloadForPublish payload) {
         Objects.requireNonNull(publication, "publication");
         Objects.requireNonNull(message, "message");
@@ -244,8 +305,8 @@ public final class PulsarPreparedRecordFactory {
                         ? !payload.hasInlinePayload()
                                 || !Arrays.equals(message.inlinePayload(), payload.inlinePayload())
                         : !payload.hasObject()
-                                || !message.payloadReference().equals(
-                                        PayloadReference.fromDescriptor(payload.object())))) {
+                                || !message.payloadReference()
+                                        .equals(PayloadReference.fromDescriptor(payload.object())))) {
             throw new IllegalArgumentException("Target record differs from the exact newly admitted Message/payload");
         }
     }
@@ -258,12 +319,14 @@ public final class PulsarPreparedRecordFactory {
         Objects.requireNonNull(publication, "publication");
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
-        if (!record.template().equals(targetTemplate(publication, record.template().payload()))
+        if (!record.template()
+                        .equals(targetTemplate(publication, record.template().payload()))
                 || record.sequenceAuthority().kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
-                || !Arrays.equals(record.sequenceAuthority().producerNameHash(),
+                || !Arrays.equals(
+                        record.sequenceAuthority().producerNameHash(),
                         Bytes.sha256(publication.channel().context().producerIdentity()))
-                || !record.externalIdentity().equals(
-                        ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()))
+                || !record.externalIdentity()
+                        .equals(ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()))
                 || !Arrays.equals(record.preparedIdentityHash(), publication.preparedPublishHash())
                 || !Arrays.equals(record.artifactGenerationSetDigest(), publication.artifactGenerationSetDigest())
                 || !Arrays.equals(artifacts.setDigest(), publication.artifactGenerationSetDigest())) {
@@ -273,7 +336,8 @@ public final class PulsarPreparedRecordFactory {
     }
 
     public static PulsarRecordTemplate targetTemplate(
-            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication, final PayloadForPublish payload) {
+            final com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
+            final PayloadForPublish payload) {
         Objects.requireNonNull(publication, "publication");
         if (publication.physical().resource().kind() != BrokerResourceIdentity.Kind.PULSAR
                 || publication.channel().context().kind() != ChannelKind.PULSAR_DEDUP_PRODUCER
@@ -285,14 +349,23 @@ public final class PulsarPreparedRecordFactory {
         }
         final var metadata = publication.adapterMetadata().pulsar();
         final byte[] keyBytes = metadata.partitionKey();
-        final var key = keyBytes == null ? PulsarKey.none()
+        final var key = keyBytes == null
+                ? PulsarKey.none()
                 : metadata.keyEncoding() == PulsarMetadata.KeyEncoding.UTF8
-                        ? PulsarKey.utf8(keyBytes) : PulsarKey.binary(keyBytes);
+                        ? PulsarKey.utf8(keyBytes)
+                        : PulsarKey.binary(keyBytes);
         return new PulsarRecordTemplate(
-                publication.physical().resource(), publication.physical().physicalPartition(), key,
-                metadata.orderingKey(), metadata.properties(), publication.eventTimeEpochMs(),
-                publication.reservedMetadata(), DeliveryContract.PULSAR_NATIVE_DELIVERY, publication.deliverAtEpochMs(),
-                payload, publication.artifactGenerationSetDigest());
+                publication.physical().resource(),
+                publication.physical().physicalPartition(),
+                key,
+                metadata.orderingKey(),
+                metadata.properties(),
+                publication.eventTimeEpochMs(),
+                publication.reservedMetadata(),
+                DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                publication.deliverAtEpochMs(),
+                payload,
+                publication.artifactGenerationSetDigest());
     }
 
     /** Constructs the managed record after an exact durable Journal mapping. */

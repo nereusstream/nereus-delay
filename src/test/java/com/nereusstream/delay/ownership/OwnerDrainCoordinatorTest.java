@@ -86,9 +86,8 @@ class OwnerDrainCoordinatorTest {
                 SharedRocksDbResources secondResources = new SharedRocksDbResources(secondConfig);
                 ShardStore firstStore = ShardStore.open(firstConfig, shardId, firstResources);
                 ShardStore secondStore = ShardStore.open(secondConfig, shardId, secondResources)) {
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(firstStore, DelayShardConfig.defaults()), acquired);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(firstStore, DelayShardConfig.defaults()), acquired);
 
             assertThrows(
                     IllegalArgumentException.class,
@@ -694,8 +693,8 @@ class OwnerDrainCoordinatorTest {
             final OwnerLease lease,
             final OxiaOwnerLeaseStore authority,
             final ShardId shardId) {
-        final OwnedDelayShard owned = new OwnedDelayShard(
-                BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
+        final OwnedDelayShard owned =
+                new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "drain-cluster", topic, 0, null, 1_000);
         owned.markCatchingUp(new SourceAssignment(

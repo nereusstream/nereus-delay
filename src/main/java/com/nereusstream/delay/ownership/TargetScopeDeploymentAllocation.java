@@ -1,18 +1,18 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.AuthorIdentity;
+import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.SourcePosition;
-import com.nereusstream.delay.protocol.TargetSloControlRegisteredInput;
-import com.nereusstream.delay.protocol.TargetSloControlScopeRoot;
 import com.nereusstream.delay.protocol.TargetScopeExposureDebit;
 import com.nereusstream.delay.protocol.TargetScopeExposurePolicy;
 import com.nereusstream.delay.protocol.TargetScopeResourcePolicy;
 import com.nereusstream.delay.protocol.TargetScopeResourceRoot;
+import com.nereusstream.delay.protocol.TargetSloControlRegisteredInput;
+import com.nereusstream.delay.protocol.TargetSloControlScopeRoot;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
-import com.nereusstream.delay.runtime.TrustedUtcClock;
 import com.nereusstream.delay.runtime.TargetScopeFeeAuthority;
+import com.nereusstream.delay.runtime.TrustedUtcClock;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.OptionalLong;
@@ -33,9 +33,19 @@ public final class TargetScopeDeploymentAllocation {
     private TargetScopeDeploymentAllocation() {}
 
     public enum ManagerPurpose {
-        INITIALIZE_ROOT, RESERVE_CHILD, CONFIRM_NATIVE, BIRTH_SCOPE, SEAL_SCOPE,
-        CLOSE_SCOPE_ISSUANCE, CLOSE_CHILD_ALLOCATIONS, MIGRATION_ACTIVATE, MIGRATION_SETTLE,
-        MIGRATION_RETIRE_INTENT, MIGRATION_RETIRE_CONFIRM, PAYLOAD_SUMMARY_INITIALIZE, MIGRATION_ARCHIVE
+        INITIALIZE_ROOT,
+        RESERVE_CHILD,
+        CONFIRM_NATIVE,
+        BIRTH_SCOPE,
+        SEAL_SCOPE,
+        CLOSE_SCOPE_ISSUANCE,
+        CLOSE_CHILD_ALLOCATIONS,
+        MIGRATION_ACTIVATE,
+        MIGRATION_SETTLE,
+        MIGRATION_RETIRE_INTENT,
+        MIGRATION_RETIRE_CONFIRM,
+        PAYLOAD_SUMMARY_INITIALIZE,
+        MIGRATION_ARCHIVE
     }
 
     /**
@@ -45,14 +55,22 @@ public final class TargetScopeDeploymentAllocation {
      * from actualNative, not caller amounts, balances or a coverageComplete flag. expected carries
      * the exact Root2, original birth marker and backend versions on the actual guarded CAS path.
      */
-    public record ClosureRequest(TargetSourceApplyRuntime.NativeExposureHold actualNative,
-            TargetScopeResourcePolicy resourcePolicy, TargetScopeResourceRoot.Child confirmedChild,
-            TargetSloControlScopeAuthority.RootHold expected, TargetScopeExposureDebit.Origin origin,
-            TargetScopeExposureSource.CopyContract sdk, TargetScopeExposurePolicy.Kind kind) {
+    public record ClosureRequest(
+            TargetSourceApplyRuntime.NativeExposureHold actualNative,
+            TargetScopeResourcePolicy resourcePolicy,
+            TargetScopeResourceRoot.Child confirmedChild,
+            TargetSloControlScopeAuthority.RootHold expected,
+            TargetScopeExposureDebit.Origin origin,
+            TargetScopeExposureSource.CopyContract sdk,
+            TargetScopeExposurePolicy.Kind kind) {
         public ClosureRequest {
-            Objects.requireNonNull(actualNative); Objects.requireNonNull(resourcePolicy);
-            Objects.requireNonNull(confirmedChild); Objects.requireNonNull(expected);
-            Objects.requireNonNull(origin); Objects.requireNonNull(sdk); Objects.requireNonNull(kind);
+            Objects.requireNonNull(actualNative);
+            Objects.requireNonNull(resourcePolicy);
+            Objects.requireNonNull(confirmedChild);
+            Objects.requireNonNull(expected);
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(sdk);
+            Objects.requireNonNull(kind);
         }
     }
 
@@ -65,32 +83,45 @@ public final class TargetScopeDeploymentAllocation {
         /** Same-held qualification/revocation check, including the original actual Native facts. */
         void requireCurrent();
         /** Checks complete expected/next/debit binding before that exact Root CAS is submitted. */
-        void requireDebitTransition(TargetSloControlScopeAuthority.RootHold expected,
-                TargetSloControlScopeRoot next, TargetScopeExposureDebit debit);
+        void requireDebitTransition(
+                TargetSloControlScopeAuthority.RootHold expected,
+                TargetSloControlScopeRoot next,
+                TargetScopeExposureDebit debit);
         /**
          * Checks the actual privately minted observed Root/birth/version and exact successful own
          * debit after CAS. Response loss or another debit grants no SDK permission or refund.
          */
-        void requireCommittedDebit(TargetSloControlScopeAuthority.RootHold expected,
-                TargetSloControlScopeAuthority.RootHold observed, TargetScopeExposureDebit debit);
+        void requireCommittedDebit(
+                TargetSloControlScopeAuthority.RootHold expected,
+                TargetSloControlScopeAuthority.RootHold observed,
+                TargetScopeExposureDebit debit);
     }
 
     public record ActualBinding(Object processGraph, SourcePosition source, byte[] managedNamespace, String keyPrefix) {
         public ActualBinding {
             Objects.requireNonNull(processGraph, "actual process graph");
-            source = TargetSourcePosition.decode(TargetSourcePosition.requireBounded(source).canonicalBytes());
-            managedNamespace = TargetScopeResourceConfiguration.assigned(managedNamespace, 32, "actual managed Oxia namespace");
+            source = TargetSourcePosition.decode(
+                    TargetSourcePosition.requireBounded(source).canonicalBytes());
+            managedNamespace =
+                    TargetScopeResourceConfiguration.assigned(managedNamespace, 32, "actual managed Oxia namespace");
             keyPrefix = TargetScopeResourceConfiguration.text(keyPrefix, 4096, "actual managed Oxia prefix");
-            if (keyPrefix.endsWith("/")) throw new IllegalArgumentException("actual managed Oxia prefix has trailing slash");
+            if (keyPrefix.endsWith("/")) {
+                throw new IllegalArgumentException("actual managed Oxia prefix has trailing slash");
+            }
         }
-        @Override public byte[] managedNamespace() { return managedNamespace.clone(); }
+
+        @Override
+        public byte[] managedNamespace() {
+            return managedNamespace.clone();
+        }
     }
 
     /** These are mandatory actual providers, never file/signed-DTO/simulated adapters. */
     public record Owners(SourceOwner source, RegistryOwner registry) {
         public Owners {
-            if (source == null || registry == null)
+            if (source == null || registry == null) {
                 throw new ExternalAllocationUnavailable("both original deployment allocation owners are required");
+            }
         }
     }
 
@@ -111,8 +142,10 @@ public final class TargetScopeDeploymentAllocation {
      * A thrown failure retaining native work must implement Cleanup and retain its exact handles
      * and actual in-flight futures until settled. A successful return transfers local close duty.
      */
-    @FunctionalInterface public interface SourceOwner {
-        SourceHandle acquire(TargetScopeResourceConfiguration configuration, ActualBinding actualBinding, Runnable guard);
+    @FunctionalInterface
+    public interface SourceOwner {
+        SourceHandle acquire(
+                TargetScopeResourceConfiguration configuration, ActualBinding actualBinding, Runnable guard);
     }
 
     /**
@@ -122,8 +155,10 @@ public final class TargetScopeDeploymentAllocation {
      * never establishes a physical-space bound. An independent original history owner pays for and
      * protects its own history without omission or a second child C0 debit.
      */
-    @FunctionalInterface public interface RegistryOwner {
-        RegistryHandle acquire(TargetScopeResourceConfiguration configuration, ActualBinding actualBinding, Runnable guard);
+    @FunctionalInterface
+    public interface RegistryOwner {
+        RegistryHandle acquire(
+                TargetScopeResourceConfiguration configuration, ActualBinding actualBinding, Runnable guard);
     }
 
     public interface Handle extends AutoCloseable {
@@ -148,7 +183,8 @@ public final class TargetScopeDeploymentAllocation {
          * Idempotently returns local loan/connections. Never refunds persistent physical shares,
          * concludes noFuture, settles UNKNOWN, or retires SDK late writes. Throwing retains duty.
          */
-        @Override void close();
+        @Override
+        void close();
     }
 
     public interface SourceHandle extends Handle {
@@ -159,19 +195,26 @@ public final class TargetScopeDeploymentAllocation {
          * future writers. A snapshot number, largest observed frame or policy allowlist is insufficient.
          * Revocation, Source replacement or loss of any original protection must revoke this check.
          */
-        default void requireAllRetainedAndFutureFrames(TargetWorkerSourceStartup.FrameOpening opening,
-                SourceSnapshot authenticated) {
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no complete retained-prefix/future-writer frame freeze");
+        default void requireAllRetainedAndFutureFrames(
+                TargetWorkerSourceStartup.FrameOpening opening, SourceSnapshot authenticated) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "original Source has no complete retained-prefix/future-writer frame freeze");
         }
         /** Same pre-acquired SDK/read/codec/shared window, including real JVM layout, field work and native exits. */
-        default void requireFrameReadAndCodecWindow(TargetWorkerSourceStartup.FrameOpening opening,
-                SourceSnapshot authenticated,com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no complete prepaid read/codec service window");
+        default void requireFrameReadAndCodecWindow(
+                TargetWorkerSourceStartup.FrameOpening opening,
+                SourceSnapshot authenticated,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "original Source has no complete prepaid read/codec service window");
         }
         /** Actual Root-selected Native work under the same original IO/SDK/shared owner; computed bytes alone grant none. */
-        default void requireNativeSourceService(TargetWorkerSourceStartup.FrameOpening opening,SourceSnapshot authenticated,
+        default void requireNativeSourceService(
+                TargetWorkerSourceStartup.FrameOpening opening,
+                SourceSnapshot authenticated,
                 com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds actual) {
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("original Source has no paid actual Native service qualification");
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "original Source has no paid actual Native service qualification");
         }
         /**
          * Borrows only already acquired local SDK/read/IO/codec/shared capacity, before decoding/copying.
@@ -180,27 +223,39 @@ public final class TargetScopeDeploymentAllocation {
          * consumer/Startup/Store monitor or new acquisition is allowed in this local handoff.
          */
         default TargetWorkerSourceRuntimeFactory.FrameReadLoan borrowFrameReadAndCodec(
-                TargetWorkerSourceStartup.FrameOpening opening, SourcePosition actual,long completeFrameBytes,
-                Long generation,byte[] attestation,
+                TargetWorkerSourceStartup.FrameOpening opening,
+                SourcePosition actual,
+                long completeFrameBytes,
+                Long generation,
+                byte[] attestation,
                 com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode) {
-            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original Source has no current prepaid SDK/read/codec subloan");
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "original Source has no current prepaid SDK/read/codec subloan");
         }
         /** Same complete Source freeze for this exact authenticated old Store/Manifest acquisition; grants no Target writes. */
-        default void requireAllRetainedAndFutureFrames(TargetMigrationProcessDriver.FrameOpening opening,
-                SourceSnapshot authenticated) {
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("original migration Source has no complete old-domain read frame qualification");
+        default void requireAllRetainedAndFutureFrames(
+                TargetMigrationProcessDriver.FrameOpening opening, SourceSnapshot authenticated) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "original migration Source has no complete old-domain read frame qualification");
         }
         /** Original old-domain read purpose and paid full codec window; management debit alone is insufficient. */
-        default void requireFrameReadAndCodecWindow(TargetMigrationProcessDriver.FrameOpening opening,
-                SourceSnapshot authenticated,com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
-            throw new TargetSourceAuthorityPreparation.InputUnavailable("original migration Source has no prepaid old-domain read/codec window");
+        default void requireFrameReadAndCodecWindow(
+                TargetMigrationProcessDriver.FrameOpening opening,
+                SourceSnapshot authenticated,
+                com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds maximum) {
+            throw new TargetSourceAuthorityPreparation.InputUnavailable(
+                    "original migration Source has no prepaid old-domain read/codec window");
         }
         /** The same original Held pays actual SDK/codec/field work and retains native cleanup; no fresh allocation. */
         default TargetWorkerSourceRuntimeFactory.FrameReadLoan borrowFrameReadAndCodec(
-                TargetMigrationProcessDriver.FrameOpening opening,SourcePosition actual,long completeFrameBytes,
-                Long generation,byte[] attestation,
+                TargetMigrationProcessDriver.FrameOpening opening,
+                SourcePosition actual,
+                long completeFrameBytes,
+                Long generation,
+                byte[] attestation,
                 com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.FrameDecodeBounds decode) {
-            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable("original migration Source has no prepaid old-domain SDK/read/codec subloan");
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "original migration Source has no prepaid old-domain SDK/read/codec subloan");
         }
         /** Reads/authenticates the real original allocation on its original I/O path. */
         SourceSnapshot readAuthenticated();
@@ -270,6 +325,7 @@ public final class TargetScopeDeploymentAllocation {
          * original owner still protects any history its own contract requires.
          */
         RegistrySnapshot readAuthenticated();
+
         RegistrySnapshot refresh();
     }
 
@@ -283,27 +339,46 @@ public final class TargetScopeDeploymentAllocation {
      * separately covers. Domain bytes are the original canonical complete inventory
      * of every producer and administrator able to consume or alter these fixed exclusive shares.
      */
-    public record Backing(TargetScopeResourceConfiguration.ExpectedOwner owner, long exclusiveRecords,
-            long exclusivePhysicalBytes, long fixedSegmentLedgerBytes, long prepaidManagementRecords,
-            long prepaidManagementPhysicalBytes, TargetScopeResourcePolicy.BackingCharge charge,
-            byte[] producerAdministratorDomain, long retainedUntilEpochMs, boolean untilExplicitRetirement) {
+    public record Backing(
+            TargetScopeResourceConfiguration.ExpectedOwner owner,
+            long exclusiveRecords,
+            long exclusivePhysicalBytes,
+            long fixedSegmentLedgerBytes,
+            long prepaidManagementRecords,
+            long prepaidManagementPhysicalBytes,
+            TargetScopeResourcePolicy.BackingCharge charge,
+            byte[] producerAdministratorDomain,
+            long retainedUntilEpochMs,
+            boolean untilExplicitRetirement) {
         public Backing {
-            Objects.requireNonNull(owner); Objects.requireNonNull(charge);
+            Objects.requireNonNull(owner);
+            Objects.requireNonNull(charge);
             TargetScopeResourceConfiguration.nonnegative(exclusiveRecords, "actual exclusive record units");
             TargetScopeResourceConfiguration.nonnegative(exclusivePhysicalBytes, "actual exclusive physical bytes");
-            TargetScopeResourceConfiguration.nonnegative(fixedSegmentLedgerBytes, "fixed segment/ledger physical bytes");
+            TargetScopeResourceConfiguration.nonnegative(
+                    fixedSegmentLedgerBytes, "fixed segment/ledger physical bytes");
             TargetScopeResourceConfiguration.nonnegative(prepaidManagementRecords, "prepaid management records");
-            TargetScopeResourceConfiguration.nonnegative(prepaidManagementPhysicalBytes, "prepaid management physical bytes");
+            TargetScopeResourceConfiguration.nonnegative(
+                    prepaidManagementPhysicalBytes, "prepaid management physical bytes");
             TargetScopeResourceConfiguration.positive(retainedUntilEpochMs, "original retained-until horizon");
-            if (!untilExplicitRetirement || producerAdministratorDomain == null
-                    || producerAdministratorDomain.length == 0 || producerAdministratorDomain.length > MAX_DOMAIN_BYTES)
+            if (!untilExplicitRetirement
+                    || producerAdministratorDomain == null
+                    || producerAdministratorDomain.length == 0
+                    || producerAdministratorDomain.length > MAX_DOMAIN_BYTES) {
                 throw new IllegalArgumentException("original full domain and until-explicit-retirement duty required");
-            if (prepaidManagementRecords > exclusiveRecords || prepaidManagementPhysicalBytes > exclusivePhysicalBytes
-                    || fixedSegmentLedgerBytes > exclusivePhysicalBytes)
+            }
+            if (prepaidManagementRecords > exclusiveRecords
+                    || prepaidManagementPhysicalBytes > exclusivePhysicalBytes
+                    || fixedSegmentLedgerBytes > exclusivePhysicalBytes) {
                 throw new IllegalArgumentException("original prepayment exceeds actual exclusive backing");
+            }
             producerAdministratorDomain = producerAdministratorDomain.clone();
         }
-        @Override public byte[] producerAdministratorDomain() { return producerAdministratorDomain.clone(); }
+
+        @Override
+        public byte[] producerAdministratorDomain() {
+            return producerAdministratorDomain.clone();
+        }
         /** Stable allocation facts; a refreshed retained-until horizon may extend without minting shares. */
         public byte[] canonicalBackingBytes() {
             return CanonicalProtobuf.message(out -> {
@@ -323,11 +398,14 @@ public final class TargetScopeDeploymentAllocation {
     public record SourceSnapshot(Backing backing, SourcePosition source, long maximumSourceFrameBytes) {
         public SourceSnapshot {
             Objects.requireNonNull(backing);
-            source = TargetSourcePosition.decode(TargetSourcePosition.requireBounded(source).canonicalBytes());
+            source = TargetSourcePosition.decode(
+                    TargetSourcePosition.requireBounded(source).canonicalBytes());
             TargetScopeResourceConfiguration.positive(maximumSourceFrameBytes, "original complete Source frame bound");
-            if (maximumSourceFrameBytes >= Integer.MAX_VALUE)
+            if (maximumSourceFrameBytes >= Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("original complete Source frame must fit a finite native frame");
+            }
         }
+
         public byte[] canonicalBackingBytes() {
             return CanonicalProtobuf.message(out -> {
                 CanonicalProtobuf.bytes(out, 1, backing.canonicalBackingBytes());
@@ -340,11 +418,19 @@ public final class TargetScopeDeploymentAllocation {
     public record RegistrySnapshot(Backing backing, byte[] managedNamespace, String keyPrefix) {
         public RegistrySnapshot {
             Objects.requireNonNull(backing);
-            managedNamespace = TargetScopeResourceConfiguration.assigned(managedNamespace, 32, "original managed Oxia namespace");
+            managedNamespace =
+                    TargetScopeResourceConfiguration.assigned(managedNamespace, 32, "original managed Oxia namespace");
             keyPrefix = TargetScopeResourceConfiguration.text(keyPrefix, 4096, "original managed Oxia prefix");
-            if (keyPrefix.endsWith("/")) throw new IllegalArgumentException("original managed Oxia prefix has trailing slash");
+            if (keyPrefix.endsWith("/")) {
+                throw new IllegalArgumentException("original managed Oxia prefix has trailing slash");
+            }
         }
-        @Override public byte[] managedNamespace() { return managedNamespace.clone(); }
+
+        @Override
+        public byte[] managedNamespace() {
+            return managedNamespace.clone();
+        }
+
         public byte[] canonicalBackingBytes() {
             return CanonicalProtobuf.message(out -> {
                 CanonicalProtobuf.bytes(out, 1, backing.canonicalBackingBytes());
@@ -361,13 +447,17 @@ public final class TargetScopeDeploymentAllocation {
 
     /** Policy.Binding.producerDomainDigest pins both complete original producer/admin domains. */
     public static byte[] producerDomainDigest(SourceSnapshot source, RegistrySnapshot registry) {
-        return Bytes.sha256(PRODUCERS_DOMAIN, pair(source.backing().producerAdministratorDomain(),
-                registry.backing().producerAdministratorDomain()));
+        return Bytes.sha256(
+                PRODUCERS_DOMAIN,
+                pair(
+                        source.backing().producerAdministratorDomain(),
+                        registry.backing().producerAdministratorDomain()));
     }
 
     private static byte[] pair(byte[] source, byte[] registry) {
         return CanonicalProtobuf.message(out -> {
-            CanonicalProtobuf.bytes(out, 1, source); CanonicalProtobuf.bytes(out, 2, registry);
+            CanonicalProtobuf.bytes(out, 1, source);
+            CanonicalProtobuf.bytes(out, 2, registry);
         });
     }
 
@@ -375,17 +465,25 @@ public final class TargetScopeDeploymentAllocation {
      * No owner means explicit unavailability; there is no requireBacked switch or fallback.
      * guard is the actual process graph's existing local admission/revocation check, without I/O.
      */
-    public static Owned acquire(TargetScopeResourceConfiguration configuration, ActualBinding actualBinding,
-            Owners owners, Runnable guard) {
-        if (owners == null) throw new ExternalAllocationUnavailable("external original Source/Oxia owners are unavailable");
+    public static Owned acquire(
+            TargetScopeResourceConfiguration configuration,
+            ActualBinding actualBinding,
+            Owners owners,
+            Runnable guard) {
+        if (owners == null) {
+            throw new ExternalAllocationUnavailable("external original Source/Oxia owners are unavailable");
+        }
         final var owned = new Owned(configuration, actualBinding, guard);
         try {
             owned.requirePolicyBinding(actualBinding);
             owned.guard.run();
-            owned.source.handle = Objects.requireNonNull(owners.source().acquire(configuration, actualBinding, guard), "original Source handle");
+            owned.source.handle = Objects.requireNonNull(
+                    owners.source().acquire(configuration, actualBinding, guard), "original Source handle");
             owned.sourceSnapshot = Objects.requireNonNull(((SourceHandle) owned.source.handle).readAuthenticated());
-            owned.registry.handle = Objects.requireNonNull(owners.registry().acquire(configuration, actualBinding, guard), "original registry handle");
-            owned.registrySnapshot = Objects.requireNonNull(((RegistryHandle) owned.registry.handle).readAuthenticated());
+            owned.registry.handle = Objects.requireNonNull(
+                    owners.registry().acquire(configuration, actualBinding, guard), "original registry handle");
+            owned.registrySnapshot =
+                    Objects.requireNonNull(((RegistryHandle) owned.registry.handle).readAuthenticated());
             owned.requireSnapshots(owned.sourceSnapshot, owned.registrySnapshot);
             owned.requireCurrent();
             owned.retainedBytes();
@@ -394,7 +492,8 @@ public final class TargetScopeDeploymentAllocation {
             owned.acquisitionCleanup = new CleanupWork(failure, null);
             owned.closing = true;
             owned.closeAttempt();
-            throw new ExternalAllocationUnavailable("original deployment allocation acquisition failed", failure, owned);
+            throw new ExternalAllocationUnavailable(
+                    "original deployment allocation acquisition failed", failure, owned);
         }
     }
 
@@ -415,20 +514,35 @@ public final class TargetScopeDeploymentAllocation {
             this.actualBinding = Objects.requireNonNull(actualBinding);
             this.guard = Objects.requireNonNull(guard);
         }
-        public TargetScopeResourceConfiguration configuration() { return configuration; }
-        public ActualBinding actualBinding() { return actualBinding; }
-        public TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(TargetWorkerSourceStartup.FrameOpening opening){
+
+        public TargetScopeResourceConfiguration configuration() {
+            return configuration;
+        }
+
+        public ActualBinding actualBinding() {
+            return actualBinding;
+        }
+
+        public TargetWorkerSourceRuntimeFactory.SourceFrameContract captureSourceFrames(
+                TargetWorkerSourceStartup.FrameOpening opening) {
             final SourceHandle original;
-            synchronized(this){requireCurrent();original=(SourceHandle)source.handle;}
+            synchronized (this) {
+                requireCurrent();
+                original = (SourceHandle) source.handle;
+            }
             opening.requireSource(actualBinding.source());
-            return TargetWorkerSourceRuntimeFactory.SourceFrameContract.capture(opening,original,this::requireCurrent);
+            return TargetWorkerSourceRuntimeFactory.SourceFrameContract.capture(
+                    opening, original, this::requireCurrent);
         }
 
         /** Pure local guard suitable for SDK and Store paths. Remote authentication occurs in refresh. */
         public synchronized void requireCurrent() {
-            if (closing || source.handle == null || registry.handle == null)
+            if (closing || source.handle == null || registry.handle == null) {
                 throw new ExternalAllocationUnavailable("original deployment allocation is not locally admitted");
-            guard.run(); source.handle.requireLocalCurrent(); registry.handle.requireLocalCurrent();
+            }
+            guard.run();
+            source.handle.requireLocalCurrent();
+            registry.handle.requireLocalCurrent();
         }
 
         public synchronized void requireBinding(ActualBinding actual) {
@@ -436,8 +550,10 @@ public final class TargetScopeDeploymentAllocation {
             if (actualBinding.processGraph() != actual.processGraph()
                     || !actualBinding.source().sameSourceIdentity(actual.source())
                     || !Arrays.equals(actualBinding.managedNamespace(), actual.managedNamespace())
-                    || !actualBinding.keyPrefix().equals(actual.keyPrefix()))
-                throw new IllegalArgumentException("owned deployment allocation changed actual process/Source/Oxia binding");
+                    || !actualBinding.keyPrefix().equals(actual.keyPrefix())) {
+                throw new IllegalArgumentException(
+                        "owned deployment allocation changed actual process/Source/Oxia binding");
+            }
         }
 
         /** Actual remote I/O: call only on the existing I/O owner outside SDK/handoff locks. */
@@ -446,7 +562,9 @@ public final class TargetScopeDeploymentAllocation {
             final RegistryHandle originalRegistry;
             synchronized (this) {
                 requireCurrent();
-                if (refreshing) throw new IllegalStateException("original allocation refresh is already outstanding");
+                if (refreshing) {
+                    throw new IllegalStateException("original allocation refresh is already outstanding");
+                }
                 refreshing = true;
                 originalSource = (SourceHandle) source.handle;
                 originalRegistry = (RegistryHandle) registry.handle;
@@ -458,19 +576,24 @@ public final class TargetScopeDeploymentAllocation {
                 requireSnapshots(nextSource, nextRegistry);
                 synchronized (this) {
                     requireCurrent();
-                    sourceSnapshot = nextSource; registrySnapshot = nextRegistry;
-                    retainedBytes(); refreshing = false;
+                    sourceSnapshot = nextSource;
+                    registrySnapshot = nextRegistry;
+                    retainedBytes();
+                    refreshing = false;
                 }
             } catch (RuntimeException failure) {
                 synchronized (this) {
-                    closing = true; acquisitionCleanup = new CleanupWork(failure, null); refreshing = false;
+                    closing = true;
+                    acquisitionCleanup = new CleanupWork(failure, null);
+                    refreshing = false;
                 }
                 throw new ExternalAllocationUnavailable("original deployment allocation refresh failed", failure, this);
             }
         }
 
         public synchronized void requireSdkContract(TargetScopeExposureSource.CopyContract contract) {
-            requireCurrent(); ((SourceHandle) source.handle).requireSdkContract(Objects.requireNonNull(contract));
+            requireCurrent();
+            ((SourceHandle) source.handle).requireSdkContract(Objects.requireNonNull(contract));
             requireCurrent();
         }
 
@@ -482,35 +605,47 @@ public final class TargetScopeDeploymentAllocation {
 
         public synchronized OptionalLong requiredServiceRetryUntil(TargetSloControlRegisteredInput input) {
             requireCurrent();
-            final var until = Objects.requireNonNull(((SourceHandle) source.handle)
-                    .requiredServiceRetryUntil(Objects.requireNonNull(input)), "original local SERVICE qualification");
-            requireCurrent(); return until;
+            final var until = Objects.requireNonNull(
+                    ((SourceHandle) source.handle).requiredServiceRetryUntil(Objects.requireNonNull(input)),
+                    "original local SERVICE qualification");
+            requireCurrent();
+            return until;
         }
 
         public synchronized TargetScopeFeeAuthority.Payment requireScopeFeeOccurrence(
                 TargetScopeFeeAuthority.Occurrence occurrence) {
             requireCurrent();
-            final var payment = Objects.requireNonNull(((SourceHandle) source.handle)
-                    .requireScopeFeeOccurrence(Objects.requireNonNull(occurrence)), "original local Source fee occurrence qualification");
-            requireCurrent(); return payment;
+            final var payment = Objects.requireNonNull(
+                    ((SourceHandle) source.handle).requireScopeFeeOccurrence(Objects.requireNonNull(occurrence)),
+                    "original local Source fee occurrence qualification");
+            requireCurrent();
+            return payment;
         }
 
         public synchronized ClosureCoverage requireClosureCoverage(ClosureRequest request) {
-            requireCurrent(); Objects.requireNonNull(request);
-            if (!Arrays.equals(configuration.policy().digest(), request.resourcePolicy().digest()))
+            requireCurrent();
+            Objects.requireNonNull(request);
+            if (!Arrays.equals(
+                    configuration.policy().digest(), request.resourcePolicy().digest())) {
                 throw new ExternalAllocationUnavailable("closure qualification changed the original resource policy");
-            request.actualNative().requireExposureFrame(); request.actualNative().requireLocalCurrent();
-            final var coverage = Objects.requireNonNull(((SourceHandle) source.handle)
-                    .requireClosureCoverage(request), "actual original Source closure qualification");
+            }
+            request.actualNative().requireExposureFrame();
+            request.actualNative().requireLocalCurrent();
+            final var coverage = Objects.requireNonNull(
+                    ((SourceHandle) source.handle).requireClosureCoverage(request),
+                    "actual original Source closure qualification");
             requireCurrent();
             return guardedCoverage(request, coverage, this::requireCurrent);
         }
 
         /** Independent management entry only; ordinary Source and SDK guards never call this method. */
         public synchronized void requireManagementPurpose(ManagerPurpose purpose, AuthorIdentity actor) {
-            requireCurrent(); Objects.requireNonNull(purpose); Objects.requireNonNull(actor);
-            if (!configuration.policy().authorizedManagers().contains(actor))
+            requireCurrent();
+            Objects.requireNonNull(purpose);
+            Objects.requireNonNull(actor);
+            if (!configuration.policy().authorizedManagers().contains(actor)) {
                 throw new ExternalAllocationUnavailable("actor is outside the exact configured manager domain");
+            }
             source.handle.requireManagementPurpose(purpose, actor);
             registry.handle.requireManagementPurpose(purpose, actor);
             final byte[] sourceGrant = TargetScopeResourceConfiguration.assigned(
@@ -518,52 +653,71 @@ public final class TargetScopeDeploymentAllocation {
             final byte[] registryGrant = TargetScopeResourceConfiguration.assigned(
                     registry.handle.managementAuthorizationDigest(), 32, "original registry management grant");
             if (!Arrays.equals(configuration.policy().managerAuthorizationDigest(), sourceGrant)
-                    || !Arrays.equals(configuration.policy().managerAuthorizationDigest(), registryGrant))
-                throw new ExternalAllocationUnavailable("original independent management grant differs from the frozen policy");
+                    || !Arrays.equals(configuration.policy().managerAuthorizationDigest(), registryGrant)) {
+                throw new ExternalAllocationUnavailable(
+                        "original independent management grant differs from the frozen policy");
+            }
             requireCurrent();
         }
 
         public synchronized TrustedUtcClock.CustodyTime captureHandoffTime() {
             requireCurrent();
             final var time = Objects.requireNonNull(((SourceHandle) source.handle).captureHandoffTime());
-            if (!time.interval().qualified() || time.interval().latestEpochMs() == Long.MAX_VALUE
-                    || sourceSnapshot.backing().retainedUntilEpochMs() < time.interval().latestEpochMs()
-                    || registrySnapshot.backing().retainedUntilEpochMs() < time.interval().latestEpochMs())
+            if (!time.interval().qualified()
+                    || time.interval().latestEpochMs() == Long.MAX_VALUE
+                    || sourceSnapshot.backing().retainedUntilEpochMs()
+                            < time.interval().latestEpochMs()
+                    || registrySnapshot.backing().retainedUntilEpochMs()
+                            < time.interval().latestEpochMs()) {
                 throw new ExternalAllocationUnavailable("original qualified UTC/retention horizon unavailable");
-            requireCurrent(); return time;
+            }
+            requireCurrent();
+            return time;
         }
 
         public synchronized long retainedBytes() {
             long bytes = configuration.canonicalBytes().length;
-            if (sourceSnapshot != null) bytes = Math.addExact(bytes, Math.addExact(16, sourceSnapshot.canonicalBackingBytes().length));
-            if (registrySnapshot != null) bytes = Math.addExact(bytes, Math.addExact(16, registrySnapshot.canonicalBackingBytes().length));
+            if (sourceSnapshot != null) {
+                bytes = Math.addExact(bytes, Math.addExact(16, sourceSnapshot.canonicalBackingBytes().length));
+            }
+            if (registrySnapshot != null) {
+                bytes = Math.addExact(bytes, Math.addExact(16, registrySnapshot.canonicalBackingBytes().length));
+            }
             bytes = Math.addExact(bytes, source.retainedBytes());
             bytes = Math.addExact(bytes, registry.retainedBytes());
-            if (bytes > configuration.limits().maximumRetainedBytes())
-                throw new ExternalAllocationUnavailable("original allocation exceeds explicit local retained-byte bound");
+            if (bytes > configuration.limits().maximumRetainedBytes()) {
+                throw new ExternalAllocationUnavailable(
+                        "original allocation exceeds explicit local retained-byte bound");
+            }
             return bytes;
         }
 
         /** A finite local reference; closing it cannot close or refund either original parent owner. */
         public synchronized Loan borrow() {
             requireCurrent();
-            if (localBorrows == configuration.limits().maximumLocalBorrows())
+            if (localBorrows == configuration.limits().maximumLocalBorrows()) {
                 throw new ExternalAllocationUnavailable("original allocation local borrow bound exhausted");
-            localBorrows++; return new Loan(this);
+            }
+            localBorrows++;
+            return new Loan(this);
         }
 
         private void requirePolicyBinding(ActualBinding actual) {
             final var binding = configuration.policy().binding();
             if (!binding.sourceAnchor().sameSourceIdentity(actual.source())
                     || !Arrays.equals(binding.registryNamespaceBinding(), actual.managedNamespace())
-                    || !binding.registryKeyPrefix().equals(actual.keyPrefix()))
+                    || !binding.registryKeyPrefix().equals(actual.keyPrefix())) {
                 throw new IllegalArgumentException("policy differs from actual original Source/Oxia binding");
+            }
         }
 
         private void requireSnapshots(SourceSnapshot s, RegistrySnapshot r) {
-            final var p = configuration.policy(); final var limits = configuration.limits();
-            final var sb = s.backing(); final var rb = r.backing();
-            final long readBytes = Math.addExact(Math.addExact(16, s.canonicalBackingBytes().length),
+            final var p = configuration.policy();
+            final var limits = configuration.limits();
+            final var sb = s.backing();
+            final var rb = r.backing();
+            final long readBytes = Math.addExact(
+                    Math.addExact(16, s.canonicalBackingBytes().length),
                     Math.addExact(16, r.canonicalBackingBytes().length));
             if (readBytes > limits.maximumLocalReadBytes()
                     || !configuration.expectedOwners().source().matches(sb.owner())
@@ -571,124 +725,205 @@ public final class TargetScopeDeploymentAllocation {
                     || !actualBinding.source().sameSourceIdentity(s.source())
                     || !Arrays.equals(actualBinding.managedNamespace(), r.managedNamespace())
                     || !actualBinding.keyPrefix().equals(r.keyPrefix())
-                    || !Arrays.equals(p.backingCharge().canonicalBytes(), sb.charge().canonicalBytes())
-                    || !Arrays.equals(p.backingCharge().canonicalBytes(), rb.charge().canonicalBytes())
+                    || !Arrays.equals(
+                            p.backingCharge().canonicalBytes(), sb.charge().canonicalBytes())
+                    || !Arrays.equals(
+                            p.backingCharge().canonicalBytes(), rb.charge().canonicalBytes())
                     || s.maximumSourceFrameBytes() < limits.maximumSourceFrameBytes()
                     || sb.retainedUntilEpochMs() < limits.minimumRetainedUntilEpochMs()
                     || rb.retainedUntilEpochMs() < limits.minimumRetainedUntilEpochMs()
                     || sb.exclusiveRecords() < p.totalShares().sourceRecords()
                     || rb.exclusiveRecords() < p.totalShares().registryRecords()
-                    || sb.exclusivePhysicalBytes() < Math.addExact(p.backingCharge().sourceBackingBytes(p.totalShares()), sb.fixedSegmentLedgerBytes())
-                    || rb.exclusivePhysicalBytes() < Math.addExact(p.backingCharge().registryBackingBytes(p.totalShares()), rb.fixedSegmentLedgerBytes())
+                    || sb.exclusivePhysicalBytes()
+                            < Math.addExact(
+                                    p.backingCharge().sourceBackingBytes(p.totalShares()), sb.fixedSegmentLedgerBytes())
+                    || rb.exclusivePhysicalBytes()
+                            < Math.addExact(
+                                    p.backingCharge().registryBackingBytes(p.totalShares()),
+                                    rb.fixedSegmentLedgerBytes())
                     || rb.prepaidManagementRecords() < p.managementShares().registryRecords()
-                    || rb.prepaidManagementPhysicalBytes() < p.backingCharge().registryBackingBytes(p.managementShares())
+                    || rb.prepaidManagementPhysicalBytes()
+                            < p.backingCharge().registryBackingBytes(p.managementShares())
                     || sb.prepaidManagementRecords() < p.managementShares().sourceRecords()
                     || sb.prepaidManagementPhysicalBytes() < p.backingCharge().sourceBackingBytes(p.managementShares())
                     || !Arrays.equals(p.binding().backingAllocationDigest(), backingAllocationDigest(s, r))
-                    || !Arrays.equals(p.binding().producerDomainDigest(), producerDomainDigest(s, r)))
-                throw new ExternalAllocationUnavailable("actual original exclusive allocation does not cover the frozen policy");
+                    || !Arrays.equals(p.binding().producerDomainDigest(), producerDomainDigest(s, r))) {
+                throw new ExternalAllocationUnavailable(
+                        "actual original exclusive allocation does not cover the frozen policy");
+            }
         }
 
-        @Override public synchronized void close() {
-            closing = true; closeAttempt();
-            if (!cleanupComplete())
-                throw new ExternalAllocationUnavailable("original allocation local close retains outstanding duty", null, this);
+        @Override
+        public synchronized void close() {
+            closing = true;
+            closeAttempt();
+            if (!cleanupComplete()) {
+                throw new ExternalAllocationUnavailable(
+                        "original allocation local close retains outstanding duty", null, this);
+            }
         }
 
         private void closeAttempt() {
-            if (localBorrows != 0 || refreshing) return;
-            if (acquisitionCleanup != null) acquisitionCleanup.retry();
-            registry.closeAttempt(); source.closeAttempt();
+            if (localBorrows != 0 || refreshing) {
+                return;
+            }
+            if (acquisitionCleanup != null) {
+                acquisitionCleanup.retry();
+            }
+            registry.closeAttempt();
+            source.closeAttempt();
         }
 
-        @Override public synchronized boolean cleanupComplete() {
-            return closing && !refreshing && localBorrows == 0 && source.complete() && registry.complete()
+        @Override
+        public synchronized boolean cleanupComplete() {
+            return closing
+                    && !refreshing
+                    && localBorrows == 0
+                    && source.complete()
+                    && registry.complete()
                     && (acquisitionCleanup == null || acquisitionCleanup.complete());
         }
 
-        @Override public synchronized CompletableFuture<Void> retryCleanup() {
-            closing = true; closeAttempt();
-            return cleanupComplete() ? CompletableFuture.completedFuture(null)
-                    : CompletableFuture.failedFuture(new ExternalAllocationUnavailable("original local cleanup is still outstanding", null, this));
+        @Override
+        public synchronized CompletableFuture<Void> retryCleanup() {
+            closing = true;
+            closeAttempt();
+            return cleanupComplete()
+                    ? CompletableFuture.completedFuture(null)
+                    : CompletableFuture.failedFuture(new ExternalAllocationUnavailable(
+                            "original local cleanup is still outstanding", null, this));
         }
     }
 
     public static final class Loan implements AutoCloseable {
         private final Owned owned;
         private boolean closed;
-        private Loan(Owned owned) { this.owned = owned; }
+
+        private Loan(Owned owned) {
+            this.owned = owned;
+        }
+
         public void requireCurrent() {
             synchronized (owned) {
-                if (closed) throw new IllegalStateException("local allocation loan is closed");
+                if (closed) {
+                    throw new IllegalStateException("local allocation loan is closed");
+                }
                 owned.requireCurrent();
             }
         }
+
         public void requireRegisteredInput(TargetSloControlRegisteredInput input) {
             synchronized (owned) {
-                requireCurrent(); owned.requireRegisteredInput(input); requireCurrent();
+                requireCurrent();
+                owned.requireRegisteredInput(input);
+                requireCurrent();
             }
         }
+
         public OptionalLong requiredServiceRetryUntil(TargetSloControlRegisteredInput input) {
             synchronized (owned) {
                 requireCurrent();
                 final var until = owned.requiredServiceRetryUntil(input);
-                requireCurrent(); return until;
+                requireCurrent();
+                return until;
             }
         }
-        public TargetScopeFeeAuthority.Payment requireScopeFeeOccurrence(TargetScopeFeeAuthority.Occurrence occurrence) {
+
+        public TargetScopeFeeAuthority.Payment requireScopeFeeOccurrence(
+                TargetScopeFeeAuthority.Occurrence occurrence) {
             synchronized (owned) {
                 requireCurrent();
                 final var payment = owned.requireScopeFeeOccurrence(occurrence);
-                requireCurrent(); return payment;
+                requireCurrent();
+                return payment;
             }
         }
+
         public ClosureCoverage requireClosureCoverage(ClosureRequest request) {
             synchronized (owned) {
                 requireCurrent();
                 final var coverage = owned.requireClosureCoverage(request);
-                requireCurrent(); return guardedCoverage(request, coverage, this::requireCurrent);
+                requireCurrent();
+                return guardedCoverage(request, coverage, this::requireCurrent);
             }
         }
-        @Override public void close() {
-            synchronized (owned) { if (!closed) { closed = true; owned.localBorrows--; } }
+
+        @Override
+        public void close() {
+            synchronized (owned) {
+                if (!closed) {
+                    closed = true;
+                    owned.localBorrows--;
+                }
+            }
         }
     }
 
     /** Guards only the existing original qualification and its finite local borrow, never mints it. */
     private static ClosureCoverage guardedCoverage(ClosureRequest request, ClosureCoverage original, Runnable guard) {
         return new ClosureCoverage() {
-            @Override public void requireCurrent() {
-                guard.run(); request.actualNative().requireLocalCurrent(); original.requireCurrent(); guard.run();
+            @Override
+            public void requireCurrent() {
+                guard.run();
+                request.actualNative().requireLocalCurrent();
+                original.requireCurrent();
+                guard.run();
             }
-            @Override public void requireDebitTransition(TargetSloControlScopeAuthority.RootHold expected,
-                    TargetSloControlScopeRoot next, TargetScopeExposureDebit debit) {
-                requireCurrent(); requireSameExpected(expected);
+
+            @Override
+            public void requireDebitTransition(
+                    TargetSloControlScopeAuthority.RootHold expected,
+                    TargetSloControlScopeRoot next,
+                    TargetScopeExposureDebit debit) {
+                requireCurrent();
+                requireSameExpected(expected);
                 original.requireDebitTransition(expected, Objects.requireNonNull(next), Objects.requireNonNull(debit));
                 requireCurrent();
             }
-            @Override public void requireCommittedDebit(TargetSloControlScopeAuthority.RootHold expected,
-                    TargetSloControlScopeAuthority.RootHold observed, TargetScopeExposureDebit debit) {
-                requireCurrent(); requireSameExpected(expected);
-                original.requireCommittedDebit(expected, Objects.requireNonNull(observed), Objects.requireNonNull(debit));
+
+            @Override
+            public void requireCommittedDebit(
+                    TargetSloControlScopeAuthority.RootHold expected,
+                    TargetSloControlScopeAuthority.RootHold observed,
+                    TargetScopeExposureDebit debit) {
+                requireCurrent();
+                requireSameExpected(expected);
+                original.requireCommittedDebit(
+                        expected, Objects.requireNonNull(observed), Objects.requireNonNull(debit));
                 requireCurrent();
             }
+
             private void requireSameExpected(TargetSloControlScopeAuthority.RootHold expected) {
-                if (request.expected() != expected)
-                    throw new ExternalAllocationUnavailable("closure qualification changed its actual guarded Root CAS hold");
+                if (request.expected() != expected) {
+                    throw new ExternalAllocationUnavailable(
+                            "closure qualification changed its actual guarded Root CAS hold");
+                }
             }
         };
     }
 
     /** Carries the exact retained composition after any partial acquisition/close/refresh failure. */
-    public static final class ExternalAllocationUnavailable extends IllegalStateException implements CheckpointInputFuture.Cleanup {
+    public static final class ExternalAllocationUnavailable extends IllegalStateException
+            implements CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
         private final transient Owned retained;
-        public ExternalAllocationUnavailable(String message) { this(message, null, null); }
-        private ExternalAllocationUnavailable(String message, Throwable cause, Owned retained) {
-            super(message, cause); this.retained = retained;
+
+        public ExternalAllocationUnavailable(String message) {
+            this(message, null, null);
         }
-        @Override public boolean cleanupComplete() { return retained == null || retained.cleanupComplete(); }
-        @Override public CompletableFuture<Void> retryCleanup() {
+
+        private ExternalAllocationUnavailable(String message, Throwable cause, Owned retained) {
+            super(message, cause);
+            this.retained = retained;
+        }
+
+        @Override
+        public boolean cleanupComplete() {
+            return retained == null || retained.cleanupComplete();
+        }
+
+        @Override
+        public CompletableFuture<Void> retryCleanup() {
             return retained == null ? CompletableFuture.completedFuture(null) : retained.retryCleanup();
         }
     }
@@ -698,22 +933,43 @@ public final class TargetScopeDeploymentAllocation {
         Handle handle;
         boolean closeReturned;
         CleanupWork pending;
+
         long retainedBytes() {
-            if (handle == null) return 0;
+            if (handle == null) {
+                return 0;
+            }
             final long bytes = handle.retainedBytes();
-            TargetScopeResourceConfiguration.nonnegative(bytes, "original handle retained bytes"); return bytes;
+            TargetScopeResourceConfiguration.nonnegative(bytes, "original handle retained bytes");
+            return bytes;
         }
+
         void closeAttempt() {
-            if (handle == null) return;
-            if (pending != null) { pending.retry(); if (!pending.complete()) return; pending = null; }
-            if (closeReturned) return;
+            if (handle == null) {
+                return;
+            }
+            if (pending != null) {
+                pending.retry();
+                if (!pending.complete()) {
+                    return;
+                }
+                pending = null;
+            }
+            if (closeReturned) {
+                return;
+            }
             try {
                 CheckpointInputFuture.requestStop(handle.inFlight());
-                handle.close(); closeReturned = true;
+                handle.close();
+                closeReturned = true;
                 pending = new CleanupWork(null, handle.inFlight());
-            } catch (RuntimeException failure) { pending = new CleanupWork(failure, handle.inFlight()); }
+            } catch (RuntimeException failure) {
+                pending = new CleanupWork(failure, handle.inFlight());
+            }
         }
-        boolean complete() { return handle == null || closeReturned && (pending == null || pending.complete()); }
+
+        boolean complete() {
+            return handle == null || closeReturned && (pending == null || pending.complete());
+        }
     }
 
     private static final class CleanupWork {
@@ -722,52 +978,90 @@ public final class TargetScopeDeploymentAllocation {
         // Backpressure cleanup retries instead of accumulating exceptional native futures without
         // bound. A slot is reusable only after its actual I/O and failure-owned cleanup have exited.
         final CompletableFuture<?>[] retries = new CompletableFuture<?>[4];
+
         CleanupWork(Throwable failure, CompletableFuture<?> inFlight) {
-            while (failure instanceof CompletionException && failure.getCause() != null) failure = failure.getCause();
-            this.failure = failure; this.inFlight = inFlight;
+            while (failure instanceof CompletionException && failure.getCause() != null) {
+                failure = failure.getCause();
+            }
+            this.failure = failure;
+            this.inFlight = inFlight;
         }
+
         boolean complete() {
-            if (failure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) return false;
-            if (!settled(inFlight)) return false;
-            for (var retry : retries) if (!settled(retry)) return false;
+            if (failure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) {
+                return false;
+            }
+            if (!settled(inFlight)) {
+                return false;
+            }
+            for (var retry : retries) {
+                if (!settled(retry)) {
+                    return false;
+                }
+            }
             return true;
         }
+
         void retry() {
             int free = -1;
-            for (int i = 0; i < retries.length; i++) if (settled(retries[i])) { free = i; break; }
-            if (free < 0) return; // retain every unfinished original future; do not start more work
+            for (int i = 0; i < retries.length; i++) {
+                if (settled(retries[i])) {
+                    free = i;
+                    break;
+                }
+            }
+            if (free < 0) {
+                return;
+            } // retain every unfinished original future; do not start more work
             try {
                 for (int i = retries.length - 1; i >= 0; i--) {
                     if (retries[i] != null && !settled(retries[i])) {
-                        retryFuture(retries[i], free); return;
+                        retryFuture(retries[i], free);
+                        return;
                     }
                 }
-                if (!settled(inFlight)) { retryFuture(inFlight, free); return; }
-                if (failure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete())
+                if (!settled(inFlight)) {
+                    retryFuture(inFlight, free);
+                    return;
+                }
+                if (failure instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) {
                     retries[free] = Objects.requireNonNull(cleanup.retryCleanup());
+                }
             } catch (RuntimeException retryFailure) {
                 retries[free] = CompletableFuture.failedFuture(retryFailure);
             }
         }
+
         private void retryFuture(CompletableFuture<?> future, int free) {
             final var actual = futureFailure(future);
             if (actual instanceof CheckpointInputFuture.Cleanup cleanup && !cleanup.cleanupComplete()) {
                 retries[free] = Objects.requireNonNull(cleanup.retryCleanup());
             } else {
-                CheckpointInputFuture.requestStop(future); CheckpointInputFuture.retryCleanup(future);
+                CheckpointInputFuture.requestStop(future);
+                CheckpointInputFuture.retryCleanup(future);
             }
         }
+
         private static boolean settled(CompletableFuture<?> future) {
-            if (!CheckpointInputFuture.ioExited(future)) return false;
+            if (!CheckpointInputFuture.ioExited(future)) {
+                return false;
+            }
             final var actual = futureFailure(future);
             return !(actual instanceof CheckpointInputFuture.Cleanup cleanup) || cleanup.cleanupComplete();
         }
+
         private static Throwable futureFailure(CompletableFuture<?> future) {
-            if (future == null || !future.isDone()) return null;
-            try { future.join(); return null; }
-            catch (RuntimeException exception) {
+            if (future == null || !future.isDone()) {
+                return null;
+            }
+            try {
+                future.join();
+                return null;
+            } catch (RuntimeException exception) {
                 Throwable actual = exception;
-                while (actual instanceof CompletionException && actual.getCause() != null) actual = actual.getCause();
+                while (actual instanceof CompletionException && actual.getCause() != null) {
+                    actual = actual.getCause();
+                }
                 return actual;
             }
         }

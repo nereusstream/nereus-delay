@@ -48,8 +48,8 @@ public final class CheckpointRestoreWorkClassExecutor {
     private void execute(final RestoreRequest request, final Submission submission) {
         try {
             restoreCoordinator.requireRestoreSubmission(request.request(), request.pin(), request.target());
-            submission.complete(RestoreOutcome.succeeded(
-                    restoreCoordinator.restore(request.request(), request.pin(), request.target(), request.repairTarget())));
+            submission.complete(RestoreOutcome.succeeded(restoreCoordinator.restore(
+                    request.request(), request.pin(), request.target(), request.repairTarget())));
         } catch (RuntimeException failure) {
             submission.complete(RestoreOutcome.failed(failure));
         } catch (Error failure) {
@@ -70,18 +70,28 @@ public final class CheckpointRestoreWorkClassExecutor {
             }
             if (request.repairTarget() != null) {
                 final var id = request.repairTarget();
-                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 4, java.nio.ByteBuffer.allocate(16)
-                        .putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array());
+                com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
+                        output,
+                        4,
+                        java.nio.ByteBuffer.allocate(16)
+                                .putLong(id.getMostSignificantBits())
+                                .putLong(id.getLeastSignificantBits())
+                                .array());
             }
         });
     }
 
-    public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin,
-            ShardStore.TargetRestoreAuthentication target, java.util.UUID repairTarget) {
+    public record RestoreRequest(
+            CheckpointDownloadRequest request,
+            RecoveryPin pin,
+            ShardStore.TargetRestoreAuthentication target,
+            java.util.UUID repairTarget) {
         public RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin) {
             this(request, pin, null, null);
         }
-        public RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin, ShardStore.TargetRestoreAuthentication target) {
+
+        public RestoreRequest(
+                CheckpointDownloadRequest request, RecoveryPin pin, ShardStore.TargetRestoreAuthentication target) {
             this(request, pin, target, null);
         }
 

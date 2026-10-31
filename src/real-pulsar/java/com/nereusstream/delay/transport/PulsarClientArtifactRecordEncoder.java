@@ -82,24 +82,33 @@ public final class PulsarClientArtifactRecordEncoder {
         if (metadata.partitionKey() != null) {
             if (metadata.keyEncoding() == PulsarMetadata.KeyEncoding.UTF8) {
                 builder.key(new String(metadata.partitionKey(), java.nio.charset.StandardCharsets.UTF_8));
-            } else { builder.keyBytes(metadata.partitionKey()); }
+            } else {
+                builder.keyBytes(metadata.partitionKey());
+            }
         }
-        if (metadata.orderingKey() != null) { builder.orderingKey(metadata.orderingKey()); }
+        if (metadata.orderingKey() != null) {
+            builder.orderingKey(metadata.orderingKey());
+        }
         final Map<String, String> properties = new LinkedHashMap<>();
-        for (var property : metadata.properties()) { putProperty(properties, property); }
+        for (var property : metadata.properties()) {
+            putProperty(properties, property);
+        }
         for (var property : com.nereusstream.delay.protocol.PulsarReservedProperties.all(
                 publication.reservedMetadata(), publication.publishAttemptId(), publication.preparedPublishHash())) {
             putProperty(properties, property);
         }
         builder.properties(properties);
-        if (publication.eventTimeEpochMs() != null) { builder.eventTime(publication.eventTimeEpochMs()); }
+        if (publication.eventTimeEpochMs() != null) {
+            builder.eventTime(publication.eventTimeEpochMs());
+        }
         return builder;
     }
 
     /** Configures and sends the exact logical record through the P1 producer. */
     public static CompletableFuture<MessageId> send(
             final Producer<byte[]> producer, final PulsarPreparedRecord record) {
-        return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> configure(producer, record).sendAsync());
+        return PulsarClientArtifactOwnedBackendGroup.nativeSend(
+                producer, () -> configure(producer, record).sendAsync());
     }
 
     private static void putProperty(final Map<String, String> properties, final PulsarMetadata.Property property) {

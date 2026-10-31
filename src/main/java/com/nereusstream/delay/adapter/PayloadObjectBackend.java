@@ -29,9 +29,12 @@ interface PayloadObjectBackend {
     }
 
     /** Real upload operation custody is supported only by the actual remote backend. */
-    default void putIfAbsent(String identity,byte[] payload,long maximumBytes,PayloadUploadOperationHistory.Upload operation){
-        if(operation!=null)throw new UnsupportedOperationException("local payload backend has no durable provider operation history");
-        putIfAbsent(identity,payload,maximumBytes);
+    default void putIfAbsent(
+            String identity, byte[] payload, long maximumBytes, PayloadUploadOperationHistory.Upload operation) {
+        if (operation != null) {
+            throw new UnsupportedOperationException("local payload backend has no durable provider operation history");
+        }
+        putIfAbsent(identity, payload, maximumBytes);
     }
 
     /**

@@ -171,9 +171,8 @@ class WorkerShardFleetRuntimeTest {
                     Bytes.utf8("fleet-worker-" + identity),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("fleet-owner-fence-" + identity)));
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
             if (withCheckpoint) {

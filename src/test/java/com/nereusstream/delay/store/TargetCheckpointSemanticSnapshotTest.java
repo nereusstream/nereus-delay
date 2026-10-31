@@ -60,27 +60,54 @@ class TargetCheckpointSemanticSnapshotTest {
         corrupt[corrupt.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> TargetCheckpointSemanticSnapshot.decode(corrupt, LIMITS));
         final var changed = new TargetCheckpointDependencies.Builder(new TargetCheckpointRootVerifier.RootProof(
-                fixture.dependencies().root().metadata(), fixture.source(), 2,
-                fixture.dependencies().root().root(), fixture.dependencies().root().bookkeeping(),
-                fixture.dependencies().root().aggregate())).finish(List.of());
+                        fixture.dependencies().root().metadata(),
+                        fixture.source(),
+                        2,
+                        fixture.dependencies().root().root(),
+                        fixture.dependencies().root().bookkeeping(),
+                        fixture.dependencies().root().aggregate()))
+                .finish(List.of());
         assertThrows(IllegalArgumentException.class, () -> restored.validateAgainst(changed, LIMITS));
     }
 
     @Test
     void missingTransitiveValuesWrongSemanticsBudgetAndProtectionCannotComplete() throws Exception {
         final var fixture = fixture();
-        assertThrows(IllegalStateException.class, () -> TargetCheckpointSemanticSnapshot.collect(
-                fixture.dependencies(), List.of(), profiles(fixture, false), (ref, at) -> fixture.retry(),
-                ref -> fixture.trust(), budget(64), LIMITS, () -> {}));
-        assertThrows(ReadIncompleteException.class, () -> TargetCheckpointSemanticSnapshot.collect(
-                fixture.dependencies(), List.of(), profiles(fixture, true), (ref, at) -> fixture.retry(),
-                ref -> fixture.trust(), budget(1), LIMITS, () -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetCheckpointSemanticSnapshot.collect(
+                        fixture.dependencies(),
+                        List.of(),
+                        profiles(fixture, false),
+                        (ref, at) -> fixture.retry(),
+                        ref -> fixture.trust(),
+                        budget(64),
+                        LIMITS,
+                        () -> {}));
+        assertThrows(
+                ReadIncompleteException.class,
+                () -> TargetCheckpointSemanticSnapshot.collect(
+                        fixture.dependencies(),
+                        List.of(),
+                        profiles(fixture, true),
+                        (ref, at) -> fixture.retry(),
+                        ref -> fixture.trust(),
+                        budget(1),
+                        LIMITS,
+                        () -> {}));
         final var calls = new java.util.concurrent.atomic.AtomicInteger();
-        assertThrows(IllegalStateException.class, () -> collect(fixture, () -> {
-            if (calls.incrementAndGet() == 4) { throw new IllegalStateException("protection lost"); }
-        }));
-        assertThrows(IllegalArgumentException.class, () -> TargetCheckpointSemanticSnapshot.decode(
-                collect(fixture, () -> {}).canonicalBytes(), new TargetCheckpointSemanticSnapshot.Limits(1, 128, 128)));
+        assertThrows(
+                IllegalStateException.class,
+                () -> collect(fixture, () -> {
+                    if (calls.incrementAndGet() == 4) {
+                        throw new IllegalStateException("protection lost");
+                    }
+                }));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetCheckpointSemanticSnapshot.decode(
+                        collect(fixture, () -> {}).canonicalBytes(),
+                        new TargetCheckpointSemanticSnapshot.Limits(1, 128, 128)));
     }
 
     @Test
@@ -88,41 +115,79 @@ class TargetCheckpointSemanticSnapshotTest {
         final var fixture = fixture();
         final var snapshot = collect(fixture, () -> {});
         final var uses = new java.util.ArrayList<ProfileRef>();
-        snapshot.authenticateProfiles(fixture.dependencies(), LIMITS, budget(64), (ref, original) -> {
-            assertEquals(fixture.source(), original);
-            uses.add(ref);
-            return profiles(fixture, true).resolve(ref);
-        }, () -> {});
+        snapshot.authenticateProfiles(
+                fixture.dependencies(),
+                LIMITS,
+                budget(64),
+                (ref, original) -> {
+                    assertEquals(fixture.source(), original);
+                    uses.add(ref);
+                    return profiles(fixture, true).resolve(ref);
+                },
+                () -> {});
         assertTrue(uses.contains(fixture.destination().ref()));
         assertTrue(uses.contains(fixture.capability().ref()));
         assertEquals(2, uses.size());
-        assertThrows(IllegalStateException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
-                budget(64), (ref, original) -> ref.equals(fixture.capability().ref())
-                        ? null : fixture.destination(), () -> {}));
-        assertThrows(ReadIncompleteException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
-                budget(1), (ref, original) -> profiles(fixture, true).resolve(ref), () -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> snapshot.authenticateProfiles(
+                        fixture.dependencies(),
+                        LIMITS,
+                        budget(64),
+                        (ref, original) -> ref.equals(fixture.capability().ref()) ? null : fixture.destination(),
+                        () -> {}));
+        assertThrows(
+                ReadIncompleteException.class,
+                () -> snapshot.authenticateProfiles(
+                        fixture.dependencies(),
+                        LIMITS,
+                        budget(1),
+                        (ref, original) -> profiles(fixture, true).resolve(ref),
+                        () -> {}));
         final var held = new java.util.concurrent.atomic.AtomicBoolean(true);
-        assertThrows(IllegalStateException.class, () -> snapshot.authenticateProfiles(fixture.dependencies(), LIMITS,
-                budget(64), (ref, original) -> {
-                    held.set(false);
-                    return profiles(fixture, true).resolve(ref);
-                }, () -> { if (!held.get()) { throw new IllegalStateException("Profile pin lost"); } }));
+        assertThrows(
+                IllegalStateException.class,
+                () -> snapshot.authenticateProfiles(
+                        fixture.dependencies(),
+                        LIMITS,
+                        budget(64),
+                        (ref, original) -> {
+                            held.set(false);
+                            return profiles(fixture, true).resolve(ref);
+                        },
+                        () -> {
+                            if (!held.get()) {
+                                throw new IllegalStateException("Profile pin lost");
+                            }
+                        }));
     }
 
     private static TargetCheckpointSemanticSnapshot collect(Fixture fixture, Runnable guard) {
-        return TargetCheckpointSemanticSnapshot.collect(fixture.dependencies(), List.of(), profiles(fixture, true),
+        return TargetCheckpointSemanticSnapshot.collect(
+                fixture.dependencies(),
+                List.of(),
+                profiles(fixture, true),
                 (ref, at) -> {
                     assertEquals(fixture.source(), at);
                     return fixture.retry();
-                }, ref -> fixture.trust(), budget(64), LIMITS, guard);
+                },
+                ref -> fixture.trust(),
+                budget(64),
+                LIMITS,
+                guard);
     }
 
     private static ProfileCatalog profiles(Fixture fixture, boolean capabilityPresent) {
         return new ProfileCatalog() {
             @Override
             public ProfileSemanticEnvelope resolve(ProfileRef reference) {
-                if (reference.equals(fixture.destination().ref())) { return fixture.destination(); }
-                return capabilityPresent && reference.equals(fixture.capability().ref()) ? fixture.capability() : null;
+                if (reference.equals(fixture.destination().ref())) {
+                    return fixture.destination();
+                }
+                return capabilityPresent
+                                && reference.equals(fixture.capability().ref())
+                        ? fixture.capability()
+                        : null;
             }
 
             @Override
@@ -144,38 +209,84 @@ class TargetCheckpointSemanticSnapshotTest {
         };
     }
 
-    private record Fixture(TargetCheckpointDependencies dependencies, ProfileSemanticEnvelope destination,
-            ProfileSemanticEnvelope capability, RetryPolicySemantic retry, PayloadProofTrustSetSemantic trust,
+    private record Fixture(
+            TargetCheckpointDependencies dependencies,
+            ProfileSemanticEnvelope destination,
+            ProfileSemanticEnvelope capability,
+            RetryPolicySemantic retry,
+            PayloadProofTrustSetSemantic trust,
             KafkaSourcePosition source) {}
 
     private static Fixture fixture() throws Exception {
-        final var dispatch = TargetDispatchCompatibility.decode(vector(
-                "target-compatibility-vectors.properties", "pulsar.journal.dispatch"));
-        final var capability = new ProfileSemanticEnvelope(ProfileKind.DELIVERY_CAPABILITY,
-                Bytes.utf8("snapshot-capability"), 1, dispatch.capability());
-        final var destination = new ProfileSemanticEnvelope(ProfileKind.DESTINATION, Bytes.utf8("snapshot-dest"), 1,
-                new DestinationProfileSemantic(AdapterKind.PULSAR, CanonicalTargetPartition.decode(vector(
-                        "target-compatibility-vectors.properties", "pulsar.target")).resource(), 8,
-                        TargetPartitionPolicy.EXPLICIT_ONLY, TargetPartitionHashInput.DELAY_MESSAGE_ID, List.of(5),
-                        capability.ref(), 3, 60_000, bytes(32, 1), 20_000, 10_000, 10_000, 1,
-                        Bytes.utf8("snapshot-dest"), 86_400_000, 172_800_000, 2, bytes(32, 2)));
-        final var retry = new RetryPolicySemantic(Bytes.utf8("snapshot-retry"), 1, 10, 100, 3, 60_000,
-                UncertainPolicy.HOLD_FOR_EVIDENCE, 0, DlqExportMode.NOT_CONFIGURED, 0, 0, 0, 0, false, bytes(32, 3));
-        final var trust = new PayloadProofTrustSetSemantic(1,
-                List.of(new PayloadProofVerifierKey(1, bytes(32, 4), 0, 100)));
-        final var source = new KafkaSourcePosition(new ShardId(new RouteIncarnation(bytes(16, 5)), 0),
-                "snapshot-cluster", new UUID(1, 2), 10, null, 100);
-        final var accounting = TargetQuotaAccounting.decode(
-                vector("target-quota-accounting-vectors.properties", "accounting"));
+        final var dispatch = TargetDispatchCompatibility.decode(
+                vector("target-compatibility-vectors.properties", "pulsar.journal.dispatch"));
+        final var capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("snapshot-capability"), 1, dispatch.capability());
+        final var destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION,
+                Bytes.utf8("snapshot-dest"),
+                1,
+                new DestinationProfileSemantic(
+                        AdapterKind.PULSAR,
+                        CanonicalTargetPartition.decode(
+                                        vector("target-compatibility-vectors.properties", "pulsar.target"))
+                                .resource(),
+                        8,
+                        TargetPartitionPolicy.EXPLICIT_ONLY,
+                        TargetPartitionHashInput.DELAY_MESSAGE_ID,
+                        List.of(5),
+                        capability.ref(),
+                        3,
+                        60_000,
+                        bytes(32, 1),
+                        20_000,
+                        10_000,
+                        10_000,
+                        1,
+                        Bytes.utf8("snapshot-dest"),
+                        86_400_000,
+                        172_800_000,
+                        2,
+                        bytes(32, 2)));
+        final var retry = new RetryPolicySemantic(
+                Bytes.utf8("snapshot-retry"),
+                1,
+                10,
+                100,
+                3,
+                60_000,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
+                0,
+                DlqExportMode.NOT_CONFIGURED,
+                0,
+                0,
+                0,
+                0,
+                false,
+                bytes(32, 3));
+        final var trust =
+                new PayloadProofTrustSetSemantic(1, List.of(new PayloadProofVerifierKey(1, bytes(32, 4), 0, 100)));
+        final var source = new KafkaSourcePosition(
+                new ShardId(new RouteIncarnation(bytes(16, 5)), 0), "snapshot-cluster", new UUID(1, 2), 10, null, 100);
+        final var accounting =
+                TargetQuotaAccounting.decode(vector("target-quota-accounting-vectors.properties", "accounting"));
         final var stamp = new TargetQuotaMutation(1, source, bytes(32, 6));
-        final var root = TargetQuotaIncarnation.allocate(new TargetQuotaScope(source.shardId(), bytes(32, 7), null),
-                accounting, bytes(16, 8), stamp, (prior, next) -> {});
-        final var bookkeeping = new TargetQuotaBookkeeping(root.identity(), bytes(32, 7), accounting,
-                new TargetQuotaBookkeeping.Inventory(2, 0, 0), 1, stamp);
-        final var proof = new TargetCheckpointRootVerifier.RootProof(new StoreMetadata(2, source.shardId(),
-                bytes(16, 9), bytes(32, 10)), source, 1, root, bookkeeping,
-                new TargetQuotaAggregate(source.shardId(), root.identity().accountingIncarnation(),
-                        TargetQuotaUsage.empty(), 1, stamp));
+        final var root = TargetQuotaIncarnation.allocate(
+                new TargetQuotaScope(source.shardId(), bytes(32, 7), null),
+                accounting,
+                bytes(16, 8),
+                stamp,
+                (prior, next) -> {});
+        final var bookkeeping = new TargetQuotaBookkeeping(
+                root.identity(), bytes(32, 7), accounting, new TargetQuotaBookkeeping.Inventory(2, 0, 0), 1, stamp);
+        final var proof = new TargetCheckpointRootVerifier.RootProof(
+                new StoreMetadata(2, source.shardId(), bytes(16, 9), bytes(32, 10)),
+                source,
+                1,
+                root,
+                bookkeeping,
+                new TargetQuotaAggregate(
+                        source.shardId(), root.identity().accountingIncarnation(), TargetQuotaUsage.empty(), 1, stamp));
         final var builder = new TargetCheckpointDependencies.Builder(proof);
         builder.profileUse(new TargetCheckpointDependencies.ProfileUse(destination.ref(), source));
         builder.retryUse(new TargetCheckpointDependencies.RetryUse(retry.ref(), source));

@@ -76,8 +76,11 @@ public record RocksDbUsageLimits(
         validateInternal(snapshots, rootPath, filesystemFloor, false);
     }
 
-    private void validateInternal(final List<RocksDbUsageSnapshot> snapshots, final Path rootPath,
-            final long workerEnvelopeMinimumFilesystemFreeBytes, final boolean requireUniqueShard) {
+    private void validateInternal(
+            final List<RocksDbUsageSnapshot> snapshots,
+            final Path rootPath,
+            final long workerEnvelopeMinimumFilesystemFreeBytes,
+            final boolean requireUniqueShard) {
         Objects.requireNonNull(snapshots, "snapshots");
         Objects.requireNonNull(rootPath, "rootPath");
         if (workerEnvelopeMinimumFilesystemFreeBytes < 0) {

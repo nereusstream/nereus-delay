@@ -10,9 +10,15 @@ public final class TargetSourceBacklog {
 
     public record Limits(int readRecords, long readBytes, int maximumFrameBytes, long elapsedNanos) {
         public Limits {
-            if (readRecords < 2 || readRecords == Integer.MAX_VALUE || readBytes <= 0 || readBytes == Long.MAX_VALUE
-                    || maximumFrameBytes <= 0 || maximumFrameBytes == Integer.MAX_VALUE
-                    || readBytes < maximumFrameBytes || elapsedNanos <= 0 || elapsedNanos == Long.MAX_VALUE) {
+            if (readRecords < 2
+                    || readRecords == Integer.MAX_VALUE
+                    || readBytes <= 0
+                    || readBytes == Long.MAX_VALUE
+                    || maximumFrameBytes <= 0
+                    || maximumFrameBytes == Integer.MAX_VALUE
+                    || readBytes < maximumFrameBytes
+                    || elapsedNanos <= 0
+                    || elapsedNanos == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Source backlog reads must be finite and include an anchor/frame");
             }
         }
@@ -29,18 +35,29 @@ public final class TargetSourceBacklog {
             requireCurrent();
         }
 
-        public SourcePosition applied() { return applied; }
+        public SourcePosition applied() {
+            return applied;
+        }
 
-        public void requireCurrent() { current.run(); }
+        public void requireCurrent() {
+            current.run();
+        }
     }
 
     /** Counts frames, not offsets or SDK pending requests. A snapshot is useful only while its cut is current. */
-    public record Snapshot(Cut cut, SourcePosition tail, long records, long bytes,
-            Long oldestBrokerPersistenceTimeEpochMs, long observedAtNanos) {
+    public record Snapshot(
+            Cut cut,
+            SourcePosition tail,
+            long records,
+            long bytes,
+            Long oldestBrokerPersistenceTimeEpochMs,
+            long observedAtNanos) {
         public Snapshot {
             Objects.requireNonNull(cut, "cut");
             Objects.requireNonNull(tail, "tail");
-            if (tail.compareTo(cut.applied()) < 0 || records < 0 || bytes < 0
+            if (tail.compareTo(cut.applied()) < 0
+                    || records < 0
+                    || bytes < 0
                     || ((records == 0) != (bytes == 0))
                     || ((records == 0) != (oldestBrokerPersistenceTimeEpochMs == null))
                     || (oldestBrokerPersistenceTimeEpochMs != null && oldestBrokerPersistenceTimeEpochMs < 0)) {
@@ -91,7 +108,9 @@ public final class TargetSourceBacklog {
         public void add(final SourcePosition source, final int frameBytes) {
             requireCurrent();
             final var position = Objects.requireNonNull(source, "source");
-            if (reads >= limits.readRecords() || frameBytes <= 0 || frameBytes > limits.maximumFrameBytes()
+            if (reads >= limits.readRecords()
+                    || frameBytes <= 0
+                    || frameBytes > limits.maximumFrameBytes()
                     || readBytes > limits.readBytes() - frameBytes) {
                 throw new IllegalStateException("Source backlog prefix exceeds its finite read/frame budget");
             }
@@ -115,8 +134,10 @@ public final class TargetSourceBacklog {
 
         public Snapshot finish(final SourcePosition nativeTail) {
             requireCurrent();
-            if (last == null || !java.util.Arrays.equals(last.canonicalBytes(),
-                    Objects.requireNonNull(nativeTail, "nativeTail").canonicalBytes())) {
+            if (last == null
+                    || !java.util.Arrays.equals(
+                            last.canonicalBytes(),
+                            Objects.requireNonNull(nativeTail, "nativeTail").canonicalBytes())) {
                 throw new IllegalStateException("Source backlog has not read its complete captured tail");
             }
             final var snapshot = new Snapshot(cut, last, records, bytes, oldest, clock.getAsLong());

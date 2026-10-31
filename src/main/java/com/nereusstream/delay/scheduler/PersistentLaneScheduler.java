@@ -200,12 +200,7 @@ public final class PersistentLaneScheduler {
     private void resetFairnessForRecovery() {
         final List<LaneScheduler.LaneSnapshot> reset = delegate.snapshot().lanes().stream()
                 .map(snapshot -> new LaneScheduler.LaneSnapshot(
-                        snapshot.laneId(),
-                        snapshot.weight(),
-                        0,
-                        0,
-                        snapshot.pendingItems(),
-                        snapshot.schedulable()))
+                        snapshot.laneId(), snapshot.weight(), 0, 0, snapshot.pendingItems(), snapshot.schedulable()))
                 .toList();
         delegate.restore(new LaneScheduler.SchedulerSnapshot(0, 0, reset));
         lastScannedReadyKey = null;
@@ -365,9 +360,7 @@ public final class PersistentLaneScheduler {
     }
 
     private List<ScheduleWorkItem> publishReadyProjections(
-            final long dueThroughEpochMs,
-            final ReadyScan readyScan,
-            final List<ScheduleWorkItem> offered) {
+            final long dueThroughEpochMs, final ReadyScan readyScan, final List<ScheduleWorkItem> offered) {
         final List<ReadyProjection> projections = readyScan.projections();
         byte[] lastEligibleReadyKey = null;
         boolean eligibleCursorWrapped = false;
@@ -1331,8 +1324,8 @@ public final class PersistentLaneScheduler {
         }
         final SchedulerProjections.LastServedMap decodedLastServed =
                 SchedulerProjections.LastServedMap.decode(lastServed.payload());
-        if (decodedLastServed.entries().stream().anyMatch(entry ->
-                entry.lastServedRound() < 0
+        if (decodedLastServed.entries().stream()
+                .anyMatch(entry -> entry.lastServedRound() < 0
                         || entry.lastServedRound() > decodedRound.roundGeneration()
                         || entry.serviceGapGeneration() < 0)) {
             throw new IllegalArgumentException("scheduler service counters are invalid");

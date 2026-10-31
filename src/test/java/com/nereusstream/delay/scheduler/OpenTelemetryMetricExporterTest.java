@@ -18,7 +18,8 @@ class OpenTelemetryMetricExporterTest {
     @Test
     void boundedEventsReachFixedOpenTelemetryInstrumentsWithoutAttributes() {
         final InMemoryMetricReader reader = InMemoryMetricReader.create();
-        try (var provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+        try (var provider =
+                        SdkMeterProvider.builder().registerMetricReader(reader).build();
                 var metrics = new BoundedAsyncMetricExporter(
                         new Limits(14, 126), new OpenTelemetryMetricExporter(provider.get("nereus-delay")))) {
             assertEquals(
@@ -96,10 +97,7 @@ class OpenTelemetryMetricExporterTest {
 
             final var intervalMetric = observed.get("nereus.target.drr.target.service.interval.nanos");
             assertEquals("ns", intervalMetric.getUnit());
-            final var interval = intervalMetric
-                    .getHistogramData()
-                    .getPoints()
-                    .stream()
+            final var interval = intervalMetric.getHistogramData().getPoints().stream()
                     .findFirst()
                     .orElseThrow();
             assertEquals(1, interval.getCount());
@@ -179,10 +177,7 @@ class OpenTelemetryMetricExporterTest {
 
             final var physicalPublishDuration = observed.get("nereus.target.physical.publish.stage.duration");
             assertEquals("ns", physicalPublishDuration.getUnit());
-            final var physicalPublishDurationPoint = physicalPublishDuration
-                    .getHistogramData()
-                    .getPoints()
-                    .stream()
+            final var physicalPublishDurationPoint = physicalPublishDuration.getHistogramData().getPoints().stream()
                     .findFirst()
                     .orElseThrow();
             assertEquals(1, physicalPublishDurationPoint.getCount());
@@ -191,10 +186,7 @@ class OpenTelemetryMetricExporterTest {
 
             final var physicalPublishUnavailable = observed.get("nereus.target.physical.publish.stage.unavailable");
             assertEquals("1", physicalPublishUnavailable.getUnit());
-            final var physicalPublishUnavailablePoint = physicalPublishUnavailable
-                    .getLongSumData()
-                    .getPoints()
-                    .stream()
+            final var physicalPublishUnavailablePoint = physicalPublishUnavailable.getLongSumData().getPoints().stream()
                     .findFirst()
                     .orElseThrow();
             assertEquals(1, physicalPublishUnavailablePoint.getValue());

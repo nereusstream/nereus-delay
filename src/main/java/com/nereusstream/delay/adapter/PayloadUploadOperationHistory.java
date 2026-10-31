@@ -17,24 +17,28 @@ import com.nereusstream.delay.protocol.TargetUncommittedObjectClosure;
  */
 public interface PayloadUploadOperationHistory {
     /** Persist coverage of this exact capability before it can be exposed or used to bypass the service. */
-    void admitCapability(PayloadReservationReceipt receipt,OpaquePayloadUploadHandle handle,CredentialUseLease credential);
+    void admitCapability(
+            PayloadReservationReceipt receipt, OpaquePayloadUploadHandle handle, CredentialUseLease credential);
 
     /**
      * Durably register the actual operation before any provider ownership. Returned handle owns its original
      * admission loan/operation; re-registration after CLOSED is forbidden even if the process map is empty.
      */
-    Upload admitUpload(PayloadReservationReceipt receipt,OpaquePayloadUploadHandle handle,CredentialUseLease credential);
+    Upload admitUpload(
+            PayloadReservationReceipt receipt, OpaquePayloadUploadHandle handle, CredentialUseLease credential);
 
     interface Upload {
         byte[] operationId();
+
         OwnerIdentity holder();
+
         void requireCurrent();
         /** Persist provider ownership/UNKNOWN before dispatch; method entry or local exit is not remote terminal. */
         void beforePut();
         /** Actual successful HTTP/provider response, including immutable version; persist before acknowledging it. */
-        void putApplied(byte[] immutableVersion,byte[] etag,String providerRequestId,byte[] publicResponse);
+        void putApplied(byte[] immutableVersion, byte[] etag, String providerRequestId, byte[] publicResponse);
         /** An actual definite conflict/no-create response; no assumption that an earlier operation is terminal. */
-        void putNotCreated(int status,String providerRequestId,byte[] publicResponse);
+        void putNotCreated(int status, String providerRequestId, byte[] publicResponse);
         /** Preserve original durable UNKNOWN and late-response responsibility; do not infer completion from failure. */
         void putUncertain(Throwable failure);
         /** Only this local invocation exited; durable operation/history survives failed close/process loss. */
@@ -47,10 +51,11 @@ public interface PayloadUploadOperationHistory {
      * and persist the complete immutable terminal inventory BEFORE returning or allowing any DELETE.
      * Missing/late/unknown operations or an oversized complete inventory must throw, never return a partial list.
      */
-    TargetUncommittedObjectClosure closeAndFreeze(TargetPayloadObjectRetiringRecord intent,long maximumBytes,Runnable originalHeld);
+    TargetUncommittedObjectClosure closeAndFreeze(
+            TargetPayloadObjectRetiringRecord intent, long maximumBytes, Runnable originalHeld);
 
     /** Local recheck of the original qualified hold and exact persisted closed inventory, including old deleted versions. */
-    void requireClosed(TargetPayloadObjectRetiringRecord intent,TargetUncommittedObjectClosure closure);
+    void requireClosed(TargetPayloadObjectRetiringRecord intent, TargetUncommittedObjectClosure closure);
 
     /** Original protocol's finite upper bound for each complete public deletion history, reserved before DELETE. */
     int maximumDeleteHistoryBytes();
@@ -60,9 +65,14 @@ public interface PayloadUploadOperationHistory {
      * the history must recover a lost response and late I/O, not compensate with absence/404 or SDK shutdown.
      * Retaining an actual old response must remain possible after the current admission loan expires; it grants no new I/O.
      */
-    TargetUncommittedObjectClosure.Deletion recordDeleted(TargetPayloadObjectRetiringRecord intent,
-            TargetUncommittedObjectClosure closure,PayloadObjectResource version,byte[] requestIdHash,byte[] responseHash,byte[] actualResponse);
+    TargetUncommittedObjectClosure.Deletion recordDeleted(
+            TargetPayloadObjectRetiringRecord intent,
+            TargetUncommittedObjectClosure closure,
+            PayloadObjectResource version,
+            byte[] requestIdHash,
+            byte[] responseHash,
+            byte[] actualResponse);
 
     /** Durable final custody before a hot confirmation can escape; CLOSED cannot reopen after Source RELEASED. */
-    void retainTerminal(TargetPayloadObjectRetiringRecord intent,TargetUncommittedObjectClosure terminal);
+    void retainTerminal(TargetPayloadObjectRetiringRecord intent, TargetUncommittedObjectClosure terminal);
 }

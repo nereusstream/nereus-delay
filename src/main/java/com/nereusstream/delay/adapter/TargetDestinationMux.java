@@ -16,6 +16,7 @@ import java.util.concurrent.CompletionStage;
 /** Bounded exact-channel dispatch for one shared Target driver, including overlapping credential generations. */
 public final class TargetDestinationMux implements DestinationPublishAdapter {
     private record Entry(TargetChannelIdentity channel, DestinationPublishAdapter adapter) {}
+
     private final int maximumChannels;
     private final Map<String, Entry> channels = new HashMap<>();
     private boolean closing;
@@ -29,9 +30,12 @@ public final class TargetDestinationMux implements DestinationPublishAdapter {
 
     public synchronized void register(TargetChannelIdentity channel, DestinationPublishAdapter adapter) {
         Objects.requireNonNull(channel, "actual configured channel");
-        if (closing || channels.size() >= maximumChannels
-                || channels.putIfAbsent(Bytes.hex(channel.digest()), new Entry(channel,
-                        Objects.requireNonNull(adapter, "owned SDK endpoint"))) != null) {
+        if (closing
+                || channels.size() >= maximumChannels
+                || channels.putIfAbsent(
+                                Bytes.hex(channel.digest()),
+                                new Entry(channel, Objects.requireNonNull(adapter, "owned SDK endpoint")))
+                        != null) {
             throw new IllegalStateException("Target endpoint is stopping, duplicated or full");
         }
     }
@@ -47,49 +51,74 @@ public final class TargetDestinationMux implements DestinationPublishAdapter {
     }
 
     private synchronized DestinationPublishAdapter endpoint(TargetChannelIdentity channel) {
-        if (closing) { return null; }
+        if (closing) {
+            return null;
+        }
         final var entry = channels.get(Bytes.hex(channel.digest()));
-        if (entry == null) { return null; }
+        if (entry == null) {
+            return null;
+        }
         entry.channel().requireExactFrozenIdentity(channel);
         return entry.adapter();
     }
 
     public synchronized void requireEndpoint(TargetChannelIdentity channel, DestinationPublishAdapter original) {
-        if (endpoint(channel) != original) throw new IllegalStateException("Target dispatch lacks its original channel SDK owner");
+        if (endpoint(channel) != original) {
+            throw new IllegalStateException("Target dispatch lacks its original channel SDK owner");
+        }
     }
 
-    public synchronized boolean empty() { return channels.isEmpty(); }
+    public synchronized boolean empty() {
+        return channels.isEmpty();
+    }
 
     private static CompletionStage<DestinationPublishResult> unavailable() {
-        return CompletableFuture.completedFuture(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+        return CompletableFuture.completedFuture(
+                DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }
 
-    @Override public CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request) {
+    @Override
+    public CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request) {
         return unavailable();
     }
 
-    @Override public CompletionStage<DestinationPublishResult> publishTargetOrdinary(TargetOrdinaryPublishRequest request,
+    @Override
+    public CompletionStage<DestinationPublishResult> publishTargetOrdinary(
+            TargetOrdinaryPublishRequest request,
             BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight gate) {
         final var adapter = endpoint(request.publication().channel());
         return adapter == null ? unavailable() : adapter.publishTargetOrdinary(request, gate);
     }
 
-    @Override public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(TargetOrdinaryPublicationBinding publication,
-            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+    @Override
+    public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
+            TargetOrdinaryPublicationBinding publication,
+            PulsarPreparedRecord record,
+            ArtifactGenerationSet artifacts,
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight gate) {
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         final var adapter = endpoint(publication.channel());
-        return adapter == null ? unavailable() : adapter.publishTargetPreparedRecord(publication, record, artifacts, gate);
+        return adapter == null
+                ? unavailable()
+                : adapter.publishTargetPreparedRecord(publication, record, artifacts, gate);
     }
 
-    @Override public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(TargetNativePublicationBinding publication,
-            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+    @Override
+    public CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
+            TargetNativePublicationBinding publication,
+            PulsarPreparedRecord record,
+            ArtifactGenerationSet artifacts,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight gate) {
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         final var adapter = endpoint(publication.channel());
-        return adapter == null ? unavailable() : adapter.publishTargetPreparedRecord(publication, record, artifacts, gate);
+        return adapter == null
+                ? unavailable()
+                : adapter.publishTargetPreparedRecord(publication, record, artifacts, gate);
     }
 
     /** Fences routing only; registered per-generation resource owners perform tracked, retryable native close. */
-    @Override public synchronized void close() { closing = true; }
+    @Override
+    public synchronized void close() {
+        closing = true;
+    }
 }

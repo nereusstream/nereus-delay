@@ -139,7 +139,9 @@ public final class RouteWorkerAssignmentCoordinator {
         }
         final var current = workerCoordinator.requireAcceptedPublication(
                 expectedSource.shardId(), expectedRevision, expectedAssignment);
-        if (!publication.sameIdentity(current)) throw new IllegalStateException("assignment changed during reader eligibility checks");
+        if (!publication.sameIdentity(current)) {
+            throw new IllegalStateException("assignment changed during reader eligibility checks");
+        }
         final WorkerAssignment accepted = current.assignment();
         if (dataResetActivationGate != null) {
             dataResetActivationGate.requireAssignment(

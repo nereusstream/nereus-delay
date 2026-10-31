@@ -42,13 +42,12 @@ public record HeadReadPolicy(int maxRecords, long maxBytes, long maxElapsedNanos
             // One legacy DUE/ORDERED candidate scans the bounded open-Attempt set and may then
             // read its ScheduleBinding plus the Message behind it. The included replacement and
             // excluded prior legacy Message can each need one additional actionAt lookup.
-            final long legacyActionLookup = Math.addExact(
-                    openAttemptScanLimit, LEGACY_BINDING_AND_MESSAGE_READS_PER_ACTION_LOOKUP);
+            final long legacyActionLookup =
+                    Math.addExact(openAttemptScanLimit, LEGACY_BINDING_AND_MESSAGE_READS_PER_ACTION_LOOKUP);
             final long legacyStandardCandidate = Math.addExact(
-                    Math.addExact(MAX_PREFIX_RECORDS_PER_NAMESPACE, MESSAGE_READS_PER_CANDIDATE),
-                    legacyActionLookup);
-            final long nativeCandidate = Math.addExact(
-                    MAX_PREFIX_RECORDS_PER_NAMESPACE, NATIVE_MESSAGE_READS_PER_CANDIDATE);
+                    Math.addExact(MAX_PREFIX_RECORDS_PER_NAMESPACE, MESSAGE_READS_PER_CANDIDATE), legacyActionLookup);
+            final long nativeCandidate =
+                    Math.addExact(MAX_PREFIX_RECORDS_PER_NAMESPACE, NATIVE_MESSAGE_READS_PER_CANDIDATE);
             final long perLane = Math.addExact(
                     LANE_VALUE_READS_PER_LANE,
                     Math.addExact(

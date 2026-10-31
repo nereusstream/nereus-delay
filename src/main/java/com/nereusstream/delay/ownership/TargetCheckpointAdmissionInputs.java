@@ -14,7 +14,14 @@ import java.util.function.Supplier;
 
 /** Bounded original-Admission input collection on one Store cut; no thread, queue, SEND or publication authority. */
 public final class TargetCheckpointAdmissionInputs {
-    public enum Status { DISCOVERED, LOADING, ACCEPTED, READ_YIELD, COMPLETE, FAILED }
+    public enum Status {
+        DISCOVERED,
+        LOADING,
+        ACCEPTED,
+        READ_YIELD,
+        COMPLETE,
+        FAILED
+    }
 
     /** Must return promptly; the provider owns bounded history I/O, retention/credential authentication and cleanup. */
     @FunctionalInterface
@@ -24,8 +31,10 @@ public final class TargetCheckpointAdmissionInputs {
 
     public record Limits(int maximumInputs, long maximumFrameBytes) {
         public Limits {
-            if (maximumInputs <= 0 || maximumInputs == Integer.MAX_VALUE
-                    || maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE) {
+            if (maximumInputs <= 0
+                    || maximumInputs == Integer.MAX_VALUE
+                    || maximumFrameBytes <= 0
+                    || maximumFrameBytes == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("checkpoint Admission inputs require finite positive bounds");
             }
         }
@@ -38,7 +47,9 @@ public final class TargetCheckpointAdmissionInputs {
     }
 
     public record Turn(Status status, Throwable failure) {
-        public Turn { Objects.requireNonNull(status, "status"); }
+        public Turn {
+            Objects.requireNonNull(status, "status");
+        }
     }
 
     private final TargetWorkerShardRuntime worker;
@@ -54,8 +65,12 @@ public final class TargetCheckpointAdmissionInputs {
     private boolean complete;
     private Throwable failure;
 
-    public TargetCheckpointAdmissionInputs(TargetWorkerShardRuntime worker, Supplier<BoundedReadBudget> reads,
-            History history, Limits limits, LongSupplier ownerClock) {
+    public TargetCheckpointAdmissionInputs(
+            TargetWorkerShardRuntime worker,
+            Supplier<BoundedReadBudget> reads,
+            History history,
+            Limits limits,
+            LongSupplier ownerClock) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.reads = Objects.requireNonNull(reads, "reads");
         this.history = Objects.requireNonNull(history, "history");
@@ -98,7 +113,9 @@ public final class TargetCheckpointAdmissionInputs {
                 return new Turn(Status.LOADING, null);
             }
             final var image = Objects.requireNonNull(loading.join(), "Admission image");
-            if (!CheckpointInputFuture.ioExited(loading)) { return new Turn(Status.LOADING, null); }
+            if (!CheckpointInputFuture.ioExited(loading)) {
+                return new Turn(Status.LOADING, null);
+            }
             final var input = new Input(selected, image);
             final long nextBytes = Math.addExact(bytes, image.encodeFrame().length);
             if (nextBytes > limits.maximumFrameBytes()) {
@@ -136,10 +153,12 @@ public final class TargetCheckpointAdmissionInputs {
     /** Binds completed Admission history to the exact Control/Outcome physical cut before snapshot composition. */
     public synchronized Optional<List<Input>> result(TargetCheckpointControlInputs.Cut expected) {
         final var completed = result();
-        if (completed.isEmpty()) { return completed; }
+        if (completed.isEmpty()) {
+            return completed;
+        }
         try {
-            worker.requireCheckpointAdmissionInputsSameCut(readBudget(), cursor,
-                    Objects.requireNonNull(expected, "expected"), ownerClock);
+            worker.requireCheckpointAdmissionInputsSameCut(
+                    readBudget(), cursor, Objects.requireNonNull(expected, "expected"), ownerClock);
             return completed;
         } catch (ReadIncompleteException incomplete) {
             throw incomplete;
@@ -156,15 +175,25 @@ public final class TargetCheckpointAdmissionInputs {
         }
     }
 
-    public synchronized void retryCleanup() { CheckpointInputFuture.retryCleanup(loading); }
+    public synchronized void retryCleanup() {
+        CheckpointInputFuture.retryCleanup(loading);
+    }
 
-    public synchronized void requestStop() { CheckpointInputFuture.requestStop(loading); }
+    public synchronized void requestStop() {
+        CheckpointInputFuture.requestStop(loading);
+    }
 
-    public synchronized boolean ioExited() { return CheckpointInputFuture.ioExited(loading); }
+    public synchronized boolean ioExited() {
+        return CheckpointInputFuture.ioExited(loading);
+    }
 
-    public synchronized Throwable pendingIoFailure() { return CheckpointInputFuture.ownedFailure(loading); }
+    public synchronized Throwable pendingIoFailure() {
+        return CheckpointInputFuture.ownedFailure(loading);
+    }
 
-    private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
+    private BoundedReadBudget readBudget() {
+        return Objects.requireNonNull(reads.get(), "read budget");
+    }
 
     private Turn fail(Throwable invalid) {
         failure = invalid;

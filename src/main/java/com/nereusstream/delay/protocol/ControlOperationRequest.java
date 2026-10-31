@@ -126,7 +126,8 @@ public final class ControlOperationRequest {
         return Objects.requireNonNull(branch, "branch").operationRequest();
     }
 
-    public static ControlOperationRequest targetScopeControlObligation(final TargetScopeControlObligationRequest branch) {
+    public static ControlOperationRequest targetScopeControlObligation(
+            final TargetScopeControlObligationRequest branch) {
         return Objects.requireNonNull(branch, "branch").operationRequest();
     }
 
@@ -141,9 +142,9 @@ public final class ControlOperationRequest {
             case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> TargetScopeControlObligationRequest.decode(encoded);
             case ALLOCATE_PARENT_CONTROL_CREDIT -> TargetParentControlCreditRequest.decode(encoded);
             case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
-                    TargetSloWriterControlRequest.decode(kind, encoded);
+                TargetSloWriterControlRequest.decode(kind, encoded);
             case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION ->
-                    TargetSloObservationControlRequest.decode(kind, encoded);
+                TargetSloObservationControlRequest.decode(kind, encoded);
             case ACTIVATE_TARGET_PROTOCOL -> TargetProtocolActivatePayload.decode(encoded);
             case STOP_NEW_SCHEDULES -> StopNewSchedulesRequest.decode(encoded);
             case PAUSE_DESTINATION_LANE, RESUME_DESTINATION_LANE -> LaneGateRequest.decode(encoded);
@@ -177,7 +178,8 @@ public final class ControlOperationRequest {
         final boolean valid =
                 switch (kind) {
                     case MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE -> branch instanceof TargetMigrationArchiveRequest;
-                    case INITIALIZE_TARGET_PAYLOAD_SUMMARY -> branch instanceof TargetPayloadSummaryInitializationRequest;
+                    case INITIALIZE_TARGET_PAYLOAD_SUMMARY ->
+                        branch instanceof TargetPayloadSummaryInitializationRequest;
                     case ACTIVATE_TARGET_MIGRATION -> branch instanceof TargetMigrationActivateRequest;
                     case SETTLE_TARGET_MIGRATION_CUSTODY -> branch instanceof TargetMigrationSettlementRequest;
                     case RETIRE_TARGET_MIGRATION -> branch instanceof TargetMigrationRetirementIntentRequest;
@@ -185,10 +187,11 @@ public final class ControlOperationRequest {
                     case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> branch instanceof TargetScopeControlObligationRequest;
                     case ALLOCATE_PARENT_CONTROL_CREDIT -> branch instanceof TargetParentControlCreditRequest;
                     case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH ->
-                            branch instanceof TargetSloWriterControlRequest writer && writer.operationKind()==kind;
+                        branch instanceof TargetSloWriterControlRequest writer && writer.operationKind() == kind;
                     case ACTIVATE_TARGET_PROTOCOL -> branch instanceof TargetProtocolActivatePayload;
                     case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION ->
-                            branch instanceof TargetSloObservationControlRequest observation && observation.operationKind() == kind;
+                        branch instanceof TargetSloObservationControlRequest observation
+                                && observation.operationKind() == kind;
                     case STOP_NEW_SCHEDULES -> branch instanceof StopNewSchedulesRequest;
                     case PAUSE_DESTINATION_LANE, RESUME_DESTINATION_LANE -> branch instanceof LaneGateRequest;
                     case CLOSE_DESTINATION_LANE -> branch instanceof CloseLaneRequest;

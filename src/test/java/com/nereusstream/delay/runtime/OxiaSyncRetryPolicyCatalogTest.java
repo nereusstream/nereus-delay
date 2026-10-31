@@ -32,14 +32,14 @@ class OxiaSyncRetryPolicyCatalogTest {
         final var reopened = catalog(records);
         assertEquals(policy, reopened.resolve(policy.ref(), at));
         assertEquals(policy, reopened.resolve(policy.ref(), source(11, 101)));
-        assertEquals(policy,
-                new TargetCheckpointDependencies.RetryUse(policy.ref(), source(11, 101)).resolve(reopened));
+        assertEquals(
+                policy, new TargetCheckpointDependencies.RetryUse(policy.ref(), source(11, 101)).resolve(reopened));
         // Later checkpoint visibility cannot repair a use that preceded publication.
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> new TargetCheckpointDependencies.RetryUse(policy.ref(), source(9, 99)).resolve(reopened));
-        assertThrows(IllegalStateException.class,
-                () -> new TargetCheckpointDependencies.RetryUse(policy.ref(), at)
-                        .resolve((ref, original) -> policy(11)));
+        assertThrows(IllegalStateException.class, () -> new TargetCheckpointDependencies.RetryUse(policy.ref(), at)
+                .resolve((ref, original) -> policy(11)));
         assertNull(reopened.resolve(policy.ref(), source(9, 99)));
         assertNull(reopened.resolve(policy.ref(), source(10, 999)));
         final var another = new KafkaSourcePosition(at.shardId(), "other-cluster", at.nativeTopicUuid(), 11, null, 101);
@@ -55,11 +55,15 @@ class OxiaSyncRetryPolicyCatalogTest {
         final var records = new Records();
         final var policy = policy(10);
         final var at = source(10, 100);
-        records.afterPut = () -> { throw new IllegalStateException("response lost"); };
+        records.afterPut = () -> {
+            throw new IllegalStateException("response lost");
+        };
         catalog(records).publish(policy, at);
         assertEquals(policy, catalog(records).resolve(policy.ref(), at));
         final var absent = new Records();
-        absent.beforePut = () -> { throw new IllegalStateException("failed before put"); };
+        absent.beforePut = () -> {
+            throw new IllegalStateException("failed before put");
+        };
         assertThrows(IllegalStateException.class, () -> catalog(absent).publish(policy, at));
         assertNull(catalog(absent).resolve(policy.ref(), at));
         final var racing = new Records();
@@ -73,12 +77,15 @@ class OxiaSyncRetryPolicyCatalogTest {
         final var records = new Records();
         final var live = new java.util.concurrent.atomic.AtomicBoolean(true);
         final var catalog = new OxiaSyncRetryPolicyCatalog(records, "retry-test", () -> {
-            if (!live.get()) { throw new IllegalStateException("session lost"); }
+            if (!live.get()) {
+                throw new IllegalStateException("session lost");
+            }
         });
         records.afterPut = () -> live.set(false);
         assertThrows(IllegalStateException.class, () -> catalog.publish(policy(10), source(10, 100)));
         assertNotNull(records.values.values().iterator().next());
-        assertThrows(IllegalStateException.class, () -> catalog.resolve(policy(10).ref(), source(10, 100)));
+        assertThrows(
+                IllegalStateException.class, () -> catalog.resolve(policy(10).ref(), source(10, 100)));
         assertEquals(policy(10), catalog(records).resolve(policy(10).ref(), source(10, 100)));
     }
 
@@ -95,25 +102,55 @@ class OxiaSyncRetryPolicyCatalogTest {
         records.values.put(key, corrupt);
         assertThrows(IllegalArgumentException.class, () -> catalog(records).resolve(policy.ref(), at));
         records.values.put(key, original);
-        final var other = new RetryPolicySemantic(Bytes.utf8("another-policy"), 1, 10, 100, 3, 60_000,
-                UncertainPolicy.HOLD_FOR_EVIDENCE, 0, DlqExportMode.NOT_CONFIGURED, 0, 0, 0, 0, false, new byte[32]);
+        final var other = new RetryPolicySemantic(
+                Bytes.utf8("another-policy"),
+                1,
+                10,
+                100,
+                3,
+                60_000,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
+                0,
+                DlqExportMode.NOT_CONFIGURED,
+                0,
+                0,
+                0,
+                0,
+                false,
+                new byte[32]);
         catalog(records).publish(other, at);
-        final var otherKey = records.values.keySet().stream().filter(value -> !value.equals(key))
-                .findFirst().orElseThrow();
+        final var otherKey = records.values.keySet().stream()
+                .filter(value -> !value.equals(key))
+                .findFirst()
+                .orElseThrow();
         records.values.put(key, records.values.get(otherKey));
         assertThrows(IllegalStateException.class, () -> catalog(records).resolve(policy.ref(), at));
     }
 
     static RetryPolicySemantic policy(int backoff) {
-        return new RetryPolicySemantic(Bytes.utf8("pinned-policy"), 1, backoff, 100, 3, 60_000,
-                UncertainPolicy.HOLD_FOR_EVIDENCE, 0, DlqExportMode.NOT_CONFIGURED, 0, 0, 0, 0, false, new byte[32]);
+        return new RetryPolicySemantic(
+                Bytes.utf8("pinned-policy"),
+                1,
+                backoff,
+                100,
+                3,
+                60_000,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
+                0,
+                DlqExportMode.NOT_CONFIGURED,
+                0,
+                0,
+                0,
+                0,
+                false,
+                new byte[32]);
     }
 
     static KafkaSourcePosition source(long offset, long time) {
         final byte[] route = new byte[16];
         Arrays.fill(route, (byte) 1);
-        return new KafkaSourcePosition(new ShardId(new RouteIncarnation(route), 0), "cluster", new UUID(1, 2),
-                offset, null, time);
+        return new KafkaSourcePosition(
+                new ShardId(new RouteIncarnation(route), 0), "cluster", new UUID(1, 2), offset, null, time);
     }
 
     private static OxiaSyncRetryPolicyCatalog catalog(Records records) {
@@ -127,7 +164,9 @@ class OxiaSyncRetryPolicyCatalogTest {
         private boolean insertRace;
 
         @Override
-        public byte[] get(String key) { return values.get(key); }
+        public byte[] get(String key) {
+            return values.get(key);
+        }
 
         @Override
         public void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException {

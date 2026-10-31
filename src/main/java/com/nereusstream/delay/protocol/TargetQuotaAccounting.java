@@ -116,11 +116,15 @@ public final class TargetQuotaAccounting {
 
     /** Plain external catalog object has no native NV envelope; its complete immutable key/value are measured once. */
     public CapacityVector externalEvidenceCharge(long keyBytes, long canonicalValueBytes) {
-        requireLength(keyBytes); requireLength(canonicalValueBytes);
-        if (keyBytes == 0 || canonicalValueBytes == 0) { throw new IllegalArgumentException("external evidence key/value must be nonempty"); }
+        requireLength(keyBytes);
+        requireLength(canonicalValueBytes);
+        if (keyBytes == 0 || canonicalValueBytes == 0) {
+            throw new IllegalArgumentException("external evidence key/value must be nonempty");
+        }
         final long[] amounts = new long[CapacityDimension.COUNT];
         amounts[CapacityDimension.EVIDENCE_RECORDS.wireValue() - 1] = 1;
-        amounts[CapacityDimension.EVIDENCE_BYTES.wireValue() - 1] = Math.addExact(Math.addExact(keyBytes, canonicalValueBytes), recordOverheadBytes);
+        amounts[CapacityDimension.EVIDENCE_BYTES.wireValue() - 1] =
+                Math.addExact(Math.addExact(keyBytes, canonicalValueBytes), recordOverheadBytes);
         return new CapacityVector(amounts);
     }
 

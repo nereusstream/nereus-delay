@@ -513,12 +513,16 @@ class LaneSchedulerTest {
             scheduler.register(record(lane, 1));
             scheduler.offer(item(lane, 1));
             final long beforePoll = store.latestSequenceNumber();
-            assertEquals(1, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
+            assertEquals(
+                    1,
+                    scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
             assertEquals(beforePoll, store.latestSequenceNumber());
             assertEquals(1, scheduler.snapshot().roundGeneration());
 
             final long beforeEmptyPoll = store.latestSequenceNumber();
-            assertEquals(0, scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
+            assertEquals(
+                    0,
+                    scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
             assertEquals(beforeEmptyPoll, store.latestSequenceNumber());
             for (int kind = 1; kind <= 5; kind++) {
                 org.junit.jupiter.api.Assertions.assertNull(
@@ -707,7 +711,8 @@ class LaneSchedulerTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> recovered.discoverReady(new SchedulerBudget(1, 1024, 1_000_000_000)));
-            org.junit.jupiter.api.Assertions.assertNull(recovered.discoveryCursor().lastScannedReadyKey());
+            org.junit.jupiter.api.Assertions.assertNull(
+                    recovered.discoveryCursor().lastScannedReadyKey());
             assertEquals(0, recovered.discoveryCursor().wrapGeneration());
         }
     }
@@ -724,8 +729,8 @@ class LaneSchedulerTest {
             final SchedulerProjections.DeficitMap deficits = new SchedulerProjections.DeficitMap(List.of());
             final SchedulerProjections.Round round = new SchedulerProjections.Round(0, owner(1), false);
             final SchedulerProjections.LastServedMap lastServed = new SchedulerProjections.LastServedMap(List.of());
-            store.write(batch -> putLegacySchedulerProjections(
-                    batch, discovery, activeRing, deficits, round, lastServed));
+            store.write(
+                    batch -> putLegacySchedulerProjections(batch, discovery, activeRing, deficits, round, lastServed));
             final SchedulerProjections.ReadyDiscoveryCursor drifted = new SchedulerProjections.ReadyDiscoveryCursor(
                     discovery.lastScannedReadyKey(), discovery.wrapGeneration(), discovery.activeRingGeneration() + 1);
             store.write(
@@ -758,8 +763,7 @@ class LaneSchedulerTest {
             });
 
             assertThrows(
-                    IllegalArgumentException.class,
-                    () -> new PersistentLaneScheduler(store, LaneScheduler.defaults()));
+                    IllegalArgumentException.class, () -> new PersistentLaneScheduler(store, LaneScheduler.defaults()));
         }
     }
 

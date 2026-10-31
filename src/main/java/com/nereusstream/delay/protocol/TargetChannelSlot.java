@@ -7,11 +7,14 @@ import java.util.Objects;
 /** Source-applied current generation of one stable Producer slot; STOPPED never grants new Admission. */
 public final class TargetChannelSlot {
     public static final int VALUE_TYPE = 44;
-    public static final int MAX_CANONICAL_BYTES = TargetChannelIdentity.MAX_CANONICAL_BYTES
-            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 128;
+    public static final int MAX_CANONICAL_BYTES =
+            TargetChannelIdentity.MAX_CANONICAL_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 128;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-channel-slot-record\0");
 
-    public enum Phase { OPEN, STOPPED }
+    public enum Phase {
+        OPEN,
+        STOPPED
+    }
 
     private final TargetChannelIdentity channel;
     private final Phase phase;
@@ -24,15 +27,20 @@ public final class TargetChannelSlot {
         final var request = Objects.requireNonNull(control, "control").body().request();
         channel = request.channel();
         phase = request.operationKind() == ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK
-                ? Phase.STOPPED : Phase.OPEN;
+                ? Phase.STOPPED
+                : Phase.OPEN;
         operationIdentity = control.body().logicalIdentity();
         mutation = control.mutation();
         lineage = control.recoveryLineage();
         digest = Bytes.sha256(DIGEST_DOMAIN, fields());
     }
 
-    private TargetChannelSlot(final TargetChannelIdentity channel, final Phase phase, final byte[] operationIdentity,
-            final TargetQuotaMutation mutation, final byte[] lineage) {
+    private TargetChannelSlot(
+            final TargetChannelIdentity channel,
+            final Phase phase,
+            final byte[] operationIdentity,
+            final TargetQuotaMutation mutation,
+            final byte[] lineage) {
         this.channel = Objects.requireNonNull(channel, "channel");
         this.phase = Objects.requireNonNull(phase, "phase");
         this.operationIdentity = TargetCompatibilityCodec.assigned(operationIdentity, 32, "channelControlIdentity");
@@ -45,12 +53,29 @@ public final class TargetChannelSlot {
         digest = Bytes.sha256(DIGEST_DOMAIN, fields());
     }
 
-    public TargetChannelIdentity channel() { return channel; }
-    public Phase phase() { return phase; }
-    public TargetQuotaMutation mutation() { return mutation; }
-    public byte[] recoveryLineage() { return Bytes.copy(lineage); }
-    public byte[] controlKey() { return TargetKeyCodec.channelControl(operationIdentity); }
-    public byte[] key() { return TargetKeyCodec.channelSlot(channel.context().producerIdentity()); }
+    public TargetChannelIdentity channel() {
+        return channel;
+    }
+
+    public Phase phase() {
+        return phase;
+    }
+
+    public TargetQuotaMutation mutation() {
+        return mutation;
+    }
+
+    public byte[] recoveryLineage() {
+        return Bytes.copy(lineage);
+    }
+
+    public byte[] controlKey() {
+        return TargetKeyCodec.channelControl(operationIdentity);
+    }
+
+    public byte[] key() {
+        return TargetKeyCodec.channelSlot(channel.context().producerIdentity());
+    }
 
     public void requireControl(final TargetChannelControlRecord control) {
         final var expected = new TargetChannelSlot(control);
@@ -89,13 +114,15 @@ public final class TargetChannelSlot {
         if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unknown channel slot version");
         }
-        final var phase = switch (QueryCodecSupport.uint32(fields.get(2), 3)) {
-            case 1 -> Phase.OPEN;
-            case 2 -> Phase.STOPPED;
-            default -> throw new IllegalArgumentException("unknown channel slot phase");
-        };
+        final var phase =
+                switch (QueryCodecSupport.uint32(fields.get(2), 3)) {
+                    case 1 -> Phase.OPEN;
+                    case 2 -> Phase.STOPPED;
+                    default -> throw new IllegalArgumentException("unknown channel slot phase");
+                };
         final var result = new TargetChannelSlot(
-                TargetChannelIdentity.decode(QueryCodecSupport.bytes(fields.get(1), 2)), phase,
+                TargetChannelIdentity.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
+                phase,
                 QueryCodecSupport.fixed(fields.get(3), 4, 32),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(fields.get(4), 5)),
                 QueryCodecSupport.fixed(fields.get(5), 6, 16));
@@ -108,7 +135,8 @@ public final class TargetChannelSlot {
 
     public static TargetChannelSlot decodeForStore(final byte[] key, final byte[] encoded, final ShardId shard) {
         final var result = decode(encoded);
-        if (!Arrays.equals(key, result.key()) || !shard.equals(result.channel.context().sourceShard())) {
+        if (!Arrays.equals(key, result.key())
+                || !shard.equals(result.channel.context().sourceShard())) {
             throw new IllegalArgumentException("channel slot key/Shard mismatch");
         }
         return result;

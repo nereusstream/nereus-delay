@@ -12,6 +12,7 @@ import java.util.Objects;
 public final class TargetPublishAdmissionBody {
     /** Target-only operation-body generation, independent from the shared System Mutation envelope body. */
     public static final int BODY_VERSION = 3;
+
     public static final int MAX_CANONICAL_BYTES = 4096;
     public static final int MATERIALIZED_BODY_VERSION = 4;
     public static final int MAX_MATERIALIZED_BYTES = MAX_CANONICAL_BYTES
@@ -22,11 +23,12 @@ public final class TargetPublishAdmissionBody {
     public static final int NATIVE_MATERIALIZED_BODY_VERSION = 5;
     public static final int MAX_NATIVE_MATERIALIZED_BYTES = MAX_CANONICAL_BYTES
             + TargetNativePublicationBinding.MAX_CANONICAL_BYTES
-            + TargetClaimRecord.MAX_CANONICAL_BYTES + 64;
+            + TargetClaimRecord.MAX_CANONICAL_BYTES
+            + 64;
     public static final int KAFKA_RECEIPT_BODY_VERSION = 6;
-    public static final int MAX_KAFKA_RECEIPT_BYTES = MAX_MATERIALIZED_BYTES + TargetKafkaReceiptBinding.MAX_CANONICAL_BYTES + 8;
+    public static final int MAX_KAFKA_RECEIPT_BYTES =
+            MAX_MATERIALIZED_BYTES + TargetKafkaReceiptBinding.MAX_CANONICAL_BYTES + 8;
     public static final int MAX_SUPPORTED_BYTES = Math.max(MAX_KAFKA_RECEIPT_BYTES, MAX_NATIVE_MATERIALIZED_BYTES);
-
 
     private final ShardId shard;
     private final long retryUntilEpochMs;
@@ -61,8 +63,22 @@ public final class TargetPublishAdmissionBody {
             final CapacityVector commitment,
             final CapacityVector allocated,
             final TrustedUtcIntervalEvidence decisionTime) {
-        this(shard, retryUntilEpochMs, owner, storeIncarnation, claimId, locator, attemptNo,
-                publishAttemptId, obligation, executionBytes, commitment, allocated, decisionTime, null, null);
+        this(
+                shard,
+                retryUntilEpochMs,
+                owner,
+                storeIncarnation,
+                claimId,
+                locator,
+                attemptNo,
+                publishAttemptId,
+                obligation,
+                executionBytes,
+                commitment,
+                allocated,
+                decisionTime,
+                null,
+                null);
     }
 
     public TargetPublishAdmissionBody(
@@ -81,43 +97,116 @@ public final class TargetPublishAdmissionBody {
             final TrustedUtcIntervalEvidence decisionTime,
             final TargetOrdinaryPublicationBinding publication,
             final TargetClaimRecord claimProof) {
-        this(shard, retryUntilEpochMs, owner, storeIncarnation, claimId, locator, attemptNo,
-                publishAttemptId, obligation, executionBytes, commitment, allocated, decisionTime,
-                publication, null, claimProof);
+        this(
+                shard,
+                retryUntilEpochMs,
+                owner,
+                storeIncarnation,
+                claimId,
+                locator,
+                attemptNo,
+                publishAttemptId,
+                obligation,
+                executionBytes,
+                commitment,
+                allocated,
+                decisionTime,
+                publication,
+                null,
+                claimProof);
     }
 
     private TargetPublishAdmissionBody(
-            final ShardId shard, final long retryUntilEpochMs, final OwnerIdentity owner,
-            final byte[] storeIncarnation, final byte[] claimId, final TargetMessageLocator locator,
-            final int attemptNo, final byte[] publishAttemptId, final AttemptObligationRef obligation,
-            final long executionBytes, final CapacityVector commitment, final CapacityVector allocated,
-            final TrustedUtcIntervalEvidence decisionTime, final TargetOrdinaryPublicationBinding publication,
-            final TargetNativePublicationBinding nativePublication, final TargetClaimRecord claimProof) {
-        this(shard, retryUntilEpochMs, owner, storeIncarnation, claimId, locator, attemptNo, publishAttemptId,
-                obligation, executionBytes, commitment, allocated, decisionTime, publication, nativePublication,
-                claimProof, null);
+            final ShardId shard,
+            final long retryUntilEpochMs,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final byte[] claimId,
+            final TargetMessageLocator locator,
+            final int attemptNo,
+            final byte[] publishAttemptId,
+            final AttemptObligationRef obligation,
+            final long executionBytes,
+            final CapacityVector commitment,
+            final CapacityVector allocated,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetNativePublicationBinding nativePublication,
+            final TargetClaimRecord claimProof) {
+        this(
+                shard,
+                retryUntilEpochMs,
+                owner,
+                storeIncarnation,
+                claimId,
+                locator,
+                attemptNo,
+                publishAttemptId,
+                obligation,
+                executionBytes,
+                commitment,
+                allocated,
+                decisionTime,
+                publication,
+                nativePublication,
+                claimProof,
+                null);
     }
 
     public TargetPublishAdmissionBody(
-            final ShardId shard, final long retryUntilEpochMs, final OwnerIdentity owner,
-            final byte[] storeIncarnation, final byte[] claimId, final TargetMessageLocator locator,
-            final int attemptNo, final byte[] publishAttemptId, final AttemptObligationRef obligation,
-            final long executionBytes, final CapacityVector commitment, final CapacityVector allocated,
-            final TrustedUtcIntervalEvidence decisionTime, final TargetOrdinaryPublicationBinding publication,
-            final TargetClaimRecord claimProof, final TargetKafkaReceiptBinding kafkaReceipt) {
-        this(shard, retryUntilEpochMs, owner, storeIncarnation, claimId, locator, attemptNo, publishAttemptId,
-                obligation, executionBytes, commitment, allocated, decisionTime,
-                Objects.requireNonNull(publication, "publication"), null, claimProof,
+            final ShardId shard,
+            final long retryUntilEpochMs,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final byte[] claimId,
+            final TargetMessageLocator locator,
+            final int attemptNo,
+            final byte[] publishAttemptId,
+            final AttemptObligationRef obligation,
+            final long executionBytes,
+            final CapacityVector commitment,
+            final CapacityVector allocated,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetClaimRecord claimProof,
+            final TargetKafkaReceiptBinding kafkaReceipt) {
+        this(
+                shard,
+                retryUntilEpochMs,
+                owner,
+                storeIncarnation,
+                claimId,
+                locator,
+                attemptNo,
+                publishAttemptId,
+                obligation,
+                executionBytes,
+                commitment,
+                allocated,
+                decisionTime,
+                Objects.requireNonNull(publication, "publication"),
+                null,
+                claimProof,
                 Objects.requireNonNull(kafkaReceipt, "K2 context"));
     }
 
     private TargetPublishAdmissionBody(
-            final ShardId shard, final long retryUntilEpochMs, final OwnerIdentity owner,
-            final byte[] storeIncarnation, final byte[] claimId, final TargetMessageLocator locator,
-            final int attemptNo, final byte[] publishAttemptId, final AttemptObligationRef obligation,
-            final long executionBytes, final CapacityVector commitment, final CapacityVector allocated,
-            final TrustedUtcIntervalEvidence decisionTime, final TargetOrdinaryPublicationBinding publication,
-            final TargetNativePublicationBinding nativePublication, final TargetClaimRecord claimProof,
+            final ShardId shard,
+            final long retryUntilEpochMs,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final byte[] claimId,
+            final TargetMessageLocator locator,
+            final int attemptNo,
+            final byte[] publishAttemptId,
+            final AttemptObligationRef obligation,
+            final long executionBytes,
+            final CapacityVector commitment,
+            final CapacityVector allocated,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final TargetOrdinaryPublicationBinding publication,
+            final TargetNativePublicationBinding nativePublication,
+            final TargetClaimRecord claimProof,
             final TargetKafkaReceiptBinding kafkaReceipt) {
         this.shard = Objects.requireNonNull(shard, "shard");
         if (retryUntilEpochMs < 0 || executionBytes < 0) {
@@ -161,7 +250,9 @@ public final class TargetPublishAdmissionBody {
         this.nativePublication = nativePublication;
         this.claimProof = claimProof;
         this.kafkaReceipt = kafkaReceipt;
-        if (kafkaReceipt != null) { kafkaReceipt.requirePublication(publication); }
+        if (kafkaReceipt != null) {
+            kafkaReceipt.requirePublication(publication);
+        }
         if (publication != null && nativePublication != null
                 || (publication == null && nativePublication == null) != (claimProof == null)) {
             throw new IllegalArgumentException("materialized Admission requires both publication and full Claim proof");
@@ -194,32 +285,63 @@ public final class TargetPublishAdmissionBody {
                         || !nativePublication.policyHead().equals(claimProof.policyHead()))) {
             throw new IllegalArgumentException("materialized Native Admission changes its Claim/publication identity");
         }
-        final int maximumBytes = kafkaReceipt != null ? MAX_KAFKA_RECEIPT_BYTES
-                : nativePublication != null ? MAX_NATIVE_MATERIALIZED_BYTES
-                : publication != null ? MAX_MATERIALIZED_BYTES : MAX_CANONICAL_BYTES;
+        final int maximumBytes = kafkaReceipt != null
+                ? MAX_KAFKA_RECEIPT_BYTES
+                : nativePublication != null
+                        ? MAX_NATIVE_MATERIALIZED_BYTES
+                        : publication != null ? MAX_MATERIALIZED_BYTES : MAX_CANONICAL_BYTES;
         if (canonicalBytes().length > maximumBytes) {
             throw new IllegalArgumentException("Target Admission exceeds its canonical body bound");
         }
     }
 
     public static TargetPublishAdmissionBody nativeMaterialized(
-            final ShardId shard, final long retryUntilEpochMs, final OwnerIdentity owner,
-            final byte[] storeIncarnation, final byte[] claimId, final TargetMessageLocator locator,
-            final int attemptNo, final byte[] publishAttemptId, final AttemptObligationRef obligation,
-            final long executionBytes, final CapacityVector commitment, final CapacityVector allocated,
-            final TrustedUtcIntervalEvidence decisionTime, final TargetNativePublicationBinding publication,
+            final ShardId shard,
+            final long retryUntilEpochMs,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final byte[] claimId,
+            final TargetMessageLocator locator,
+            final int attemptNo,
+            final byte[] publishAttemptId,
+            final AttemptObligationRef obligation,
+            final long executionBytes,
+            final CapacityVector commitment,
+            final CapacityVector allocated,
+            final TrustedUtcIntervalEvidence decisionTime,
+            final TargetNativePublicationBinding publication,
             final TargetClaimRecord claimProof) {
-        return new TargetPublishAdmissionBody(shard, retryUntilEpochMs, owner, storeIncarnation, claimId,
-                locator, attemptNo, publishAttemptId, obligation, executionBytes, commitment, allocated,
-                decisionTime, null, Objects.requireNonNull(publication, "nativePublication"), claimProof);
+        return new TargetPublishAdmissionBody(
+                shard,
+                retryUntilEpochMs,
+                owner,
+                storeIncarnation,
+                claimId,
+                locator,
+                attemptNo,
+                publishAttemptId,
+                obligation,
+                executionBytes,
+                commitment,
+                allocated,
+                decisionTime,
+                null,
+                Objects.requireNonNull(publication, "nativePublication"),
+                claimProof);
     }
 
-    public boolean materialized() { return publication != null || nativePublication != null; }
+    public boolean materialized() {
+        return publication != null || nativePublication != null;
+    }
 
-    public TargetNativePublicationBinding nativePublication() { return nativePublication; }
+    public TargetNativePublicationBinding nativePublication() {
+        return nativePublication;
+    }
 
     public TargetChannelIdentity channel() {
-        if (!materialized()) { throw new IllegalStateException("Admission has no materialized channel"); }
+        if (!materialized()) {
+            throw new IllegalStateException("Admission has no materialized channel");
+        }
         return publication != null ? publication.channel() : nativePublication.channel();
     }
 
@@ -276,23 +398,34 @@ public final class TargetPublishAdmissionBody {
     }
 
     public int bodyVersion() {
-        return kafkaReceipt != null ? KAFKA_RECEIPT_BODY_VERSION
-                : nativePublication != null ? NATIVE_MATERIALIZED_BODY_VERSION
-                : publication != null ? MATERIALIZED_BODY_VERSION : BODY_VERSION;
+        return kafkaReceipt != null
+                ? KAFKA_RECEIPT_BODY_VERSION
+                : nativePublication != null
+                        ? NATIVE_MATERIALIZED_BODY_VERSION
+                        : publication != null ? MATERIALIZED_BODY_VERSION : BODY_VERSION;
     }
 
-    public TargetOrdinaryPublicationBinding publication() { return publication; }
-    public TargetKafkaReceiptBinding kafkaReceipt() { return kafkaReceipt; }
+    public TargetOrdinaryPublicationBinding publication() {
+        return publication;
+    }
 
-    public TargetClaimRecord claimProof() { return claimProof; }
+    public TargetKafkaReceiptBinding kafkaReceipt() {
+        return kafkaReceipt;
+    }
+
+    public TargetClaimRecord claimProof() {
+        return claimProof;
+    }
 
     /** Registry ChargeVector fields 1–17: exact frozen reserve plus the admitted execution charge. */
     public byte[] outcomeTransfer() {
         return CanonicalProtobuf.message(out -> {
             for (int field = 1; field <= 17; field++) {
-                final long amount = field == CapacityDimension.INFLIGHT_MESSAGES.wireValue() ? 1
-                        : field == CapacityDimension.INFLIGHT_BYTES.wireValue() ? executionBytes
-                        : commitment.amount(CapacityDimension.fromWire(field));
+                final long amount = field == CapacityDimension.INFLIGHT_MESSAGES.wireValue()
+                        ? 1
+                        : field == CapacityDimension.INFLIGHT_BYTES.wireValue()
+                                ? executionBytes
+                                : commitment.amount(CapacityDimension.fromWire(field));
                 CanonicalProtobuf.uint64(out, field, amount);
             }
         });
@@ -317,11 +450,15 @@ public final class TargetPublishAdmissionBody {
             CanonicalProtobuf.bytes(output, 20, allocated.canonicalBytes());
             CanonicalProtobuf.bytes(output, 21, decisionTime.canonicalBytes());
             if (materialized()) {
-                CanonicalProtobuf.bytes(output, 22, publication != null
-                        ? publication.canonicalBytes() : nativePublication.canonicalBytes());
+                CanonicalProtobuf.bytes(
+                        output,
+                        22,
+                        publication != null ? publication.canonicalBytes() : nativePublication.canonicalBytes());
                 CanonicalProtobuf.bytes(output, 23, claimProof.canonicalBytes());
             }
-            if (kafkaReceipt != null) { CanonicalProtobuf.bytes(output, 24, kafkaReceipt.canonicalBytes()); }
+            if (kafkaReceipt != null) {
+                CanonicalProtobuf.bytes(output, 24, kafkaReceipt.canonicalBytes());
+            }
         });
     }
 
@@ -335,9 +472,12 @@ public final class TargetPublishAdmissionBody {
         final boolean ordinary = kafkaReceipt || fields.get(3).unsignedValue() == MATERIALIZED_BODY_VERSION;
         final boolean nativeBinding = fields.get(3).unsignedValue() == NATIVE_MATERIALIZED_BODY_VERSION;
         final boolean materialized = ordinary || nativeBinding;
-        if (canonicalBody.length > (kafkaReceipt ? MAX_KAFKA_RECEIPT_BYTES
-                : nativeBinding ? MAX_NATIVE_MATERIALIZED_BYTES
-                : ordinary ? MAX_MATERIALIZED_BYTES : MAX_CANONICAL_BYTES)) {
+        if (canonicalBody.length
+                > (kafkaReceipt
+                        ? MAX_KAFKA_RECEIPT_BYTES
+                        : nativeBinding
+                                ? MAX_NATIVE_MATERIALIZED_BYTES
+                                : ordinary ? MAX_MATERIALIZED_BYTES : MAX_CANONICAL_BYTES)) {
             throw new IllegalArgumentException("Target Admission exceeds its version byte bound");
         }
         if (!materialized && canonicalBody.length > MAX_CANONICAL_BYTES) {
@@ -359,10 +499,9 @@ public final class TargetPublishAdmissionBody {
                 CapacityVector.decode(QueryCodecSupport.nested(fields.get(12), 19)),
                 CapacityVector.decode(QueryCodecSupport.nested(fields.get(13), 20)),
                 TrustedUtcIntervalEvidence.decode(QueryCodecSupport.nested(fields.get(14), 21)),
-                ordinary
-                        ? TargetOrdinaryPublicationBinding.decode(QueryCodecSupport.nested(fields.get(15), 22))
-                        : null,
-                nativeBinding ? TargetNativePublicationBinding.decode(QueryCodecSupport.nested(fields.get(15), 22))
+                ordinary ? TargetOrdinaryPublicationBinding.decode(QueryCodecSupport.nested(fields.get(15), 22)) : null,
+                nativeBinding
+                        ? TargetNativePublicationBinding.decode(QueryCodecSupport.nested(fields.get(15), 22))
                         : null,
                 materialized ? TargetClaimRecord.decode(QueryCodecSupport.nested(fields.get(16), 23)) : null,
                 kafkaReceipt ? TargetKafkaReceiptBinding.decode(QueryCodecSupport.nested(fields.get(17), 24)) : null);

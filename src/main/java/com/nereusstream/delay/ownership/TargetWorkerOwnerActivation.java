@@ -60,8 +60,9 @@ public final class TargetWorkerOwnerActivation {
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         exactBackend.requireStore(exactStore);
         final var install = exactStore.recoveryMetadata().installState();
-        if (install != null && (install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
-                || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED)) {
+        if (install != null
+                && (install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
+                        || install.phase() == com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED)) {
             throw new IllegalStateException("Target checkpoint still requires protected Source recovery completion");
         }
         if (exactStore.metadata().storeFormatVersion() != 2
@@ -81,7 +82,8 @@ public final class TargetWorkerOwnerActivation {
         }
 
         final long beforeWriteNow = requireNonNegativeTime(clock);
-        final OwnerLease current = authority.current(exactAssignment.shardId())
+        final OwnerLease current = authority
+                .current(exactAssignment.shardId())
                 .orElseThrow(() -> new IllegalStateException("Target Owner lease is no longer current"));
         requireSameLease(expectedLease, current);
         if (!current.validAt(beforeWriteNow)) {
@@ -112,17 +114,20 @@ public final class TargetWorkerOwnerActivation {
             exactStore.recordOpenedOwnerEpoch(current.ownerEpoch());
         }
         final long beforeCasNow = requireNonDecreasingTime(clock, beforeWriteNow);
-        final OwnerLease stillAcquiring = authority.current(exactAssignment.shardId())
+        final OwnerLease stillAcquiring = authority
+                .current(exactAssignment.shardId())
                 .orElseThrow(() -> new IllegalStateException("Target Owner lease disappeared before activation"));
         requireSameLease(current, stillAcquiring);
         if (stillAcquiring.state() != current.state() || !stillAcquiring.validAt(beforeCasNow)) {
             throw new IllegalStateException("Target Owner lease changed before activation CAS");
         }
 
-        final OwnerLease active = authority.transitionOrRead(current, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+        final OwnerLease active = authority
+                .transitionOrRead(current, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                 .orElseThrow(() -> new IllegalStateException("Target Owner activation CAS was not observed"));
         final long afterCasNow = requireNonDecreasingTime(clock, beforeCasNow);
-        final OwnerLease observed = authority.current(exactAssignment.shardId())
+        final OwnerLease observed = authority
+                .current(exactAssignment.shardId())
                 .orElseThrow(() -> new IllegalStateException("Target Owner lease disappeared after activation CAS"));
         requireSameLease(current, active);
         requireSameLease(current, observed);

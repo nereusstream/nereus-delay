@@ -282,40 +282,73 @@ public final class PreparedControlOperation {
                 requireMutationPresence(values, ControlTargetKind.SHARD, true);
                 final var initialization = branch(request, TargetPayloadSummaryInitializationRequest.class);
                 if (values.getFirst().targetIndex() != 0
-                        || !values.getFirst().shard().shardId().equals(initialization.scope().shard()))
-                    throw new IllegalArgumentException("payload summary initialization requires its exact original Source Shard at index zero");
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(initialization.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "payload summary initialization requires its exact original Source Shard at index zero");
+                }
             }
-            case ACTIVATE_TARGET_MIGRATION, SETTLE_TARGET_MIGRATION_CUSTODY, MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE,
-                    RETIRE_TARGET_MIGRATION, CONFIRM_TARGET_MIGRATION_RETIRED -> {
+            case ACTIVATE_TARGET_MIGRATION,
+                    SETTLE_TARGET_MIGRATION_CUSTODY,
+                    MIGRATE_TARGET_LOGICAL_FIRST_ARCHIVE,
+                    RETIRE_TARGET_MIGRATION,
+                    CONFIRM_TARGET_MIGRATION_RETIRED -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
                 requireCount(values, ControlTargetKind.SHARD, 1, 1);
                 requireMutationPresence(values, ControlTargetKind.SHARD, true);
                 final var migration = branch(request, TargetMigrationRequest.class);
                 if (values.getFirst().targetIndex() != 0
-                        || !values.getFirst().shard().shardId().equals(migration.scope().shard())) {
-                    throw new IllegalArgumentException("migration Control must select its exact original Source Shard at index zero");
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(migration.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "migration Control must select its exact original Source Shard at index zero");
                 }
             }
             case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> {
-                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
-                requireMutationPresence(values,ControlTargetKind.SHARD,true);
-                final var obligation=branch(request,TargetScopeControlObligationRequest.class);
-                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(obligation.scope().shard()))
-                    throw new IllegalArgumentException("Scope Control obligation must select its original Source Shard at index zero");
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var obligation = branch(request, TargetScopeControlObligationRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(obligation.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "Scope Control obligation must select its original Source Shard at index zero");
+                }
             }
             case ALLOCATE_PARENT_CONTROL_CREDIT -> {
-                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
-                requireMutationPresence(values,ControlTargetKind.SHARD,true);
-                final var credit=branch(request,TargetParentControlCreditRequest.class);
-                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(credit.scope().shard()))
-                    throw new IllegalArgumentException("parent Control credit must select its original Source Shard at index zero");
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var credit = branch(request, TargetParentControlCreditRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(credit.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "parent Control credit must select its original Source Shard at index zero");
+                }
             }
             case REGISTER_TARGET_SLO_WRITER_EPOCH, CLOSE_TARGET_SLO_WRITER_EPOCH -> {
-                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
-                requireMutationPresence(values,ControlTargetKind.SHARD,true);
-                final var writer=branch(request,TargetSloWriterControlRequest.class);
-                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(writer.scope().shard()))
-                    throw new IllegalArgumentException("Target SLO writer must select its original Source Shard at index zero");
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var writer = branch(request, TargetSloWriterControlRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(writer.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "Target SLO writer must select its original Source Shard at index zero");
+                }
             }
             case ENABLE_TARGET_SLO_CERTIFICATION, STOP_TARGET_SLO_CERTIFICATION -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
@@ -323,16 +356,27 @@ public final class PreparedControlOperation {
                 requireMutationPresence(values, ControlTargetKind.SHARD, true);
                 final var observation = branch(request, TargetSloObservationControlRequest.class);
                 if (values.getFirst().targetIndex() != 0
-                        || !values.getFirst().shard().shardId().equals(observation.scope().shard())) {
-                    throw new IllegalArgumentException("Target SLO Control must select its exact Source Shard at index zero");
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(observation.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "Target SLO Control must select its exact Source Shard at index zero");
                 }
             }
             case ACTIVATE_TARGET_PROTOCOL -> {
-                requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
-                requireMutationPresence(values,ControlTargetKind.SHARD,true);
-                final var activation=branch(request,TargetProtocolActivatePayload.class);
-                if(values.getFirst().targetIndex()!=0||!values.getFirst().shard().shardId().equals(activation.scope().shard()))
-                    throw new IllegalArgumentException("Target activation must select its exact Source Shard at index zero");
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var activation = branch(request, TargetProtocolActivatePayload.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
+                                .equals(activation.scope().shard())) {
+                    throw new IllegalArgumentException(
+                            "Target activation must select its exact Source Shard at index zero");
+                }
             }
             case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL, STOP_TARGET_CHANNEL_NEW_WORK -> {
                 requireOnlyKinds(values, ControlTargetKind.SHARD);
@@ -340,7 +384,9 @@ public final class PreparedControlOperation {
                 requireMutationPresence(values, ControlTargetKind.SHARD, true);
                 final var channel = branch(request, TargetChannelControlRequest.class);
                 if (values.getFirst().targetIndex() != 0
-                        || !values.getFirst().shard().shardId()
+                        || !values.getFirst()
+                                .shard()
+                                .shardId()
                                 .equals(channel.channel().context().sourceShard())) {
                     throw new IllegalArgumentException("channel Control target must be its exact Source Shard at zero");
                 }

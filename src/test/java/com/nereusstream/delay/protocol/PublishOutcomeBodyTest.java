@@ -82,10 +82,19 @@ class PublishOutcomeBodyTest {
         assertFalse(parsedUnknown.retryDecision().hasFullShape());
         assertArrayEquals(transferBytes, parsedUnknown.transfer());
         assertArrayEquals(retryBytes, parsedUnknown.retryDecision().canonicalBytes());
-        assertArrayEquals(unknown, PublishOutcomeBody.encodeInitial(
-                shard, 9_000, attempt, parsedUnknown.sideEffect(), parsedUnknown.disposition(),
-                parsedUnknown.stableCode(), null, parsedUnknown.transfer(), parsedUnknown.observedAt(),
-                parsedUnknown.retryDecision().canonicalBytes()));
+        assertArrayEquals(
+                unknown,
+                PublishOutcomeBody.encodeInitial(
+                        shard,
+                        9_000,
+                        attempt,
+                        parsedUnknown.sideEffect(),
+                        parsedUnknown.disposition(),
+                        parsedUnknown.stableCode(),
+                        null,
+                        parsedUnknown.transfer(),
+                        parsedUnknown.observedAt(),
+                        parsedUnknown.retryDecision().canonicalBytes()));
     }
 
     @Test

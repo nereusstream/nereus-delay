@@ -111,9 +111,8 @@ class SloObservationOutboxStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 16);
         final SloSampleStart sample = startWith(16);
         final SloObservationOutbox observation = SloObservationOutbox.open(sample);
-        final int encodedBytes = ValueEnvelope.encode(
-                        SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes())
-                .length;
+        final int encodedBytes =
+                ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes()).length;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
@@ -137,9 +136,8 @@ class SloObservationOutboxStoreTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
         final SloSampleStart sample = startWith(17);
         final SloObservationOutbox observation = SloObservationOutbox.open(sample);
-        final int encodedBytes = ValueEnvelope.encode(
-                        SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes())
-                .length;
+        final int encodedBytes =
+                ValueEnvelope.encode(SloObservationOutboxStore.VALUE_TYPE, observation.canonicalBytes()).length;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);

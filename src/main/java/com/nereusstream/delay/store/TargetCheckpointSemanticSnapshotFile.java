@@ -15,23 +15,28 @@ public final class TargetCheckpointSemanticSnapshotFile {
 
     private TargetCheckpointSemanticSnapshotFile() {}
 
-    static void writeNew(Path directory, TargetCheckpointSemanticSnapshot snapshot,
-            TargetCheckpointSemanticSnapshot.Limits limits) {
+    static void writeNew(
+            Path directory, TargetCheckpointSemanticSnapshot snapshot, TargetCheckpointSemanticSnapshot.Limits limits) {
         final byte[] bytes = snapshot.canonicalBytes();
         TargetCheckpointSemanticSnapshot.decode(bytes, limits);
         requireDirectory(directory);
-        try (var channel = FileChannel.open(directory.resolve(NAME), StandardOpenOption.CREATE_NEW,
-                StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+        try (var channel = FileChannel.open(
+                directory.resolve(NAME),
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+                LinkOption.NOFOLLOW_LINKS)) {
             final var buffer = ByteBuffer.wrap(bytes);
-            while (buffer.hasRemaining()) { channel.write(buffer); }
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
             channel.force(true);
         } catch (IOException failure) {
             throw new IllegalStateException("cannot persist Target semantic companion", failure);
         }
     }
 
-    public static TargetCheckpointSemanticSnapshot read(Path directory,
-            TargetCheckpointSemanticSnapshot.Limits limits) {
+    public static TargetCheckpointSemanticSnapshot read(
+            Path directory, TargetCheckpointSemanticSnapshot.Limits limits) {
         requireDirectory(directory);
         final Path path = directory.resolve(NAME);
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) {
@@ -44,7 +49,9 @@ public final class TargetCheckpointSemanticSnapshotFile {
             }
             final var buffer = ByteBuffer.allocate(Math.toIntExact(length));
             while (buffer.hasRemaining()) {
-                if (channel.read(buffer) < 0) { throw new IOException("Target semantic companion was truncated"); }
+                if (channel.read(buffer) < 0) {
+                    throw new IOException("Target semantic companion was truncated");
+                }
             }
             if (channel.read(ByteBuffer.allocate(1)) != -1 || channel.size() != length) {
                 throw new IOException("Target semantic companion changed during read");
@@ -55,8 +62,8 @@ public final class TargetCheckpointSemanticSnapshotFile {
         }
     }
 
-    static TargetCheckpointSemanticSnapshot requireExact(Path directory, TargetCheckpointSemanticSnapshot expected,
-            TargetCheckpointSemanticSnapshot.Limits limits) {
+    static TargetCheckpointSemanticSnapshot requireExact(
+            Path directory, TargetCheckpointSemanticSnapshot expected, TargetCheckpointSemanticSnapshot.Limits limits) {
         final var actual = read(directory, limits);
         if (!Arrays.equals(expected.canonicalBytes(), actual.canonicalBytes())) {
             throw new IllegalArgumentException("existing Target semantic companion differs from the exact request");

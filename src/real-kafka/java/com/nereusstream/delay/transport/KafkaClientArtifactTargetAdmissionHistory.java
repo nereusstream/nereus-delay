@@ -16,7 +16,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.apache.kafka.clients.consumer.CloseOptions;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.common.TopicPartition;
@@ -24,70 +23,171 @@ import org.apache.kafka.common.TopicPartition;
 /** Exact K1 Target Source history read using a dedicated manual-assignment consumer, with no offset commit path. */
 public final class KafkaClientArtifactTargetAdmissionHistory {
     public static final int MAX_FRAME_BYTES = 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 2048;
-    public static final int MAX_CONTROL_FRAME_BYTES = 1024 + Math.max(
-            Math.max(TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES, TargetMembershipControlBody.MAX_CANONICAL_BYTES),
-            Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
+    public static final int MAX_CONTROL_FRAME_BYTES = 1024
+            + Math.max(
+                    Math.max(
+                            TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES,
+                            TargetMembershipControlBody.MAX_CANONICAL_BYTES),
+                    Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
 
     private KafkaClientArtifactTargetAdmissionHistory() {}
 
-    public static SystemMutation readVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+    public static SystemMutation readVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
-                sdkJar, MAX_FRAME_BYTES, reference::requireImage);
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                MAX_FRAME_BYTES,
+                reference::requireImage);
     }
-    public static SystemMutation readControlVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readControlVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetCheckpointDependencies.ControlReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
-                sdkJar, MAX_CONTROL_FRAME_BYTES, reference::requireImage);
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                MAX_CONTROL_FRAME_BYTES,
+                reference::requireImage);
     }
-    public static SystemMutation readOutcomeVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readOutcomeVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetCheckpointDependencies.OutcomeReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential, time,
-                sdkJar, MAX_FRAME_BYTES, reference::requireImage);
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                MAX_FRAME_BYTES,
+                reference::requireImage);
     }
 
     /** The service's declared Source frame bound applies to every legal mutation kind. */
-    public static SystemMutation readVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+    public static SystemMutation readVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
-            byte[] sdkJar, int maximumSourceFrameBytes) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
-                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+            byte[] sdkJar,
+            int maximumSourceFrameBytes) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
-    public static SystemMutation readControlVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readControlVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetCheckpointDependencies.ControlReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
-            byte[] sdkJar, int maximumSourceFrameBytes) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
-                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+            byte[] sdkJar,
+            int maximumSourceFrameBytes) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
-    public static SystemMutation readOutcomeVerified(Map<String,Object> configuration, String physicalTopic,
-            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readOutcomeVerified(
+            Map<String, Object> configuration,
+            String physicalTopic,
+            TargetCheckpointDependencies.OutcomeReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
-            byte[] sdkJar, int maximumSourceFrameBytes) {
-        return readVerified(configuration, physicalTopic, reference.source(), timeout, historyGuard, credential,
-                time, sdkJar, requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+            byte[] sdkJar,
+            int maximumSourceFrameBytes) {
+        return readVerified(
+                configuration,
+                physicalTopic,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                sdkJar,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
+
     private static int requireFrameBound(int frameBytes) {
-        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE)
+        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("history requires the finite declared Source frame bound");
+        }
         return frameBytes;
     }
-    private static SystemMutation readVerified(Map<String,Object> configuration, String topic, SourcePosition source,
-            Duration timeout, Runnable originalProtection,
+
+    private static SystemMutation readVerified(
+            Map<String, Object> configuration,
+            String topic,
+            SourcePosition source,
+            Duration timeout,
+            Runnable originalProtection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar,
-            int frameBytes, java.util.function.BiFunction<SystemMutation,SourcePosition,SystemMutation> image) {
-        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar,
+            int frameBytes,
+            java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> image) {
+        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(
+                org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
         final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.HISTORY;
         final String name = credential.authorization().newReaderName(role);
         final var guard = credential.guardRead(role, source, topic, name, time, originalProtection);
@@ -102,68 +202,100 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
      * read proves only these retained bytes and the authenticated resource; it never authorizes SEND or GC.
      */
     public static SystemMutation read(
-            final Map<String, Object> configuration, final String physicalTopic,
-            final TargetPublishRecoveryDiscovery.Reference reference, final Duration timeout,
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetPublishRecoveryDiscovery.Reference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
-        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES,
-                ref::requireImage);
+        return read(
+                configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
     }
 
     /** Reads an exact original Control input, including rejected first results, without altering the active group. */
-    public static SystemMutation readControl(final Map<String, Object> configuration, final String physicalTopic,
-            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
+    public static SystemMutation readControl(
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetCheckpointDependencies.ControlReference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
-        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_CONTROL_FRAME_BYTES,
+        return read(
+                configuration,
+                physicalTopic,
+                ref.source(),
+                timeout,
+                historyGuard,
+                MAX_CONTROL_FRAME_BYTES,
                 ref::requireImage);
     }
 
     /** Caller owns a bounded executor and all operation/pin obligations, including after cancellation or failure. */
     public static java.util.concurrent.CompletableFuture<SystemMutation> readControlAsync(
-            final Map<String, Object> configuration, final String physicalTopic,
-            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
-            final Runnable historyGuard, final java.util.concurrent.ThreadPoolExecutor executor) {
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetCheckpointDependencies.ControlReference reference,
+            final Duration timeout,
+            final Runnable historyGuard,
+            final java.util.concurrent.ThreadPoolExecutor executor) {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) ->
-                readControl(config, physicalTopic, ref, remaining, active));
+        return readAsync(
+                timeout,
+                guard,
+                executor,
+                (remaining, active) -> readControl(config, physicalTopic, ref, remaining, active));
     }
 
     /** Exact original Outcome history, including rejected first results, on an independent no-commit cursor. */
-    public static SystemMutation readOutcome(final Map<String, Object> configuration, final String physicalTopic,
-            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
+    public static SystemMutation readOutcome(
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetCheckpointDependencies.OutcomeReference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
-        return read(configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES,
-                ref::requireImage);
+        return read(
+                configuration, physicalTopic, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
     }
 
     /** Caller owns a bounded executor and all operation/pin obligations, including after cancellation or failure. */
     public static java.util.concurrent.CompletableFuture<SystemMutation> readOutcomeAsync(
-            final Map<String, Object> configuration, final String physicalTopic,
-            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
-            final Runnable historyGuard, final java.util.concurrent.ThreadPoolExecutor executor) {
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetCheckpointDependencies.OutcomeReference reference,
+            final Duration timeout,
+            final Runnable historyGuard,
+            final java.util.concurrent.ThreadPoolExecutor executor) {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) ->
-                readOutcome(config, physicalTopic, ref, remaining, active));
+        return readAsync(
+                timeout,
+                guard,
+                executor,
+                (remaining, active) -> readOutcome(config, physicalTopic, ref, remaining, active));
     }
 
     /** Bounded original Admission read; caller owns the executor and all history/cleanup obligations. */
     public static java.util.concurrent.CompletableFuture<SystemMutation> readAdmissionAsync(
             Map<String, Object> configuration,
-            String physicalTopic, TargetPublishRecoveryDiscovery.Reference reference, Duration timeout,
-            Runnable historyGuard, java.util.concurrent.ThreadPoolExecutor executor) {
+            String physicalTopic,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
+            java.util.concurrent.ThreadPoolExecutor executor) {
         final var config = new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) -> read(config, physicalTopic, ref, remaining, active));
+        return readAsync(
+                timeout, guard, executor, (remaining, active) -> read(config, physicalTopic, ref, remaining, active));
     }
 
-    private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(Duration timeout, Runnable guard,
+    private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(
+            Duration timeout,
+            Runnable guard,
             java.util.concurrent.ThreadPoolExecutor executor,
             java.util.function.BiFunction<Duration, Runnable, SystemMutation> operation) {
         final var pool = Objects.requireNonNull(executor, "executor");
@@ -184,14 +316,22 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             guard.run();
             remainingMs(started, timeoutNanos);
         };
-        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(active -> {
-            final long remaining = timeoutNanos - (System.nanoTime() - started);
-            return operation.apply(Duration.ofNanos(remaining), active);
-        }, boundedGuard, pool).receipt();
+        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(
+                        active -> {
+                            final long remaining = timeoutNanos - (System.nanoTime() - started);
+                            return operation.apply(Duration.ofNanos(remaining), active);
+                        },
+                        boundedGuard,
+                        pool)
+                .receipt();
     }
 
-    private static SystemMutation read(final Map<String, Object> configuration, final String physicalTopic,
-            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
+    private static SystemMutation read(
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final SourcePosition expectedSource,
+            final Duration timeout,
+            final Runnable historyGuard,
             final int maximumFrameBytes,
             final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage) {
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
@@ -214,12 +354,16 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) timeoutMs);
         guard.run();
         final long started = System.nanoTime();
-        final var consumer = KafkaClientArtifactSourceConsumerFactory.create(config,
-                expected.authenticatedClusterId(), physicalTopic, expected.nativeTopicUuid(),
+        final var consumer = KafkaClientArtifactSourceConsumerFactory.create(
+                config,
+                expected.authenticatedClusterId(),
+                physicalTopic,
+                expected.nativeTopicUuid(),
                 expected.shardId().partition());
         Throwable failure = null;
         try {
-            final var partition = new TopicPartition(physicalTopic, expected.shardId().partition());
+            final var partition =
+                    new TopicPartition(physicalTopic, expected.shardId().partition());
             consumer.assign(List.of(partition));
             consumer.seek(partition, expected.offset());
             final var resource = consumer.resourceGuard();
@@ -233,12 +377,18 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
                 final var evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, resource);
                 for (var record : records.records(partition)) {
                     KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, resource);
-                    if (record.offset() != expected.offset() || record.timestamp() < 0
-                            || record.value() == null || record.value().length > maximumFrameBytes) {
+                    if (record.offset() != expected.offset()
+                            || record.timestamp() < 0
+                            || record.value() == null
+                            || record.value().length > maximumFrameBytes) {
                         throw new IllegalStateException("K1 history lacks the exact bounded retained Source record");
                     }
-                    final var source = new KafkaSourcePosition(expected.shardId(), expected.authenticatedClusterId(),
-                            expected.nativeTopicUuid(), record.offset(), record.leaderEpoch().orElse(null),
+                    final var source = new KafkaSourcePosition(
+                            expected.shardId(),
+                            expected.authenticatedClusterId(),
+                            expected.nativeTopicUuid(),
+                            record.offset(),
+                            record.leaderEpoch().orElse(null),
                             record.timestamp());
                     final var decoded = KafkaClientArtifactSourceRecordDecoder.decodeTarget(
                             record.value(), expected.shardId(), source, null, null);
@@ -264,17 +414,23 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
     private static void close(GuardedConsumer<byte[], byte[]> consumer, Duration timeout, Throwable failure) {
         try {
             consumer.closeGuardedResources(timeout);
-            if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 history native resources are still live");
+            if (!consumer.guardedResourcesTerminated()) {
+                throw new IllegalStateException("K1 history native resources are still live");
+            }
         } catch (RuntimeException | Error closeFailure) {
             final var retained = new CleanupFailure(consumer, timeout, failure == null ? closeFailure : failure);
-            if (failure != null && closeFailure != failure) { retained.addSuppressed(closeFailure); }
+            if (failure != null && closeFailure != failure) {
+                retained.addSuppressed(closeFailure);
+            }
             throw retained;
         }
     }
 
     private static long remainingMs(long started, long timeoutNanos) {
         final long remaining = timeoutNanos - (System.nanoTime() - started);
-        if (remaining < 1_000_000L) { throw new IllegalStateException("K1 history deadline exhausted"); }
+        if (remaining < 1_000_000L) {
+            throw new IllegalStateException("K1 history deadline exhausted");
+        }
         return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining);
     }
 
@@ -292,7 +448,10 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
             this.timeout = timeout;
         }
 
-        public boolean cleanupComplete() { return complete; }
+        public boolean cleanupComplete() {
+            return complete;
+        }
+
         @Override
         public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
             retryClose();
@@ -302,10 +461,11 @@ public final class KafkaClientArtifactTargetAdmissionHistory {
         public synchronized void retryClose() {
             if (!complete) {
                 consumer.closeGuardedResources(timeout);
-                if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 history native cleanup is not confirmed");
+                if (!consumer.guardedResourcesTerminated()) {
+                    throw new IllegalStateException("K1 history native cleanup is not confirmed");
+                }
                 complete = true;
             }
         }
     }
-
 }

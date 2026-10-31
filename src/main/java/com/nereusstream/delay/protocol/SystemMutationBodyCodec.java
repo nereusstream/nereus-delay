@@ -14,16 +14,26 @@ public final class SystemMutationBodyCodec {
     /** Validates required/optional operation fields without interpreting their nested semantic objects. */
     public static void validate(final SystemMutationType type, final byte[] canonicalBody) {
         Objects.requireNonNull(type, "type");
-        if(type==SystemMutationType.TARGET_RESOURCE_RECLAIM){TargetResourceReclaimBody.decode(canonicalBody);return;}
-        if(type==SystemMutationType.TARGET_SLO_OBSERVATION){TargetSloObservationEventBody.decode(canonicalBody);return;}
+        if (type == SystemMutationType.TARGET_RESOURCE_RECLAIM) {
+            TargetResourceReclaimBody.decode(canonicalBody);
+            return;
+        }
+        if (type == SystemMutationType.TARGET_SLO_OBSERVATION) {
+            TargetSloObservationEventBody.decode(canonicalBody);
+            return;
+        }
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
-        if (type == SystemMutationType.APPLY_SHARD_CONTROL && fields.size() > 4 && fields.get(4).number() == 11
+        if (type == SystemMutationType.APPLY_SHARD_CONTROL
+                && fields.size() > 4
+                && fields.get(4).number() == 11
                 && fields.get(4).unsignedValue() == TargetPayloadSummaryInitializationRequest.CONTROL_KIND) {
             TargetPayloadSummaryInitializationBody.decode(canonicalBody);
             return;
         }
-        if (type == SystemMutationType.APPLY_SHARD_CONTROL && fields.size() > 4 && fields.get(4).number() == 11
+        if (type == SystemMutationType.APPLY_SHARD_CONTROL
+                && fields.size() > 4
+                && fields.get(4).number() == 11
                 && (fields.get(4).unsignedValue() == TargetMigrationActivateRequest.CONTROL_KIND
                         || fields.get(4).unsignedValue() == TargetMigrationSettlementRequest.CONTROL_KIND
                         || fields.get(4).unsignedValue() == TargetMigrationRetirementIntentRequest.CONTROL_KIND
@@ -32,36 +42,51 @@ public final class SystemMutationBodyCodec {
             TargetMigrationControlBody.decode(canonicalBody);
             return;
         }
-        if(type==SystemMutationType.APPLY_SHARD_CONTROL&&fields.size()==10&&fields.get(4).number()==11
-                &&fields.getLast().number()==16){
-            final long kind=fields.get(4).unsignedValue();
-            if(kind==TargetSloWriterControlRequest.REGISTER_CONTROL_KIND||kind==TargetSloWriterControlRequest.CLOSE_CONTROL_KIND){
-                TargetSloWriterControlBody.decode(canonicalBody);return;
+        if (type == SystemMutationType.APPLY_SHARD_CONTROL
+                && fields.size() == 10
+                && fields.get(4).number() == 11
+                && fields.getLast().number() == 16) {
+            final long kind = fields.get(4).unsignedValue();
+            if (kind == TargetSloWriterControlRequest.REGISTER_CONTROL_KIND
+                    || kind == TargetSloWriterControlRequest.CLOSE_CONTROL_KIND) {
+                TargetSloWriterControlBody.decode(canonicalBody);
+                return;
             }
-            if(kind==TargetSloObservationControlRequest.ENABLE_CONTROL_KIND||kind==TargetSloObservationControlRequest.STOP_CONTROL_KIND){
-                TargetSloObservationControlBody.decode(canonicalBody);return;
+            if (kind == TargetSloObservationControlRequest.ENABLE_CONTROL_KIND
+                    || kind == TargetSloObservationControlRequest.STOP_CONTROL_KIND) {
+                TargetSloObservationControlBody.decode(canonicalBody);
+                return;
             }
         }
         Spec[] specs = specs(type);
         final boolean targetRetirement = (type == SystemMutationType.RESOURCE_RETIRE_INTENT
-                || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED)
-                && fields.size() > 3 && fields.get(3).number() == 9;
+                        || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED)
+                && fields.size() > 3
+                && fields.get(3).number() == 9;
         if (targetRetirement) {
             if (canonicalBody.length > TargetEvidenceRetireIntentBody.MAX_CANONICAL_BYTES
                     || fields.get(3).wireType() != 0
-                    || fields.get(3).unsignedValue() != TargetEvidenceRetireIntentBody.BODY_VERSION)
+                    || fields.get(3).unsignedValue() != TargetEvidenceRetireIntentBody.BODY_VERSION) {
                 throw new IllegalArgumentException("unsupported Target evidence retirement body generation");
+            }
             specs = type == SystemMutationType.RESOURCE_RETIRE_INTENT
-                    ? new Spec[]{varint(9),varint(10),nested(11),varint(12),nested(13),nested(14)}
-                    : new Spec[]{varint(9),nested(10),varint(11),nested(12),nested(13),nested(14),nested(15),varint(16)};
+                    ? new Spec[] {varint(9), varint(10), nested(11), varint(12), nested(13), nested(14)}
+                    : new Spec[] {
+                        varint(9), nested(10), varint(11), nested(12), nested(13), nested(14), nested(15), varint(16)
+                    };
         }
         if ((type == SystemMutationType.PUBLISH_OUTCOME || type == SystemMutationType.EVIDENCE_RESOLUTION)
-                && fields.size() > 3 && fields.get(3).number() == 9) {
-            if (fields.get(3).wireType() != 0 || fields.get(3).unsignedValue() != PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION)
+                && fields.size() > 3
+                && fields.get(3).number() == 9) {
+            if (fields.get(3).wireType() != 0
+                    || fields.get(3).unsignedValue() != PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION) {
                 throw new IllegalArgumentException("unsupported proof-bearing Target K2 outcome body version");
+            }
             final var versioned = new Spec[specs.length + 2];
-            versioned[0] = varint(9); System.arraycopy(specs, 0, versioned, 1, specs.length);
-            versioned[versioned.length - 1] = nested(19); specs = versioned;
+            versioned[0] = varint(9);
+            System.arraycopy(specs, 0, versioned, 1, specs.length);
+            versioned[versioned.length - 1] = nested(19);
+            specs = versioned;
         }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.size() > 3
@@ -73,7 +98,8 @@ public final class SystemMutationBodyCodec {
             specs[specs.length - 2] = nested(22);
             specs[specs.length - 1] = nested(23);
         }
-        if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION && fields.size() > 3
+        if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
+                && fields.size() > 3
                 && fields.get(3).unsignedValue() == TargetPublishAdmissionBody.KAFKA_RECEIPT_BODY_VERSION) {
             specs = Arrays.copyOf(specs, specs.length + 1);
             specs[specs.length - 1] = nested(24);
@@ -93,10 +119,13 @@ public final class SystemMutationBodyCodec {
         }
         if (targetRetirement) {
             if (type == SystemMutationType.RESOURCE_RETIRE_INTENT) {
-                if (fields.get(4).unsignedValue() != ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT.wireValue())
+                if (fields.get(4).unsignedValue() != ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT.wireValue()) {
                     throw new IllegalArgumentException("generation8 only admits Target external evidence kind8");
+                }
                 TargetEvidenceRetireIntentBody.decodeResource(fields.get(5).rawValue());
-            } else TargetEvidenceRetireIntentBody.decodeResource(fields.get(8).rawValue());
+            } else {
+                TargetEvidenceRetireIntentBody.decodeResource(fields.get(8).rawValue());
+            }
         }
         if (type == SystemMutationType.TARGET_PUBLISH_ADMISSION
                 && fields.get(3).unsignedValue() != TargetPublishAdmissionBody.BODY_VERSION
@@ -136,7 +165,8 @@ public final class SystemMutationBodyCodec {
     private static Spec[] specs(final SystemMutationType type) {
         return switch (type) {
             case TARGET_RESOURCE_RECLAIM -> throw new IllegalStateException("reclaim uses its closed typed body codec");
-            case TARGET_SLO_OBSERVATION -> throw new IllegalStateException("SLO observation uses its bounded typed body codec");
+            case TARGET_SLO_OBSERVATION ->
+                throw new IllegalStateException("SLO observation uses its bounded typed body codec");
             case APPLY_SHARD_CONTROL ->
                 new Spec[] {nested(10), varint(11), varint(12), fixed(13, 32, true), optionalVarint(14), nested(15)};
             case REPLAY_DEAD_LETTER ->
@@ -262,7 +292,9 @@ public final class SystemMutationBodyCodec {
     }
 
     private static void validateField(
-            final CanonicalProtobuf.Reader.Field field, final Spec spec, final SystemMutationType type,
+            final CanonicalProtobuf.Reader.Field field,
+            final Spec spec,
+            final SystemMutationType type,
             final boolean targetRetirement) {
         if (field.wireType() != spec.wireType()) {
             throw new IllegalArgumentException(
@@ -289,20 +321,32 @@ public final class SystemMutationBodyCodec {
             }
             if (targetRetirement) {
                 if (type == SystemMutationType.RESOURCE_DELETE_CONFIRMED) {
-                    if (field.number() == 10) { TargetEvidenceDeleteConfirmedBody.decodeIntent(value); return; }
-                    if (field.number() == 12) { TargetEvidenceDeleteConfirmedBody.decodeEvidence(value); return; }
-                    if (field.number() == 13) { TargetEvidenceDeleteConfirmedBody.decodeTime(value); return; }
+                    if (field.number() == 10) {
+                        TargetEvidenceDeleteConfirmedBody.decodeIntent(value);
+                        return;
+                    }
+                    if (field.number() == 12) {
+                        TargetEvidenceDeleteConfirmedBody.decodeEvidence(value);
+                        return;
+                    }
+                    if (field.number() == 13) {
+                        TargetEvidenceDeleteConfirmedBody.decodeTime(value);
+                        return;
+                    }
                 }
                 if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 13) {
-                    TargetEvidenceRetireIntentBody.decodeProtections(value); return;
+                    TargetEvidenceRetireIntentBody.decodeProtections(value);
+                    return;
                 }
                 if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 14
                         || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED && field.number() == 15) {
-                    TargetEvidenceRetirementContext.decode(value); return;
+                    TargetEvidenceRetirementContext.decode(value);
+                    return;
                 }
                 if (type == SystemMutationType.RESOURCE_RETIRE_INTENT && field.number() == 11
                         || type == SystemMutationType.RESOURCE_DELETE_CONFIRMED && field.number() == 14) {
-                    TargetEvidenceRetireIntentBody.decodeResource(value); return;
+                    TargetEvidenceRetireIntentBody.decodeResource(value);
+                    return;
                 }
             }
             final boolean repeatedCanonicalFields = type == SystemMutationType.TARGET_PUBLISH_ADMISSION
@@ -352,7 +396,9 @@ public final class SystemMutationBodyCodec {
         final var fields = new ArrayList<CanonicalProtobuf.Reader.Field>();
         // Every registered operation has at most 32 top-level fields, including all explicit body generations.
         while (reader.hasRemaining()) {
-            if (fields.size() == 32) throw new IllegalArgumentException("System Mutation body has excess fields");
+            if (fields.size() == 32) {
+                throw new IllegalArgumentException("System Mutation body has excess fields");
+            }
             fields.add(reader.next());
         }
         return fields;

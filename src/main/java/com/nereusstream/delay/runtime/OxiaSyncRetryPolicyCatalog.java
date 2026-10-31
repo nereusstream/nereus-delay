@@ -30,7 +30,9 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
     private final Runnable session;
 
     public OxiaSyncRetryPolicyCatalog(final OxiaSyncOwnerLeaseBackend.ClientHandle handle, final String keyPrefix) {
-        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
+        this(
+                new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()),
+                keyPrefix,
                 handle.backend()::assertConnectedSession);
     }
 
@@ -38,7 +40,9 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
         this.client = Objects.requireNonNull(client, "client");
         this.session = Objects.requireNonNull(session, "session");
         prefix = Objects.requireNonNull(keyPrefix, "keyPrefix");
-        if (prefix.isBlank() || prefix.endsWith("/") || prefix.indexOf('\0') >= 0
+        if (prefix.isBlank()
+                || prefix.endsWith("/")
+                || prefix.indexOf('\0') >= 0
                 || !prefix.equals(new String(prefix.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))
                 || !Normalizer.isNormalized(prefix, Normalizer.Form.NFC)) {
             throw new IllegalArgumentException("Retry Policy catalog requires a canonical nonempty key prefix");
@@ -51,8 +55,8 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
     }
 
     /** Publishes terminal content with the original retry value; an existing legacy publication cannot be enriched. */
-    public void publish(final RetryPolicySemantic semantic, final TerminalPolicySemantic terminal,
-            final SourcePosition visibleAt) {
+    public void publish(
+            final RetryPolicySemantic semantic, final TerminalPolicySemantic terminal, final SourcePosition visibleAt) {
         final var proposed = new Publication(semantic, terminal, visibleAt);
         final byte[] value = encode(proposed);
         final String key = key(semantic.ref(), visibleAt);
@@ -69,7 +73,9 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
             requireObservedExact(key, value, race);
         } catch (RuntimeException uncertain) {
             final byte[] observed = get(key);
-            if (observed == null) { throw uncertain; }
+            if (observed == null) {
+                throw uncertain;
+            }
             requireExact(observed, value, key);
         }
     }
@@ -81,23 +87,28 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
     }
 
     @Override
-    public RetryPolicyCatalog.Publication resolvePublication(final RetryPolicyRef reference,
-            final SourcePosition sourcePosition) {
+    public RetryPolicyCatalog.Publication resolvePublication(
+            final RetryPolicyRef reference, final SourcePosition sourcePosition) {
         Objects.requireNonNull(reference, "reference");
         TargetSourcePosition.requireBounded(sourcePosition);
         final String key = key(reference, sourcePosition);
         final byte[] value = get(key);
-        if (value == null) { return null; }
+        if (value == null) {
+            return null;
+        }
         final var publication = decode(value);
         if (!key.equals(key(publication.semantic().ref(), publication.visibleAt()))) {
             throw new IllegalStateException("Retry Policy catalog key disagrees with its immutable value");
         }
         if (!reference.matches(publication.semantic())
                 || !publication.visibleAt().sameSourceIdentity(sourcePosition)
-                || publication.visibleAt().kind() != sourcePosition.kind()) { return null; }
+                || publication.visibleAt().kind() != sourcePosition.kind()) {
+            return null;
+        }
         final int order = publication.visibleAt().compareTo(sourcePosition);
-        if (order > 0 || order == 0
-                && !Arrays.equals(publication.visibleAt().canonicalBytes(), sourcePosition.canonicalBytes())) {
+        if (order > 0
+                || order == 0
+                        && !Arrays.equals(publication.visibleAt().canonicalBytes(), sourcePosition.canonicalBytes())) {
             return null;
         }
         return new RetryPolicyCatalog.Publication(publication.semantic(), publication.terminal());
@@ -107,23 +118,29 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
      * Resolves at the original use with a finite queue/start/result acceptance deadline. Caller owns the executor,
      * configured client request timeout and held protection; cancellation never means underlying I/O has ended.
      */
-    public java.util.concurrent.CompletableFuture<RetryPolicySemantic> resolveAsync(RetryPolicyRef reference,
-            SourcePosition originalUse, java.time.Duration timeout, Runnable protection,
+    public java.util.concurrent.CompletableFuture<RetryPolicySemantic> resolveAsync(
+            RetryPolicyRef reference,
+            SourcePosition originalUse,
+            java.time.Duration timeout,
+            Runnable protection,
             java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(reference, "reference");
         TargetSourcePosition.requireBounded(originalUse);
-        return CheckpointRegistryLookup.submit(() -> resolve(reference, originalUse), timeout, protection,
-                executor, System::nanoTime);
+        return CheckpointRegistryLookup.submit(
+                () -> resolve(reference, originalUse), timeout, protection, executor, System::nanoTime);
     }
 
     /** Same finite executor and owned I/O lifetime as Retry lookup; no additional service or queue. */
     public java.util.concurrent.CompletableFuture<RetryPolicyCatalog.Publication> resolvePublicationAsync(
-            RetryPolicyRef reference, SourcePosition originalUse, java.time.Duration timeout, Runnable protection,
+            RetryPolicyRef reference,
+            SourcePosition originalUse,
+            java.time.Duration timeout,
+            Runnable protection,
             java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(reference, "reference");
         TargetSourcePosition.requireBounded(originalUse);
-        return CheckpointRegistryLookup.submit(() -> resolvePublication(reference, originalUse), timeout, protection,
-                executor, System::nanoTime);
+        return CheckpointRegistryLookup.submit(
+                () -> resolvePublication(reference, originalUse), timeout, protection, executor, System::nanoTime);
     }
 
     private void requireObservedExact(String key, byte[] value, Exception failure) {
@@ -153,10 +170,13 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
                 + Bytes.hex(reference.policyId()) + "/" + Long.toUnsignedString(reference.version());
     }
 
-    private record Publication(RetryPolicySemantic semantic, TerminalPolicySemantic terminal, SourcePosition visibleAt) {
+    private record Publication(
+            RetryPolicySemantic semantic, TerminalPolicySemantic terminal, SourcePosition visibleAt) {
         Publication {
             Objects.requireNonNull(semantic, "semantic");
-            if (terminal != null) { terminal.requireBinding(semantic); }
+            if (terminal != null) {
+                terminal.requireBinding(semantic);
+            }
             TargetSourcePosition.requireBounded(visibleAt);
         }
     }
@@ -189,18 +209,24 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
             throw new IllegalArgumentException("invalid Retry Policy catalog value length");
         }
         final var fields = QueryCodecSupport.read(value, "Oxia Retry Policy publication");
-        if (fields.isEmpty()) { throw new IllegalArgumentException("missing Retry Policy catalog schema"); }
+        if (fields.isEmpty()) {
+            throw new IllegalArgumentException("missing Retry Policy catalog schema");
+        }
         final long version = QueryCodecSupport.uint(fields.get(0), 1);
         if (version != 1 && version != 2) {
             throw new IllegalArgumentException("unsupported Retry Policy catalog version");
         }
-        QueryCodecSupport.requireNumbers(fields, version == 1 ? new int[] {1, 2, 3, 4} : new int[] {1, 2, 3, 4, 5},
+        QueryCodecSupport.requireNumbers(
+                fields,
+                version == 1 ? new int[] {1, 2, 3, 4} : new int[] {1, 2, 3, 4, 5},
                 "Oxia Retry Policy publication");
-        final var publication = new Publication(RetryPolicySemantic.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
+        final var publication = new Publication(
+                RetryPolicySemantic.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
                 version == 1 ? null : TerminalPolicySemantic.decode(QueryCodecSupport.bytes(fields.get(3), 4)),
                 SourcePositionCodec.decode(QueryCodecSupport.bytes(fields.get(2), 3)));
         final int digestIndex = version == 1 ? 3 : 4;
-        if (!Arrays.equals(QueryCodecSupport.fixed(fields.get(digestIndex), digestIndex + 1, 32),
+        if (!Arrays.equals(
+                QueryCodecSupport.fixed(fields.get(digestIndex), digestIndex + 1, 32),
                 Bytes.sha256(DOMAIN, fields(publication)))) {
             throw new IllegalArgumentException("Retry Policy catalog digest mismatch");
         }
@@ -210,6 +236,7 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
 
     interface RecordClient {
         byte[] get(String key);
+
         void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException, UnexpectedVersionIdException;
     }
 
@@ -217,7 +244,9 @@ public final class OxiaSyncRetryPolicyCatalog implements RetryPolicyCatalog {
         @Override
         public byte[] get(String key) {
             final var result = client.get(key);
-            if (result == null) { return null; }
+            if (result == null) {
+                return null;
+            }
             if (!key.equals(result.key()) || result.value() == null || result.version() == null) {
                 throw new IllegalStateException("Oxia returned an incomplete or mismatched Retry Policy record");
             }

@@ -56,8 +56,11 @@ public final class TargetMembershipControlStore {
         this.backend = Objects.requireNonNull(backend, "backend");
         this.scope = Objects.requireNonNull(scope, "scope");
         Bytes.requireLength(lineage, 16, "lineage");
-        if (scope.target() != null || Arrays.equals(lineage, new byte[16])
-                || maximumCounters < 2 || maximumDomains < 1 || maximumDomains > 64) {
+        if (scope.target() != null
+                || Arrays.equals(lineage, new byte[16])
+                || maximumCounters < 2
+                || maximumDomains < 1
+                || maximumDomains > 64) {
             throw new IllegalArgumentException("membership control needs bounded Shard/lineage accounting");
         }
         this.lineage = Bytes.copy(lineage);
@@ -78,7 +81,8 @@ public final class TargetMembershipControlStore {
         Objects.requireNonNull(physical, "physical");
         Objects.requireNonNull(authority, "authority");
         TargetSourcePosition.requireBounded(source);
-        if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())
+        if (!scope.shard().equals(source.shardId())
+                || !scope.shard().equals(mutation.shardId())
                 || mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
             throw new IllegalArgumentException("membership control source/Shard mismatch");
         }
@@ -97,7 +101,8 @@ public final class TargetMembershipControlStore {
             requireAbsent(reader, ColumnFamily.DEDUPE, firstKey);
             requireAbsent(reader, ColumnFamily.DEDUPE, positionKey);
             final var stamp = new TargetQuotaMutation(
-                    TargetQuotaMutation.increment(reader.sourceSequence()), source,
+                    TargetQuotaMutation.increment(reader.sourceSequence()),
+                    source,
                     Bytes.sha256(mutation.canonicalEnvelope()));
             final var root = root(reader, stamp);
             final var edits = new ArrayList<TargetStoreBackend.Edit>();
@@ -108,7 +113,10 @@ public final class TargetMembershipControlStore {
             } else {
                 try {
                     change = TargetMembershipControlVerifier.verifyFirstApplication(
-                            control, mutation, source, physical,
+                            control,
+                            mutation,
+                            source,
+                            physical,
                             ref -> body.request().isIssue()
                                     ? null
                                     : TargetMembershipStoreAuthority.resolve(reader, scope, lineage, ref),
@@ -132,32 +140,51 @@ public final class TargetMembershipControlStore {
                     throw new IllegalStateException("membership control differs from Store tenant/Target");
                 }
                 if (change.action() == TargetMembershipControlVerifier.Action.GRANT) {
-                    addImmutable(reader, edits, TargetKeyCodec.identity(physical.id()),
-                            CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes());
-                    addImmutable(reader, edits, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE,
+                    addImmutable(
+                            reader,
+                            edits,
+                            TargetKeyCodec.identity(physical.id()),
+                            CanonicalTargetPartition.VALUE_TYPE,
+                            physical.canonicalBytes());
+                    addImmutable(
+                            reader,
+                            edits,
+                            policy.encodedKey(),
+                            TargetMembershipPolicy.VALUE_TYPE,
                             policy.canonicalBytes());
                     requireAbsent(reader, ColumnFamily.META, grant.encodedKey());
-                    edits.add(reader.replace(ColumnFamily.META, grant.encodedKey(),
-                            TargetMembershipGrant.VALUE_TYPE, grant.canonicalBytes()));
+                    edits.add(reader.replace(
+                            ColumnFamily.META,
+                            grant.encodedKey(),
+                            TargetMembershipGrant.VALUE_TYPE,
+                            grant.canonicalBytes()));
                 } else {
-                    requireExact(reader, TargetKeyCodec.identity(physical.id()),
-                            CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes());
-                    requireExact(reader, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE,
-                            policy.canonicalBytes());
+                    requireExact(
+                            reader,
+                            TargetKeyCodec.identity(physical.id()),
+                            CanonicalTargetPartition.VALUE_TYPE,
+                            physical.canonicalBytes());
+                    requireExact(
+                            reader, policy.encodedKey(), TargetMembershipPolicy.VALUE_TYPE, policy.canonicalBytes());
                     if (change.action() == TargetMembershipControlVerifier.Action.CLOSE) {
                         final var closure = new TargetMembershipClosureRecord(body, stamp, lineage);
                         closure.requireGrant(grant);
                         requireAbsent(reader, ColumnFamily.META, closure.key());
-                        edits.add(reader.replace(ColumnFamily.META, closure.key(),
-                                TargetMembershipClosureRecord.VALUE_TYPE, closure.canonicalBytes()));
+                        edits.add(reader.replace(
+                                ColumnFamily.META,
+                                closure.key(),
+                                TargetMembershipClosureRecord.VALUE_TYPE,
+                                closure.canonicalBytes()));
                     } else if (change.action() != TargetMembershipControlVerifier.Action.ALREADY_CLOSED) {
                         throw new IllegalStateException("membership verifier returned an unknown action");
                     }
                 }
             }
-            final var outcome = SystemMutationResult.from(mutation,
+            final var outcome = SystemMutationResult.from(
+                    mutation,
                     rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
-                    rejection == null ? StableCode.OK : rejection, source.canonicalBytes());
+                    rejection == null ? StableCode.OK : rejection,
+                    source.canonicalBytes());
             final TargetResultRecord.CreationAuthority resultAuthority = (record, first) -> {
                 record.requireOwner(root);
                 if (!record.mutation().equals(stamp) || record.allocation() != null) {
@@ -165,12 +192,14 @@ public final class TargetMembershipControlStore {
                 }
                 requireAbsent(reader, ColumnFamily.DEDUPE, record.key());
                 if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
-                    if (first != null || !Arrays.equals(record.key(), firstKey)
+                    if (first != null
+                            || !Arrays.equals(record.key(), firstKey)
                             || !Arrays.equals(record.typedPayload(), outcome.encode())) {
                         throw new IllegalStateException("membership first result differs from decision");
                     }
                 } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
-                    if (first == null || !Arrays.equals(first.key(), firstKey)
+                    if (first == null
+                            || !Arrays.equals(first.key(), firstKey)
                             || !Arrays.equals(first.typedPayload(), outcome.encode())
                             || !Arrays.equals(record.key(), positionKey)) {
                         throw new IllegalStateException("membership position differs from first result");
@@ -182,13 +211,14 @@ public final class TargetMembershipControlStore {
             };
             final var first = TargetResultRecord.system(root, outcome, stamp, null, resultAuthority);
             final var position = TargetResultRecord.position(root, first, stamp, resultAuthority);
-            edits.add(reader.replace(ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE,
-                    first.canonicalBytes()));
-            edits.add(reader.replace(ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE,
-                    position.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
             result[0] = outcome;
-            return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(),
-                    maximumCounters, 1, maximumDomains).assemble(reader, edits);
+            return new TargetSourceAccounting(
+                            scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
+                    .assemble(reader, edits);
         });
         return new Prepared(this, batch, result[0]);
     }
@@ -203,17 +233,24 @@ public final class TargetMembershipControlStore {
     }
 
     private TargetQuotaIncarnation root(TargetStoreBackend.Reader reader, TargetQuotaMutation operation) {
-        final var identity = new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,
-                scope.shard(), reader.aggregate().accountingIncarnation(), null, null);
+        final var identity = new TargetQuotaIdentity(
+                TargetQuotaIdentity.Kind.SHARD,
+                scope.shard(),
+                reader.aggregate().accountingIncarnation(),
+                null,
+                null);
         final byte[] key = identity.key();
         key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null) {
             throw new IllegalStateException("membership control lacks its controlled Shard root");
         }
-        final var root = TargetQuotaIncarnation.decodeForStore(key,
-                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE).payload(),
-                scope.shard(), scope.tenantScope());
+        final var root = TargetQuotaIncarnation.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetQuotaIncarnation.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                scope.tenantScope());
         if (!root.identity().equals(identity) || !Arrays.equals(root.recoveryLineage(), lineage)) {
             throw new IllegalStateException("membership result root differs from Store/lineage");
         }
@@ -223,8 +260,12 @@ public final class TargetMembershipControlStore {
         return root;
     }
 
-    private static void addImmutable(TargetStoreBackend.Reader reader,
-            ArrayList<TargetStoreBackend.Edit> edits, byte[] key, int type, byte[] payload) {
+    private static void addImmutable(
+            TargetStoreBackend.Reader reader,
+            ArrayList<TargetStoreBackend.Edit> edits,
+            byte[] key,
+            int type,
+            byte[] payload) {
         final byte[] prior = reader.get(ColumnFamily.META, key);
         if (prior != null) {
             if (!Arrays.equals(TargetValueEnvelope.decode(prior, type).payload(), payload)) {
@@ -235,8 +276,7 @@ public final class TargetMembershipControlStore {
         }
     }
 
-    private static void requireExact(
-            TargetStoreBackend.Reader reader, byte[] key, int type, byte[] payload) {
+    private static void requireExact(TargetStoreBackend.Reader reader, byte[] key, int type, byte[] payload) {
         final byte[] raw = reader.get(ColumnFamily.META, key);
         if (raw == null || !Arrays.equals(TargetValueEnvelope.decode(raw, type).payload(), payload)) {
             throw new IllegalStateException("membership retained metadata differs from authorized Control");

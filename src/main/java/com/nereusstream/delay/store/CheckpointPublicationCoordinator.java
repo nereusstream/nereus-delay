@@ -41,7 +41,9 @@ public final class CheckpointPublicationCoordinator {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
     }
 
-    void initializeTarget(CheckpointUploadIntent pending, TargetCheckpointRootVerifier.AuthenticatedImage image,
+    void initializeTarget(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
             CatalogInitializationAuthority authority) {
         catalog.initializeTargetCatalog(pending, image, authority);
     }
@@ -50,20 +52,27 @@ public final class CheckpointPublicationCoordinator {
         return uploadCoordinator.resources();
     }
     /** Only the actual atomic SDK record used by both original publication halves can supply retirement facts. */
-    public java.util.Optional<OxiaSyncCheckpointPublicationBackend> managedEvidenceRecoveryCatalog(){
-        if(!(catalog instanceof OxiaSyncCheckpointPublicationBackend actual))return java.util.Optional.empty();
-        if(!uploadCoordinator.usesIntentAuthority(actual))throw new IllegalStateException("Source checkpoint intent/Catalog authorities differ");
+    public java.util.Optional<OxiaSyncCheckpointPublicationBackend> managedEvidenceRecoveryCatalog() {
+        if (!(catalog instanceof OxiaSyncCheckpointPublicationBackend actual)) {
+            return java.util.Optional.empty();
+        }
+        if (!uploadCoordinator.usesIntentAuthority(actual)) {
+            throw new IllegalStateException("Source checkpoint intent/Catalog authorities differ");
+        }
         return java.util.Optional.of(actual);
     }
-    public void requireOriginalEvidenceResources(SharedRocksDbResources expected){
-        if(resources()!=expected)throw new IllegalArgumentException("Source checkpoint publication uses another original resource graph");
+
+    public void requireOriginalEvidenceResources(SharedRocksDbResources expected) {
+        if (resources() != expected) {
+            throw new IllegalArgumentException("Source checkpoint publication uses another original resource graph");
+        }
     }
 
     void requirePublicationCurrent(CheckpointPublication publication, Runnable protection) {
         protection.run();
         final var expected = publication.catalogPublication().manifest();
-        final var current = catalog.manifest(expected.checkpointId()).orElseThrow(
-                () -> new IllegalStateException("published checkpoint is absent from current Catalog"));
+        final var current = catalog.manifest(expected.checkpointId())
+                .orElseThrow(() -> new IllegalStateException("published checkpoint is absent from current Catalog"));
         if (!java.util.Arrays.equals(current.canonicalJsonBytes(), expected.canonicalJsonBytes())) {
             throw new IllegalStateException("published checkpoint differs from current Catalog");
         }
@@ -96,9 +105,12 @@ public final class CheckpointPublicationCoordinator {
     }
 
     /** Explicit Target path; complete immutable image authentication remains held through upload and Catalog CAS. */
-    CheckpointPublication publishTarget(CheckpointUploadIntent pending,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration,
-            long nowEpochMs, CheckpointUploadAdapter adapter) {
+    CheckpointPublication publishTarget(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long expectedCatalogGeneration,
+            long nowEpochMs,
+            CheckpointUploadAdapter adapter) {
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(image, "image");
         if (pending.baseCatalogGeneration() != expectedCatalogGeneration) {
@@ -112,18 +124,29 @@ public final class CheckpointPublicationCoordinator {
     }
 
     /** Same upload/Catalog mechanism, on the original migration CHECKPOINT/owned-I/O turn after actual A. */
-    public CheckpointPublication publishMigration(CheckpointUploadIntent pending,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, long nowEpochMs, CheckpointUploadAdapter adapter,
-            CatalogInitializationAuthority initialization, com.nereusstream.delay.runtime.TargetMigrationStore.Activated applied) {
+    public CheckpointPublication publishMigration(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long nowEpochMs,
+            CheckpointUploadAdapter adapter,
+            CatalogInitializationAuthority initialization,
+            com.nereusstream.delay.runtime.TargetMigrationStore.Activated applied) {
         Objects.requireNonNull(applied).requireCurrent();
         final var plan = applied.migration().plan();
-        if (!image.manifest().sourceStoreIncarnation().equals(applied.candidate().store().metadata().storeIncarnationUuid())
+        if (!image.manifest()
+                        .sourceStoreIncarnation()
+                        .equals(applied.candidate().store().metadata().storeIncarnationUuid())
                 || !java.util.Arrays.equals(image.manifest().recoveryLineageId(), plan.newLineage())
-                || image.manifest().appliedShardLogPosition().compareTo(applied.migration().activatedAt().source()) < 0)
+                || image.manifest()
+                                .appliedShardLogPosition()
+                                .compareTo(applied.migration().activatedAt().source())
+                        < 0) {
             throw new IllegalArgumentException("formal migration publication changed actual A/new Store");
+        }
         initializeTarget(pending, image, Objects.requireNonNull(initialization));
         final var result = publishTarget(pending, image, pending.baseCatalogGeneration(), nowEpochMs, adapter);
-        applied.requireCurrent(); return result;
+        applied.requireCurrent();
+        return result;
     }
 
     public record CheckpointPublication(

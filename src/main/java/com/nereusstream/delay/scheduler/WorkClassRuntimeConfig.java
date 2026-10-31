@@ -81,7 +81,8 @@ public record WorkClassRuntimeConfig(
                 otherBytes = Math.addExact(otherBytes, entry.getValue().nonBorrowableMinimumBytes());
             }
         }
-        if (task.bytes() > policy.maxBytesPerTurn() || totalResourceRecords - otherRecords < 1
+        if (task.bytes() > policy.maxBytesPerTurn()
+                || totalResourceRecords - otherRecords < 1
                 || task.bytes() > totalResourceBytes - otherBytes) {
             throw new IllegalArgumentException("work-class task cannot be served by its fixed turn/resource budget");
         }

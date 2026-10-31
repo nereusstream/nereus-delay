@@ -50,11 +50,17 @@ public final class TargetOwnerDrainCoordinator {
     private boolean terminal;
     private volatile boolean faultFenced;
     private boolean faultFlushed;
+
     public record ReplayExit(boolean ownerLost, boolean leaseReleased, boolean writeOutcomeUncertain) {}
 
-    void fenceNormalDrain() { faultFenced = true; }
+    void fenceNormalDrain() {
+        faultFenced = true;
+    }
+
     private void requireNormalDrain() {
-        if (faultFenced) { throw new IllegalStateException("normal Owner drain was fenced by backend quarantine"); }
+        if (faultFenced) {
+            throw new IllegalStateException("normal Owner drain was fenced by backend quarantine");
+        }
     }
 
     TargetOwnerDrainCoordinator(
@@ -149,7 +155,9 @@ public final class TargetOwnerDrainCoordinator {
         }
         resources.acquireDrainSlot();
         try {
-            if (expectedLease == null) { expectedLease = target.snapshotDrainLease(); }
+            if (expectedLease == null) {
+                expectedLease = target.snapshotDrainLease();
+            }
             if (!storeClosed) {
                 if (!faultFlushed && !store.isWriteOutcomeUncertain()) {
                     store.flushForUncleanClose();
@@ -159,10 +167,14 @@ public final class TargetOwnerDrainCoordinator {
                 store.close();
                 storeClosed = true;
             }
-            if (!leaseReleased && !ownerLost) { releaseUncertainLease(request, clock); }
+            if (!leaseReleased && !ownerLost) {
+                releaseUncertainLease(request, clock);
+            }
             sourceLoop.backendTerminationForReplay(backend);
             return new ReplayExit(ownerLost, leaseReleased, uncertainStore);
-        } finally { resources.releaseDrainSlot(); }
+        } finally {
+            resources.releaseDrainSlot();
+        }
     }
 
     public synchronized boolean terminal() {

@@ -218,8 +218,7 @@ public final class DelayShard {
     }
 
     /** Opens a shard with an explicit shared head-read envelope. */
-    public DelayShard(
-            final ShardStore store, final DelayShardConfig config, final HeadReadPolicy headReadPolicy) {
+    public DelayShard(final ShardStore store, final DelayShardConfig config, final HeadReadPolicy headReadPolicy) {
         this(
                 store,
                 config,
@@ -784,31 +783,45 @@ public final class DelayShard {
      * The private proof preserves original content and actual first/POS; it grants no legacy business write.
      */
     public synchronized void applyMigrationTargetPosition(final TargetMigrationTargetApplied actual) {
-        Objects.requireNonNull(actual).requirePosition(store,
-                Objects.requireNonNull(lastAppliedSourcePosition), mutationSequence);
+        Objects.requireNonNull(actual)
+                .requirePosition(store, Objects.requireNonNull(lastAppliedSourcePosition), mutationSequence);
         final var progress = actual.progress();
-        if (Arrays.equals(lastAppliedSourcePosition.canonicalBytes(), progress.appliedAt().source().canonicalBytes())) return;
-        final var original = Objects.requireNonNull(store.controlSnapshot(), "protected original legacy control snapshot");
+        if (Arrays.equals(
+                lastAppliedSourcePosition.canonicalBytes(),
+                progress.appliedAt().source().canonicalBytes())) {
+            return;
+        }
+        final var original =
+                Objects.requireNonNull(store.controlSnapshot(), "protected original legacy control snapshot");
         final var tuples = new ArrayList<>(original.protocolTuples());
-        if (!tuples.contains(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress()))
+        if (!tuples.contains(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress())) {
             tuples.add(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress());
-        final var shadow = new CompatibleControlSnapshot(original.shard(), tuples, original.profiles(), original.initialQuotaGrant());
+        }
+        final var shadow = new CompatibleControlSnapshot(
+                original.shard(), tuples, original.profiles(), original.initialQuotaGrant());
         final var fence = actual.fence();
         final boolean advancesFence = fence != null && fence.closedThroughEpochMs() > closedIngressDeadlineThrough;
         store.write(batch -> {
             actual.requirePosition(store, lastAppliedSourcePosition, mutationSequence);
             batch.putMigrationShadowControlSnapshot(shadow, actual);
-            batch.put(ColumnFamily.META, progress.key(), com.nereusstream.delay.store.TargetValueEnvelope.encode(
-                    com.nereusstream.delay.protocol.TargetMigrationShadowProgress.VALUE_TYPE, progress.canonicalBytes()));
+            batch.put(
+                    ColumnFamily.META,
+                    progress.key(),
+                    com.nereusstream.delay.store.TargetValueEnvelope.encode(
+                            com.nereusstream.delay.protocol.TargetMigrationShadowProgress.VALUE_TYPE,
+                            progress.canonicalBytes()));
             if (advancesFence) {
-                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), fence.canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), fence.canonicalBytes());
                 batch.putRuntimeMetadata(store.runtimeMetadata().withLastIngressFenceProofId(fence.proofId()));
             }
             writePosition(batch, progress.appliedAt().source());
         });
         lastAppliedSourcePosition = progress.appliedAt().source();
         mutationSequence = progress.appliedAt().sequence();
-        if (advancesFence) closedIngressDeadlineThrough = fence.closedThroughEpochMs();
+        if (advancesFence) {
+            closedIngressDeadlineThrough = fence.closedThroughEpochMs();
+        }
     }
 
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
@@ -2294,9 +2307,10 @@ public final class DelayShard {
      */
     public synchronized SystemMutationResult applySystemMutation(
             final SystemMutation mutation, final SourcePosition sourcePosition, final PublicKey verificationKey) {
-        if(Objects.requireNonNull(mutation,"mutation").type()==SystemMutationType.TARGET_RESOURCE_RECLAIM
-                ||mutation.type()==SystemMutationType.TARGET_SLO_OBSERVATION)
+        if (Objects.requireNonNull(mutation, "mutation").type() == SystemMutationType.TARGET_RESOURCE_RECLAIM
+                || mutation.type() == SystemMutationType.TARGET_SLO_OBSERVATION) {
             throw new IllegalArgumentException("Target-only Source mutation cannot execute in the legacy Lane core");
+        }
         return runReadRetryableMutation(() -> applySystemMutationInTurn(mutation, sourcePosition, verificationKey));
     }
 
@@ -10284,8 +10298,8 @@ public final class DelayShard {
                 && includedMessageId != null
                 && includedMessage.laneId().equals(laneId)) {
             final long actionAt = actionAtFor(includedMessageId, includedMessage);
-            final boolean ordered = includedMessage.orderingMode()
-                    == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
+            final boolean ordered =
+                    includedMessage.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO;
             final long headEligibilityAt = Math.max(actionAt, includedMessage.retryEligibilityAtEpochMs());
             selected = new TimelineCandidate(
                     includedMessageId,

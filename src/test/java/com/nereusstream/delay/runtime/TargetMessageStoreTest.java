@@ -239,8 +239,8 @@ class TargetMessageStoreTest {
             assertEquals(2, empty.headRevision());
             assertNull(empty.domains().getFirst().ordinaryHead());
             assertNull(empty.domains().getFirst().nativeHead());
-            final var otherPhysical = new CanonicalTargetPartition(
-                    physical.resource(), physical.physicalPartition() == 0 ? 1 : 0);
+            final var otherPhysical =
+                    new CanonicalTargetPartition(physical.resource(), physical.physicalPartition() == 0 ? 1 : 0);
             final var otherQueue = new TargetQueueState(
                     otherPhysical.id(),
                     empty.headRevision(),

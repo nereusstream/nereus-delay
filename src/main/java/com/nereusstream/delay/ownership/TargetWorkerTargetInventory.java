@@ -149,15 +149,15 @@ public final class TargetWorkerTargetInventory {
                 }
 
                 @Override
-                public OptionalLong readActiveMessages(
-                        final BoundedReadBudget budget, final TargetPartitionId target) {
+                public OptionalLong readActiveMessages(final BoundedReadBudget budget, final TargetPartitionId target) {
                     return host.readTargetActiveMessages(exact, budget, target, ownerClock);
                 }
             });
         }
         final Supplier<BoundedReadBudget> budgets = () -> new BoundedReadBudget(
                 limits.readRecords(), limits.readBytes(), limits.readElapsedNanos(), monotonicClock);
-        return rebuild(sources, limits, budgets, () -> host.currentTargetWorkers().equals(workers), metrics);
+        return rebuild(
+                sources, limits, budgets, () -> host.currentTargetWorkers().equals(workers), metrics);
     }
 
     /** Each page is independently guarded; only equal per-Shard cuts and a final recheck publish. */
@@ -269,8 +269,7 @@ public final class TargetWorkerTargetInventory {
         }
         if (unavailable > 0) {
             metrics.record(new BoundedAsyncMetricExporter.MetricEvent(
-                    BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE,
-                    unavailable));
+                    BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH_UNAVAILABLE, unavailable));
         }
     }
 

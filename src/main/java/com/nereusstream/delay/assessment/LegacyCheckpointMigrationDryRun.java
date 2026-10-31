@@ -46,7 +46,8 @@ public final class LegacyCheckpointMigrationDryRun {
                 || !proposedTargetStore.shardId().equals(authenticatedManifest.shardId())
                 || proposedTargetStore.storeIncarnationUuid().equals(authenticatedManifest.sourceStoreIncarnation())
                 || Arrays.equals(proposedTargetStore.dbIdentity(), authenticatedManifest.dbIdentity())) {
-            throw new IllegalArgumentException("migration requires a distinct format-2 Store identity in the same Shard");
+            throw new IllegalArgumentException(
+                    "migration requires a distinct format-2 Store identity in the same Shard");
         }
         if (readLimits.maxRecords() == Integer.MAX_VALUE
                 || readLimits.maxBytes() == Long.MAX_VALUE
@@ -67,16 +68,17 @@ public final class LegacyCheckpointMigrationDryRun {
         if (!captured.sameSourceIdentity(applied)) {
             blockers.add(BatchBlocker.SOURCE_IDENTITY_MISMATCH);
         } else if (!Arrays.equals(exactCut, applied.canonicalBytes())) {
-            blockers.add(applied.compareTo(captured) < 0
-                    ? BatchBlocker.SOURCE_TAIL_NOT_APPLIED
-                    : BatchBlocker.APPLIED_SOURCE_DIFFERS_FROM_CAPTURED_CUT);
+            blockers.add(
+                    applied.compareTo(captured) < 0
+                            ? BatchBlocker.SOURCE_TAIL_NOT_APPLIED
+                            : BatchBlocker.APPLIED_SOURCE_DIFFERS_FROM_CAPTURED_CUT);
         }
         blockers.add(BatchBlocker.FENCED_MAINTENANCE_AUTHORITY_NOT_AUDITED);
         blockers.add(BatchBlocker.COMPLETE_STATE_MAPPING_NOT_AUDITED);
         blockers.add(BatchBlocker.EXTERNAL_LEGACY_OBLIGATIONS_NOT_AUDITED);
         blockers.add(BatchBlocker.CONSERVATION_NOT_AUDITED);
-        final var report = new Report(
-                inventory, authenticatedManifest.manifestSha256(), captured, proposedTargetStore, blockers);
+        final var report =
+                new Report(inventory, authenticatedManifest.manifestSha256(), captured, proposedTargetStore, blockers);
         requireCurrentCut(sourceCut, exactCut);
         return report;
     }
@@ -88,26 +90,36 @@ public final class LegacyCheckpointMigrationDryRun {
             final StoreMetadata proposedTargetStore,
             final LegacyMigrationBundle.Held originalInputs,
             final LegacyMigrationBundle.Limits limits) {
-        Objects.requireNonNull(view, "view"); Objects.requireNonNull(sourceCut, "sourceCut");
+        Objects.requireNonNull(view, "view");
+        Objects.requireNonNull(sourceCut, "sourceCut");
         Objects.requireNonNull(proposedTargetStore, "proposedTargetStore");
         final var old = view.inventory().physicalProof().metadata();
-        if (proposedTargetStore.storeFormatVersion() != 2 || !old.shardId().equals(proposedTargetStore.shardId())
+        if (proposedTargetStore.storeFormatVersion() != 2
+                || !old.shardId().equals(proposedTargetStore.shardId())
                 || old.storeIncarnationUuid().equals(proposedTargetStore.storeIncarnationUuid())
-                || Arrays.equals(old.dbIdentity(), proposedTargetStore.dbIdentity()))
+                || Arrays.equals(old.dbIdentity(), proposedTargetStore.dbIdentity())) {
             throw new IllegalArgumentException("migration requires a distinct format-2 Store in the original Shard");
+        }
         final SourcePosition cut = Objects.requireNonNull(sourceCut.position(), "Source cut");
         requireCurrentCut(sourceCut, cut.canonicalBytes());
-        if (!Arrays.equals(cut.canonicalBytes(), view.manifest().appliedShardLogPosition().canonicalBytes()))
+        if (!Arrays.equals(
+                cut.canonicalBytes(), view.manifest().appliedShardLogPosition().canonicalBytes())) {
             throw new IllegalArgumentException("complete old view has not reached the exact protected Source cut");
+        }
         final var material = LegacyMigrationBundle.prepare(view, originalInputs, limits);
-        final var blockers = material.blockers().stream().map(audit -> BatchBlocker.valueOf(audit.name())).toList();
+        final var blockers = material.blockers().stream()
+                .map(audit -> BatchBlocker.valueOf(audit.name()))
+                .toList();
         requireCurrentCut(sourceCut, cut.canonicalBytes());
-        return new Report(view.inventory(), view.manifest().manifestSha256(), cut, proposedTargetStore, blockers, material);
+        return new Report(
+                view.inventory(), view.manifest().manifestSha256(), cut, proposedTargetStore, blockers, material);
     }
 
     private static void requireCurrentCut(final SourceRecordConsumer.CheckpointCut cut, final byte[] expected) {
         cut.requireCurrent();
-        if (!Arrays.equals(expected, Objects.requireNonNull(cut.position(), "Source cut position").canonicalBytes())) {
+        if (!Arrays.equals(
+                expected,
+                Objects.requireNonNull(cut.position(), "Source cut position").canonicalBytes())) {
             throw new IllegalStateException("protected migration Source cut changed during read-only inspection");
         }
     }
@@ -163,7 +175,9 @@ public final class LegacyCheckpointMigrationDryRun {
             return blockers;
         }
 
-        public LegacyMigrationBundle.Material material() { return material; }
+        public LegacyMigrationBundle.Material material() {
+            return material;
+        }
 
         /** READY is only permission to request migration authorization, never an activation/retirement receipt. */
         public String summary() {
@@ -182,17 +196,22 @@ public final class LegacyCheckpointMigrationDryRun {
             for (var conflict : inventory.conflicts()) {
                 maximumBytes = Math.addExact(maximumBytes, 512L + 2L * conflict.sourcePosition().length);
             }
-            maximumBytes = Math.addExact(maximumBytes,
+            maximumBytes = Math.addExact(
+                    maximumBytes,
                     blockers.size() * (512L + 2L * proof.appliedSourcePosition().canonicalBytes().length));
-            if (material != null) for (var conflict : material.conflicts())
-                maximumBytes = Math.addExact(maximumBytes, conflict.length() + 16L);
+            if (material != null) {
+                for (var conflict : material.conflicts()) {
+                    maximumBytes = Math.addExact(maximumBytes, conflict.length() + 16L);
+                }
+            }
             // All emitted strings are generated ASCII names, numeric text, UUIDs or hex. Bound before hex copies
             // and the sorted output list; a large legacy Source identity must not be repeated without accounting.
             if (maximumBytes > maxReportBytes) {
                 throw new IllegalStateException("migration report exceeds its configured output byte bound");
             }
             final StringBuilder json = new StringBuilder(4096);
-            json.append("{\"appliedSourcePosition\":").append(hex(proof.appliedSourcePosition().canonicalBytes()));
+            json.append("{\"appliedSourcePosition\":")
+                    .append(hex(proof.appliedSourcePosition().canonicalBytes()));
             json.append(",\"chargedReadBytes\":")
                     .append(AssessmentCanonical.quote(Long.toString(inventory.chargedBytes())));
             json.append(",\"checkpointId\":").append(hex(proof.checkpointId()));
@@ -206,15 +225,22 @@ public final class LegacyCheckpointMigrationDryRun {
                     .toList();
             boolean separator = false;
             for (var conflict : conflicts) {
-                if (material != null && material.conflicts().stream().noneMatch(item -> item.equals(
-                        conflict.reason().name() + ":" + Bytes.hex(conflict.oldKeyDigest())))) continue;
+                if (material != null
+                        && material.conflicts().stream()
+                                .noneMatch(item -> item.equals(
+                                        conflict.reason().name() + ":" + Bytes.hex(conflict.oldKeyDigest())))) {
+                    continue;
+                }
                 if (separator) {
                     json.append(',');
                 }
                 json.append("{\"oldKeyDigest\":").append(hex(conflict.oldKeyDigest()));
-                json.append(",\"reason\":").append(AssessmentCanonical.quote(conflict.reason().name()));
+                json.append(",\"reason\":")
+                        .append(AssessmentCanonical.quote(conflict.reason().name()));
                 json.append(",\"recordKind\":").append(AssessmentCanonical.quote(conflict.recordKind()));
-                json.append(",\"sourcePosition\":").append(hex(conflict.sourcePosition())).append('}');
+                json.append(",\"sourcePosition\":")
+                        .append(hex(conflict.sourcePosition()))
+                        .append('}');
                 separator = true;
             }
             final byte[] metadataDigest = Bytes.sha256(KeyCodec.metaFixed(LEGACY_STORE_IDENTITY_METADATA_KIND));
@@ -225,15 +251,19 @@ public final class LegacyCheckpointMigrationDryRun {
                 json.append("{\"oldKeyDigest\":").append(hex(metadataDigest));
                 json.append(",\"reason\":").append(AssessmentCanonical.quote(blocker.name()));
                 json.append(",\"recordKind\":\"STORE\",\"sourcePosition\":")
-                        .append(hex(proof.appliedSourcePosition().canonicalBytes())).append('}');
+                        .append(hex(proof.appliedSourcePosition().canonicalBytes()))
+                        .append('}');
                 separator = true;
             }
             json.append("],\"manifestSha256\":").append(hex(manifestSha256));
             if (material != null) {
                 json.append(",\"mappingConflicts\":[");
-                final var materialConflicts = material.conflicts().stream().sorted().toList();
+                final var materialConflicts =
+                        material.conflicts().stream().sorted().toList();
                 for (int index = 0; index < materialConflicts.size(); index++) {
-                    if (index != 0) json.append(',');
+                    if (index != 0) {
+                        json.append(',');
+                    }
                     json.append(AssessmentCanonical.quote(materialConflicts.get(index)));
                 }
                 json.append(']');
@@ -242,12 +272,13 @@ public final class LegacyCheckpointMigrationDryRun {
             json.append(",\"messageStatuses\":").append(counts(inventory.messageStatuses()));
             json.append(",\"newDbIdentity\":").append(hex(proposedTargetStore.dbIdentity()));
             json.append(",\"newStoreFormat\":2,\"newStoreIncarnation\":")
-                    .append(AssessmentCanonical.quote(proposedTargetStore.storeIncarnationUuid().toString()));
+                    .append(AssessmentCanonical.quote(
+                            proposedTargetStore.storeIncarnationUuid().toString()));
             json.append(",\"oldDbIdentity\":").append(hex(proof.metadata().dbIdentity()));
             json.append(",\"oldStoreFormat\":1,\"oldStoreIncarnation\":")
-                    .append(AssessmentCanonical.quote(proof.metadata().storeIncarnationUuid().toString()));
-            json.append(",\"physicalBytes\":")
-                    .append(AssessmentCanonical.quote(Long.toString(proof.physicalBytes())));
+                    .append(AssessmentCanonical.quote(
+                            proof.metadata().storeIncarnationUuid().toString()));
+            json.append(",\"physicalBytes\":").append(AssessmentCanonical.quote(Long.toString(proof.physicalBytes())));
             json.append(",\"recordsByFamily\":").append(counts(inventory.recordsByFamily()));
             json.append(",\"retiredMessageIdentities\":")
                     .append(AssessmentCanonical.quote(Long.toString(inventory.retiredMessageIdentities())));
@@ -257,12 +288,16 @@ public final class LegacyCheckpointMigrationDryRun {
                     .append(AssessmentCanonical.quote(Long.toString(inventory.scannedRecords())));
             json.append(",\"schemaVersion\":1,\"shard\":{\"partition\":")
                     .append(proof.metadata().shardId().partition());
-            json.append(",\"routeIncarnation\":").append(AssessmentCanonical.quote(
-                    proof.metadata().shardId().routeIncarnation().uuid().toString())).append('}');
+            json.append(",\"routeIncarnation\":")
+                    .append(AssessmentCanonical.quote(
+                            proof.metadata().shardId().routeIncarnation().uuid().toString()))
+                    .append('}');
             json.append(",\"shardMutationSequence\":")
                     .append(AssessmentCanonical.quote(Long.toUnsignedString(proof.mutationSequence())));
             json.append(",\"sourceCut\":").append(hex(sourceCut.canonicalBytes()));
-            json.append(",\"summary\":").append(AssessmentCanonical.quote(summary())).append('}');
+            json.append(",\"summary\":")
+                    .append(AssessmentCanonical.quote(summary()))
+                    .append('}');
             if (json.length() > maxReportBytes) {
                 throw new IllegalStateException("migration report exceeds its configured output byte bound");
             }
@@ -276,13 +311,15 @@ public final class LegacyCheckpointMigrationDryRun {
         private static String counts(final Map<? extends Enum<?>, Long> values) {
             final StringBuilder json = new StringBuilder("{");
             final var entries = values.entrySet().stream()
-                    .sorted(Comparator.comparing(entry -> entry.getKey().name())).toList();
+                    .sorted(Comparator.comparing(entry -> entry.getKey().name()))
+                    .toList();
             for (int index = 0; index < entries.size(); index++) {
                 if (index != 0) {
                     json.append(',');
                 }
                 final var entry = entries.get(index);
-                json.append(AssessmentCanonical.quote(entry.getKey().name())).append(':')
+                json.append(AssessmentCanonical.quote(entry.getKey().name()))
+                        .append(':')
                         .append(AssessmentCanonical.quote(Long.toString(entry.getValue())));
             }
             return json.append('}').toString();

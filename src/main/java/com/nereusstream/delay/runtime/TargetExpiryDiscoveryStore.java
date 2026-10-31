@@ -82,34 +82,32 @@ public final class TargetExpiryDiscoveryStore {
                         throw new IllegalStateException(
                                 "Target expiry discovery requires its established source Store");
                     }
-                    final byte[] lower = cursor == null
-                            ? TargetKeyCodec.expiryPrefix()
-                            : Bytes.concat(cursor.after, new byte[] {0});
+                    final byte[] lower =
+                            cursor == null ? TargetKeyCodec.expiryPrefix() : Bytes.concat(cursor.after, new byte[] {0});
                     final var row = reader.first(
-                            ColumnFamily.TIMELINE,
-                            lower,
-                            TargetKeyCodec.expiryUpperBound(cutoff),
-                            List.of());
+                            ColumnFamily.TIMELINE, lower, TargetKeyCodec.expiryUpperBound(cutoff), List.of());
                     if (row == null) {
                         return new Discovery(Optional.empty(), null, true);
                     }
-                    final var decodedExpiry = TargetExpiryRef.decode(
-                            TargetValueEnvelope.decode(row.value(), TargetExpiryRef.VALUE_TYPE).payload());
-                    final byte[] messageKey = TargetKeyCodec.message(decodedExpiry.locator().messageId());
+                    final var decodedExpiry =
+                            TargetExpiryRef.decode(TargetValueEnvelope.decode(row.value(), TargetExpiryRef.VALUE_TYPE)
+                                    .payload());
+                    final byte[] messageKey =
+                            TargetKeyCodec.message(decodedExpiry.locator().messageId());
                     final byte[] rawMessage = reader.get(ColumnFamily.ID, messageKey);
                     if (rawMessage == null) {
                         throw new IllegalStateException("Target expiry index points to a missing Message");
                     }
                     final var message = TargetMessageRecord.decodeForStore(
                             messageKey,
-                            TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE).payload(),
+                            TargetValueEnvelope.decode(rawMessage, TargetMessageRecord.VALUE_TYPE)
+                                    .payload(),
                             shard);
-                    final var expiry = TargetExpiryRef.decodeForMessage(
-                            row.key(),
-                            decodedExpiry.canonicalBytes(),
-                            message);
+                    final var expiry =
+                            TargetExpiryRef.decodeForMessage(row.key(), decodedExpiry.canonicalBytes(), message);
                     if (expiry.expireAtEpochMs() > cutoff
-                            || !shard.equals(expiry.locator().messageId().routingId().shardId())) {
+                            || !shard.equals(
+                                    expiry.locator().messageId().routingId().shardId())) {
                         throw new IllegalStateException("Target expiry range returned a foreign or future index");
                     }
                     if (!budget.beforeTimedWork()) {

@@ -74,8 +74,7 @@ public final class TargetSchedulerComponentBenchmark {
             if (fields.length != 3) {
                 throw new IllegalArgumentException("benchmark case must be N:L:payloadBytes: " + argument);
             }
-            result.add(new Case(
-                    Long.parseLong(fields[0]), Integer.parseInt(fields[1]), Integer.parseInt(fields[2])));
+            result.add(new Case(Long.parseLong(fields[0]), Integer.parseInt(fields[1]), Integer.parseInt(fields[2])));
         }
         return List.copyOf(result);
     }
@@ -83,8 +82,8 @@ public final class TargetSchedulerComponentBenchmark {
     private static Measurement run(final Case measurement) {
         final int targetCount = measurement.targets();
         final ShardId shard = new ShardId(new RouteIncarnation(filled(16, 6)), 0);
-        final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts = Map.of(
-                shard, new TargetQueueSnapshotReader.Cut(filled(16, 8), 1));
+        final Map<ShardId, TargetQueueSnapshotReader.Cut> cuts =
+                Map.of(shard, new TargetQueueSnapshotReader.Cut(filled(16, 8), 1));
         final SyntheticReads reads = new SyntheticReads(shard, measurement, targetCount);
         final List<TargetWorkerTargetInventory.Target> inventoryTargets = new ArrayList<>(targetCount);
         for (int targetIndex = 0; targetIndex < targetCount; targetIndex++) {
@@ -180,8 +179,14 @@ public final class TargetSchedulerComponentBenchmark {
                 first.schedulerBytes(),
                 first.maxServiceGap(),
                 median(samples.stream().map(Measurement::elapsedNanos).toList()),
-                median(samples.stream().map(Measurement::allocatedBytes).filter(value -> value >= 0).toList()),
-                median(samples.stream().map(Measurement::gcPauseMillis).filter(value -> value >= 0).toList()),
+                median(samples.stream()
+                        .map(Measurement::allocatedBytes)
+                        .filter(value -> value >= 0)
+                        .toList()),
+                median(samples.stream()
+                        .map(Measurement::gcPauseMillis)
+                        .filter(value -> value >= 0)
+                        .toList()),
                 TIMED_SAMPLES);
     }
 
@@ -204,8 +209,7 @@ public final class TargetSchedulerComponentBenchmark {
     }
 
     private static TargetDomainState domainState(final TargetHeadRef head) {
-        return new TargetDomainState(
-                DOMAIN, TargetDomainState.Lifecycle.ACTIVE, REF, REF, null, head, null);
+        return new TargetDomainState(DOMAIN, TargetDomainState.Lifecycle.ACTIVE, REF, REF, null, head, null);
     }
 
     private static TargetQueueState queue(
@@ -224,8 +228,9 @@ public final class TargetSchedulerComponentBenchmark {
             final CanonicalTargetPartition physical, final ShardId shard, final long sequence) {
         final long uuidMost = (DELAY_ID_TIMESTAMP << 16) | 0x7000L;
         final long uuidLeast = 0x8000_0000_0000_0000L | sequence;
-        final DelayMessageId message = new DelayMessageId(
-                SelfRoutingId.fromLogicalUuid(shard, new UUID(uuidMost, uuidLeast)).bytes());
+        final DelayMessageId message =
+                new DelayMessageId(SelfRoutingId.fromLogicalUuid(shard, new UUID(uuidMost, uuidLeast))
+                        .bytes());
         final byte[] sourceOrder = Bytes.concat(SOURCE_ORDER_PREFIX, Bytes.u64be(sequence));
         final byte[] key = TargetKeyCodec.candidate(
                 TargetKeyCodec.CandidateKind.DUE, physical.id(), DOMAIN, NOW_EPOCH_MS, sourceOrder, message, 1);
@@ -338,7 +343,13 @@ public final class TargetSchedulerComponentBenchmark {
 
         private void advance(final TargetHeadRef head) {
             final int index = targetIndex(head.target());
-            if (remaining[index] <= 0 || !entries[index].queue().domains().getFirst().ordinaryHead().equals(head)) {
+            if (remaining[index] <= 0
+                    || !entries[index]
+                            .queue()
+                            .domains()
+                            .getFirst()
+                            .ordinaryHead()
+                            .equals(head)) {
                 throw new IllegalStateException("synthetic Target head advanced outside its current queue state");
             }
             remaining[index]--;
@@ -372,8 +383,7 @@ public final class TargetSchedulerComponentBenchmark {
         }
 
         @Override
-        public Optional<TargetQueueSnapshotReader.Entry> refresh(
-                final ShardId source, final TargetPartitionId target) {
+        public Optional<TargetQueueSnapshotReader.Entry> refresh(final ShardId source, final TargetPartitionId target) {
             if (!source.equals(shard)) {
                 throw new IllegalStateException("synthetic inventory selected an unknown source Shard");
             }
@@ -402,5 +412,4 @@ public final class TargetSchedulerComponentBenchmark {
                     Long.MAX_VALUE);
         }
     }
-
 }

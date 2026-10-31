@@ -113,16 +113,43 @@ public record CheckpointManifest(
     }
 
     /** Existing format-1 and legacy format-2 bytes remain manifest version 1. */
-    public CheckpointManifest(byte[] checkpointId, byte[] recoveryLineageId, long lineageGeneration,
-            ParentCheckpoint parentCheckpoint, byte[] restoredFromCheckpointId, CreatedBy createdBy,
-            CreatedAt createdAt, ShardId shardId, byte[] dbIdentity, UUID sourceStoreIncarnation,
-            int storeFormatVersion, long shardMutationSequence, SourcePosition appliedShardLogPosition,
-            byte[] controlStateDigest, byte[] referencedSemanticVersionsDigest,
-            List<EvidenceCursor> evidenceCursors, List<FileEntry> files) {
-        this(checkpointId, recoveryLineageId, lineageGeneration, parentCheckpoint, restoredFromCheckpointId,
-                createdBy, createdAt, shardId, dbIdentity, sourceStoreIncarnation, storeFormatVersion,
-                shardMutationSequence, appliedShardLogPosition, controlStateDigest, referencedSemanticVersionsDigest,
-                evidenceCursors, files, null);
+    public CheckpointManifest(
+            byte[] checkpointId,
+            byte[] recoveryLineageId,
+            long lineageGeneration,
+            ParentCheckpoint parentCheckpoint,
+            byte[] restoredFromCheckpointId,
+            CreatedBy createdBy,
+            CreatedAt createdAt,
+            ShardId shardId,
+            byte[] dbIdentity,
+            UUID sourceStoreIncarnation,
+            int storeFormatVersion,
+            long shardMutationSequence,
+            SourcePosition appliedShardLogPosition,
+            byte[] controlStateDigest,
+            byte[] referencedSemanticVersionsDigest,
+            List<EvidenceCursor> evidenceCursors,
+            List<FileEntry> files) {
+        this(
+                checkpointId,
+                recoveryLineageId,
+                lineageGeneration,
+                parentCheckpoint,
+                restoredFromCheckpointId,
+                createdBy,
+                createdAt,
+                shardId,
+                dbIdentity,
+                sourceStoreIncarnation,
+                storeFormatVersion,
+                shardMutationSequence,
+                appliedShardLogPosition,
+                controlStateDigest,
+                referencedSemanticVersionsDigest,
+                evidenceCursors,
+                files,
+                null);
     }
 
     /** Backwards-compatible empty-cursor constructor for local callers. */
@@ -198,7 +225,9 @@ public record CheckpointManifest(
         return canonicalJson().getBytes(StandardCharsets.UTF_8);
     }
 
-    public int manifestVersion() { return targetLocalOrdinal == null ? 1 : 2; }
+    public int manifestVersion() {
+        return targetLocalOrdinal == null ? 1 : 2;
+    }
 
     public String canonicalJson() {
         final StringBuilder json = new StringBuilder(4096);

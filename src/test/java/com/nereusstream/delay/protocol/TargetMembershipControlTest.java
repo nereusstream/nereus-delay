@@ -223,13 +223,21 @@ class TargetMembershipControlTest {
     void signedPreparedTargetMutationMismatchIsStableUnauthorized() {
         final var issue = prepare(issue(policy), repeated(32, 0x72), actor, key, 1);
         final var target = new ControlTargetRef(
-                0, ControlTargetKind.SHARD, new ShardSubject(source.shardId()),
-                issue.mutation.systemMutationId(), repeated(32, 0x7a));
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(source.shardId()),
+                issue.mutation.systemMutationId(),
+                repeated(32, 0x7a));
         final var prepared = PreparedControlOperation.prepare(
-                issue.prepared.operationId(), issue.prepared.kind(), issue.prepared.author(),
-                issue.prepared.request(), List.of(target),
-                issue.prepared.controlQueryPolicyVersion(), issue.prepared.registrationRetryUntil(),
-                issue.prepared.signingKeyVersion(), key.getPrivate());
+                issue.prepared.operationId(),
+                issue.prepared.kind(),
+                issue.prepared.author(),
+                issue.prepared.request(),
+                List.of(target),
+                issue.prepared.controlQueryPolicyVersion(),
+                issue.prepared.registrationRetryUntil(),
+                issue.prepared.signingKeyVersion(),
+                key.getPrivate());
         registrations.register(prepared);
         final var mismatched = new Prepared(prepared, issue.mutation);
         assertEquals(
@@ -750,7 +758,8 @@ class TargetMembershipControlTest {
         final var factory = ControlSystemMutationFactory.sign(
                 prepared, target, source.shardId(), 500, body.canonicalBytes(), author, version, key.getPrivate());
         assertArrayEquals(mutation.canonicalEnvelope(), factory.canonicalEnvelope());
-        assertArrayEquals(mutation.canonicalEnvelope(),
+        assertArrayEquals(
+                mutation.canonicalEnvelope(),
                 SystemMutation.decodeTargetControlFrame(mutation.encodeFrame()).canonicalEnvelope());
         assertThrows(IllegalArgumentException.class, () -> SystemMutation.decodeFrame(mutation.encodeFrame()));
         return new Prepared(prepared, factory);

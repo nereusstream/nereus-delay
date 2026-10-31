@@ -4,6 +4,7 @@ package com.nereusstream.delay.ownership;
 public interface TargetRecoveryFenceWriter {
     /** Immutable opening/allocation binding, retained after normal producer close. */
     void requireBinding(TargetWorkerSourceStartup.RecoveryInputsOpening opening);
+
     TargetOwnedBackendGroup backend();
 
     /**
@@ -11,8 +12,8 @@ public interface TargetRecoveryFenceWriter {
      * {@link TargetWorkerSourceStartup.RecoveryFenceAppend#beforeSdk} immediately before SDK handoff.
      * UNKNOWN retains its original producer, budget and cleanup obligations.
      */
-    ShardLogMutationAppender.AppendOutcome append(TargetTimeFenceMutationFactory.Prepared exact,
-            TargetWorkerSourceStartup.RecoveryFenceAppend permit);
+    ShardLogMutationAppender.AppendOutcome append(
+            TargetTimeFenceMutationFactory.Prepared exact, TargetWorkerSourceStartup.RecoveryFenceAppend permit);
 
     /** Actual opening, append calls, callbacks and any producer cleanup have exited. */
     boolean operationsExited();

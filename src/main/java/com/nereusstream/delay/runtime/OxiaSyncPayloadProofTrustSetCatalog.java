@@ -24,18 +24,23 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
     private final int maximumValueBytes;
     private final Runnable session;
 
-    public OxiaSyncPayloadProofTrustSetCatalog(OxiaSyncOwnerLeaseBackend.ClientHandle handle, String keyPrefix,
-            int maximumValueBytes) {
-        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
-                maximumValueBytes, handle.backend()::assertConnectedSession);
+    public OxiaSyncPayloadProofTrustSetCatalog(
+            OxiaSyncOwnerLeaseBackend.ClientHandle handle, String keyPrefix, int maximumValueBytes) {
+        this(
+                new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()),
+                keyPrefix,
+                maximumValueBytes,
+                handle.backend()::assertConnectedSession);
     }
 
-    OxiaSyncPayloadProofTrustSetCatalog(RecordClient client, String keyPrefix, int maximumValueBytes,
-            Runnable session) {
+    OxiaSyncPayloadProofTrustSetCatalog(
+            RecordClient client, String keyPrefix, int maximumValueBytes, Runnable session) {
         this.client = Objects.requireNonNull(client, "client");
         this.session = Objects.requireNonNull(session, "session");
         prefix = Objects.requireNonNull(keyPrefix, "keyPrefix");
-        if (prefix.isBlank() || prefix.endsWith("/") || prefix.indexOf('\0') >= 0
+        if (prefix.isBlank()
+                || prefix.endsWith("/")
+                || prefix.indexOf('\0') >= 0
                 || !prefix.equals(new String(prefix.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))
                 || !Normalizer.isNormalized(prefix, Normalizer.Form.NFC)) {
             throw new IllegalArgumentException("Trust Set catalog requires a canonical nonempty key prefix");
@@ -70,7 +75,9 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
             protection.run();
         } catch (RuntimeException uncertain) {
             final byte[] observed = get(key);
-            if (observed == null) { throw uncertain; }
+            if (observed == null) {
+                throw uncertain;
+            }
             requireExact(observed, value);
             protection.run();
         }
@@ -79,7 +86,9 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
     @Override
     public PayloadProofTrustSetSemantic resolve(PayloadProofTrustSetRef reference) {
         final byte[] value = get(key(Objects.requireNonNull(reference, "reference")));
-        if (value == null) { return null; }
+        if (value == null) {
+            return null;
+        }
         requireBounded(value);
         final var semantic = PayloadProofTrustSetSemantic.decode(value);
         if (!reference.equals(semantic.ref())) {
@@ -89,16 +98,18 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
     }
 
     /** Caller owns finite executor, client request timeout and protection until actual I/O ends. */
-    public CompletableFuture<PayloadProofTrustSetSemantic> resolveAsync(PayloadProofTrustSetRef reference,
-            Duration timeout, Runnable protection, ThreadPoolExecutor executor) {
+    public CompletableFuture<PayloadProofTrustSetSemantic> resolveAsync(
+            PayloadProofTrustSetRef reference, Duration timeout, Runnable protection, ThreadPoolExecutor executor) {
         Objects.requireNonNull(reference, "reference");
-        return CheckpointRegistryLookup.submit(() -> resolve(reference), timeout, protection, executor,
-                System::nanoTime);
+        return CheckpointRegistryLookup.submit(
+                () -> resolve(reference), timeout, protection, executor, System::nanoTime);
     }
 
     private void requireObservedExact(String key, byte[] value, Exception failure) {
         final byte[] observed = get(key);
-        if (observed == null) { throw new IllegalStateException("Trust Set vanished after CAS", failure); }
+        if (observed == null) {
+            throw new IllegalStateException("Trust Set vanished after CAS", failure);
+        }
         requireExact(observed, value);
     }
 
@@ -129,6 +140,7 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
 
     interface RecordClient {
         byte[] get(String key);
+
         void putIfAbsent(String key, byte[] value) throws KeyAlreadyExistsException, UnexpectedVersionIdException;
     }
 
@@ -136,7 +148,9 @@ public final class OxiaSyncPayloadProofTrustSetCatalog implements PayloadProofTr
         @Override
         public byte[] get(String key) {
             final var result = client.get(key);
-            if (result == null) { return null; }
+            if (result == null) {
+                return null;
+            }
             if (!key.equals(result.key()) || result.value() == null || result.version() == null) {
                 throw new IllegalStateException("Oxia returned an incomplete or mismatched Trust Set record");
             }

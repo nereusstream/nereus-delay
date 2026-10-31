@@ -24,8 +24,10 @@ public final class TargetChannelControlWorkClassExecutor {
             new java.util.concurrent.atomic.AtomicReference<>();
 
     public TargetChannelControlWorkClassExecutor(
-            final TargetWorkerShardRuntime worker, final ShardLogMutationAppender appender,
-            final ControlTargetRegistrationAuthority registrations, final Runnable protection) {
+            final TargetWorkerShardRuntime worker,
+            final ShardLogMutationAppender appender,
+            final ControlTargetRegistrationAuthority registrations,
+            final Runnable protection) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.appender = Objects.requireNonNull(appender, "appender");
         this.registrations = Objects.requireNonNull(registrations, "registrations");
@@ -42,43 +44,52 @@ public final class TargetChannelControlWorkClassExecutor {
      * Retains signed bytes before queue admission. A failed or uncertain append retries those same bytes only;
      * neither a Broker receipt nor an in-process result makes the Claim eligible for physical submission.
      */
-    public Submission submit(final TargetChannelControlMutationFactory.Prepared prepared,
-            final LongSupplier ownerClock) {
+    public Submission submit(
+            final TargetChannelControlMutationFactory.Prepared prepared, final LongSupplier ownerClock) {
         final var exact = Objects.requireNonNull(prepared, "prepared");
         return submit(exact.control(), exact.mutation(), ownerClock);
     }
 
     /** Shares the original single retained slot, WorkClass limits, registration and drain settlement. */
-    public Submission submitObservation(final TargetSloObservationControlMutationFactory.Prepared prepared,
-            final LongSupplier ownerClock) {
+    public Submission submitObservation(
+            final TargetSloObservationControlMutationFactory.Prepared prepared, final LongSupplier ownerClock) {
         final var exact = Objects.requireNonNull(prepared, "prepared");
         return submit(exact.control(), exact.mutation(), ownerClock);
     }
 
-    public Submission submitFinalEvent(final TargetSloObservationEventMutationFactory.Prepared prepared,
-            final LongSupplier ownerClock) {
+    public Submission submitFinalEvent(
+            final TargetSloObservationEventMutationFactory.Prepared prepared, final LongSupplier ownerClock) {
         return submit(null, Objects.requireNonNull(prepared).mutation(), ownerClock);
     }
 
-    public Submission submitWriter(final TargetSloWriterControlMutationFactory.Prepared prepared,
-            final LongSupplier ownerClock) {
+    public Submission submitWriter(
+            final TargetSloWriterControlMutationFactory.Prepared prepared, final LongSupplier ownerClock) {
         final var exact = Objects.requireNonNull(prepared, "prepared");
         return submit(exact.control(), exact.mutation(), ownerClock);
     }
-    public Submission submitParentCredit(TargetParentControlCreditMutationFactory.Prepared prepared,LongSupplier ownerClock){
-        final var exact=Objects.requireNonNull(prepared);return submit(exact.control(),exact.mutation(),ownerClock);
-    }
-    public Submission submitScopeObligation(TargetScopeControlObligationMutationFactory.Prepared prepared,LongSupplier ownerClock){
-        final var exact=Objects.requireNonNull(prepared);return submit(exact.control(),exact.mutation(),ownerClock);
+
+    public Submission submitParentCredit(
+            TargetParentControlCreditMutationFactory.Prepared prepared, LongSupplier ownerClock) {
+        final var exact = Objects.requireNonNull(prepared);
+        return submit(exact.control(), exact.mutation(), ownerClock);
     }
 
-    private synchronized Submission submit(final PreparedControlOperation control, final SystemMutation image,
-            final LongSupplier ownerClock) {
+    public Submission submitScopeObligation(
+            TargetScopeControlObligationMutationFactory.Prepared prepared, LongSupplier ownerClock) {
+        final var exact = Objects.requireNonNull(prepared);
+        return submit(exact.control(), exact.mutation(), ownerClock);
+    }
+
+    private synchronized Submission submit(
+            final PreparedControlOperation control, final SystemMutation image, final LongSupplier ownerClock) {
         Submission pending = pendingRef.get();
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         protection.run();
-        if(control!=null)ControlTargetMutationBinding.validate(control, control.targets().getFirst(), image);
-        else TargetSloObservationEventMutationFactory.Prepared.restore(image);
+        if (control != null) {
+            ControlTargetMutationBinding.validate(control, control.targets().getFirst(), image);
+        } else {
+            TargetSloObservationEventMutationFactory.Prepared.restore(image);
+        }
         final byte[] frame = image.encodeFrame();
         if (pending != null) {
             final boolean same = Arrays.equals(pending.mutation.encodeFrame(), frame)
@@ -87,7 +98,11 @@ public final class TargetChannelControlWorkClassExecutor {
             if (result.isPresent()) {
                 if (!terminalResourcesReleased(pending)) {
                     enqueue(pending, clock);
-                    if (!same) throw new IllegalStateException("original Control action or Scope read-loan cleanup is still retained", pending.failure);
+                    if (!same) {
+                        throw new IllegalStateException(
+                                "original Control action or Scope read-loan cleanup is still retained",
+                                pending.failure);
+                    }
                     return pending;
                 }
                 if (same) {
@@ -97,22 +112,30 @@ public final class TargetChannelControlWorkClassExecutor {
                 pending = null;
             } else {
                 if (!same) {
-                    throw new IllegalStateException("Target channel lifecycle already retains another exact signed image");
+                    throw new IllegalStateException(
+                            "Target channel lifecycle already retains another exact signed image");
                 }
-                if (actionExited(pending) && (pending.scopeCleanup != null || pending.append == null
-                        || pending.append.disposition() != ShardLogMutationAppender.AppendDisposition.PERSISTED)) {
+                if (actionExited(pending)
+                        && (pending.scopeCleanup != null
+                                || pending.append == null
+                                || pending.append.disposition()
+                                        != ShardLogMutationAppender.AppendDisposition.PERSISTED)) {
                     enqueue(pending, clock);
                 }
                 return pending;
             }
         }
-        final boolean scoped = control != null && TargetSloControlScopeAuthority.reference(image).isPresent();
+        final boolean scoped = control != null
+                && TargetSloControlScopeAuthority.reference(image).isPresent();
         final long scopeBytes = scoped ? registrations.scopedMutationReservationBytes() : 0;
         if (scoped && (scopeBytes <= 0 || scopeBytes == Long.MAX_VALUE)) {
-            throw new IllegalStateException("scoped Control requires its complete finite original admission I/O reservation");
+            throw new IllegalStateException(
+                    "scoped Control requires its complete finite original admission I/O reservation");
         }
-        final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-control/" + Bytes.hex(Bytes.sha256(frame, control==null?new byte[0]:control.preparedDigest())),
+        final var task = new WorkClassTask(
+                WorkClass.OUTCOME_AND_CONTROL,
+                "target-control/"
+                        + Bytes.hex(Bytes.sha256(frame, control == null ? new byte[0] : control.preparedDigest())),
                 Math.addExact(scopeBytes, Math.addExact((long) frame.length, controlBytes(control).length)));
         final var submission = new Submission(control, image, task, scopeBytes);
         pendingRef.set(submission);
@@ -130,10 +153,16 @@ public final class TargetChannelControlWorkClassExecutor {
     }
 
     private void enqueue(final Submission submission, final LongSupplier clock) {
-        if (!actionExited(submission)) { return; }
+        if (!actionExited(submission)) {
+            return;
+        }
         final boolean cleanupOnly = submission.first != null || submission.scopeCleanup != null;
-        if (submission.first != null && terminalResourcesReleased(submission)) { return; }
-        if (!submission.actionOutstanding.compareAndSet(false, true)) { return; }
+        if (submission.first != null && terminalResourcesReleased(submission)) {
+            return;
+        }
+        if (!submission.actionOutstanding.compareAndSet(false, true)) {
+            return;
+        }
         if (pendingRef.get() != submission) {
             submission.actionOutstanding.set(false);
             return;
@@ -142,7 +171,9 @@ public final class TargetChannelControlWorkClassExecutor {
             final Runnable action = () -> {
                 try {
                     if (cleanupOnly) {
-                        if (!retryScopeCleanup(submission)) return;
+                        if (!retryScopeCleanup(submission)) {
+                            return;
+                        }
                         final var held = submission.scopeHold;
                         if (submission.first != null && held != null && !submission.scopeHoldClosed) {
                             held.close();
@@ -153,51 +184,80 @@ public final class TargetChannelControlWorkClassExecutor {
                     }
                     protection.run();
                     // An actual Source first precedes all new registration, admission and append decisions.
-                    if (readFirstResult(submission, clock).isPresent()) return;
-                    if (!retryScopeCleanup(submission)) return;
-                    if(submission.control!=null){
+                    if (readFirstResult(submission, clock).isPresent()) {
+                        return;
+                    }
+                    if (!retryScopeCleanup(submission)) {
+                        return;
+                    }
+                    if (submission.control != null) {
                         if (submission.scopeBytes != 0) {
                             var held = submission.scopeHold;
                             if (held == null) {
-                                held = Objects.requireNonNull(registrations.admitScopedMutation(submission.control,
-                                        submission.control.targets().getFirst(), submission.mutation, submission.scopeBytes,
-                                        () -> requireOriginalAction(submission)), "original admitted Scope MEMBER hold");
+                                held = Objects.requireNonNull(
+                                        registrations.admitScopedMutation(
+                                                submission.control,
+                                                submission.control.targets().getFirst(),
+                                                submission.mutation,
+                                                submission.scopeBytes,
+                                                () -> requireOriginalAction(submission)),
+                                        "original admitted Scope MEMBER hold");
                                 // Keep the real hold before any later validation, guard or Source append can fail.
                                 submission.scopeHold = held;
                             }
                             if (held.retainedBytes() < 0 || held.retainedBytes() > submission.scopeBytes) {
-                                throw new IllegalStateException("actual Scope MEMBER exceeds its original admission reservation");
+                                throw new IllegalStateException(
+                                        "actual Scope MEMBER exceeds its original admission reservation");
                             }
-                            held.validate(submission.control, submission.control.targets().getFirst(), submission.mutation);
+                            held.validate(
+                                    submission.control,
+                                    submission.control.targets().getFirst(),
+                                    submission.mutation);
                             held.requireCurrent();
                         } else {
                             // Non-scoped Controls retain the existing immutable point-registration path.
                             registrations.register(submission.control);
-                            registrations.validateMutation(submission.control, submission.control.targets().getFirst(), submission.mutation);
+                            registrations.validateMutation(
+                                    submission.control,
+                                    submission.control.targets().getFirst(),
+                                    submission.mutation);
                         }
                     }
                     protection.run();
-                    if (submission.scopeHold != null) submission.scopeHold.requireCurrent();
+                    if (submission.scopeHold != null) {
+                        submission.scopeHold.requireCurrent();
+                    }
                     submission.failure = null;
                     final var result = worker.appendTargetControl(submission.mutation, appender, clock);
-                    if (result.firstResult() != null) submission.first = result.firstResult();
+                    if (result.firstResult() != null) {
+                        submission.first = result.firstResult();
+                    }
                     submission.append = result.append();
-                    if (submission.scopeHold != null) submission.scopeHold.requireCurrent();
+                    if (submission.scopeHold != null) {
+                        submission.scopeHold.requireCurrent();
+                    }
                 } catch (ReadIncompleteException incomplete) {
                     retainFailure(submission, incomplete);
                 } catch (RuntimeException failure) {
                     retainFailure(submission, failure);
-                    if (!cleanupOnly) retainUnknown(submission);
+                    if (!cleanupOnly) {
+                        retainUnknown(submission);
+                    }
                 } catch (Error fatal) {
                     retainFailure(submission, fatal);
-                    if (!cleanupOnly) retainUnknown(submission);
+                    if (!cleanupOnly) {
+                        retainUnknown(submission);
+                    }
                     throw fatal;
                 } finally {
                     submission.actionOutstanding.set(false);
                 }
             };
-            if (cleanupOnly) worker.submitTargetControlCleanupAction(submission.task, action);
-            else worker.submitTargetControlAction(submission.task, submission.mutation, clock, action);
+            if (cleanupOnly) {
+                worker.submitTargetControlCleanupAction(submission.task, action);
+            } else {
+                worker.submitTargetControlAction(submission.task, submission.mutation, clock, action);
+            }
         } catch (RuntimeException | Error rejectedRetry) {
             submission.actionOutstanding.set(false);
             throw rejectedRetry;
@@ -207,14 +267,23 @@ public final class TargetChannelControlWorkClassExecutor {
     /** One bounded retry of the retained image; safe for a Host holding the Worker monitor during drain. */
     public void retryPending(final LongSupplier clock) {
         final var submission = pendingRef.get();
-        if (submission == null) return;
-        final var first = readFirstResult(submission, clock);
-        if (!actionExited(submission)) return;
-        if (first.isPresent()) {
-            if (!terminalResourcesReleased(submission)) enqueue(submission, clock);
+        if (submission == null) {
             return;
         }
-        if (submission.scopeCleanup != null) { enqueue(submission, clock); return; }
+        final var first = readFirstResult(submission, clock);
+        if (!actionExited(submission)) {
+            return;
+        }
+        if (first.isPresent()) {
+            if (!terminalResourcesReleased(submission)) {
+                enqueue(submission, clock);
+            }
+            return;
+        }
+        if (submission.scopeCleanup != null) {
+            enqueue(submission, clock);
+            return;
+        }
         if (submission.append != null
                 && submission.append.disposition() == ShardLogMutationAppender.AppendDisposition.PERSISTED) {
             return;
@@ -225,7 +294,9 @@ public final class TargetChannelControlWorkClassExecutor {
     /** Actual first-result settlement only; callers must separately read the current Store slot before using it. */
     public Optional<SystemMutationResult> settle(final LongSupplier ownerClock) {
         final var submission = pendingRef.get();
-        if (submission == null) { return Optional.empty(); }
+        if (submission == null) {
+            return Optional.empty();
+        }
         final var result = readFirstResult(submission, Objects.requireNonNull(ownerClock, "ownerClock"));
         if (result.isPresent() && terminalResourcesReleased(submission)) {
             pendingRef.compareAndSet(submission, null);
@@ -253,7 +324,8 @@ public final class TargetChannelControlWorkClassExecutor {
     }
 
     private boolean terminalResourcesReleased(Submission submission) {
-        return actionExited(submission) && scopeCleanupReady(submission)
+        return actionExited(submission)
+                && scopeCleanupReady(submission)
                 && (submission.scopeHold == null || submission.scopeHoldClosed);
     }
 
@@ -266,15 +338,19 @@ public final class TargetChannelControlWorkClassExecutor {
 
     /** A detached/cancelled receipt is not the underlying provider's native cleanup exit. */
     private static boolean cleanupAttemptExited(CompletableFuture<Void> attempt) {
-        return attempt == null || attempt.isDone() && CheckpointInputFuture.ioExited(attempt)
-                && (!attempt.isCancelled() || attempt instanceof CheckpointInputFuture<?>);
+        return attempt == null
+                || attempt.isDone()
+                        && CheckpointInputFuture.ioExited(attempt)
+                        && (!attempt.isCancelled() || attempt instanceof CheckpointInputFuture<?>);
     }
 
     private static boolean scopeCleanupReady(Submission submission) {
         synchronized (submission) {
             while (submission.scopeCleanup != null) {
                 final var original = submission.scopeCleanup;
-                if (!original.cleanup.cleanupComplete() || !cleanupAttemptExited(original.attempt)) return false;
+                if (!original.cleanup.cleanupComplete() || !cleanupAttemptExited(original.attempt)) {
+                    return false;
+                }
                 submission.scopeCleanup = original.next;
             }
             return true;
@@ -283,15 +359,23 @@ public final class TargetChannelControlWorkClassExecutor {
 
     /** One retry of the same opaque acquisition/close cleanup; no new admission or append while it is pending. */
     private static boolean retryScopeCleanup(Submission submission) {
-        if (scopeCleanupReady(submission)) return true;
+        if (scopeCleanupReady(submission)) {
+            return true;
+        }
         final ScopeCleanup original;
         synchronized (submission) {
             original = submission.scopeCleanup;
-            if (original == null) return true;
-            if (!cleanupAttemptExited(original.attempt)) return false;
+            if (original == null) {
+                return true;
+            }
+            if (!cleanupAttemptExited(original.attempt)) {
+                return false;
+            }
         }
         final var attempt = Objects.requireNonNull(original.cleanup.retryCleanup(), "original Scope cleanup future");
-        synchronized (submission) { original.attempt = attempt; }
+        synchronized (submission) {
+            original.attempt = attempt;
+        }
         return scopeCleanupReady(submission);
     }
 
@@ -332,10 +416,15 @@ public final class TargetChannelControlWorkClassExecutor {
         private final CheckpointInputFuture.Cleanup cleanup;
         private CompletableFuture<Void> attempt;
         private ScopeCleanup next;
-        private ScopeCleanup(CheckpointInputFuture.Cleanup cleanup) { this.cleanup = cleanup; }
+
+        private ScopeCleanup(CheckpointInputFuture.Cleanup cleanup) {
+            this.cleanup = cleanup;
+        }
     }
 
-    private static byte[] controlBytes(PreparedControlOperation control){return control==null?new byte[0]:control.canonicalBytes();}
+    private static byte[] controlBytes(PreparedControlOperation control) {
+        return control == null ? new byte[0] : control.canonicalBytes();
+    }
 
     public static final class Submission {
         private final PreparedControlOperation control;
@@ -351,8 +440,11 @@ public final class TargetChannelControlWorkClassExecutor {
         private final java.util.concurrent.atomic.AtomicBoolean actionOutstanding =
                 new java.util.concurrent.atomic.AtomicBoolean();
 
-        private Submission(final PreparedControlOperation control, final SystemMutation mutation,
-                final WorkClassTask task, final long scopeBytes) {
+        private Submission(
+                final PreparedControlOperation control,
+                final SystemMutation mutation,
+                final WorkClassTask task,
+                final long scopeBytes) {
             this.control = control;
             this.mutation = mutation;
             this.task = task;
@@ -360,11 +452,28 @@ public final class TargetChannelControlWorkClassExecutor {
         }
 
         /** Absent for SERVICE observations, which carry no Control registration. */
-        public PreparedControlOperation control() { return control; }
-        public SystemMutation mutation() { return mutation; }
-        public WorkClassTask task() { return task; }
-        public Optional<ShardLogMutationAppender.AppendOutcome> append() { return Optional.ofNullable(append); }
-        public Optional<SystemMutationResult> firstResult() { return Optional.ofNullable(first); }
-        public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        public PreparedControlOperation control() {
+            return control;
+        }
+
+        public SystemMutation mutation() {
+            return mutation;
+        }
+
+        public WorkClassTask task() {
+            return task;
+        }
+
+        public Optional<ShardLogMutationAppender.AppendOutcome> append() {
+            return Optional.ofNullable(append);
+        }
+
+        public Optional<SystemMutationResult> firstResult() {
+            return Optional.ofNullable(first);
+        }
+
+        public Optional<Throwable> failure() {
+            return Optional.ofNullable(failure);
+        }
     }
 }

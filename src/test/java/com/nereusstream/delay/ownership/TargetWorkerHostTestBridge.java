@@ -24,8 +24,7 @@ public final class TargetWorkerHostTestBridge {
         return new TargetWorkerHostRuntime(fleet, loop, workers);
     }
 
-    public static TargetStoreBackend.TargetQueueChangeSignal.Changes drainChanges(
-            final TargetWorkerHostRuntime host) {
+    public static TargetStoreBackend.TargetQueueChangeSignal.Changes drainChanges(final TargetWorkerHostRuntime host) {
         return host.drainTargetQueueChanges();
     }
 

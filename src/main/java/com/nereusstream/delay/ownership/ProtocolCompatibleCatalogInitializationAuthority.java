@@ -18,7 +18,9 @@ public final class ProtocolCompatibleCatalogInitializationAuthority implements C
      */
     @FunctionalInterface
     public interface ReaderSetProtection {
-        TargetStoreBackend.CommitGuard acquire(CatalogInitialization initialization, ArtifactGenerationSet artifacts,
+        TargetStoreBackend.CommitGuard acquire(
+                CatalogInitialization initialization,
+                ArtifactGenerationSet artifacts,
                 ProtocolActivationAuthorityCoordinator.EligibleReaderSet readers);
     }
 
@@ -29,8 +31,11 @@ public final class ProtocolCompatibleCatalogInitializationAuthority implements C
     private final CatalogInitializationAuthority namespace;
 
     /** Artifact/schema trust and eligibility come from the activated deployment, not from a codec version constant. */
-    public ProtocolCompatibleCatalogInitializationAuthority(ProtocolActivationAuthorityCoordinator capabilities,
-            ArtifactGenerationSet artifacts, List<String> eligibleReaders, ReaderSetProtection readers,
+    public ProtocolCompatibleCatalogInitializationAuthority(
+            ProtocolActivationAuthorityCoordinator capabilities,
+            ArtifactGenerationSet artifacts,
+            List<String> eligibleReaders,
+            ReaderSetProtection readers,
             CatalogInitializationAuthority namespace) {
         this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
@@ -43,13 +48,13 @@ public final class ProtocolCompatibleCatalogInitializationAuthority implements C
     }
 
     @Override
-    public TargetStoreBackend.CommitGuard acquire(CatalogInitialization initialization,
-            TargetCheckpointRootVerifier.AuthenticatedImage image) {
+    public TargetStoreBackend.CommitGuard acquire(
+            CatalogInitialization initialization, TargetCheckpointRootVerifier.AuthenticatedImage image) {
         Objects.requireNonNull(initialization, "initialization");
-        final var compatible = capabilities.requireEligibleReaders(
-                ProtocolTuple.currentSystemMutation(), artifacts, eligibleReaders);
-        final var readerGuard = Objects.requireNonNull(readers.acquire(initialization, artifacts, compatible),
-                "reader protection guard");
+        final var compatible =
+                capabilities.requireEligibleReaders(ProtocolTuple.currentSystemMutation(), artifacts, eligibleReaders);
+        final var readerGuard = Objects.requireNonNull(
+                readers.acquire(initialization, artifacts, compatible), "reader protection guard");
         TargetStoreBackend.CommitGuard namespaceGuard = null;
         try {
             readerGuard.requireCurrent();
@@ -64,8 +69,8 @@ public final class ProtocolCompatibleCatalogInitializationAuthority implements C
         }
     }
 
-    private static TargetStoreBackend.CommitGuard combined(TargetStoreBackend.CommitGuard readers,
-            TargetStoreBackend.CommitGuard namespace) {
+    private static TargetStoreBackend.CommitGuard combined(
+            TargetStoreBackend.CommitGuard readers, TargetStoreBackend.CommitGuard namespace) {
         return new TargetStoreBackend.CommitGuard() {
             @Override
             public void requireCurrent() {
@@ -88,8 +93,13 @@ public final class ProtocolCompatibleCatalogInitializationAuthority implements C
     }
 
     private static void closeAfterFailure(TargetStoreBackend.CommitGuard guard, Throwable failure) {
-        if (guard == null) { return; }
-        try { guard.close(); }
-        catch (RuntimeException | Error closeFailure) { failure.addSuppressed(closeFailure); }
+        if (guard == null) {
+            return;
+        }
+        try {
+            guard.close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure.addSuppressed(closeFailure);
+        }
     }
 }

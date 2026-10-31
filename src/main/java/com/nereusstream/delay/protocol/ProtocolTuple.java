@@ -68,51 +68,147 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetKafkaRecoveryOutcome() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, PublishOutcomeBody.RECOVERY_PROOF_BODY_VERSION);
     }
+
     public static ProtocolTuple targetEvidenceRetirement() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetEvidenceRetireIntentBody.BODY_VERSION);
     }
+
     public static ProtocolTuple targetResourceReclaim() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.BODY_VERSION);
     }
+
     public static ProtocolTuple targetInlinePayloadReclaim() {
         return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.INLINE_BODY_VERSION);
     }
+
     public static ProtocolTuple targetSelfContainedInlinePayloadReclaim() {
-        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.SELF_CONTAINED_INLINE_BODY_VERSION);
+        return new ProtocolTuple(
+                1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.SELF_CONTAINED_INLINE_BODY_VERSION);
     }
-    public static ProtocolTuple targetNativeRetainedReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.NATIVE_RETAINED_BODY_VERSION);}
-    public static ProtocolTuple targetDuplicatePositionReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.DUPLICATE_POSITION_BODY_VERSION);}
-    public static ProtocolTuple targetSloObservation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,18);}
-    public static ProtocolTuple targetSloWriterEpoch() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,19);}
-    public static ProtocolTuple targetSloObservationEpochPolicy() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,20);}
-    public static ProtocolTuple targetSloScopedWriterEpoch() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,21);}
-    public static ProtocolTuple targetSloScopedObservation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,22);}
-    public static ProtocolTuple targetParentControlCredit() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,23);}
-    public static ProtocolTuple targetScopeControlObligation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,24);}
-    public static ProtocolTuple targetScopeControlObligationFrozen() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,25);}
-    public static ProtocolTuple targetScopeControlObligationExposure() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,26);}
-    public static ProtocolTuple targetMigrationActivate() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,27);}
-    public static ProtocolTuple targetMigrationSettlement() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,28);}
+
+    public static ProtocolTuple targetNativeRetainedReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.NATIVE_RETAINED_BODY_VERSION);
+    }
+
+    public static ProtocolTuple targetDuplicatePositionReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.DUPLICATE_POSITION_BODY_VERSION);
+    }
+
+    public static ProtocolTuple targetSloObservation() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 18);
+    }
+
+    public static ProtocolTuple targetSloWriterEpoch() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 19);
+    }
+
+    public static ProtocolTuple targetSloObservationEpochPolicy() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 20);
+    }
+
+    public static ProtocolTuple targetSloScopedWriterEpoch() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 21);
+    }
+
+    public static ProtocolTuple targetSloScopedObservation() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 22);
+    }
+
+    public static ProtocolTuple targetParentControlCredit() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 23);
+    }
+
+    public static ProtocolTuple targetScopeControlObligation() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 24);
+    }
+
+    public static ProtocolTuple targetScopeControlObligationFrozen() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 25);
+    }
+
+    public static ProtocolTuple targetScopeControlObligationExposure() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 26);
+    }
+
+    public static ProtocolTuple targetMigrationActivate() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 27);
+    }
+
+    public static ProtocolTuple targetMigrationSettlement() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 28);
+    }
     /** Required-reader capability of the private old shadow; this is not a Source mutation purpose. */
-    public static ProtocolTuple targetMigrationShadowProgress() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,29);}
-    public static ProtocolTuple targetMigrationObjectPayloadReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,30);}
-    public static ProtocolTuple targetMigrationUncommittedObjectReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,31);}
-    public static ProtocolTuple targetMigrationRetireIntent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,32);}
-    public static ProtocolTuple targetMigrationRetireConfirm() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,33);}
-    public static ProtocolTuple targetMigrationLogicalFirstArchive() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,36);}
+    public static ProtocolTuple targetMigrationShadowProgress() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 29);
+    }
+
+    public static ProtocolTuple targetMigrationObjectPayloadReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 30);
+    }
+
+    public static ProtocolTuple targetMigrationUncommittedObjectReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 31);
+    }
+
+    public static ProtocolTuple targetMigrationRetireIntent() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 32);
+    }
+
+    public static ProtocolTuple targetMigrationRetireConfirm() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 33);
+    }
+
+    public static ProtocolTuple targetMigrationLogicalFirstArchive() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 36);
+    }
     /** Required reader for full inline Source archive formats; management still uses tuple36. */
-    public static ProtocolTuple targetMigrationFullSourceArchive() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,37);}
-    public static ProtocolTuple targetMigrationActivateRootIssuer() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,35);}
-    public static ProtocolTuple targetPayloadObligationSummary() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,34);}
-    public static ProtocolTuple targetSloObservationEpochEvent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,5);}
-    public static ProtocolTuple targetSloObservationCustody() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,3);}
-    public static ProtocolTuple targetSloObservationEventAssigned() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,4);}
-    public static ProtocolTuple targetSloObservationEventEvidence() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,2);}
-    public static ProtocolTuple targetSloObservationEvent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,1);}
-    public static ProtocolTuple targetIncarnationReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.INCARNATION_BODY_VERSION);}
-    public static ProtocolTuple targetAnchorAllocationReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.ANCHOR_ALLOCATION_BODY_VERSION);}
-    public static ProtocolTuple targetUncommittedObjectReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION);}
-    public static ProtocolTuple targetObjectPayloadReclaim() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,TargetResourceReclaimBody.OBJECT_PAYLOAD_BODY_VERSION);}
+    public static ProtocolTuple targetMigrationFullSourceArchive() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 37);
+    }
+
+    public static ProtocolTuple targetMigrationActivateRootIssuer() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 35);
+    }
+
+    public static ProtocolTuple targetPayloadObligationSummary() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 34);
+    }
+
+    public static ProtocolTuple targetSloObservationEpochEvent() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 15, 5);
+    }
+
+    public static ProtocolTuple targetSloObservationCustody() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 15, 3);
+    }
+
+    public static ProtocolTuple targetSloObservationEventAssigned() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 15, 4);
+    }
+
+    public static ProtocolTuple targetSloObservationEventEvidence() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 15, 2);
+    }
+
+    public static ProtocolTuple targetSloObservationEvent() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 15, 1);
+    }
+
+    public static ProtocolTuple targetIncarnationReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.INCARNATION_BODY_VERSION);
+    }
+
+    public static ProtocolTuple targetAnchorAllocationReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.ANCHOR_ALLOCATION_BODY_VERSION);
+    }
+
+    public static ProtocolTuple targetUncommittedObjectReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.UNCOMMITTED_OBJECT_BODY_VERSION);
+    }
+
+    public static ProtocolTuple targetObjectPayloadReclaim() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, TargetResourceReclaimBody.OBJECT_PAYLOAD_BODY_VERSION);
+    }
 
     public long framingVersion() {
         return framingVersion;

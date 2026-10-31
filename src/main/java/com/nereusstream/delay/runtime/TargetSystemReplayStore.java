@@ -115,10 +115,14 @@ public final class TargetSystemReplayStore {
     /** Retained first results take precedence; closed publication/retirement windows need no external blob. */
     public Optional<Prepared> prepareIfPresent(
             final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source) {
-        return prepareIfPresent(budget,mutation,source,TargetScopeFeeAuthority.UNAVAILABLE);
+        return prepareIfPresent(budget, mutation, source, TargetScopeFeeAuthority.UNAVAILABLE);
     }
+
     public Optional<Prepared> prepareIfPresent(
-            final BoundedReadBudget budget, final SystemMutation mutation, final SourcePosition source,final TargetScopeFeeAuthority scopeFees) {
+            final BoundedReadBudget budget,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final TargetScopeFeeAuthority scopeFees) {
         Objects.requireNonNull(mutation, "mutation");
         TargetSourcePosition.requireBounded(source);
         if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())) {
@@ -164,7 +168,7 @@ public final class TargetSystemReplayStore {
             });
             final var accounted = new TargetSourceAccounting(
                             scope, lineage, source, stamp.mutationDigest(), maximumCounters, 1, maximumDomains)
-                    .withScopeSource(mutation,scopeFees)
+                    .withScopeSource(mutation, scopeFees)
                     .assemble(
                             reader,
                             List.of(reader.replace(
@@ -200,17 +204,22 @@ public final class TargetSystemReplayStore {
                             null));
             final TargetResultRecord.CreationAuthority authority = (record, first) -> {
                 record.requireOwner(root);
-                if (!record.mutation().equals(stamp) || record.allocation() != null
+                if (!record.mutation().equals(stamp)
+                        || record.allocation() != null
                         || reader.get(ColumnFamily.DEDUPE, record.key()) != null) {
                     throw new IllegalStateException("expired publication changed its root/source/absence proof");
                 }
                 if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
-                    if (first != null || !Arrays.equals(record.logicalId(), mutation.systemMutationId())
-                            || !Arrays.equals(record.typedPayload(), actual.result().encode())) {
+                    if (first != null
+                            || !Arrays.equals(record.logicalId(), mutation.systemMutationId())
+                            || !Arrays.equals(
+                                    record.typedPayload(), actual.result().encode())) {
                         throw new IllegalStateException("expired publication changed its exact first result");
                     }
                 } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
-                    if (first == null || !Arrays.equals(first.typedPayload(), actual.result().encode())) {
+                    if (first == null
+                            || !Arrays.equals(
+                                    first.typedPayload(), actual.result().encode())) {
                         throw new IllegalStateException("expired publication POSITION lost its exact first");
                     }
                     record.requireFirst(first);
@@ -279,15 +288,45 @@ public final class TargetSystemReplayStore {
             final boolean publication = mutation.type() == SystemMutationType.TARGET_PUBLISH_ADMISSION
                     || mutation.type() == SystemMutationType.PUBLISH_OUTCOME
                     || mutation.type() == SystemMutationType.EVIDENCE_RESOLUTION;
-            final boolean retirement = isTargetRetirement(mutation),activation=isTargetActivation(mutation);
-            final boolean expired = ((publication || retirement || activation) && reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
-                    || (retirement || activation) && source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs());
-            final StableCode rejection=expired?StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
-                    :retirement&&retirementAlreadyApplied(reader,mutation)?StableCode.STALE_SYSTEM_MUTATION
-                    :activation&&TargetProtocolActivationStore.applied(reader,scope,lineage,com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement())!=null?StableCode.STALE_SYSTEM_MUTATION
-                    :retirement&&!TargetProtocolActivationStore.isActivatedForRetirement(reader,scope,lineage,com.nereusstream.delay.protocol.ProtocolTuple.targetEvidenceRetirement(),source,
-                        com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody()).resource())?StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION:null;
-            return new Inspection(null,rejection==null?null:SystemMutationResult.from(mutation,ApplyStatus.REJECTED,rejection,source.canonicalBytes()),false);
+            final boolean retirement = isTargetRetirement(mutation), activation = isTargetActivation(mutation);
+            final boolean expired = ((publication || retirement || activation)
+                            && reader.closedIngressDeadlineThrough() >= mutation.retryUntilEpochMs()
+                    || (retirement || activation)
+                            && source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs());
+            final StableCode rejection = expired
+                    ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                    : retirement && retirementAlreadyApplied(reader, mutation)
+                            ? StableCode.STALE_SYSTEM_MUTATION
+                            : activation
+                                            && TargetProtocolActivationStore.applied(
+                                                            reader,
+                                                            scope,
+                                                            lineage,
+                                                            com.nereusstream.delay.protocol.ProtocolTuple
+                                                                    .targetEvidenceRetirement())
+                                                    != null
+                                    ? StableCode.STALE_SYSTEM_MUTATION
+                                    : retirement
+                                                    && !TargetProtocolActivationStore.isActivatedForRetirement(
+                                                            reader,
+                                                            scope,
+                                                            lineage,
+                                                            com.nereusstream.delay.protocol.ProtocolTuple
+                                                                    .targetEvidenceRetirement(),
+                                                            source,
+                                                            com.nereusstream.delay.protocol
+                                                                    .TargetEvidenceRetireIntentBody.decode(
+                                                                            mutation.canonicalBody())
+                                                                    .resource())
+                                            ? StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION
+                                            : null;
+            return new Inspection(
+                    null,
+                    rejection == null
+                            ? null
+                            : SystemMutationResult.from(
+                                    mutation, ApplyStatus.REJECTED, rejection, source.canonicalBytes()),
+                    false);
         }
         if (first.kind() != TargetResultRecord.Kind.SYSTEM) {
             throw new IllegalStateException("System key has another result kind");
@@ -324,7 +363,9 @@ public final class TargetSystemReplayStore {
     }
 
     private static boolean isTargetRetirement(SystemMutation mutation) {
-        if (mutation.type() != SystemMutationType.RESOURCE_RETIRE_INTENT) return false;
+        if (mutation.type() != SystemMutationType.RESOURCE_RETIRE_INTENT) {
+            return false;
+        }
         try {
             com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
             return true;
@@ -332,58 +373,128 @@ public final class TargetSystemReplayStore {
             return false;
         }
     }
-    private static boolean isTargetActivation(SystemMutation mutation){
-        if(mutation.type()!=SystemMutationType.APPLY_SHARD_CONTROL||mutation.canonicalBodyLength()>com.nereusstream.delay.protocol.TargetProtocolActivationBody.MAX_BYTES)return false;
-        try{com.nereusstream.delay.protocol.TargetProtocolActivationBody.decode(mutation.canonicalBody());return true;}
-        catch(IllegalArgumentException otherControl){return false;}
+
+    private static boolean isTargetActivation(SystemMutation mutation) {
+        if (mutation.type() != SystemMutationType.APPLY_SHARD_CONTROL
+                || mutation.canonicalBodyLength()
+                        > com.nereusstream.delay.protocol.TargetProtocolActivationBody.MAX_BYTES) {
+            return false;
+        }
+        try {
+            com.nereusstream.delay.protocol.TargetProtocolActivationBody.decode(mutation.canonicalBody());
+            return true;
+        } catch (IllegalArgumentException otherControl) {
+            return false;
+        }
     }
 
     /** A different candidate cannot repeat state0 after actual state1/state2, even when its external blob is gone. */
-    private boolean retirementAlreadyApplied(TargetStoreBackend.Reader reader,SystemMutation mutation){
-        final var body=com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
-        final byte[] identity=body.resource().exactIdentity().identityHash();
-        final byte[] confirmedKey=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.confirmedKey(identity);
-        final byte[] confirmedRaw=reader.get(ColumnFamily.META,confirmedKey);
-        if(confirmedRaw!=null){
-            final var confirmed=com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(confirmedKey,
-                    TargetValueEnvelope.decode(confirmedRaw,com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE).payload(),
-                    scope.shard(),scope.tenantScope(),lineage);
-            if(!Arrays.equals(confirmed.body().resource().canonicalBytes(),body.resource().canonicalBytes()))
+    private boolean retirementAlreadyApplied(TargetStoreBackend.Reader reader, SystemMutation mutation) {
+        final var body =
+                com.nereusstream.delay.protocol.TargetEvidenceRetireIntentBody.decode(mutation.canonicalBody());
+        final byte[] identity = body.resource().exactIdentity().identityHash();
+        final byte[] confirmedKey = com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.confirmedKey(identity);
+        final byte[] confirmedRaw = reader.get(ColumnFamily.META, confirmedKey);
+        if (confirmedRaw != null) {
+            final var confirmed = com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.decodeForStore(
+                    confirmedKey,
+                    TargetValueEnvelope.decode(
+                                    confirmedRaw,
+                                    com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    scope.tenantScope(),
+                    lineage);
+            if (!Arrays.equals(
+                    confirmed.body().resource().canonicalBytes(),
+                    body.resource().canonicalBytes())) {
                 throw new IllegalStateException("confirmed identity changed exact original resource");
-            final var sourceOwner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-            TargetEvidenceRetirementStore.requireConfirmedState(reader,java.util.List.of(),scope,lineage,sourceOwner,confirmed,reader.aggregate().mutation());
-            reader.requireWithinElapsedBudget();return true;
+            }
+            final var sourceOwner = new TargetQuotaIdentity(
+                    TargetQuotaIdentity.Kind.SHARD,
+                    scope.shard(),
+                    reader.aggregate().accountingIncarnation(),
+                    null,
+                    null);
+            TargetEvidenceRetirementStore.requireConfirmedState(
+                    reader,
+                    java.util.List.of(),
+                    scope,
+                    lineage,
+                    sourceOwner,
+                    confirmed,
+                    reader.aggregate().mutation());
+            reader.requireWithinElapsedBudget();
+            return true;
         }
-        final byte[] key=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.key(identity);
-        final byte[] raw=reader.get(ColumnFamily.META,key);
-        if(raw==null)return false;
-        final var retiring=com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(key,
-                TargetValueEnvelope.decode(raw,com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE).payload(),
-                scope.shard(),scope.tenantScope(),lineage);
+        final byte[] key = com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.key(identity);
+        final byte[] raw = reader.get(ColumnFamily.META, key);
+        if (raw == null) {
+            return false;
+        }
+        final var retiring = com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord.VALUE_TYPE)
+                        .payload(),
+                scope.shard(),
+                scope.tenantScope(),
+                lineage);
         retiring.appliedAt().requireAtOrBefore(reader.aggregate().mutation());
-        TargetProtocolActivationStore.requirePriorActivation(reader,java.util.List.of(),scope,lineage,
-                new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null),
-                retiring.appliedAt(),reader.aggregate().mutation());
-        if(!Arrays.equals(retiring.copy().resource().canonicalBytes(),body.resource().canonicalBytes()))
+        TargetProtocolActivationStore.requirePriorActivation(
+                reader,
+                java.util.List.of(),
+                scope,
+                lineage,
+                new TargetQuotaIdentity(
+                        TargetQuotaIdentity.Kind.SHARD,
+                        scope.shard(),
+                        reader.aggregate().accountingIncarnation(),
+                        null,
+                        null),
+                retiring.appliedAt(),
+                reader.aggregate().mutation());
+        if (!Arrays.equals(
+                retiring.copy().resource().canonicalBytes(), body.resource().canonicalBytes())) {
             throw new IllegalStateException("retiring identity changed exact original resource");
-        final var intent=retiring.intent();
-        final var first=Objects.requireNonNull(result(reader,Bytes.concat(
-                new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},intent.systemMutationId())),"actual retiring first");
-        final var actual=SystemMutationResult.decode(first.typedPayload());
-        if(first.kind()!=TargetResultRecord.Kind.SYSTEM||first.primaryIdentity().kind()!=TargetQuotaIdentity.Kind.SHARD
-                ||!first.mutation().equals(retiring.appliedAt())
-                ||actual.mutationType()!=SystemMutationType.RESOURCE_RETIRE_INTENT||actual.applyStatus()!=ApplyStatus.APPLIED
-                ||actual.stableCode()!=StableCode.OK||!Arrays.equals(actual.mutationId(),intent.systemMutationId())
-                ||!Arrays.equals(actual.mutationHash(),intent.mutationHash())||actual.retryUntilEpochMs()!=intent.retryUntilEpochMs()
-                ||!Arrays.equals(actual.authorIdentity(),intent.authorIdentity())
-                ||!Arrays.equals(actual.appliedSourcePosition(),retiring.appliedAt().source().canonicalBytes()))
+        }
+        final var intent = retiring.intent();
+        final var first = Objects.requireNonNull(
+                result(
+                        reader,
+                        Bytes.concat(
+                                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
+                                intent.systemMutationId())),
+                "actual retiring first");
+        final var actual = SystemMutationResult.decode(first.typedPayload());
+        if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                || first.primaryIdentity().kind() != TargetQuotaIdentity.Kind.SHARD
+                || !first.mutation().equals(retiring.appliedAt())
+                || actual.mutationType() != SystemMutationType.RESOURCE_RETIRE_INTENT
+                || actual.applyStatus() != ApplyStatus.APPLIED
+                || actual.stableCode() != StableCode.OK
+                || !Arrays.equals(actual.mutationId(), intent.systemMutationId())
+                || !Arrays.equals(actual.mutationHash(), intent.mutationHash())
+                || actual.retryUntilEpochMs() != intent.retryUntilEpochMs()
+                || !Arrays.equals(actual.authorIdentity(), intent.authorIdentity())
+                || !Arrays.equals(
+                        actual.appliedSourcePosition(),
+                        retiring.appliedAt().source().canonicalBytes())) {
             throw new IllegalStateException("state1 lacks its actual APPLIED retiring first");
-        final var position=Objects.requireNonNull(result(reader,Bytes.concat(
-                new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},retiring.appliedAt().source().canonicalBytes())),"actual retiring POSITION");
+        }
+        final var position = Objects.requireNonNull(
+                result(
+                        reader,
+                        Bytes.concat(
+                                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
+                                retiring.appliedAt().source().canonicalBytes())),
+                "actual retiring POSITION");
         position.requireFirst(first);
-        if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(retiring.appliedAt()))
+        if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                || !position.mutation().equals(retiring.appliedAt())) {
             throw new IllegalStateException("state1 lost original retiring POSITION");
-        reader.requireWithinElapsedBudget();return true;
+        }
+        reader.requireWithinElapsedBudget();
+        return true;
     }
 
     private TargetResultRecord result(final TargetStoreBackend.Reader reader, final byte[] key) {

@@ -48,8 +48,7 @@ final class TargetMessageExpiryMaintenance {
         if (cursor == null) {
             sweepCutoff = evidence.earliestEpochMs();
         }
-        final var discovery = worker.discoverMessageExpiry(
-                request.discoveryBudget(), cursor, evidence, ownerClock);
+        final var discovery = worker.discoverMessageExpiry(request.discoveryBudget(), cursor, evidence, ownerClock);
         if (discovery.sweepComplete()) {
             restartSweep();
             return Optional.empty();

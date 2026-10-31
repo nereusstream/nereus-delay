@@ -49,41 +49,70 @@ public final class PulsarClientArtifactRecoveryFenceWriter implements TargetReco
     private int activeAppends, activeNativeCalls;
     private long closeStarted;
 
-    private PulsarClientArtifactRecoveryFenceWriter(TargetWorkerSourceStartup.RecoveryInputsOpening opening,
-            PulsarClientArtifactOwnedBackendGroup group, PulsarClient client,
-            PulsarClientArtifactRecoverySourceCursor reader, GuardedConsumer<byte[]> source,
-            LocalBrokerMtlsResolver.SourceReceipt credential, Supplier<TrustedUtcIntervalEvidence> time,
-            Duration timeout, SystemWriterAppendBudget.Writer writer, TargetDestinationSdkBudget.Client allocation) {
-        this.opening = opening; this.group = group; this.client = client; this.reader = reader; this.source = source;
-        this.credential = credential; this.time = time; this.timeout = timeout; this.writer = writer; this.allocation = allocation;
-        nativeOpening = new OwnedSourceCursor<>(creating, value -> {
-            writer.beginClose();
-            final PulsarClientArtifactProducerClose original;
-            synchronized (gate) {
-                closeRequested = true;
-                if (closing == null) closing = new PulsarClientArtifactProducerClose(client, value, timeout, allocation);
-                original = closing;
-            }
-            // Shared backend termination is cleanup only; it cannot make a normal recovery handoff successful.
-            return original.normalCloseFuture().thenRun(() -> releaseNative(true));
-        }, group);
+    private PulsarClientArtifactRecoveryFenceWriter(
+            TargetWorkerSourceStartup.RecoveryInputsOpening opening,
+            PulsarClientArtifactOwnedBackendGroup group,
+            PulsarClient client,
+            PulsarClientArtifactRecoverySourceCursor reader,
+            GuardedConsumer<byte[]> source,
+            LocalBrokerMtlsResolver.SourceReceipt credential,
+            Supplier<TrustedUtcIntervalEvidence> time,
+            Duration timeout,
+            SystemWriterAppendBudget.Writer writer,
+            TargetDestinationSdkBudget.Client allocation) {
+        this.opening = opening;
+        this.group = group;
+        this.client = client;
+        this.reader = reader;
+        this.source = source;
+        this.credential = credential;
+        this.time = time;
+        this.timeout = timeout;
+        this.writer = writer;
+        this.allocation = allocation;
+        nativeOpening = new OwnedSourceCursor<>(
+                creating,
+                value -> {
+                    writer.beginClose();
+                    final PulsarClientArtifactProducerClose original;
+                    synchronized (gate) {
+                        closeRequested = true;
+                        if (closing == null) {
+                            closing = new PulsarClientArtifactProducerClose(client, value, timeout, allocation);
+                        }
+                        original = closing;
+                    }
+                    // Shared backend termination is cleanup only; it cannot make a normal recovery handoff successful.
+                    return original.normalCloseFuture().thenRun(() -> releaseNative(true));
+                },
+                group);
     }
 
     /** Runs in the already-owned strict preparation I/O task; no nested submission to that executor is made. */
-    public static PulsarClientArtifactRecoveryFenceWriter open(String allocationId,
-            TargetWorkerSourceStartup.RecoveryInputsOpening opening, PulsarClientArtifactOwnedBackendGroup group,
-            Duration timeout, Supplier<TrustedUtcIntervalEvidence> time, TargetDestinationSdkBudget budget,
+    public static PulsarClientArtifactRecoveryFenceWriter open(
+            String allocationId,
+            TargetWorkerSourceStartup.RecoveryInputsOpening opening,
+            PulsarClientArtifactOwnedBackendGroup group,
+            Duration timeout,
+            Supplier<TrustedUtcIntervalEvidence> time,
+            TargetDestinationSdkBudget budget,
             CapacityVector cost) {
         Objects.requireNonNull(opening).requireFenceFactory();
-        Objects.requireNonNull(timeout); Objects.requireNonNull(time); Objects.requireNonNull(group);
+        Objects.requireNonNull(timeout);
+        Objects.requireNonNull(time);
+        Objects.requireNonNull(group);
         if (timeout.toMillis() < 1 || timeout.toMillis() > 60_000) {
-            throw new IllegalArgumentException("recovery Source Fence requires a finite native open/send/close timeout");
+            throw new IllegalArgumentException(
+                    "recovery Source Fence requires a finite native open/send/close timeout");
         }
         final var startup = opening.startup();
         final var graph = startup.graph();
-        group.requireWorkerGraph(graph.classes(), graph.resources()); budget.requireWorker(graph.classes(), graph.resources());
+        group.requireWorkerGraph(graph.classes(), graph.resources());
+        budget.requireWorker(graph.classes(), graph.resources());
         startup.retainRecoveryInputBackend(group);
-        if (group.applicationReady()) throw new IllegalStateException("recovery Source Fence requires its original pre-Host SDK owner");
+        if (group.applicationReady()) {
+            throw new IllegalStateException("recovery Source Fence requires its original pre-Host SDK owner");
+        }
         final var credential = Objects.requireNonNull(opening.credential(), "original recovery Source credential");
         credential.authorization().requireAssignment(opening.assignment());
         credential.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
@@ -99,114 +128,189 @@ public final class PulsarClientArtifactRecoveryFenceWriter implements TargetReco
         minimum[CapacityDimension.BUFFERED_MESSAGES.wireValue() - 1] = 1;
         minimum[CapacityDimension.BUFFERED_BYTES.wireValue() - 1] = opening.maximumFrameBytes();
         if (!Objects.requireNonNull(cost).covers(new CapacityVector(minimum))) {
-            throw new IllegalArgumentException("recovery Source Fence lacks its original finite producer/frame envelope");
+            throw new IllegalArgumentException(
+                    "recovery Source Fence lacks its original finite producer/frame envelope");
         }
         final var client = group.nativeClientForFactory();
         final var allocation = budget.reserve(allocationId, cost);
         final SystemWriterAppendBudget.Writer writer;
-        try { writer = startup.systemWriterBudget().registerWriter(opening.assignment().shardId()); }
-        catch (RuntimeException | Error failure) { allocation.releaseUnstarted(); throw failure; }
-        final var owned = new PulsarClientArtifactRecoveryFenceWriter(opening, group, client, reader, source,
-                credential, time, timeout, writer, allocation);
+        try {
+            writer = startup.systemWriterBudget()
+                    .registerWriter(opening.assignment().shardId());
+        } catch (RuntimeException | Error failure) {
+            allocation.releaseUnstarted();
+            throw failure;
+        }
+        final var owned = new PulsarClientArtifactRecoveryFenceWriter(
+                opening, group, client, reader, source, credential, time, timeout, writer, allocation);
         boolean nativeStarted = false;
         try {
             group.registerCleanup(owned, owned::localCallsExited, owned::resourcesTerminated, proof -> {
-                proof.requireClient(client); writer.beginClose(); owned.nativeOpening.requestClose();
-                owned.nativeOpening.backendShutdownCompleted(group); owned.releaseNative(false);
+                proof.requireClient(client);
+                writer.beginClose();
+                owned.nativeOpening.requestClose();
+                owned.nativeOpening.backendShutdownCompleted(group);
+                owned.releaseNative(false);
             });
             opening.retainFenceWriter(owned);
-            opening.requireFenceOpening(owned); reader.requireCurrent(); owned.requireMaterial();
-            final var builder = PulsarClientArtifactProducerFactory.builder(client, resource.authenticatedClusterId(),
-                    resource.resourceIncarnation(), resource.physicalTopic(), resource.physicalTopicCreationTimestamp(),
-                    "nereus-source-recovery-fence-" + java.util.UUID.randomUUID())
+            opening.requireFenceOpening(owned);
+            reader.requireCurrent();
+            owned.requireMaterial();
+            final var builder = PulsarClientArtifactProducerFactory.builder(
+                            client,
+                            resource.authenticatedClusterId(),
+                            resource.resourceIncarnation(),
+                            resource.physicalTopic(),
+                            resource.physicalTopicCreationTimestamp(),
+                            "nereus-source-recovery-fence-" + java.util.UUID.randomUUID())
                     .sendTimeout(Math.toIntExact(timeout.toMillis()), TimeUnit.MILLISECONDS);
             final var nativeFuture = PulsarClientArtifactOwnedBackendGroup.createProducer(client, builder, allocation);
             nativeStarted = true;
             nativeFuture.whenComplete((value, failure) -> {
                 try {
-                    if (failure == null) owned.creating.complete(value);
-                    else owned.creating.completeExceptionally(failure);
+                    if (failure == null) {
+                        owned.creating.complete(value);
+                    } else {
+                        owned.creating.completeExceptionally(failure);
+                    }
                 } finally {
-                    synchronized (owned.gate) { owned.creationBridgeExited = true; }
+                    synchronized (owned.gate) {
+                        owned.creationBridgeExited = true;
+                    }
                     group.cleanupProgress();
                 }
             });
             owned.nativeOpening.read(timeout.toMillis(), value -> {
-                synchronized (owned.gate) { owned.producer = value; }
-                opening.requireFenceOpening(owned); reader.requireCurrent(); owned.requireMaterial();
+                synchronized (owned.gate) {
+                    owned.producer = value;
+                }
+                opening.requireFenceOpening(owned);
+                reader.requireCurrent();
+                owned.requireMaterial();
                 group.requireProducerArtifact(value);
                 if (!resource.physicalTopic().equals(value.getTopic())) {
                     throw new IllegalStateException("recovery Source Fence producer changed its signed physical topic");
                 }
-                final var appender = new PulsarClientArtifactShardLogMutationAppender(value, source,
-                        opening.assignment().shardId(), resource.authenticatedClusterId(), resource.resourceIncarnation(),
-                        resource.physicalTopic(), resource.physicalTopicCreationTimestamp(), timeout, writer);
-                synchronized (owned.gate) { owned.appender = appender; }
+                final var appender = new PulsarClientArtifactShardLogMutationAppender(
+                        value,
+                        source,
+                        opening.assignment().shardId(),
+                        resource.authenticatedClusterId(),
+                        resource.resourceIncarnation(),
+                        resource.physicalTopic(),
+                        resource.physicalTopicCreationTimestamp(),
+                        timeout,
+                        writer);
+                synchronized (owned.gate) {
+                    owned.appender = appender;
+                }
                 return appender;
             });
             group.nativeCreationExit(owned.producer).get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            synchronized (owned.gate) { owned.nativeCreationExited = true; }
-            opening.requireFenceOpening(owned); reader.requireCurrent(); owned.requireMaterial();
+            synchronized (owned.gate) {
+                owned.nativeCreationExited = true;
+            }
+            opening.requireFenceOpening(owned);
+            reader.requireCurrent();
+            owned.requireMaterial();
             return owned;
         } catch (Exception | Error failure) {
-            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            synchronized (owned.gate) { owned.closeRequested = true; }
+            if (failure instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            synchronized (owned.gate) {
+                owned.closeRequested = true;
+            }
             if (!nativeStarted) {
                 try {
-                    allocation.releaseUnstarted(); writer.abandonUnstarted(); owned.nativeOpening.abandonBeforeOpen();
-                    synchronized (owned.gate) { owned.nativeClosed = true; }
+                    allocation.releaseUnstarted();
+                    writer.abandonUnstarted();
+                    owned.nativeOpening.abandonBeforeOpen();
+                    synchronized (owned.gate) {
+                        owned.nativeClosed = true;
+                    }
                 } catch (IllegalStateException started) {
-                    if (!owned.creating.isDone()) owned.creating.completeExceptionally(failure);
+                    if (!owned.creating.isDone()) {
+                        owned.creating.completeExceptionally(failure);
+                    }
                     owned.nativeOpening.requestClose();
                 }
-                synchronized (owned.gate) { owned.creationBridgeExited = true; }
-            } else owned.nativeOpening.requestClose();
+                synchronized (owned.gate) {
+                    owned.creationBridgeExited = true;
+                }
+            } else {
+                owned.nativeOpening.requestClose();
+            }
             startup.retain(failure);
-            if (failure instanceof Error fatal) throw fatal;
-            if (failure instanceof RuntimeException runtime) throw runtime;
+            if (failure instanceof Error fatal) {
+                throw fatal;
+            }
+            if (failure instanceof RuntimeException runtime) {
+                throw runtime;
+            }
             throw new IllegalStateException("original recovery Source Fence producer opening is unconfirmed", failure);
         } finally {
-            synchronized (owned.gate) { owned.openingExited = true; }
+            synchronized (owned.gate) {
+                owned.openingExited = true;
+            }
             group.cleanupProgress();
         }
     }
 
-    @Override public void requireBinding(TargetWorkerSourceStartup.RecoveryInputsOpening expected) {
-        if (opening != expected) throw new IllegalStateException("recovery Source Fence writer changed its original input opening");
+    @Override
+    public void requireBinding(TargetWorkerSourceStartup.RecoveryInputsOpening expected) {
+        if (opening != expected) {
+            throw new IllegalStateException("recovery Source Fence writer changed its original input opening");
+        }
     }
-    @Override public PulsarClientArtifactOwnedBackendGroup backend() { return group; }
+
+    @Override
+    public PulsarClientArtifactOwnedBackendGroup backend() {
+        return group;
+    }
 
     private void requireMaterial() {
         credential.requireOperation(SourceTransportCredentialAuthorization.Operation.SYSTEM_APPEND, time.get());
         credential.requireOperation(SourceTransportCredentialAuthorization.Operation.LOOKUP, time.get());
     }
 
-    @Override public ShardLogMutationAppender.AppendOutcome append(TargetTimeFenceMutationFactory.Prepared exact,
-            TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
+    @Override
+    public ShardLogMutationAppender.AppendOutcome append(
+            TargetTimeFenceMutationFactory.Prepared exact, TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
         Objects.requireNonNull(permit).beforeSdk(this, Objects.requireNonNull(exact));
-        opening.requireFenceOpening(this); reader.requireCurrent(); requireMaterial();
+        opening.requireFenceOpening(this);
+        reader.requireCurrent();
+        requireMaterial();
         final PulsarClientArtifactShardLogMutationAppender original;
         synchronized (gate) {
             pruneCompletions();
             if (!openingExited || !nativeCreationExited || appender == null || closeRequested || nativeClosed) {
                 throw new IllegalStateException("original recovery Source Fence producer is not open for append");
             }
-            original = appender; activeAppends++;
+            original = appender;
+            activeAppends++;
         }
         try {
             final var outcome = original.appendRecoveryFence(exact, permit, this);
-            opening.requireFenceOpening(this); reader.requireCurrent(); requireMaterial();
+            opening.requireFenceOpening(this);
+            reader.requireCurrent();
+            requireMaterial();
             return outcome;
         } finally {
-            synchronized (gate) { activeAppends--; }
+            synchronized (gate) {
+                activeAppends--;
+            }
             group.cleanupProgress();
         }
     }
 
     /** Called only from the existing SystemWriter SDK handoff, after the authoritative Root checks above. */
-    CompletableFuture<MessageId> nativeSend(PulsarClientArtifactShardLogMutationAppender original,
-            Producer<?> actual, TargetTimeFenceMutationFactory.Prepared exact,
-            TargetWorkerSourceStartup.RecoveryFenceAppend permit, Supplier<CompletableFuture<MessageId>> send) {
+    CompletableFuture<MessageId> nativeSend(
+            PulsarClientArtifactShardLogMutationAppender original,
+            Producer<?> actual,
+            TargetTimeFenceMutationFactory.Prepared exact,
+            TargetWorkerSourceStartup.RecoveryFenceAppend permit,
+            Supplier<CompletableFuture<MessageId>> send) {
         synchronized (gate) {
             if (appender != original || producer != actual || activeAppends == 0 || closeRequested || nativeClosed) {
                 throw new IllegalStateException("recovery Source Fence SEND changed its original native producer/call");
@@ -217,17 +321,26 @@ public final class PulsarClientArtifactRecoveryFenceWriter implements TargetReco
             requireMaterial();
             final var completion = group.recoveryFenceSend(this, actual, exact, permit, send);
             synchronized (gate) {
-                if (completion == null) untrackedSdkOutcome = true;
-                else {
-                    if (completions.containsKey(completion)) throw new IllegalStateException("recovery Source Fence reused a native send completion");
+                if (completion == null) {
+                    untrackedSdkOutcome = true;
+                } else {
+                    if (completions.containsKey(completion)) {
+                        throw new IllegalStateException("recovery Source Fence reused a native send completion");
+                    }
                     completions.put(completion, null);
                 }
             }
             return completion;
         } catch (RuntimeException | Error failure) {
-            synchronized (gate) { untrackedSdkOutcome = true; }
+            synchronized (gate) {
+                untrackedSdkOutcome = true;
+            }
             throw failure;
-        } finally { synchronized (gate) { activeNativeCalls--; } }
+        } finally {
+            synchronized (gate) {
+                activeNativeCalls--;
+            }
+        }
     }
 
     /** The dependent stage completes only after the original append-budget callback has actually returned. */
@@ -244,13 +357,18 @@ public final class PulsarClientArtifactRecoveryFenceWriter implements TargetReco
 
     private void pruneCompletions() {
         completions.entrySet().removeIf(entry -> {
-            if (entry.getValue() == null || !entry.getValue().isDone()) return false;
-            if (entry.getKey().isCancelled()) untrackedSdkOutcome = true;
+            if (entry.getValue() == null || !entry.getValue().isDone()) {
+                return false;
+            }
+            if (entry.getKey().isCancelled()) {
+                untrackedSdkOutcome = true;
+            }
             return true;
         });
     }
 
-    GuardedConsumer<byte[]> requireNativeSendBinding(PulsarClientArtifactOwnedBackendGroup expected, Producer<?> actual) {
+    GuardedConsumer<byte[]> requireNativeSendBinding(
+            PulsarClientArtifactOwnedBackendGroup expected, Producer<?> actual) {
         synchronized (gate) {
             if (group != expected || producer != actual || activeAppends == 0 || closeRequested || nativeClosed) {
                 throw new IllegalStateException("recovery Source Fence has no original registered native send binding");
@@ -263,45 +381,75 @@ public final class PulsarClientArtifactRecoveryFenceWriter implements TargetReco
     private boolean localCallsExited() {
         synchronized (gate) {
             pruneCompletions();
-            return openingExited && creationBridgeExited && activeAppends == 0 && activeNativeCalls == 0 && completions.isEmpty()
+            return openingExited
+                    && creationBridgeExited
+                    && activeAppends == 0
+                    && activeNativeCalls == 0
+                    && completions.isEmpty()
                     && nativeOpening.operationExited();
         }
     }
-    @Override public boolean operationsExited() {
-        if (!localCallsExited()) return false;
+
+    @Override
+    public boolean operationsExited() {
+        if (!localCallsExited()) {
+            return false;
+        }
         synchronized (gate) {
-            return (nativeCreationExited || nativeClosed) && (!untrackedSdkOutcome || nativeClosed)
+            return (nativeCreationExited || nativeClosed)
+                    && (!untrackedSdkOutcome || nativeClosed)
                     && (!closeRequested || nativeOpening.cleanupComplete());
         }
     }
+
     private boolean resourcesTerminated() {
-        synchronized (gate) { return nativeClosed && localCallsExited() && nativeOpening.cleanupComplete(); }
-    }
-    private void releaseNative(boolean normal) {
         synchronized (gate) {
-            if (nativeClosed) return;
-            writer.producerClosed(); allocation.closed(); nativeClosed = true; normallyClosed = normal;
+            return nativeClosed && localCallsExited() && nativeOpening.cleanupComplete();
         }
     }
 
-    @Override public boolean closeForHandoff(TargetWorkerSourceStartup.RecoveryFenceHandoff permit) {
+    private void releaseNative(boolean normal) {
+        synchronized (gate) {
+            if (nativeClosed) {
+                return;
+            }
+            writer.producerClosed();
+            allocation.closed();
+            nativeClosed = true;
+            normallyClosed = normal;
+        }
+    }
+
+    @Override
+    public boolean closeForHandoff(TargetWorkerSourceStartup.RecoveryFenceHandoff permit) {
         Objects.requireNonNull(permit).requireWriter(this);
         synchronized (gate) {
-            if (handoff == null) { handoff = permit; closeStarted = System.nanoTime(); closeRequested = true; }
+            if (handoff == null) {
+                handoff = permit;
+                closeStarted = System.nanoTime();
+                closeRequested = true;
+            }
             if (handoff != permit || !openingExited || appender == null) {
-                throw new IllegalStateException("recovery Source Fence handoff changed its original opening/close permit");
+                throw new IllegalStateException(
+                        "recovery Source Fence handoff changed its original opening/close permit");
             }
         }
-        writer.beginClose(); nativeOpening.requestClose();
+        writer.beginClose();
+        nativeOpening.requestClose();
         group.requireNormalJournalHandoff(client);
         permit.requireWriter(this);
         final boolean closed;
-        synchronized (gate) { closed = normallyClosed && nativeOpening.cleanupComplete(); }
+        synchronized (gate) {
+            closed = normallyClosed && nativeOpening.cleanupComplete();
+        }
         if (closed && operationsExited()) {
-            group.requireNormalJournalHandoff(client); permit.requireWriter(this); return true;
+            group.requireNormalJournalHandoff(client);
+            permit.requireWriter(this);
+            return true;
         }
         if (System.nanoTime() - closeStarted >= timeout.toNanos()) {
-            throw new IllegalStateException("original recovery Source Fence producer close exceeded its finite handoff deadline");
+            throw new IllegalStateException(
+                    "original recovery Source Fence producer close exceeded its finite handoff deadline");
         }
         return false;
     }

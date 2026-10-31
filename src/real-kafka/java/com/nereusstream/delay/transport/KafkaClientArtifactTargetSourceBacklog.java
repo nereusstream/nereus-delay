@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.consumer.CloseOptions;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.common.TopicPartition;
@@ -21,11 +20,17 @@ import org.apache.kafka.common.record.TimestampType;
 public final class KafkaClientArtifactTargetSourceBacklog {
     private KafkaClientArtifactTargetSourceBacklog() {}
 
-    public static Query openVerified(Map<String,Object> configuration, String topic, TargetSourceBacklog.Cut cut,
-            TargetSourceBacklog.Limits limits, Runnable protection,
+    public static Query openVerified(
+            Map<String, Object> configuration,
+            String topic,
+            TargetSourceBacklog.Cut cut,
+            TargetSourceBacklog.Limits limits,
+            Runnable protection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, byte[] sdkJar) {
-        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            byte[] sdkJar) {
+        com.nereusstream.delay.ownership.TargetSdkArtifactIdentity.requireExact(
+                org.apache.kafka.clients.consumer.KafkaConsumer.class, sdkJar);
         final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.OBSERVATION;
         final String name = credential.authorization().newReaderName(role);
         final var guard = credential.guardRead(role, cut.applied(), topic, name, time, protection);
@@ -34,21 +39,32 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         return open(config, topic, cut, limits, guard);
     }
 
-    public static Query open(final Map<String, Object> configuration, final String physicalTopic,
-            final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+    public static Query open(
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetSourceBacklog.Cut cut,
+            final TargetSourceBacklog.Limits limits,
+            final Runnable protection) {
         return new Query(configuration, physicalTopic, cut, limits, protection);
     }
 
-    public static TargetSourceBacklog.Snapshot read(final Map<String, Object> configuration, final String physicalTopic,
-            final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+    public static TargetSourceBacklog.Snapshot read(
+            final Map<String, Object> configuration,
+            final String physicalTopic,
+            final TargetSourceBacklog.Cut cut,
+            final TargetSourceBacklog.Limits limits,
+            final Runnable protection) {
         final var operation = open(configuration, physicalTopic, cut, limits, protection);
         try {
             final var result = operation.read();
-            operation.requestClose().get(Math.max(1, Duration.ofNanos(limits.elapsedNanos()).toMillis()),
-                    TimeUnit.MILLISECONDS);
+            operation
+                    .requestClose()
+                    .get(Math.max(1, Duration.ofNanos(limits.elapsedNanos()).toMillis()), TimeUnit.MILLISECONDS);
             return result;
         } catch (Exception failure) {
-            if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+            if (failure instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             operation.requestClose();
             throw new TargetSourceBacklogRead.Failure(operation, failure);
         }
@@ -68,8 +84,12 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         private volatile Throwable failedConstruction;
         private volatile boolean readExited;
 
-        private Query(final Map<String, Object> configuration, final String physicalTopic,
-                final TargetSourceBacklog.Cut cut, final TargetSourceBacklog.Limits limits, final Runnable protection) {
+        private Query(
+                final Map<String, Object> configuration,
+                final String physicalTopic,
+                final TargetSourceBacklog.Cut cut,
+                final TargetSourceBacklog.Limits limits,
+                final Runnable protection) {
             this.physicalTopic = Objects.requireNonNull(physicalTopic, "physicalTopic");
             if (!(Objects.requireNonNull(cut, "cut").applied() instanceof KafkaSourcePosition position)
                     || position.offset() < 0) {
@@ -97,7 +117,9 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                 final var completion = new CompletableFuture<Void>();
                 try {
                     consumer.closeGuardedResources(Duration.ofMillis(timeoutMs));
-                    if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("K1 observer native resources are still live");
+                    if (!consumer.guardedResourcesTerminated()) {
+                        throw new IllegalStateException("K1 observer native resources are still live");
+                    }
                     completion.complete(null);
                 } catch (RuntimeException | Error failure) {
                     completion.completeExceptionally(failure);
@@ -110,16 +132,23 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         public TargetSourceBacklog.Snapshot read() {
             try {
                 synchronized (this) {
-                    if (closing || readStarted) { throw new IllegalStateException("K1 backlog read already used/closed"); }
+                    if (closing || readStarted) {
+                        throw new IllegalStateException("K1 backlog read already used/closed");
+                    }
                     readStarted = true;
                 }
                 collector.requireCurrent();
                 synchronized (this) {
-                    if (closing) { throw new IllegalStateException("K1 backlog closed before SDK opening"); }
+                    if (closing) {
+                        throw new IllegalStateException("K1 backlog closed before SDK opening");
+                    }
                     openStarted = true;
                     try {
-                        opening.complete(KafkaClientArtifactSourceConsumerFactory.create(config,
-                                applied.authenticatedClusterId(), physicalTopic, applied.nativeTopicUuid(),
+                        opening.complete(KafkaClientArtifactSourceConsumerFactory.create(
+                                config,
+                                applied.authenticatedClusterId(),
+                                physicalTopic,
+                                applied.nativeTopicUuid(),
                                 applied.shardId().partition()));
                     } catch (RuntimeException | Error failure) {
                         // The exact factory owns failed-constructor/bind cleanup, including a retained partial SDK.
@@ -130,7 +159,9 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                 }
                 return owned.read(timeoutMs, this::readCursor);
             } catch (Exception failure) {
-                if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                if (failure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 throw new TargetSourceBacklogRead.Failure(this, failure);
             } finally {
                 readExited = true;
@@ -139,7 +170,8 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         }
 
         private TargetSourceBacklog.Snapshot readCursor(final GuardedConsumer<byte[], byte[]> consumer) {
-            final var partition = new TopicPartition(physicalTopic, applied.shardId().partition());
+            final var partition =
+                    new TopicPartition(physicalTopic, applied.shardId().partition());
             consumer.assign(List.of(partition));
             consumer.seek(partition, applied.offset());
             final var resource = consumer.resourceGuard();
@@ -150,7 +182,9 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                 final var records = consumer.pollGuarded(Duration.ofNanos(collector.remainingNanos()));
                 collector.requireCurrent();
                 final var evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, resource);
-                if (evidence == null) { continue; }
+                if (evidence == null) {
+                    continue;
+                }
                 if (tailExclusive < 0) {
                     tailExclusive = evidence.highWatermark();
                     if (tailExclusive <= applied.offset()) {
@@ -159,22 +193,30 @@ public final class KafkaClientArtifactTargetSourceBacklog {
                 }
                 for (var record : records.records(partition)) {
                     KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, resource);
-                    if (record.offset() >= tailExclusive) { break; }
-                    if (record.value() == null || record.timestamp() < 0
+                    if (record.offset() >= tailExclusive) {
+                        break;
+                    }
+                    if (record.value() == null
+                            || record.timestamp() < 0
                             || record.timestampType() != TimestampType.LOG_APPEND_TIME) {
                         throw new IllegalStateException("K1 backlog requires actual framed LogAppendTime records");
                     }
-                    final var position = new KafkaSourcePosition(applied.shardId(), applied.authenticatedClusterId(),
-                            applied.nativeTopicUuid(), record.offset(), record.leaderEpoch().orElse(null),
+                    final var position = new KafkaSourcePosition(
+                            applied.shardId(),
+                            applied.authenticatedClusterId(),
+                            applied.nativeTopicUuid(),
+                            record.offset(),
+                            record.leaderEpoch().orElse(null),
                             record.timestamp());
                     collector.add(position, record.value().length);
-                    KafkaClientArtifactSourceRecordDecoder.decodeTarget(record.value(), applied.shardId(),
-                            position, null, null);
+                    KafkaClientArtifactSourceRecordDecoder.decodeTarget(
+                            record.value(), applied.shardId(), position, null, null);
                     last = position;
                 }
                 // The private cursor advances through every data frame/control marker in its guarded fetch.
-                if (last != null && consumer.position(partition, Duration.ofNanos(collector.remainingNanos()))
-                        >= tailExclusive) {
+                if (last != null
+                        && consumer.position(partition, Duration.ofNanos(collector.remainingNanos()))
+                                >= tailExclusive) {
                     return collector.finish(last);
                 }
             }
@@ -183,27 +225,38 @@ public final class KafkaClientArtifactTargetSourceBacklog {
         @Override
         public synchronized CompletableFuture<Void> requestClose() {
             closing = true;
-            if (!openStarted && !owned.cleanupComplete()) { owned.abandonBeforeOpen(); }
-            if (failedConstruction != null && readExited) return failedConstructionCleanup(false);
+            if (!openStarted && !owned.cleanupComplete()) {
+                owned.abandonBeforeOpen();
+            }
+            if (failedConstruction != null && readExited) {
+                return failedConstructionCleanup(false);
+            }
             return owned.requestClose();
         }
 
         @Override
         public CompletableFuture<Void> retryClose() {
-            if (failedConstruction != null && readExited) return failedConstructionCleanup(true);
+            if (failedConstruction != null && readExited) {
+                return failedConstructionCleanup(true);
+            }
             return owned.retryClose();
         }
 
         @Override
         public boolean cleanupComplete() {
             final var failure = failedConstruction;
-            if (failure == null) return owned.cleanupComplete();
-            return readExited && (!(failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup)
-                    || cleanup.cleanupComplete());
+            if (failure == null) {
+                return owned.cleanupComplete();
+            }
+            return readExited
+                    && (!(failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup)
+                            || cleanup.cleanupComplete());
         }
 
         @Override
-        public Throwable cleanupFailure() { return failedConstruction == null ? owned.cleanupFailure() : failedConstruction; }
+        public Throwable cleanupFailure() {
+            return failedConstruction == null ? owned.cleanupFailure() : failedConstruction;
+        }
 
         /** A factory exception is not a cursor handle: only its original constructor-cleanup fact can settle it. */
         private CompletableFuture<Void> failedConstructionCleanup(boolean retry) {
@@ -216,5 +269,4 @@ public final class KafkaClientArtifactTargetSourceBacklog {
             return CompletableFuture.completedFuture(null);
         }
     }
-
 }

@@ -186,7 +186,9 @@ class TargetCommandReplayStoreTest {
                             entry -> {
                                 throw new AssertionError("unexpected first fence authority");
                             },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
                             },
@@ -387,7 +389,9 @@ class TargetCommandReplayStoreTest {
                             entry -> {
                                 throw new AssertionError("unexpected first fence authority");
                             },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
                             },

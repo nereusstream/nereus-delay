@@ -151,11 +151,16 @@ public final class WorkClassEventLoop {
     /** Selected tasks keep their real lease/handler exit obligation, including never-started trailing tasks. */
     synchronized boolean withdrawQueued(final WorkClassTask task) {
         Objects.requireNonNull(task);
-        if (hasActiveTask(task)) return false;
+        if (hasActiveTask(task)) {
+            return false;
+        }
         return scheduler.withdrawQueued(task);
     }
+
     synchronized boolean hasActiveTask(final WorkClassTask task) {
-        return activeTurn != null && !activeTurn.isClosed() && activeTurn.tasks().contains(Objects.requireNonNull(task));
+        return activeTurn != null
+                && !activeTurn.isClosed()
+                && activeTurn.tasks().contains(Objects.requireNonNull(task));
     }
 
     private void reserveActiveTurnCapacity(final WorkClassTask offered) {

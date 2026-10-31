@@ -39,51 +39,92 @@ public final class TargetPulsarPublishExecutor {
     private Submission pending;
 
     public TargetPulsarPublishExecutor(
-            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            PulsarAttemptJournal journal,
+            BoundedDestinationPublishAdapter adapter,
+            ArtifactGenerationSet artifacts,
             Supplier<TargetPublishAdmissionStore.Applied> current,
-            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate, ResultAuthority results,
-            TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
+            ResultAuthority results,
+            TargetPublishOutcomeMutationFactory outcomes,
+            Consumer<SystemMutation> handoff,
             Executor completionExecutor) {
         this(journal, adapter, artifacts, current, liveGate, null, results, outcomes, handoff, completionExecutor);
     }
 
     public TargetPulsarPublishExecutor(
-            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            PulsarAttemptJournal journal,
+            BoundedDestinationPublishAdapter adapter,
+            ArtifactGenerationSet artifacts,
             Supplier<TargetPublishAdmissionStore.Applied> current,
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
-            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            ResultAuthority results,
+            TargetPublishOutcomeMutationFactory outcomes,
+            Consumer<SystemMutation> handoff,
             Executor completionExecutor) {
-        this(journal, adapter, artifacts, current, liveGate, nativeLiveGate, null, results, outcomes,
-                handoff, completionExecutor);
+        this(
+                journal,
+                adapter,
+                artifacts,
+                current,
+                liveGate,
+                nativeLiveGate,
+                null,
+                results,
+                outcomes,
+                handoff,
+                completionExecutor);
     }
 
     public TargetPulsarPublishExecutor(
-            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            PulsarAttemptJournal journal,
+            BoundedDestinationPublishAdapter adapter,
+            ArtifactGenerationSet artifacts,
             Supplier<TargetPublishAdmissionStore.Applied> current,
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
             java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership,
-            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
+            ResultAuthority results,
+            TargetPublishOutcomeMutationFactory outcomes,
+            Consumer<SystemMutation> handoff,
             Executor completionExecutor) {
-        this(journal, adapter, artifacts, current, liveGate, nativeLiveGate, nativeOwnership, results,
-                outcomes, handoff, completionExecutor, null);
+        this(
+                journal,
+                adapter,
+                artifacts,
+                current,
+                liveGate,
+                nativeLiveGate,
+                nativeOwnership,
+                results,
+                outcomes,
+                handoff,
+                completionExecutor,
+                null);
     }
 
     @FunctionalInterface
     public interface NegativeSettlement {
-        java.util.concurrent.CompletableFuture<Void> settle(TargetPublishAdmissionStore.Applied applied,
-                PulsarAttemptJournal.Mapping mapping, PulsarPreparedRecord record, SystemMutation outcome);
+        java.util.concurrent.CompletableFuture<Void> settle(
+                TargetPublishAdmissionStore.Applied applied,
+                PulsarAttemptJournal.Mapping mapping,
+                PulsarPreparedRecord record,
+                SystemMutation outcome);
     }
 
     public TargetPulsarPublishExecutor(
-            PulsarAttemptJournal journal, BoundedDestinationPublishAdapter adapter, ArtifactGenerationSet artifacts,
+            PulsarAttemptJournal journal,
+            BoundedDestinationPublishAdapter adapter,
+            ArtifactGenerationSet artifacts,
             Supplier<TargetPublishAdmissionStore.Applied> current,
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight liveGate,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight nativeLiveGate,
             java.util.function.Consumer<TargetPublishAdmissionStore.Applied> nativeOwnership,
-            ResultAuthority results, TargetPublishOutcomeMutationFactory outcomes, Consumer<SystemMutation> handoff,
-            Executor completionExecutor, NegativeSettlement negativeSettlement) {
+            ResultAuthority results,
+            TargetPublishOutcomeMutationFactory outcomes,
+            Consumer<SystemMutation> handoff,
+            Executor completionExecutor,
+            NegativeSettlement negativeSettlement) {
         this.journal = Objects.requireNonNull(journal, "journal");
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
@@ -109,38 +150,49 @@ public final class TargetPulsarPublishExecutor {
         if (nativePublication != null && (nativeLiveGate == null || nativeOwnership == null)) {
             throw new IllegalStateException("Target Native final ownership gate is unavailable");
         }
-        final var producer = PulsarAttemptJournal.ProducerKey.target(applied.body().channel(),
-                publication != null ? publication.physical() : nativePublication.physical());
-        final var identity = publication != null ? PulsarPreparedRecordFactory.targetJournalIdentity(
-                publication, applied.message(), payload, applied.source())
+        final var producer = PulsarAttemptJournal.ProducerKey.target(
+                applied.body().channel(), publication != null ? publication.physical() : nativePublication.physical());
+        final var identity = publication != null
+                ? PulsarPreparedRecordFactory.targetJournalIdentity(
+                        publication, applied.message(), payload, applied.source())
                 : PulsarPreparedRecordFactory.targetJournalIdentity(
                         nativePublication, applied.message(), payload, applied.source());
         final var resolvedBytes = Objects.requireNonNull(resolved, "resolved").bytes();
-        if (publication != null) { publication.requirePayload(resolvedBytes); }
-        else { nativePublication.requirePayload(resolvedBytes); }
+        if (publication != null) {
+            publication.requirePayload(resolvedBytes);
+        } else {
+            nativePublication.requirePayload(resolvedBytes);
+        }
         final var submission = new Submission(applied);
         pending = submission;
         try {
-            final var mapping = journal.appendOrReuseCurrent(producer, identity).record().mapping();
+            final var mapping =
+                    journal.appendOrReuseCurrent(producer, identity).record().mapping();
             submission.mapping = mapping;
-            final var record = publication != null ? PulsarPreparedRecordFactory.targetManaged(
-                    publication, applied.message(), payload, resolved, mapping, artifacts)
+            final var record = publication != null
+                    ? PulsarPreparedRecordFactory.targetManaged(
+                            publication, applied.message(), payload, resolved, mapping, artifacts)
                     : PulsarPreparedRecordFactory.targetManaged(
                             nativePublication, applied.message(), payload, resolved, mapping, artifacts);
             submission.record = record;
             if (journal.state(mapping.mappingId()) != PulsarAttemptJournal.AttemptState.MAPPED) {
-                observe(submission,
-                        DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null), null);
+                observe(
+                        submission,
+                        DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null),
+                        null);
                 return submission;
             }
-            if (nativePublication != null) { nativeOwnership.accept(applied); }
+            if (nativePublication != null) {
+                nativeOwnership.accept(applied);
+            }
             journal.markOwnershipStarted(mapping);
             final var physical = journal.sendAfterOwnershipStarted(mapping, ignored -> {
                 submission.call = publication != null
                         ? adapter.submitTargetPreparedRecord(publication, record, artifacts, (p, r, a) -> {
                             applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
                             return liveGate.check(p, r, a);
-                        }) : adapter.submitTargetPreparedRecord(nativePublication, record, artifacts, (p, r, a) -> {
+                        })
+                        : adapter.submitTargetPreparedRecord(nativePublication, record, artifacts, (p, r, a) -> {
                             applied.requireSame(Objects.requireNonNull(current.get(), "current applied Admission"));
                             return nativeLiveGate.check(p, r, a);
                         });
@@ -148,7 +200,8 @@ public final class TargetPulsarPublishExecutor {
             });
             physical.whenComplete((value, failure) -> observe(submission, value, failure));
         } catch (RuntimeException firstSendUncertain) {
-            observe(submission,
+            observe(
+                    submission,
                     DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null),
                     firstSendUncertain);
         }
@@ -157,7 +210,8 @@ public final class TargetPulsarPublishExecutor {
 
     private void observe(
             final Submission submission, final DestinationPublishResult value, final Throwable physicalFailure) {
-        submission.result = physicalFailure == null && value != null ? value
+        submission.result = physicalFailure == null && value != null
+                ? value
                 : DestinationPublishResult.unknown(StableCode.RECOVERY_FIRST_SEND_UNCERTAIN, null);
         submission.failure = physicalFailure;
         if (submission.result.disposition() == DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED) {
@@ -208,22 +262,29 @@ public final class TargetPulsarPublishExecutor {
             final var state = journal.state(submission.mapping.mappingId());
             if (state == PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED || submission.negativeSettling != null) {
                 if (negativeSettlement == null) {
-                    throw new IllegalStateException("post-ownership Source-negative result requires configured Journal settlement");
+                    throw new IllegalStateException(
+                            "post-ownership Source-negative result requires configured Journal settlement");
                 }
                 if (submission.negativeSettling == null) {
-                    submission.negativeSettling = Objects.requireNonNull(negativeSettlement.settle(submission.applied,
-                            submission.mapping, submission.record, submission.mutation), "Journal settlement future");
+                    submission.negativeSettling = Objects.requireNonNull(
+                            negativeSettlement.settle(
+                                    submission.applied, submission.mapping, submission.record, submission.mutation),
+                            "Journal settlement future");
                 }
-                if (!submission.negativeSettling.isDone()) { return false; }
-                try { submission.negativeSettling.join(); }
-                catch (java.util.concurrent.CompletionException failed) {
+                if (!submission.negativeSettling.isDone()) {
+                    return false;
+                }
+                try {
+                    submission.negativeSettling.join();
+                } catch (java.util.concurrent.CompletionException failed) {
                     if (failed.getCause() instanceof com.nereusstream.delay.store.ReadIncompleteException
                             || failed.getCause() instanceof java.util.concurrent.RejectedExecutionException) {
                         submission.negativeSettling = null;
                     }
                     throw failed;
                 }
-                if (journal.state(submission.mapping.mappingId()) != PulsarAttemptJournal.AttemptState.RESOLVED_NOT_PUBLISHED) {
+                if (journal.state(submission.mapping.mappingId())
+                        != PulsarAttemptJournal.AttemptState.RESOLVED_NOT_PUBLISHED) {
                     throw new IllegalStateException("Source-negative flight lacks durable Journal terminal settlement");
                 }
             } else if (state != PulsarAttemptJournal.AttemptState.RETIRED_NOT_PUBLISHED) {
@@ -268,7 +329,8 @@ public final class TargetPulsarPublishExecutor {
     @FunctionalInterface
     public interface ResultAuthority {
         WorkerPublishOutcomeMutationFactory.OutcomeContext requireAuthenticated(
-                TargetPublishAdmissionStore.Applied applied, PulsarPreparedRecord record,
+                TargetPublishAdmissionStore.Applied applied,
+                PulsarPreparedRecord record,
                 DestinationPublishResult result);
     }
 
@@ -288,11 +350,30 @@ public final class TargetPulsarPublishExecutor {
             this.applied = applied;
         }
 
-        public Optional<SystemMutation> mutation() { return Optional.ofNullable(mutation); }
-        public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
-        public Optional<DestinationPublishResult> result() { return Optional.ofNullable(result); }
-        public boolean handedOff() { return handedOff; }
-        public boolean markCallbackTimeout() { return call != null && call.markCallbackTimeout(); }
-        void releasePhysicalAfterTeardown() { if (call != null) { call.releasePhysicalCharge(); } }
+        public Optional<SystemMutation> mutation() {
+            return Optional.ofNullable(mutation);
+        }
+
+        public Optional<Throwable> failure() {
+            return Optional.ofNullable(failure);
+        }
+
+        public Optional<DestinationPublishResult> result() {
+            return Optional.ofNullable(result);
+        }
+
+        public boolean handedOff() {
+            return handedOff;
+        }
+
+        public boolean markCallbackTimeout() {
+            return call != null && call.markCallbackTimeout();
+        }
+
+        void releasePhysicalAfterTeardown() {
+            if (call != null) {
+                call.releasePhysicalCharge();
+            }
+        }
     }
 }

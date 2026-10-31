@@ -30,8 +30,8 @@ public final class TargetChannelControlBody {
                 || !Arrays.equals(
                         controlRef.requestHash(),
                         PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()))
-                || expectedRecordState != (request.operationKind() == ControlOperationKind.CREATE_TARGET_CHANNEL
-                        ? 1 : 0)) {
+                || expectedRecordState
+                        != (request.operationKind() == ControlOperationKind.CREATE_TARGET_CHANNEL ? 1 : 0)) {
             throw new IllegalArgumentException("Target channel Control body source/request/precondition mismatch");
         }
         this.retryUntil = retryUntil;

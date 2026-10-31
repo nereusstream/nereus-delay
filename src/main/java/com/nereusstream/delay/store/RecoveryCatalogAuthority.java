@@ -16,8 +16,10 @@ import java.util.Optional;
  */
 public interface RecoveryCatalogAuthority {
     /** Initializes only a fresh Target Catalog; no Manifest is published and generation becomes 1. */
-    default RecoveryCatalog.Initialization initializeTargetCatalog(CheckpointUploadIntent pending,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, CatalogInitializationAuthority authority) {
+    default RecoveryCatalog.Initialization initializeTargetCatalog(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            CatalogInitializationAuthority authority) {
         throw new UnsupportedOperationException("authenticated Target Catalog initialization is not implemented");
     }
 
@@ -28,8 +30,10 @@ public interface RecoveryCatalogAuthority {
     RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
     /** Explicit format2 branch; a bare Manifest remains insufficient for Target publication. */
-    default RecoveryCatalog.Publication publishTargetUploadedCheckpoint(CheckpointUploadIntent published,
-            TargetCheckpointRootVerifier.AuthenticatedImage image, long expectedCatalogGeneration) {
+    default RecoveryCatalog.Publication publishTargetUploadedCheckpoint(
+            CheckpointUploadIntent published,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long expectedCatalogGeneration) {
         throw new UnsupportedOperationException("authenticated Target checkpoint catalog CAS is not implemented");
     }
 

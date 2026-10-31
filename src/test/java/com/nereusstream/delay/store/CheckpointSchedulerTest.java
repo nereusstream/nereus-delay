@@ -20,7 +20,8 @@ class CheckpointSchedulerTest {
         final var first = scheduler.claimForDrain(shard, 101);
         assertEquals(101, first.dueAtEpochMs());
         assertThrows(IllegalStateException.class, () -> scheduler.claimForDrain(shard, 102));
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> scheduler.requireCurrentClaim(new CheckpointScheduler.ScheduledCheckpoint(shard, 101)));
         assertTrue(scheduler.claimDue(1_100, 1).isEmpty());
         scheduler.complete(first, 102);

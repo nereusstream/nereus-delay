@@ -135,8 +135,8 @@ public final class TargetReservationQueryStore {
                 scope.shard());
         record.requireBinding(binding);
         TargetMembershipStoreAuthority.requireImportedReservation(reader, scope, lineage, record, binding);
-        TargetMembershipStoreAuthority.requirePayloadOwner(reader, scope, lineage,
-                requireOwner(reader, payloadOwner.primaryIdentity()), payloadOwner, binding);
+        TargetMembershipStoreAuthority.requirePayloadOwner(
+                reader, scope, lineage, requireOwner(reader, payloadOwner.primaryIdentity()), payloadOwner, binding);
         payloadOwner.requireInitialBinding(binding);
         final byte[] targetIndex = reader.get(ColumnFamily.ID, record.targetIndexKey());
         if (record.status() == PayloadReservationStatus.RESERVED) {
@@ -281,7 +281,9 @@ public final class TargetReservationQueryStore {
         /** Reconstructs the immutable Prepare receipt; lifecycle changes never change its source or state version. */
         public PayloadReservationReceipt receipt(ReceiptLocation location) {
             Objects.requireNonNull(location, "location");
-            if (record.migrationOrigin() != null) return record.migrationOrigin().originalReceipt();
+            if (record.migrationOrigin() != null) {
+                return record.migrationOrigin().originalReceipt();
+            }
             if (!location.profile().equals(prepare.objectStoreProfile())
                     || (record.committedPayload() != null
                             && (!Arrays.equals(record.committedPayload().container(), location.container())

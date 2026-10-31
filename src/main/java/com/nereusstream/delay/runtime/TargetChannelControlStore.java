@@ -1,17 +1,17 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PreparedControlOperation;
-import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ControlOperationKind;
-import com.nereusstream.delay.protocol.TargetChannelIdentity;
-import com.nereusstream.delay.protocol.TargetChannelSlot;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TargetChannelControlBody;
 import com.nereusstream.delay.protocol.TargetChannelControlRecord;
+import com.nereusstream.delay.protocol.TargetChannelIdentity;
+import com.nereusstream.delay.protocol.TargetChannelSlot;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaMutation;
@@ -75,7 +75,8 @@ public final class TargetChannelControlStore {
             final PreparedControlOperation control,
             final SystemMutation mutation,
             final SourcePosition source,
-            final TargetChannelControlVerifier.Authority authority, final OwnerIdentity actualOwner) {
+            final TargetChannelControlVerifier.Authority authority,
+            final OwnerIdentity actualOwner) {
         Objects.requireNonNull(control, "control");
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(authority, "authority");
@@ -130,15 +131,21 @@ public final class TargetChannelControlStore {
                 final var record = new TargetChannelControlRecord(body, stamp, control.author(), lineage);
                 requireAbsent(reader, ColumnFamily.META, record.key());
                 final var slot = new TargetChannelSlot(record);
-                edits.add(reader.replace(ColumnFamily.META, record.key(),
-                        TargetChannelControlRecord.VALUE_TYPE, record.canonicalBytes()));
-                edits.add(reader.replace(ColumnFamily.META, slot.key(),
-                        TargetChannelSlot.VALUE_TYPE, slot.canonicalBytes()));
+                edits.add(reader.replace(
+                        ColumnFamily.META,
+                        record.key(),
+                        TargetChannelControlRecord.VALUE_TYPE,
+                        record.canonicalBytes()));
+                edits.add(reader.replace(
+                        ColumnFamily.META, slot.key(), TargetChannelSlot.VALUE_TYPE, slot.canonicalBytes()));
                 if (body.request().operationKind() != ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK) {
                     final var identity = body.request().channel();
                     requireAbsent(reader, ColumnFamily.META, identity.encodedKey());
-                    edits.add(reader.replace(ColumnFamily.META, identity.encodedKey(),
-                            TargetChannelIdentity.VALUE_TYPE, identity.canonicalBytes()));
+                    edits.add(reader.replace(
+                            ColumnFamily.META,
+                            identity.encodedKey(),
+                            TargetChannelIdentity.VALUE_TYPE,
+                            identity.canonicalBytes()));
                 }
             }
             final var outcome = SystemMutationResult.from(
@@ -163,7 +170,8 @@ public final class TargetChannelControlStore {
                             || !Arrays.equals(first.key(), firstKey)
                             || !Arrays.equals(first.typedPayload(), outcome.encode())
                             || !Arrays.equals(record.key(), positionKey)) {
-                        throw new IllegalStateException("channel lifecycle POSITION differs from its exact first result");
+                        throw new IllegalStateException(
+                                "channel lifecycle POSITION differs from its exact first result");
                     }
                     record.requireFirst(first);
                 } else {

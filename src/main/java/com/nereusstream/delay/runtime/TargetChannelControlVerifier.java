@@ -2,7 +2,6 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ControlAuthorizationContext;
 import com.nereusstream.delay.protocol.ControlOperationAuthorization;
 import com.nereusstream.delay.protocol.ControlOperationKind;
@@ -42,9 +41,14 @@ public final class TargetChannelControlVerifier {
         void requireAuthorized(TargetChannelControlRequest request, SourcePosition source);
     }
 
-    public record Authority(ControlTargetRegistrationAuthority registrations, KeyAuthority keys,
-            ControlAuthorizationContext actor, ControlOperationAuthorization.TargetScopeProof scopeProof,
-            MaterializationAuthority materialization, int activatedChannelSlots, OwnerIdentity currentOwner) {
+    public record Authority(
+            ControlTargetRegistrationAuthority registrations,
+            KeyAuthority keys,
+            ControlAuthorizationContext actor,
+            ControlOperationAuthorization.TargetScopeProof scopeProof,
+            MaterializationAuthority materialization,
+            int activatedChannelSlots,
+            OwnerIdentity currentOwner) {
         public Authority {
             Objects.requireNonNull(registrations, "registrations");
             Objects.requireNonNull(keys, "keys");
@@ -60,14 +64,20 @@ public final class TargetChannelControlVerifier {
 
     public record Change(TargetChannelControlBody body, TargetChannelSlot prior) {}
 
-    public static Change verifyFirstApplication(final TargetStoreBackend.Reader reader,
-            final TargetQuotaScope scope, final byte[] lineage, final PreparedControlOperation prepared,
-            final SystemMutation mutation, final SourcePosition source, final Authority authority,
+    public static Change verifyFirstApplication(
+            final TargetStoreBackend.Reader reader,
+            final TargetQuotaScope scope,
+            final byte[] lineage,
+            final PreparedControlOperation prepared,
+            final SystemMutation mutation,
+            final SourcePosition source,
+            final Authority authority,
             final OwnerIdentity actualOwner) {
         Objects.requireNonNull(authority, "authority");
         final var body = TargetChannelControlBody.decode(mutation.canonicalBody());
         final var request = body.request();
-        if (!body.shard().equals(scope.shard()) || !body.shard().equals(source.shardId())
+        if (!body.shard().equals(scope.shard())
+                || !body.shard().equals(source.shardId())
                 || !mutation.shardId().equals(source.shardId())
                 || !Arrays.equals(mutation.logicalOperationIdentity(), body.logicalIdentity())
                 || mutation.retryUntilEpochMs() != body.retryUntil()
@@ -75,7 +85,8 @@ public final class TargetChannelControlVerifier {
             throw unauthorized("channel Source/body/registered request mismatch");
         }
         if (source.brokerPersistenceTimeEpochMs() > mutation.retryUntilEpochMs()) {
-            throw new CommandResolutionException(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
+            throw new CommandResolutionException(
+                    StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED,
                     "channel lifecycle exceeded its signed retry window");
         }
         final PublicKey preparedKey = authority.keys.resolve(prepared.signingKeyVersion(), source);
@@ -116,8 +127,8 @@ public final class TargetChannelControlVerifier {
         }
         authority.registrations.validateMutation(prepared, prepared.targets().getFirst(), mutation);
         if (!request.owner().equals(Objects.requireNonNull(actualOwner, "actualOwner"))) {
-            throw new CommandResolutionException(StableCode.STALE_SYSTEM_MUTATION,
-                    "channel lifecycle requested a different current Owner");
+            throw new CommandResolutionException(
+                    StableCode.STALE_SYSTEM_MUTATION, "channel lifecycle requested a different current Owner");
         }
         authority.materialization.requireAuthorized(request, source);
         final var proposed = request.channel();
@@ -138,9 +149,12 @@ public final class TargetChannelControlVerifier {
             case CREATE_TARGET_CHANNEL, RENEW_TARGET_CHANNEL -> {
                 final var queueKey = TargetKeyCodec.state(proposed.context().target());
                 final var queueRaw = reader.get(ColumnFamily.META, queueKey);
-                if (queueRaw == null) { throw unauthorized("channel creation/renewal lacks its Target queue"); }
-                final var queue = TargetQueueState.decode(
-                        TargetValueEnvelope.decode(queueRaw, TargetQueueState.VALUE_TYPE).payload());
+                if (queueRaw == null) {
+                    throw unauthorized("channel creation/renewal lacks its Target queue");
+                }
+                final var queue =
+                        TargetQueueState.decode(TargetValueEnvelope.decode(queueRaw, TargetQueueState.VALUE_TYPE)
+                                .payload());
                 try {
                     proposed.requireNewWorkProjection(queue, authority.activatedChannelSlots);
                 } catch (IllegalArgumentException denied) {
@@ -169,25 +183,37 @@ public final class TargetChannelControlVerifier {
     }
 
     /** Reads the actual current slot and original immutable event; never defaults a bare NV20 to initialized. */
-    public static TargetChannelSlot readSlot(final TargetStoreBackend.Reader reader,
-            final TargetChannelIdentity channel, final byte[] lineage) {
+    public static TargetChannelSlot readSlot(
+            final TargetStoreBackend.Reader reader, final TargetChannelIdentity channel, final byte[] lineage) {
         final byte[] key = TargetKeyCodec.channelSlot(channel.context().producerIdentity());
         final byte[] raw = reader.get(ColumnFamily.META, key);
-        if (raw == null) { return null; }
-        final var slot = TargetChannelSlot.decodeForStore(key,
-                TargetValueEnvelope.decode(raw, TargetChannelSlot.VALUE_TYPE).payload(), reader.shardId());
+        if (raw == null) {
+            return null;
+        }
+        final var slot = TargetChannelSlot.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetChannelSlot.VALUE_TYPE).payload(),
+                reader.shardId());
         if (!Arrays.equals(slot.recoveryLineage(), lineage)) {
             throw new IllegalStateException("channel slot belongs to another recovery lineage");
         }
         slot.mutation().requireAtOrBefore(reader.aggregate().mutation());
         final byte[] eventRaw = reader.get(ColumnFamily.META, slot.controlKey());
-        if (eventRaw == null) { throw new IllegalStateException("channel slot lacks its original Source event"); }
-        final var event = TargetChannelControlRecord.decodeForStore(slot.controlKey(),
-                TargetValueEnvelope.decode(eventRaw, TargetChannelControlRecord.VALUE_TYPE).payload(), reader.shardId());
+        if (eventRaw == null) {
+            throw new IllegalStateException("channel slot lacks its original Source event");
+        }
+        final var event = TargetChannelControlRecord.decodeForStore(
+                slot.controlKey(),
+                TargetValueEnvelope.decode(eventRaw, TargetChannelControlRecord.VALUE_TYPE)
+                        .payload(),
+                reader.shardId());
         slot.requireControl(event);
         final byte[] identityRaw = reader.get(ColumnFamily.META, slot.channel().encodedKey());
-        if (identityRaw == null || !Arrays.equals(TargetValueEnvelope.decode(identityRaw,
-                TargetChannelIdentity.VALUE_TYPE).payload(), slot.channel().canonicalBytes())) {
+        if (identityRaw == null
+                || !Arrays.equals(
+                        TargetValueEnvelope.decode(identityRaw, TargetChannelIdentity.VALUE_TYPE)
+                                .payload(),
+                        slot.channel().canonicalBytes())) {
             throw new IllegalStateException("channel slot lacks its exact immutable identity");
         }
         return slot;

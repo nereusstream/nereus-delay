@@ -20,8 +20,11 @@ public final class OxiaCheckpointIntentRegistration
      * Caller must configure finite SDK requestTimeout and hold all permissions/resources through actual I/O exit.
      * Cancellation or exceptional completion never authorizes deletion or means an uncertain CAS did not commit.
      */
-    public OxiaCheckpointIntentRegistration(OxiaSyncCheckpointPublicationBackend backend, Duration timeout,
-            Runnable protection, ThreadPoolExecutor executor) {
+    public OxiaCheckpointIntentRegistration(
+            OxiaSyncCheckpointPublicationBackend backend,
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor) {
         this.backend = Objects.requireNonNull(backend, "backend");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
         this.protection = Objects.requireNonNull(protection, "protection");
@@ -36,8 +39,8 @@ public final class OxiaCheckpointIntentRegistration
     @Override
     public TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt begin(CheckpointUploadIntent pending) {
         Objects.requireNonNull(pending, "pending");
-        final var owned = CheckpointRegistryLookup.submitOwned(guard -> backend.create(pending, guard), timeout,
-                protection, executor, System::nanoTime);
+        final var owned = CheckpointRegistryLookup.submitOwned(
+                guard -> backend.create(pending, guard), timeout, protection, executor, System::nanoTime);
         return new TargetCheckpointCandidateWorkClassExecutor.RegistrationAttempt(
                 owned.receipt(), owned::ioExited, owned::requestStop);
     }

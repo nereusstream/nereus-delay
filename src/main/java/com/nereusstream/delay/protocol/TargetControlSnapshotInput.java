@@ -26,12 +26,20 @@ public final class TargetControlSnapshotInput {
     private final byte[] digest;
     private final byte[] signature;
 
-    private TargetControlSnapshotInput(TargetQuotaScope scope, byte[] lineage, byte[] grantDigest,
+    private TargetControlSnapshotInput(
+            TargetQuotaScope scope,
+            byte[] lineage,
+            byte[] grantDigest,
             SourcePosition source,
-            byte[] envelopeDigest, List<ProtocolTuple> tuples, List<ProfileRef> profiles, int issuerKeyVersion,
+            byte[] envelopeDigest,
+            List<ProtocolTuple> tuples,
+            List<ProfileRef> profiles,
+            int issuerKeyVersion,
             byte[] signature) {
         this.scope = Objects.requireNonNull(scope, "scope");
-        if (scope.target() != null || !scope.shard().equals(TargetSourcePosition.requireBounded(source).shardId())
+        if (scope.target() != null
+                || !scope.shard()
+                        .equals(TargetSourcePosition.requireBounded(source).shardId())
                 || issuerKeyVersion == 0) {
             throw new IllegalArgumentException("Target control snapshot requires an exact Shard/Source/key scope");
         }
@@ -43,7 +51,9 @@ public final class TargetControlSnapshotInput {
         this.source = source;
         this.envelopeDigest = Bytes.copy(envelopeDigest);
         this.tuples = sorted(tuples, ProtocolTuple::canonicalBytes, 32);
-        if (this.tuples.isEmpty()) { throw new IllegalArgumentException("Target reader tuple set is empty"); }
+        if (this.tuples.isEmpty()) {
+            throw new IllegalArgumentException("Target reader tuple set is empty");
+        }
         this.profiles = sorted(profiles, ProfileRef::canonicalBytes, 4096);
         final var identities = new java.util.HashSet<String>();
         for (final var profile : profiles) {
@@ -53,27 +63,57 @@ public final class TargetControlSnapshotInput {
         }
         this.issuerKeyVersion = issuerKeyVersion;
         digest = Bytes.sha256(HASH_DOMAIN, fields());
-        if (signature != null) { Bytes.requireLength(signature, 64, "snapshot signature"); }
+        if (signature != null) {
+            Bytes.requireLength(signature, 64, "snapshot signature");
+        }
         this.signature = signature == null ? null : Bytes.copy(signature);
     }
 
     /** Issues one bounded authorization while retaining this exact immutable original META10 input. */
-    public TargetProtocolTupleAuthorization authorizeTuple(TargetInitialControlSnapshot initial,TargetProtocolActivationDescriptor descriptor,PrivateKey originalIssuer){
-        if(!Arrays.equals(canonicalBytes(),initial.input().canonicalBytes()))throw new IllegalArgumentException("tuple authorization changed original signed Root input");
-        return TargetProtocolTupleAuthorization.signed(initial,descriptor,originalIssuer);
+    public TargetProtocolTupleAuthorization authorizeTuple(
+            TargetInitialControlSnapshot initial,
+            TargetProtocolActivationDescriptor descriptor,
+            PrivateKey originalIssuer) {
+        if (!Arrays.equals(canonicalBytes(), initial.input().canonicalBytes())) {
+            throw new IllegalArgumentException("tuple authorization changed original signed Root input");
+        }
+        return TargetProtocolTupleAuthorization.signed(initial, descriptor, originalIssuer);
     }
 
-    public static TargetControlSnapshotInput signed(TargetQuotaScope scope, byte[] lineage, byte[] initialGrantDigest,
-            SourcePosition initialSource, byte[] initialEnvelopeDigest, List<ProtocolTuple> tuples,
-            List<ProfileRef> profiles, int issuerKeyVersion, PrivateKey key) {
-        final var draft = new TargetControlSnapshotInput(scope, lineage, initialGrantDigest, initialSource,
-                initialEnvelopeDigest, tuples, profiles, issuerKeyVersion, null);
+    public static TargetControlSnapshotInput signed(
+            TargetQuotaScope scope,
+            byte[] lineage,
+            byte[] initialGrantDigest,
+            SourcePosition initialSource,
+            byte[] initialEnvelopeDigest,
+            List<ProtocolTuple> tuples,
+            List<ProfileRef> profiles,
+            int issuerKeyVersion,
+            PrivateKey key) {
+        final var draft = new TargetControlSnapshotInput(
+                scope,
+                lineage,
+                initialGrantDigest,
+                initialSource,
+                initialEnvelopeDigest,
+                tuples,
+                profiles,
+                issuerKeyVersion,
+                null);
         try {
             final var signer = Signature.getInstance("Ed25519");
             signer.initSign(key);
             signer.update(Bytes.concat(SIGN_DOMAIN, draft.digest));
-            return new TargetControlSnapshotInput(scope, lineage, initialGrantDigest, initialSource,
-                    initialEnvelopeDigest, tuples, profiles, issuerKeyVersion, signer.sign());
+            return new TargetControlSnapshotInput(
+                    scope,
+                    lineage,
+                    initialGrantDigest,
+                    initialSource,
+                    initialEnvelopeDigest,
+                    tuples,
+                    profiles,
+                    issuerKeyVersion,
+                    signer.sign());
         } catch (GeneralSecurityException failure) {
             throw new IllegalArgumentException("cannot sign Target control snapshot", failure);
         }
@@ -90,9 +130,14 @@ public final class TargetControlSnapshotInput {
         }
     }
 
-    public void requireInitial(TargetQuotaScope expectedScope, byte[] expectedLineage, TargetQuotaGrant grant,
-            SourcePosition expectedSource, byte[] expectedEnvelope) {
-        if (!scope.equals(expectedScope) || !Arrays.equals(lineage, expectedLineage)
+    public void requireInitial(
+            TargetQuotaScope expectedScope,
+            byte[] expectedLineage,
+            TargetQuotaGrant grant,
+            SourcePosition expectedSource,
+            byte[] expectedEnvelope) {
+        if (!scope.equals(expectedScope)
+                || !Arrays.equals(lineage, expectedLineage)
                 || !Arrays.equals(grantDigest, grant.digest())
                 || !Arrays.equals(source.canonicalBytes(), expectedSource.canonicalBytes())
                 || !Arrays.equals(envelopeDigest, expectedEnvelope)) {
@@ -100,17 +145,42 @@ public final class TargetControlSnapshotInput {
         }
     }
 
-    public TargetQuotaScope scope() { return scope; }
-    public byte[] lineage() { return Bytes.copy(lineage); }
-    public SourcePosition source() { return source; }
-    public byte[] envelopeDigest() { return Bytes.copy(envelopeDigest); }
-    public List<ProtocolTuple> protocolTuples() { return tuples; }
-    public List<ProfileRef> profiles() { return profiles; }
-    public int issuerKeyVersion() { return issuerKeyVersion; }
-    public byte[] snapshotDigest() { return Bytes.copy(digest); }
+    public TargetQuotaScope scope() {
+        return scope;
+    }
+
+    public byte[] lineage() {
+        return Bytes.copy(lineage);
+    }
+
+    public SourcePosition source() {
+        return source;
+    }
+
+    public byte[] envelopeDigest() {
+        return Bytes.copy(envelopeDigest);
+    }
+
+    public List<ProtocolTuple> protocolTuples() {
+        return tuples;
+    }
+
+    public List<ProfileRef> profiles() {
+        return profiles;
+    }
+
+    public int issuerKeyVersion() {
+        return issuerKeyVersion;
+    }
+
+    public byte[] snapshotDigest() {
+        return Bytes.copy(digest);
+    }
 
     public byte[] canonicalBytes() {
-        if (signature == null) { throw new IllegalStateException("Target control snapshot has no signature"); }
+        if (signature == null) {
+            throw new IllegalStateException("Target control snapshot has no signature");
+        }
         final byte[] encoded = CanonicalProtobuf.message(out -> {
             out.writeBytes(fields());
             CanonicalProtobuf.bytes(out, 10, digest);
@@ -130,15 +200,19 @@ public final class TargetControlSnapshotInput {
             CanonicalProtobuf.bytes(out, 4, grantDigest);
             CanonicalProtobuf.bytes(out, 5, source.canonicalBytes());
             CanonicalProtobuf.bytes(out, 6, envelopeDigest);
-            for (final var tuple : tuples) { CanonicalProtobuf.bytes(out, 7, tuple.canonicalBytes()); }
-            for (final var profile : profiles) { CanonicalProtobuf.bytes(out, 8, profile.canonicalBytes()); }
+            for (final var tuple : tuples) {
+                CanonicalProtobuf.bytes(out, 7, tuple.canonicalBytes());
+            }
+            for (final var profile : profiles) {
+                CanonicalProtobuf.bytes(out, 8, profile.canonicalBytes());
+            }
             CanonicalProtobuf.uint32Bits(out, 9, issuerKeyVersion);
         });
     }
 
     public static TargetControlSnapshotInput decode(byte[] encoded) {
-        final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 4140, true,
-                "Target control snapshot input");
+        final var fields = TargetCompatibilityCodec.read(
+                encoded, MAX_CANONICAL_BYTES, 4140, true, "Target control snapshot input");
         if (fields.size() < 10 || QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unsupported Target control snapshot input version");
         }
@@ -156,9 +230,12 @@ public final class TargetControlSnapshotInput {
         }
         final var value = new TargetControlSnapshotInput(
                 TargetQuotaScope.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
-                QueryCodecSupport.fixed(fields.get(2), 3, 16), QueryCodecSupport.fixed(fields.get(3), 4, 32),
+                QueryCodecSupport.fixed(fields.get(2), 3, 16),
+                QueryCodecSupport.fixed(fields.get(3), 4, 32),
                 SourcePositionCodec.decode(QueryCodecSupport.bytes(fields.get(4), 5)),
-                QueryCodecSupport.fixed(fields.get(5), 6, 32), tuples, profiles,
+                QueryCodecSupport.fixed(fields.get(5), 6, 32),
+                tuples,
+                profiles,
                 QueryCodecSupport.uint32Bits(fields.get(index), 9),
                 QueryCodecSupport.fixed(fields.get(index + 2), 11, 64));
         if (!Arrays.equals(value.digest, QueryCodecSupport.fixed(fields.get(index + 1), 10, 32))) {
@@ -169,7 +246,9 @@ public final class TargetControlSnapshotInput {
     }
 
     private static <T> List<T> sorted(List<T> values, java.util.function.Function<T, byte[]> identity, int limit) {
-        if (values.size() > limit) { throw new IllegalArgumentException("Target control input list exceeds limit"); }
+        if (values.size() > limit) {
+            throw new IllegalArgumentException("Target control input list exceeds limit");
+        }
         final var result = new TreeMap<String, T>();
         for (final var value : values) {
             if (result.put(Bytes.hex(identity.apply(value)), value) != null) {

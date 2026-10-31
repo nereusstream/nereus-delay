@@ -121,8 +121,8 @@ public final class CanonicalLaneTuple {
         final int laneKind = cursor.u8("orderingLaneKind");
         final OrderingProjection ordering;
         if (laneKind == ORDERED_LANE) {
-            ordering = new OrderingProjection(OrderingMode.DELIVERY_TIME_FIFO,
-                    cursor.fixed(HASH_LENGTH, "orderingDomainHash"), null);
+            ordering = new OrderingProjection(
+                    OrderingMode.DELIVERY_TIME_FIFO, cursor.fixed(HASH_LENGTH, "orderingDomainHash"), null);
         } else if (laneKind == UNORDERED_LANE) {
             ordering = new OrderingProjection(OrderingMode.BEST_EFFORT, null, cursor.u32("unorderedBucket"));
         } else {
@@ -135,12 +135,15 @@ public final class CanonicalLaneTuple {
                 : BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                         new String(cluster, StandardCharsets.UTF_8), resourceIncarnation,
                         new String(physicalTopic, StandardCharsets.UTF_8), physicalTopicCreationTimestamp));
-        return new Parsed(new Projection(
-                tenantRouteScopeDigest,
-                target,
-                physicalPartition,
-                new ProfileRef(destinationId, destinationVersion, destinationHash, ProfileKind.DESTINATION),
-                new ProfileRef(capabilityId, capabilityVersion, capabilityHash, ProfileKind.DELIVERY_CAPABILITY)), ordering);
+        return new Parsed(
+                new Projection(
+                        tenantRouteScopeDigest,
+                        target,
+                        physicalPartition,
+                        new ProfileRef(destinationId, destinationVersion, destinationHash, ProfileKind.DESTINATION),
+                        new ProfileRef(
+                                capabilityId, capabilityVersion, capabilityHash, ProfileKind.DELIVERY_CAPABILITY)),
+                ordering);
     }
 
     private record Parsed(Projection projection, OrderingProjection ordering) {}
@@ -150,14 +153,22 @@ public final class CanonicalLaneTuple {
             Objects.requireNonNull(orderingMode);
             if (orderingMode == OrderingMode.DELIVERY_TIME_FIFO) {
                 Bytes.requireLength(orderingDomainHash, HASH_LENGTH, "orderingDomainHash");
-                if (unorderedBucket != null) throw new IllegalArgumentException("ordered Lane has no unordered bucket");
+                if (unorderedBucket != null) {
+                    throw new IllegalArgumentException("ordered Lane has no unordered bucket");
+                }
                 orderingDomainHash = Bytes.copy(orderingDomainHash);
-            } else if (orderingDomainHash != null || unorderedBucket == null
-                    || unorderedBucket < 0 || unorderedBucket > 0xffff_ffffL) {
+            } else if (orderingDomainHash != null
+                    || unorderedBucket == null
+                    || unorderedBucket < 0
+                    || unorderedBucket > 0xffff_ffffL) {
                 throw new IllegalArgumentException("unordered Lane requires its exact uint32 bucket");
             }
         }
-        @Override public byte[] orderingDomainHash() { return orderingDomainHash == null ? null : Bytes.copy(orderingDomainHash); }
+
+        @Override
+        public byte[] orderingDomainHash() {
+            return orderingDomainHash == null ? null : Bytes.copy(orderingDomainHash);
+        }
     }
 
     private static UUID uuid(final byte[] value) {

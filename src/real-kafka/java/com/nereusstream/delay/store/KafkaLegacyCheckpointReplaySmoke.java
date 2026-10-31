@@ -75,13 +75,8 @@ public final class KafkaLegacyCheckpointReplaySmoke {
         final PreparedCommand checkpointCommand = command(shard, "checkpoint");
         final PreparedCommand cutCommand = command(shard, "cut");
         final PreparedCommand afterCutCommand = command(shard, "after-cut");
-        final List<Long> producedOffsets =
-                produce(
-                        bootstrap,
-                        clusterId,
-                        topic,
-                        nativeTopicId,
-                        List.of(checkpointCommand, cutCommand, afterCutCommand));
+        final List<Long> producedOffsets = produce(
+                bootstrap, clusterId, topic, nativeTopicId, List.of(checkpointCommand, cutCommand, afterCutCommand));
         if (producedOffsets.size() != 3
                 || producedOffsets.get(1) != producedOffsets.get(0) + 1
                 || producedOffsets.get(2) <= producedOffsets.get(1)) {
@@ -139,8 +134,8 @@ public final class KafkaLegacyCheckpointReplaySmoke {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore originalStore = ShardStore.open(config, shard, resources)) {
             final DelayShard originalApplier = new DelayShard(originalStore, DelayShardConfig.defaults());
-            try (KafkaClientArtifactSourceRecordConsumer activeSource = source(
-                    bootstrap, activeGroup, clusterId, topic, topicId, shard)) {
+            try (KafkaClientArtifactSourceRecordConsumer activeSource =
+                    source(bootstrap, activeGroup, clusterId, topic, topicId, shard)) {
                 final SourceRecordConsumer.PolledSourceRecord checkpointRecord =
                         pollExpected(activeSource, checkpointCommand);
                 final SourceReplayRecord checkpointReplay = (SourceReplayRecord) checkpointRecord.entry();
@@ -152,8 +147,8 @@ public final class KafkaLegacyCheckpointReplaySmoke {
                 requireCommittedOffset(admin, activeGroup, topic, shard.partition(), checkpointPosition.offset() + 1);
 
                 originalStore.createCheckpoint(checkpointPath, checkpointId);
-                final CheckpointManifest manifest = manifestFor(
-                        checkpointPath, shard, originalStore, checkpointId, checkpointPosition);
+                final CheckpointManifest manifest =
+                        manifestFor(checkpointPath, shard, originalStore, checkpointId, checkpointPosition);
                 activePointerBefore = Files.readAllBytes(activePointer);
 
                 final SourceRecordConsumer.PolledSourceRecord cutRecord = pollExpected(activeSource, cutCommand);
@@ -172,12 +167,12 @@ public final class KafkaLegacyCheckpointReplaySmoke {
                 protectedCut.requireCurrent();
                 final String recoveryGroup = activeGroup;
                 final long startOffset = Math.addExact(checkpointPosition.offset(), 1);
-                final KeyPair verificationKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+                final KeyPair verificationKeys =
+                        KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
                 try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
-                        config, shard, resources, checkpointPath, manifest, MANIFEST_LIMITS);
+                                config, shard, resources, checkpointPath, manifest, MANIFEST_LIMITS);
                         KafkaClientArtifactRecoverySourceCursor recovery = new KafkaClientArtifactRecoverySourceCursor(
-                                recoveryConsumer(
-                                        bootstrap, recoveryGroup, clusterId, topic, topicId, shard),
+                                recoveryConsumer(bootstrap, recoveryGroup, clusterId, topic, topicId, shard),
                                 assignment,
                                 topic,
                                 startOffset,
@@ -205,8 +200,8 @@ public final class KafkaLegacyCheckpointReplaySmoke {
                             admin, recoveryGroup, topic, shard.partition(), sourceCutPosition.offset() + 1);
                 }
 
-                final LegacyCheckpointImageInspector.ImageProof imageProof = LegacyCheckpointImageInspector.inspect(
-                        checkpointPath, shard, manifest, MANIFEST_LIMITS);
+                final LegacyCheckpointImageInspector.ImageProof imageProof =
+                        LegacyCheckpointImageInspector.inspect(checkpointPath, shard, manifest, MANIFEST_LIMITS);
                 if (!samePosition(imageProof.appliedSourcePosition(), checkpointPosition)
                         || !java.util.Arrays.equals(activePointerBefore, Files.readAllBytes(activePointer))) {
                     throw new IllegalStateException("legacy replay changed the source checkpoint or ACTIVE pointer");
@@ -282,13 +277,11 @@ public final class KafkaLegacyCheckpointReplaySmoke {
     }
 
     private static void applyThenAcknowledge(
-            final DelayShard applier,
-            final SourceRecordConsumer.PolledSourceRecord polled,
-            final String label) {
+            final DelayShard applier, final SourceRecordConsumer.PolledSourceRecord polled, final String label) {
         final SourceReplayRecord replay = (SourceReplayRecord) polled.entry();
         final var result = applier.apply(replay.command(), replay.position());
-        final SourceAcknowledgement.AcknowledgementResult acknowledged = polled.acknowledgement()
-                .acknowledge(replay, SourceReplayOutcome.command(replay.position(), result));
+        final SourceAcknowledgement.AcknowledgementResult acknowledged =
+                polled.acknowledgement().acknowledge(replay, SourceReplayOutcome.command(replay.position(), result));
         if (acknowledged.disposition() != SourceAcknowledgement.Disposition.ACKED) {
             throw new IllegalStateException(label + " did not receive a durable Kafka ACK", acknowledged.failure());
         }
@@ -300,17 +293,16 @@ public final class KafkaLegacyCheckpointReplaySmoke {
             final ShardStore store,
             final byte[] checkpointId,
             final KafkaSourcePosition sourcePosition) {
-        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory
-                .collect(image, MANIFEST_LIMITS)
-                .stream()
-                .map(file -> new CheckpointManifest.FileEntry(
-                        file.name(),
-                        file.length(),
-                        file.checksum(),
-                        Bytes.utf8("legacy/" + file.name()),
-                        Bytes.utf8("version-1"),
-                        null))
-                .toList();
+        final List<CheckpointManifest.FileEntry> files =
+                CheckpointFileInventory.collect(image, MANIFEST_LIMITS).stream()
+                        .map(file -> new CheckpointManifest.FileEntry(
+                                file.name(),
+                                file.length(),
+                                file.checksum(),
+                                Bytes.utf8("legacy/" + file.name()),
+                                Bytes.utf8("version-1"),
+                                null))
+                        .toList();
         return new CheckpointManifest(
                 checkpointId,
                 uuidBytes(UUID.randomUUID()),
@@ -418,7 +410,10 @@ public final class KafkaLegacyCheckpointReplaySmoke {
     }
 
     private static TopicDescription describe(final Admin admin, final String topic) throws Exception {
-        return admin.describeTopics(List.of(topic)).allTopicNames().get(10, TimeUnit.SECONDS).get(topic);
+        return admin.describeTopics(List.of(topic))
+                .allTopicNames()
+                .get(10, TimeUnit.SECONDS)
+                .get(topic);
     }
 
     private static void requireCommittedOffset(

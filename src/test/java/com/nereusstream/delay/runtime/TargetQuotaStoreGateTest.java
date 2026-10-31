@@ -160,8 +160,8 @@ class TargetQuotaStoreGateTest {
                 previous.offset() + 1,
                 previous.leaderEpoch(),
                 previous.brokerLogAppendTimeEpochMs() + 1);
-        final var owner = new OwnerIdentity(
-                Bytes.utf8("target-deployment"), Bytes.utf8("target-worker"), 7, bytes(32, 0x42));
+        final var owner =
+                new OwnerIdentity(Bytes.utf8("target-deployment"), Bytes.utf8("target-worker"), 7, bytes(32, 0x42));
         final byte[] claimId = bytes(32, 0x43);
         final var messageId = DelayMessageId.random(shard.identity().shard());
         final var locator = new TargetMessageLocator(
@@ -222,8 +222,8 @@ class TargetQuotaStoreGateTest {
                         .canonicalBytes(),
                 1,
                 keys.getPrivate());
-        final var admissionStore = new TargetPublishAdmissionStore(
-                backend, shard.scope(), shard.recoveryLineage(), 16, 1, 1);
+        final var admissionStore =
+                new TargetPublishAdmissionStore(backend, shard.scope(), shard.recoveryLineage(), 16, 1, 1);
         final long beforeSequence = store.shardMutationSequence();
         final long beforeVersion = store.latestSequenceNumber();
         final var result = admissionStore.commit(
@@ -245,28 +245,25 @@ class TargetQuotaStoreGateTest {
         assertTrue(store.latestSequenceNumber() > beforeVersion);
         assertEquals(source, store.appliedShardLogPosition());
         final byte[] systemKey = Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT},
-                mutation.systemMutationId());
-        final var first = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.DEDUPE, systemKey), TargetResultRecord.VALUE_TYPE)
-                .payload());
-        assertArrayEquals(result.encode(), SystemMutationResult.decode(first.typedPayload()).encode());
+                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, mutation.systemMutationId());
+        final var first = TargetResultRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.DEDUPE, systemKey), TargetResultRecord.VALUE_TYPE)
+                        .payload());
+        assertArrayEquals(
+                result.encode(),
+                SystemMutationResult.decode(first.typedPayload()).encode());
         final byte[] positionKey = Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT},
-                source.canonicalBytes());
-        final var positionRecord = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
-                .payload());
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
+        final var positionRecord = TargetResultRecord.decode(
+                TargetValueEnvelope.decode(store.get(ColumnFamily.DEDUPE, positionKey), TargetResultRecord.VALUE_TYPE)
+                        .payload());
         positionRecord.requireFirst(first);
         assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(messageId)));
         assertNull(store.get(ColumnFamily.INFLIGHT, TargetClaimRecord.key(claimId)));
         assertNull(store.get(
                 ColumnFamily.META,
                 Bytes.concat(
-                        new byte[] {
-                            (byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
-                            TargetKeyCodec.KEY_FORMAT
-                        },
+                        new byte[] {(byte) TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT},
                         attemptId)));
     }
 

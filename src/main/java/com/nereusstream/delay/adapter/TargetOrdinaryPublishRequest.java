@@ -18,8 +18,11 @@ public final class TargetOrdinaryPublishRequest {
     private final ResolvedPayload resolved;
     private final ArtifactGenerationSet artifacts;
 
-    private TargetOrdinaryPublishRequest(TargetPublishAdmissionStore.Applied admission,
-            PayloadForPublish payload, ResolvedPayload resolved, ArtifactGenerationSet artifacts) {
+    private TargetOrdinaryPublishRequest(
+            TargetPublishAdmissionStore.Applied admission,
+            PayloadForPublish payload,
+            ResolvedPayload resolved,
+            ArtifactGenerationSet artifacts) {
         this.admission = Objects.requireNonNull(admission, "actual applied Admission");
         this.payload = Objects.requireNonNull(payload, "payload");
         this.resolved = Objects.requireNonNull(resolved, "resolved");
@@ -38,7 +41,7 @@ public final class TargetOrdinaryPublishRequest {
         }
         if ((admission.body().kafkaReceipt() == null) != (admission.kafkaMapping() == null)
                 || (publication.channel().context().kind()
-                        == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
+                                == com.nereusstream.delay.protocol.ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT
                         && admission.kafkaMapping() == null)) {
             throw new IllegalArgumentException("ordinary K2 SDK input lacks its actual Source mapping");
         }
@@ -47,22 +50,51 @@ public final class TargetOrdinaryPublishRequest {
         }
     }
 
-    public static TargetOrdinaryPublishRequest fromApplied(TargetPublishAdmissionStore.Applied admission,
-            PayloadForPublish payload, ResolvedPayload resolved, ArtifactGenerationSet artifacts) {
+    public static TargetOrdinaryPublishRequest fromApplied(
+            TargetPublishAdmissionStore.Applied admission,
+            PayloadForPublish payload,
+            ResolvedPayload resolved,
+            ArtifactGenerationSet artifacts) {
         return new TargetOrdinaryPublishRequest(admission, payload, resolved, artifacts);
     }
-    public TargetPublishAdmissionStore.Applied applied() { return admission; }
-    public TargetOrdinaryPublicationBinding publication() { return admission.body().publication(); }
-    public SourcePosition source() { return admission.source(); }
-    public PayloadForPublish payload() { return payload; }
-    public ResolvedPayload resolved() { return resolved; }
-    public ArtifactGenerationSet artifacts() { return artifacts; }
+
+    public TargetPublishAdmissionStore.Applied applied() {
+        return admission;
+    }
+
+    public TargetOrdinaryPublicationBinding publication() {
+        return admission.body().publication();
+    }
+
+    public SourcePosition source() {
+        return admission.source();
+    }
+
+    public PayloadForPublish payload() {
+        return payload;
+    }
+
+    public ResolvedPayload resolved() {
+        return resolved;
+    }
+
+    public ArtifactGenerationSet artifacts() {
+        return artifacts;
+    }
+
     public long physicalByteCharge() {
-        final long ordinary = Math.addExact(Math.addExact(publication().canonicalBytes().length, payload.canonicalBytes().length),
+        final long ordinary = Math.addExact(
+                Math.addExact(publication().canonicalBytes().length, payload.canonicalBytes().length),
                 Math.addExact(resolved.length(), source().canonicalBytes().length));
         final var mapping = admission.kafkaMapping();
-        return mapping == null ? ordinary : Math.addExact(ordinary, Math.addExact(mapping.canonicalBytes().length,
-                Math.addExact(com.nereusstream.delay.protocol.TargetKafkaReceiptWire.key(mapping).length,
-                        com.nereusstream.delay.protocol.TargetKafkaReceiptWire.value(mapping).length)));
+        return mapping == null
+                ? ordinary
+                : Math.addExact(
+                        ordinary,
+                        Math.addExact(
+                                mapping.canonicalBytes().length,
+                                Math.addExact(
+                                        com.nereusstream.delay.protocol.TargetKafkaReceiptWire.key(mapping).length,
+                                        com.nereusstream.delay.protocol.TargetKafkaReceiptWire.value(mapping).length)));
     }
 }

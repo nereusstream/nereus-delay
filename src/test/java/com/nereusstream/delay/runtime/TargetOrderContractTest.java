@@ -368,7 +368,8 @@ class TargetOrderContractTest {
                 order.encodedKey(),
                 TargetOrderBarrier.fromMessage(claimed));
         assertArrayEquals(
-                order.encodedKey(), equal.afterAdmission(claimed, publishing).lastAdmittedOrder().encodedKey());
+                order.encodedKey(),
+                equal.afterAdmission(claimed, publishing).lastAdmittedOrder().encodedKey());
 
         final var legacy = orderState(
                 TargetOrderState.OrderingContract.LEGACY_DELIVERY_TIME_FIFO,
@@ -389,25 +390,30 @@ class TargetOrderContractTest {
         assertEquals(CurrentSendWorkKind.NONE, published.runtime().currentWorkKind());
         assertTrue(published.runtime().attemptObligations().isEmpty());
         assertEquals(TargetQueueState.nextRevision(before.stateVersion()), published.stateVersion());
-        assertEquals(TargetQueueState.nextRevision(before.runtime().runtimeRevision()),
+        assertEquals(
+                TargetQueueState.nextRevision(before.runtime().runtimeRevision()),
                 published.runtime().runtimeRevision());
         assertEquals(before.runtime().admissionsUsed(), published.runtime().admissionsUsed());
         assertArrayEquals(before.inlinePayload(), published.inlinePayload());
-        assertArrayEquals(published.canonicalBytes(),
+        assertArrayEquals(
+                published.canonicalBytes(),
                 TargetMessageRecord.decode(published.canonicalBytes()).canonicalBytes());
         final var previous = orderState(
                 TargetOrderState.OrderingContract.ADMISSION_WATERMARK,
-                8, bytes("order.key"), TargetOrderBarrier.fromMessage(before));
+                8,
+                bytes("order.key"),
+                TargetOrderBarrier.fromMessage(before));
         final var settled = previous.afterPublishedOutcome(before, published);
         assertEquals(9, settled.stateRevision());
         assertNull(settled.barrier());
         assertNull(settled.serviceableHead());
-        assertArrayEquals(previous.lastAdmittedOrder().encodedKey(), settled.lastAdmittedOrder().encodedKey());
+        assertArrayEquals(
+                previous.lastAdmittedOrder().encodedKey(),
+                settled.lastAdmittedOrder().encodedKey());
         assertThrows(IllegalStateException.class, () -> before.publishedOutcome(repeated(32, 0xEE)));
         assertThrows(IllegalStateException.class, () -> published.publishedOutcome(attempt));
         assertThrows(IllegalStateException.class, () -> message("initial").publishedOutcome(attempt));
-        assertThrows(IllegalArgumentException.class,
-                () -> previous.afterPublishedOutcome(before, message("terminal")));
+        assertThrows(IllegalArgumentException.class, () -> previous.afterPublishedOutcome(before, message("terminal")));
     }
 
     @Test
@@ -417,13 +423,26 @@ class TargetOrderContractTest {
         final byte[] oldId = current.publishAttemptId();
         oldId[0] ^= 0x40;
         final var old = new AttemptObligationRef(
-                oldId, base.locator().generation(), AttemptLedgerState.UNCERTAIN,
+                oldId,
+                base.locator().generation(),
+                AttemptLedgerState.UNCERTAIN,
                 KeyCodec.inflight((byte) 3, current.ownerEpoch(), oldId));
         final var refs = new java.util.ArrayList<>(List.of(current, old));
         refs.sort((a, b) -> Arrays.compareUnsigned(a.publishAttemptId(), b.publishAttemptId()));
-        final var before = withRuntime(base, new TargetGenerationRuntimeIndex(
-                base.locator().generation(), GenerationAggregateState.UNCERTAIN, CurrentSendWorkKind.PUBLISHING,
-                null, null, current.publishAttemptId(), refs, 2, 1, true, base.runtime().runtimeRevision()));
+        final var before = withRuntime(
+                base,
+                new TargetGenerationRuntimeIndex(
+                        base.locator().generation(),
+                        GenerationAggregateState.UNCERTAIN,
+                        CurrentSendWorkKind.PUBLISHING,
+                        null,
+                        null,
+                        current.publishAttemptId(),
+                        refs,
+                        2,
+                        1,
+                        true,
+                        base.runtime().runtimeRevision()));
         final var published = before.publishedOutcome(current.publishAttemptId());
         assertEquals(GenerationAggregateState.PUBLISHED, published.aggregateState());
         assertEquals(List.of(old), published.runtime().attemptObligations());
@@ -432,16 +451,26 @@ class TargetOrderContractTest {
         assertTrue(published.runtime().possibleDestinationDuplicate());
         for (var gate : TargetOrderState.Gate.values()) {
             final var previous = new TargetOrderState(
-                    locator.target(), locator.orderingDomain(), locator.messageId().routingId().shardId(),
-                    locator.domain(), locator.accountingIncarnation(),
+                    locator.target(),
+                    locator.orderingDomain(),
+                    locator.messageId().routingId().shardId(),
+                    locator.domain(),
+                    locator.accountingIncarnation(),
                     TargetOrderState.OrderingContract.ADMISSION_WATERMARK,
-                    8, 1, gate, bytes("order.key"), null, TargetOrderBarrier.fromMessage(before));
+                    8,
+                    1,
+                    gate,
+                    bytes("order.key"),
+                    null,
+                    TargetOrderBarrier.fromMessage(before));
             final var settled = previous.afterPublishedOutcome(before, published);
             assertEquals(gate, settled.gate());
             assertNull(settled.serviceableHead());
             assertEquals(TargetOrderBarrier.fromMessage(published), settled.barrier());
             assertDoesNotThrow(() -> settled.requireBarrierProjection(published));
-            assertArrayEquals(previous.lastAdmittedOrder().encodedKey(), settled.lastAdmittedOrder().encodedKey());
+            assertArrayEquals(
+                    previous.lastAdmittedOrder().encodedKey(),
+                    settled.lastAdmittedOrder().encodedKey());
         }
     }
 

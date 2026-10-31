@@ -369,8 +369,7 @@ class ShardStoreTest {
             final ShardStore.RocksDbWriteFailure failure = assertThrows(
                     ShardStore.RocksDbWriteFailure.class,
                     () -> store.write(
-                            batch -> batch.putValue(ColumnFamily.META, 1, key, value),
-                            (db, writeOptions, batch) -> {
+                            batch -> batch.putValue(ColumnFamily.META, 1, key, value), (db, writeOptions, batch) -> {
                                 db.write(writeOptions, batch);
                                 throw new RocksDBException("synthetic lost native write response");
                             }));

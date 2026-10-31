@@ -190,7 +190,9 @@ public final class TargetQuotaIncarnation {
 
     /** Read-only exact successor for Source history verification; grants no lifecycle or write authority. */
     public TargetQuotaIncarnation drainingProjection(final TargetQuotaMutation mutation) {
-        if (draining()) throw new IllegalStateException("incarnation is already draining");
+        if (draining()) {
+            throw new IllegalStateException("incarnation is already draining");
+        }
         return new TargetQuotaIncarnation(identity, tenant, accounting, allocation, lineage, mutation);
     }
 
@@ -255,17 +257,25 @@ public final class TargetQuotaIncarnation {
     }
 
     /** Exact initial imported allocation only; ordinary Source attribution keeps its unchanged stamp equality. */
-    public void requireImportedPayloadOwner(final TargetQuotaPayloadOwner owner,
-            final TargetScheduleBinding binding, final TargetMigrationPlan plan) {
-        Objects.requireNonNull(owner); Objects.requireNonNull(binding); Objects.requireNonNull(plan);
-        if (!binding.imported() || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
-                || !allocation.equals(plan.baseline()) || !owner.mutation().equals(TargetMigrationRoot.baselineFor(plan))
-                || !identity.equals(owner.primaryIdentity()) || !Arrays.equals(tenant, owner.tenantScope())
+    public void requireImportedPayloadOwner(
+            final TargetQuotaPayloadOwner owner, final TargetScheduleBinding binding, final TargetMigrationPlan plan) {
+        Objects.requireNonNull(owner);
+        Objects.requireNonNull(binding);
+        Objects.requireNonNull(plan);
+        if (!binding.imported()
+                || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
+                || !allocation.equals(plan.baseline())
+                || !owner.mutation().equals(TargetMigrationRoot.baselineFor(plan))
+                || !identity.equals(owner.primaryIdentity())
+                || !Arrays.equals(tenant, owner.tenantScope())
                 || !Arrays.equals(tenant, plan.scope().tenantScope())
-                || !Arrays.equals(accounting.canonicalBytes(), owner.accounting().canonicalBytes())
-                || !Arrays.equals(lineage, owner.recoveryLineage()) || !Arrays.equals(lineage, plan.newLineage())
+                || !Arrays.equals(
+                        accounting.canonicalBytes(), owner.accounting().canonicalBytes())
+                || !Arrays.equals(lineage, owner.recoveryLineage())
+                || !Arrays.equals(lineage, plan.newLineage())
                 || !identity.shard().equals(plan.scope().shard())) {
-            throw new IllegalArgumentException("imported payload attribution differs from exact explicit migration baseline/owner");
+            throw new IllegalArgumentException(
+                    "imported payload attribution differs from exact explicit migration baseline/owner");
         }
         owner.requireInitialBinding(binding);
     }

@@ -2,8 +2,41 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.assessment.DataResetManifest;
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
-import com.nereusstream.delay.protocol.*;
-import com.nereusstream.delay.store.*;
+import com.nereusstream.delay.protocol.AuthorIdentity;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.ControlAuthorizationContext;
+import com.nereusstream.delay.protocol.ControlOperationAuthorization;
+import com.nereusstream.delay.protocol.ControlOperationKind;
+import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.SystemMutation;
+import com.nereusstream.delay.protocol.SystemMutationType;
+import com.nereusstream.delay.protocol.TargetExternalEvidenceObjectResource;
+import com.nereusstream.delay.protocol.TargetInitialControlSnapshot;
+import com.nereusstream.delay.protocol.TargetMigrationActivationAttempt;
+import com.nereusstream.delay.protocol.TargetProtocolActivatePayload;
+import com.nereusstream.delay.protocol.TargetProtocolActivationBody;
+import com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor;
+import com.nereusstream.delay.protocol.TargetProtocolActivationRecord;
+import com.nereusstream.delay.protocol.TargetProtocolReaderSet;
+import com.nereusstream.delay.protocol.TargetProtocolRootIssuerEvidence;
+import com.nereusstream.delay.protocol.TargetProtocolTupleAuthorization;
+import com.nereusstream.delay.protocol.TargetQuotaIdentity;
+import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
+import com.nereusstream.delay.protocol.TargetQuotaScope;
+import com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory;
+import com.nereusstream.delay.protocol.TargetSourcePosition;
+import com.nereusstream.delay.store.BoundedReadBudget;
+import com.nereusstream.delay.store.ColumnFamily;
+import com.nereusstream.delay.store.KeyCodec;
+import com.nereusstream.delay.store.TargetCheckpointSemanticSnapshot;
+import com.nereusstream.delay.store.TargetKeyCodec;
+import com.nereusstream.delay.store.TargetStoreBackend;
+import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,297 +45,835 @@ import java.util.Objects;
 
 /** Actual first Source marker, immutable Target projection and SHARD accounting in one Native batch. */
 public final class TargetProtocolActivationStore {
-    @FunctionalInterface public interface Keys { PublicKey resolve(long version,SourcePosition source); }
+    @FunctionalInterface
+    public interface Keys {
+        PublicKey resolve(long version, SourcePosition source);
+    }
     /**
      * Trusted original Root must authenticate complete eligible membership/revisions/sessions, exact binary/SDK support,
      * established base environment/reset scope and independent issuer pin at this Source point. It retains every pin.
      * Historical collection must not resample today's readers or reactivate the old reset's cutover window.
      * Incomplete inputs throw; no caller boolean or data-record constructor grants this permission.
      */
-    @FunctionalInterface public interface OriginalInputs {
-        Inputs capture(PreparedControlOperation prepared,SystemMutation marker,SourcePosition source,TargetProtocolActivationBody body);
+    @FunctionalInterface
+    public interface OriginalInputs {
+        Inputs capture(
+                PreparedControlOperation prepared,
+                SystemMutation marker,
+                SourcePosition source,
+                TargetProtocolActivationBody body);
     }
     /** Resolves the original snapshot issuer from actual original Source/issuer history and retains its real pin. */
-    @FunctionalInterface public interface RootIssuerAuthority { PublicKey authenticate(TargetProtocolRootIssuerEvidence originalRoot,TargetProtocolTupleAuthorization extension,SourcePosition actualActivation); }
-    public record Inputs(TargetProtocolReaderSet readers,DataResetManifest reset,PublicKey resetIssuer,Runnable current,
-            TargetProtocolRootIssuerEvidence rootEvidence,RootIssuerAuthority rootIssuer) {
-        public Inputs(TargetProtocolReaderSet readers,DataResetManifest reset,PublicKey issuer,Runnable current){this(readers,reset,issuer,current,null,null);}
-        public Inputs { Objects.requireNonNull(readers);Objects.requireNonNull(reset);Objects.requireNonNull(resetIssuer);Objects.requireNonNull(current);if((rootEvidence==null)!=(rootIssuer==null))throw new IllegalArgumentException("Root extension requires original issuer material and protected history authority"); }
-        public long retainedBytes(){return Math.addExact(readers.canonicalBytes().length,Math.addExact(reset.canonicalBytes().length,Math.addExact(resetIssuer.getEncoded().length,rootEvidence==null?0:rootEvidence.canonicalBytes().length)));}
+    @FunctionalInterface
+    public interface RootIssuerAuthority {
+        PublicKey authenticate(
+                TargetProtocolRootIssuerEvidence originalRoot,
+                TargetProtocolTupleAuthorization extension,
+                SourcePosition actualActivation);
+    }
+
+    public record Inputs(
+            TargetProtocolReaderSet readers,
+            DataResetManifest reset,
+            PublicKey resetIssuer,
+            Runnable current,
+            TargetProtocolRootIssuerEvidence rootEvidence,
+            RootIssuerAuthority rootIssuer) {
+        public Inputs(TargetProtocolReaderSet readers, DataResetManifest reset, PublicKey issuer, Runnable current) {
+            this(readers, reset, issuer, current, null, null);
+        }
+
+        public Inputs {
+            Objects.requireNonNull(readers);
+            Objects.requireNonNull(reset);
+            Objects.requireNonNull(resetIssuer);
+            Objects.requireNonNull(current);
+            if ((rootEvidence == null) != (rootIssuer == null)) {
+                throw new IllegalArgumentException(
+                        "Root extension requires original issuer material and protected history authority");
+            }
+        }
+
+        public long retainedBytes() {
+            return Math.addExact(
+                    readers.canonicalBytes().length,
+                    Math.addExact(
+                            reset.canonicalBytes().length,
+                            Math.addExact(
+                                    resetIssuer.getEncoded().length,
+                                    rootEvidence == null ? 0 : rootEvidence.canonicalBytes().length)));
+        }
     }
     /** Source keys/null denials and scope proofs must come from complete protected original history; unknown throws. */
-    public record Authority(ControlTargetRegistrationAuthority registrations,Keys keys,ControlAuthorizationContext actor,
-            ControlOperationAuthorization.TargetScopeProof scopeProof,OriginalInputs inputs) {
-        public Authority { Objects.requireNonNull(registrations);Objects.requireNonNull(keys);Objects.requireNonNull(actor);Objects.requireNonNull(scopeProof);Objects.requireNonNull(inputs); }
+    public record Authority(
+            ControlTargetRegistrationAuthority registrations,
+            Keys keys,
+            ControlAuthorizationContext actor,
+            ControlOperationAuthorization.TargetScopeProof scopeProof,
+            OriginalInputs inputs) {
+        public Authority {
+            Objects.requireNonNull(registrations);
+            Objects.requireNonNull(keys);
+            Objects.requireNonNull(actor);
+            Objects.requireNonNull(scopeProof);
+            Objects.requireNonNull(inputs);
+        }
     }
+
     public static final class Prepared {
-        private final TargetProtocolActivationStore owner;private final TargetStoreBackend.Prepared batch;
-        private final SystemMutationResult result;private final Inputs inputs;
-        private Prepared(TargetProtocolActivationStore owner,TargetStoreBackend.Prepared batch,SystemMutationResult result,Inputs inputs){this.owner=owner;this.batch=batch;this.result=result;this.inputs=inputs;}
+        private final TargetProtocolActivationStore owner;
+        private final TargetStoreBackend.Prepared batch;
+        private final SystemMutationResult result;
+        private final Inputs inputs;
+
+        private Prepared(
+                TargetProtocolActivationStore owner,
+                TargetStoreBackend.Prepared batch,
+                SystemMutationResult result,
+                Inputs inputs) {
+            this.owner = owner;
+            this.batch = batch;
+            this.result = result;
+            this.inputs = inputs;
+        }
     }
-    private final TargetStoreBackend backend;private final TargetQuotaScope scope;private final byte[] lineage;private final int counters,domains;
-    public TargetProtocolActivationStore(TargetStoreBackend backend,TargetQuotaScope scope,byte[] lineage,int counters,int domains){
-        this.backend=Objects.requireNonNull(backend);this.scope=Objects.requireNonNull(scope);Bytes.requireLength(lineage,16,"activation lineage");
-        if(scope.target()!=null||counters<2||domains<1||domains>64)throw new IllegalArgumentException("Target activation requires finite Shard accounting");
-        this.lineage=Bytes.copy(lineage);this.counters=counters;this.domains=domains;
+
+    private final TargetStoreBackend backend;
+    private final TargetQuotaScope scope;
+    private final byte[] lineage;
+    private final int counters, domains;
+
+    public TargetProtocolActivationStore(
+            TargetStoreBackend backend, TargetQuotaScope scope, byte[] lineage, int counters, int domains) {
+        this.backend = Objects.requireNonNull(backend);
+        this.scope = Objects.requireNonNull(scope);
+        Bytes.requireLength(lineage, 16, "activation lineage");
+        if (scope.target() != null || counters < 2 || domains < 1 || domains > 64) {
+            throw new IllegalArgumentException("Target activation requires finite Shard accounting");
+        }
+        this.lineage = Bytes.copy(lineage);
+        this.counters = counters;
+        this.domains = domains;
     }
-    public Prepared prepareFirst(BoundedReadBudget budget,PreparedControlOperation control,SystemMutation marker,SourcePosition source,Authority authority){
-        Objects.requireNonNull(authority);TargetSourcePosition.requireBounded(source);
-        final var body=TargetProtocolActivationBody.decode(marker.canonicalBody());
-        if(!scope.equals(body.payload().scope())||!Arrays.equals(lineage,body.payload().lineage())||!scope.shard().equals(source.shardId())
-                ||!scope.shard().equals(marker.shardId())||marker.type()!=SystemMutationType.APPLY_SHARD_CONTROL)
+
+    public Prepared prepareFirst(
+            BoundedReadBudget budget,
+            PreparedControlOperation control,
+            SystemMutation marker,
+            SourcePosition source,
+            Authority authority) {
+        Objects.requireNonNull(authority);
+        TargetSourcePosition.requireBounded(source);
+        final var body = TargetProtocolActivationBody.decode(marker.canonicalBody());
+        if (!scope.equals(body.payload().scope())
+                || !Arrays.equals(lineage, body.payload().lineage())
+                || !scope.shard().equals(source.shardId())
+                || !scope.shard().equals(marker.shardId())
+                || marker.type() != SystemMutationType.APPLY_SHARD_CONTROL) {
             throw new IllegalArgumentException("Target activation changed actual Source scope/lineage");
-        final boolean expired=source.brokerPersistenceTimeEpochMs()>marker.retryUntilEpochMs()
-                ||backend.prepareRead(budget,r->r.closedIngressDeadlineThrough()>=marker.retryUntilEpochMs()).value();
-        PublicKey preparedKey=null,markerKey=null;boolean authorized=false;
-        if(!expired){
-            preparedKey=authority.keys.resolve(control.signingKeyVersion(),source);markerKey=authority.keys.resolve(Integer.toUnsignedLong(marker.signingKeyVersion()),source);
-            if(preparedKey!=null&&markerKey!=null&&control.verifySignature(preparedKey)&&marker.verifySignature(markerKey)){
-                final boolean scopeCovered=authority.scopeProof.covers(control);
-                final var original=authority.registrations.find(control.operationId()).orElse(null);
-                try{
-                    if(control.kind()!=ControlOperationKind.ACTIVATE_TARGET_PROTOCOL||!control.request().equals(body.payload().operationRequest()))throw new IllegalArgumentException("activation differs from original request");
-                    final var actor=AuthorIdentity.decode(marker.authorIdentity());final var author=control.author();
-                    if(actor.kind()!=AuthorIdentity.Kind.CONTROL||!Arrays.equals(actor.first(),author.operationActorIdHash())
-                            ||!Arrays.equals(actor.second(),author.authenticatedRoleSetHash())||!Arrays.equals(actor.digest(),author.tenantResourceScopeHash()))
-                        throw new IllegalArgumentException("activation marker changed original CONTROL author");
-                    ControlOperationAuthorization.authorize(control,authority.actor,ignored->scopeCovered);
-                    if(original!=null&&Arrays.equals(original.canonicalBytes(),control.canonicalBytes())){
-                        ControlTargetMutationBinding.validate(control,control.targets().getFirst(),marker);
-                        authorized=true;
+        }
+        final boolean expired = source.brokerPersistenceTimeEpochMs() > marker.retryUntilEpochMs()
+                || backend.prepareRead(budget, r -> r.closedIngressDeadlineThrough() >= marker.retryUntilEpochMs())
+                        .value();
+        PublicKey preparedKey = null, markerKey = null;
+        boolean authorized = false;
+        if (!expired) {
+            preparedKey = authority.keys.resolve(control.signingKeyVersion(), source);
+            markerKey = authority.keys.resolve(Integer.toUnsignedLong(marker.signingKeyVersion()), source);
+            if (preparedKey != null
+                    && markerKey != null
+                    && control.verifySignature(preparedKey)
+                    && marker.verifySignature(markerKey)) {
+                final boolean scopeCovered = authority.scopeProof.covers(control);
+                final var original =
+                        authority.registrations.find(control.operationId()).orElse(null);
+                try {
+                    if (control.kind() != ControlOperationKind.ACTIVATE_TARGET_PROTOCOL
+                            || !control.request().equals(body.payload().operationRequest())) {
+                        throw new IllegalArgumentException("activation differs from original request");
                     }
-                }catch(IllegalArgumentException denied){authorized=false;}
-                if(authorized)authority.registrations.validateMutation(control,control.targets().getFirst(),marker);
+                    final var actor = AuthorIdentity.decode(marker.authorIdentity());
+                    final var author = control.author();
+                    if (actor.kind() != AuthorIdentity.Kind.CONTROL
+                            || !Arrays.equals(actor.first(), author.operationActorIdHash())
+                            || !Arrays.equals(actor.second(), author.authenticatedRoleSetHash())
+                            || !Arrays.equals(actor.digest(), author.tenantResourceScopeHash())) {
+                        throw new IllegalArgumentException("activation marker changed original CONTROL author");
+                    }
+                    ControlOperationAuthorization.authorize(control, authority.actor, ignored -> scopeCovered);
+                    if (original != null && Arrays.equals(original.canonicalBytes(), control.canonicalBytes())) {
+                        ControlTargetMutationBinding.validate(
+                                control, control.targets().getFirst(), marker);
+                        authorized = true;
+                    }
+                } catch (IllegalArgumentException denied) {
+                    authorized = false;
+                }
+                if (authorized) {
+                    authority.registrations.validateMutation(
+                            control, control.targets().getFirst(), marker);
+                }
             }
         }
         requireLocalCompanion(authorized);
-        final Inputs selected=authorized?Objects.requireNonNull(authority.inputs.capture(control,marker,source,body),"original Target activation inputs"):null;
+        final Inputs selected = authorized
+                ? Objects.requireNonNull(
+                        authority.inputs.capture(control, marker, source, body), "original Target activation inputs")
+                : null;
         final TargetProtocolActivationRecord.PublicEvidence publicEvidence;
-        if(selected!=null){
+        if (selected != null) {
             selected.current.run();
-            if(body.payload().rootAuthorization()!=null){
-                final var evidence=Objects.requireNonNull(selected.rootEvidence,"original Root issuer material");evidence.require(body.payload());if(evidence.migrated())selected.readers.requireMigrationRootDataReaders(evidence.migration());
-                final var issuer=Objects.requireNonNull(selected.rootIssuer,"original Root issuer authority").authenticate(evidence,body.payload().rootAuthorization(),source);
+            if (body.payload().rootAuthorization() != null) {
+                final var evidence = Objects.requireNonNull(selected.rootEvidence, "original Root issuer material");
+                evidence.require(body.payload());
+                if (evidence.migrated()) {
+                    selected.readers.requireMigrationRootDataReaders(evidence.migration());
+                }
+                final var issuer = Objects.requireNonNull(selected.rootIssuer, "original Root issuer authority")
+                        .authenticate(evidence, body.payload().rootAuthorization(), source);
                 selected.current.run();
-                if(issuer==null||!Arrays.equals(issuer.getEncoded(),evidence.issuerKey())||!evidence.migrated()&&!evidence.initial().input().verifySignature(issuer)||!body.payload().rootAuthorization().verifySignature(issuer))
-                    throw new IllegalStateException("Root tuple extension lacks its independently pinned original issuer");
-            }else if(selected.rootEvidence!=null)throw new IllegalStateException("legacy activation cannot reinterpret a Root extension");
-            publicEvidence=new TargetProtocolActivationRecord.PublicEvidence(authority.actor,preparedKey.getEncoded(),markerKey.getEncoded(),selected.resetIssuer.getEncoded(),selected.reset);
-            if(!selected.readers.descriptor().equals(body.payload().descriptor())||!Arrays.equals(selected.readers.digest(),body.payload().readerEvidenceHash()))
-                throw new IllegalStateException("original Target activation inputs changed signed reader/descriptor evidence");
-        }else publicEvidence=null;
-        final boolean allowed=authorized;final var result=new SystemMutationResult[1];
-        final var batch=backend.prepare(budget,reader->{
-            if(reader.source()==null||source.compareTo(reader.source())<=0)throw new IllegalStateException("first Target activation needs earlier actual Source frontier");
-            final byte[] firstKey=resultKey(marker.systemMutationId()),positionKey=positionKey(source);
-            absent(reader,ColumnFamily.DEDUPE,firstKey);absent(reader,ColumnFamily.DEDUPE,positionKey);
-            final var stamp=new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()),source,Bytes.sha256(marker.canonicalEnvelope()));
-            final var root=root(reader,stamp);final var edits=new ArrayList<TargetStoreBackend.Edit>();
-            StableCode rejection=expired||reader.closedIngressDeadlineThrough()>=marker.retryUntilEpochMs()?StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
-                    :!allowed?StableCode.UNAUTHORIZED_SYSTEM_MUTATION:null;
-            if(rejection==null){
-                selected.current.run();final var payload=body.payload();
+                if (issuer == null
+                        || !Arrays.equals(issuer.getEncoded(), evidence.issuerKey())
+                        || !evidence.migrated() && !evidence.initial().input().verifySignature(issuer)
+                        || !body.payload().rootAuthorization().verifySignature(issuer)) {
+                    throw new IllegalStateException(
+                            "Root tuple extension lacks its independently pinned original issuer");
+                }
+            } else if (selected.rootEvidence != null) {
+                throw new IllegalStateException("legacy activation cannot reinterpret a Root extension");
+            }
+            publicEvidence = new TargetProtocolActivationRecord.PublicEvidence(
+                    authority.actor,
+                    preparedKey.getEncoded(),
+                    markerKey.getEncoded(),
+                    selected.resetIssuer.getEncoded(),
+                    selected.reset);
+            if (!selected.readers.descriptor().equals(body.payload().descriptor())
+                    || !Arrays.equals(selected.readers.digest(), body.payload().readerEvidenceHash())) {
+                throw new IllegalStateException(
+                        "original Target activation inputs changed signed reader/descriptor evidence");
+            }
+        } else {
+            publicEvidence = null;
+        }
+        final boolean allowed = authorized;
+        final var result = new SystemMutationResult[1];
+        final var batch = backend.prepare(budget, reader -> {
+            if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
+                throw new IllegalStateException("first Target activation needs earlier actual Source frontier");
+            }
+            final byte[] firstKey = resultKey(marker.systemMutationId()), positionKey = positionKey(source);
+            absent(reader, ColumnFamily.DEDUPE, firstKey);
+            absent(reader, ColumnFamily.DEDUPE, positionKey);
+            final var stamp = new TargetQuotaMutation(
+                    TargetQuotaMutation.increment(reader.sourceSequence()),
+                    source,
+                    Bytes.sha256(marker.canonicalEnvelope()));
+            final var root = root(reader, stamp);
+            final var edits = new ArrayList<TargetStoreBackend.Edit>();
+            StableCode rejection = expired || reader.closedIngressDeadlineThrough() >= marker.retryUntilEpochMs()
+                    ? StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED
+                    : !allowed ? StableCode.UNAUTHORIZED_SYSTEM_MUTATION : null;
+            if (rejection == null) {
+                selected.current.run();
+                final var payload = body.payload();
                 boolean rootAllowed;
-                if(payload.rootAuthorization()!=null){requireRootEvidence(reader,List.of(),scope,lineage,root.identity(),payload,selected.rootEvidence,reader.aggregate().mutation());rootAllowed=true;}
-                else{final var initial=TargetInitialControlSnapshot.decode(payload(reader,ColumnFamily.META,KeyCodec.metaFixed(10),TargetInitialControlSnapshot.VALUE_TYPE));
+                if (payload.rootAuthorization() != null) {
+                    requireRootEvidence(
+                            reader,
+                            List.of(),
+                            scope,
+                            lineage,
+                            root.identity(),
+                            payload,
+                            selected.rootEvidence,
+                            reader.aggregate().mutation());
+                    rootAllowed = true;
+                } else {
+                    final var initial = TargetInitialControlSnapshot.decode(payload(
+                            reader,
+                            ColumnFamily.META,
+                            KeyCodec.metaFixed(10),
+                            TargetInitialControlSnapshot.VALUE_TYPE));
                     initial.mutation().requireAtOrBefore(reader.aggregate().mutation());
-                    rootAllowed=initial.root().equals(root.identity())&&initial.input().scope().equals(scope)&&Arrays.equals(initial.input().lineage(),lineage)
-                        &&initial.input().protocolTuples().contains(payload.descriptor().tuple())&&initial.input().protocolTuples().contains(payload.descriptor().base().systemMutationTuple());}
-                if(!rootAllowed)rejection=StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION;
-                else{
-                    final byte[] key=TargetProtocolActivationRecord.key(payload.descriptor().tuple());final byte[] raw=reader.get(ColumnFamily.META,key);
-                    if(raw!=null){
-                        final var old=TargetProtocolActivationRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
-                        requireApplied(reader,List.of(),scope,lineage,root.identity(),old,reader.aggregate().mutation());rejection=StableCode.STALE_SYSTEM_MUTATION;
-                    }else{
-                        final var record=new TargetProtocolActivationRecord(marker,control,stamp,selected.readers,publicEvidence,selected.rootEvidence);
-                        edits.add(reader.replace(ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE,record.canonicalBytes()));
+                    rootAllowed = initial.root().equals(root.identity())
+                            && initial.input().scope().equals(scope)
+                            && Arrays.equals(initial.input().lineage(), lineage)
+                            && initial.input()
+                                    .protocolTuples()
+                                    .contains(payload.descriptor().tuple())
+                            && initial.input()
+                                    .protocolTuples()
+                                    .contains(payload.descriptor().base().systemMutationTuple());
+                }
+                if (!rootAllowed) {
+                    rejection = StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION;
+                } else {
+                    final byte[] key = TargetProtocolActivationRecord.key(
+                            payload.descriptor().tuple());
+                    final byte[] raw = reader.get(ColumnFamily.META, key);
+                    if (raw != null) {
+                        final var old = TargetProtocolActivationRecord.decodeForStore(
+                                key,
+                                TargetValueEnvelope.decode(raw, TargetProtocolActivationRecord.VALUE_TYPE)
+                                        .payload(),
+                                scope,
+                                lineage);
+                        requireApplied(
+                                reader,
+                                List.of(),
+                                scope,
+                                lineage,
+                                root.identity(),
+                                old,
+                                reader.aggregate().mutation());
+                        rejection = StableCode.STALE_SYSTEM_MUTATION;
+                    } else {
+                        final var record = new TargetProtocolActivationRecord(
+                                marker, control, stamp, selected.readers, publicEvidence, selected.rootEvidence);
+                        edits.add(reader.replace(
+                                ColumnFamily.META,
+                                key,
+                                TargetProtocolActivationRecord.VALUE_TYPE,
+                                record.canonicalBytes()));
                     }
                 }
             }
-            final var outcome=SystemMutationResult.from(marker,rejection==null?ApplyStatus.APPLIED:ApplyStatus.REJECTED,rejection==null?StableCode.OK:rejection,source.canonicalBytes());
-            final TargetResultRecord.CreationAuthority results=(record,first)->{
-                record.requireOwner(root);absent(reader,ColumnFamily.DEDUPE,record.key());
-                if(!record.mutation().equals(stamp)||record.allocation()!=null)throw new IllegalStateException("activation result changed actual Source decision");
-                if(record.kind()==TargetResultRecord.Kind.SYSTEM){if(first!=null||!Arrays.equals(record.key(),firstKey)||!Arrays.equals(record.typedPayload(),outcome.encode()))throw new IllegalStateException("activation first changed key/outcome");}
-                else if(record.kind()==TargetResultRecord.Kind.POSITION_SYSTEM){if(first==null||!Arrays.equals(first.key(),firstKey)||!Arrays.equals(record.key(),positionKey)||!Arrays.equals(record.typedPayload(),first.logicalId()))throw new IllegalStateException("activation POSITION changed first");record.requireFirst(first);}
-                else throw new IllegalStateException("invalid activation result kind");
+            final var outcome = SystemMutationResult.from(
+                    marker,
+                    rejection == null ? ApplyStatus.APPLIED : ApplyStatus.REJECTED,
+                    rejection == null ? StableCode.OK : rejection,
+                    source.canonicalBytes());
+            final TargetResultRecord.CreationAuthority results = (record, first) -> {
+                record.requireOwner(root);
+                absent(reader, ColumnFamily.DEDUPE, record.key());
+                if (!record.mutation().equals(stamp) || record.allocation() != null) {
+                    throw new IllegalStateException("activation result changed actual Source decision");
+                }
+                if (record.kind() == TargetResultRecord.Kind.SYSTEM) {
+                    if (first != null
+                            || !Arrays.equals(record.key(), firstKey)
+                            || !Arrays.equals(record.typedPayload(), outcome.encode())) {
+                        throw new IllegalStateException("activation first changed key/outcome");
+                    }
+                } else if (record.kind() == TargetResultRecord.Kind.POSITION_SYSTEM) {
+                    if (first == null
+                            || !Arrays.equals(first.key(), firstKey)
+                            || !Arrays.equals(record.key(), positionKey)
+                            || !Arrays.equals(record.typedPayload(), first.logicalId())) {
+                        throw new IllegalStateException("activation POSITION changed first");
+                    }
+                    record.requireFirst(first);
+                } else {
+                    throw new IllegalStateException("invalid activation result kind");
+                }
             };
-            final var first=TargetResultRecord.system(root,outcome,stamp,null,results);final var position=TargetResultRecord.position(root,first,stamp,results);
-            edits.add(reader.replace(ColumnFamily.DEDUPE,first.key(),TargetResultRecord.VALUE_TYPE,first.canonicalBytes()));
-            edits.add(reader.replace(ColumnFamily.DEDUPE,position.key(),TargetResultRecord.VALUE_TYPE,position.canonicalBytes()));result[0]=outcome;
-            return new TargetSourceAccounting(scope,lineage,source,stamp.mutationDigest(),counters,1,domains).assemble(reader,edits);
+            final var first = TargetResultRecord.system(root, outcome, stamp, null, results);
+            final var position = TargetResultRecord.position(root, first, stamp, results);
+            edits.add(reader.replace(
+                    ColumnFamily.DEDUPE, first.key(), TargetResultRecord.VALUE_TYPE, first.canonicalBytes()));
+            edits.add(reader.replace(
+                    ColumnFamily.DEDUPE, position.key(), TargetResultRecord.VALUE_TYPE, position.canonicalBytes()));
+            result[0] = outcome;
+            return new TargetSourceAccounting(scope, lineage, source, stamp.mutationDigest(), counters, 1, domains)
+                    .assemble(reader, edits);
         });
-        return new Prepared(this,batch,result[0],selected);
+        return new Prepared(this, batch, result[0], selected);
     }
-    public SystemMutationResult commit(Prepared prepared,TargetStoreBackend.CommitAuthority authority){
-        if(Objects.requireNonNull(prepared).owner!=this)throw new IllegalArgumentException("foreign Target activation plan");
-        backend.commit(prepared.batch,(store,actualScope,mutation)->{
-            final var guard=Objects.requireNonNull(authority.acquire(store,actualScope,mutation));return new TargetStoreBackend.CommitGuard(){
-                public void requireCurrent(){guard.requireCurrent();if(prepared.inputs!=null)prepared.inputs.current.run();guard.requireCurrent();}
-                public void close(){guard.close();}
+
+    public SystemMutationResult commit(Prepared prepared, TargetStoreBackend.CommitAuthority authority) {
+        if (Objects.requireNonNull(prepared).owner != this) {
+            throw new IllegalArgumentException("foreign Target activation plan");
+        }
+        backend.commit(prepared.batch, (store, actualScope, mutation) -> {
+            final var guard = Objects.requireNonNull(authority.acquire(store, actualScope, mutation));
+            return new TargetStoreBackend.CommitGuard() {
+                public void requireCurrent() {
+                    guard.requireCurrent();
+                    if (prepared.inputs != null) {
+                        prepared.inputs.current.run();
+                    }
+                    guard.requireCurrent();
+                }
+
+                public void close() {
+                    guard.close();
+                }
             };
-        });return prepared.result;
+        });
+        return prepared.result;
     }
-    private TargetQuotaIncarnation root(TargetStoreBackend.Reader reader,TargetQuotaMutation stamp){
-        final var id=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-        final byte[] key=id.key();key[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
-        final var root=TargetQuotaIncarnation.decodeForStore(key,payload(reader,ColumnFamily.META,key,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
-        if(!root.identity().equals(id)||!Arrays.equals(root.recoveryLineage(),lineage))throw new IllegalStateException("activation lost actual Source root");
-        root.latestMutation().requireAtOrBefore(reader.aggregate().mutation());stamp.requireAfter(reader.aggregate().mutation());return root;
+
+    private TargetQuotaIncarnation root(TargetStoreBackend.Reader reader, TargetQuotaMutation stamp) {
+        final var id = new TargetQuotaIdentity(
+                TargetQuotaIdentity.Kind.SHARD,
+                scope.shard(),
+                reader.aggregate().accountingIncarnation(),
+                null,
+                null);
+        final byte[] key = id.key();
+        key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var root = TargetQuotaIncarnation.decodeForStore(
+                key,
+                payload(reader, ColumnFamily.META, key, TargetQuotaIncarnation.VALUE_TYPE),
+                scope.shard(),
+                scope.tenantScope());
+        if (!root.identity().equals(id) || !Arrays.equals(root.recoveryLineage(), lineage)) {
+            throw new IllegalStateException("activation lost actual Source root");
+        }
+        root.latestMutation().requireAtOrBefore(reader.aggregate().mutation());
+        stamp.requireAfter(reader.aggregate().mutation());
+        return root;
     }
-    public static void requireApplied(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
-            TargetQuotaIdentity sourceOwner,TargetProtocolActivationRecord record,TargetQuotaMutation frontier){
+
+    public static void requireApplied(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaIdentity sourceOwner,
+            TargetProtocolActivationRecord record,
+            TargetQuotaMutation frontier) {
         record.appliedAt().requireAtOrBefore(frontier);
-        if(record.rootEvidence()!=null)requireRootEvidence(view,overlay,scope,lineage,sourceOwner,record.body().payload(),record.rootEvidence(),record.appliedAt());
-        if(sourceOwner.kind()!=TargetQuotaIdentity.Kind.SHARD||!record.body().payload().scope().equals(scope)||!Arrays.equals(record.body().payload().lineage(),lineage))
+        if (record.rootEvidence() != null) {
+            requireRootEvidence(
+                    view,
+                    overlay,
+                    scope,
+                    lineage,
+                    sourceOwner,
+                    record.body().payload(),
+                    record.rootEvidence(),
+                    record.appliedAt());
+        }
+        if (sourceOwner.kind() != TargetQuotaIdentity.Kind.SHARD
+                || !record.body().payload().scope().equals(scope)
+                || !Arrays.equals(record.body().payload().lineage(), lineage)) {
             throw new IllegalStateException("activation changed actual Source owner/scope/lineage");
-        final var marker=record.marker();final byte[] firstKey=resultKey(marker.systemMutationId());
-        final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE));first.requireStored(firstKey,TargetResultRecord.VALUE_TYPE,first.canonicalBytes());
-        final var result=SystemMutationResult.decode(first.typedPayload());
-        if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.primaryIdentity().equals(sourceOwner)||!first.mutation().equals(record.appliedAt())
-                ||result.mutationType()!=SystemMutationType.APPLY_SHARD_CONTROL||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK
-                ||!Arrays.equals(result.mutationId(),marker.systemMutationId())||!Arrays.equals(result.mutationHash(),marker.mutationHash())
-                ||result.retryUntilEpochMs()!=marker.retryUntilEpochMs()||!Arrays.equals(result.authorIdentity(),marker.authorIdentity())
-                ||!Arrays.equals(result.appliedSourcePosition(),record.appliedAt().source().canonicalBytes()))throw new IllegalStateException("activation lost exact APPLIED first");
-        final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
-        final var owner=TargetQuotaIncarnation.decodeForStore(ownerKey,payload(view,overlay,ColumnFamily.META,ownerKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
-        if(!Arrays.equals(owner.recoveryLineage(),lineage))throw new IllegalStateException("activation first changed Source lineage");owner.latestMutation().requireAtOrBefore(frontier);first.requireOwner(owner);
-        final byte[] positionKey=positionKey(record.appliedAt().source());final var position=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,positionKey,TargetResultRecord.VALUE_TYPE));
-        position.requireStored(positionKey,TargetResultRecord.VALUE_TYPE,position.canonicalBytes());position.requireFirst(first);position.requireOwner(owner);
-        if(position.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!position.mutation().equals(record.appliedAt()))throw new IllegalStateException("activation lost original Source POSITION");
+        }
+        final var marker = record.marker();
+        final byte[] firstKey = resultKey(marker.systemMutationId());
+        final var first = TargetResultRecord.decode(
+                payload(view, overlay, ColumnFamily.DEDUPE, firstKey, TargetResultRecord.VALUE_TYPE));
+        first.requireStored(firstKey, TargetResultRecord.VALUE_TYPE, first.canonicalBytes());
+        final var result = SystemMutationResult.decode(first.typedPayload());
+        if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                || !first.primaryIdentity().equals(sourceOwner)
+                || !first.mutation().equals(record.appliedAt())
+                || result.mutationType() != SystemMutationType.APPLY_SHARD_CONTROL
+                || result.applyStatus() != ApplyStatus.APPLIED
+                || result.stableCode() != StableCode.OK
+                || !Arrays.equals(result.mutationId(), marker.systemMutationId())
+                || !Arrays.equals(result.mutationHash(), marker.mutationHash())
+                || result.retryUntilEpochMs() != marker.retryUntilEpochMs()
+                || !Arrays.equals(result.authorIdentity(), marker.authorIdentity())
+                || !Arrays.equals(
+                        result.appliedSourcePosition(),
+                        record.appliedAt().source().canonicalBytes())) {
+            throw new IllegalStateException("activation lost exact APPLIED first");
+        }
+        final byte[] ownerKey = sourceOwner.key();
+        ownerKey[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+        final var owner = TargetQuotaIncarnation.decodeForStore(
+                ownerKey,
+                payload(view, overlay, ColumnFamily.META, ownerKey, TargetQuotaIncarnation.VALUE_TYPE),
+                scope.shard(),
+                scope.tenantScope());
+        if (!Arrays.equals(owner.recoveryLineage(), lineage)) {
+            throw new IllegalStateException("activation first changed Source lineage");
+        }
+        owner.latestMutation().requireAtOrBefore(frontier);
+        first.requireOwner(owner);
+        final byte[] positionKey = positionKey(record.appliedAt().source());
+        final var position = TargetResultRecord.decode(
+                payload(view, overlay, ColumnFamily.DEDUPE, positionKey, TargetResultRecord.VALUE_TYPE));
+        position.requireStored(positionKey, TargetResultRecord.VALUE_TYPE, position.canonicalBytes());
+        position.requireFirst(first);
+        position.requireOwner(owner);
+        if (position.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                || !position.mutation().equals(record.appliedAt())) {
+            throw new IllegalStateException("activation lost original Source POSITION");
+        }
     }
     /** Exact actual Root and original accepted Source joins; issuer trust is authenticated outside the Store lock. */
-    public static void requireRootEvidence(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
-            TargetQuotaIdentity sourceOwner,TargetProtocolActivatePayload activation,TargetProtocolRootIssuerEvidence evidence,TargetQuotaMutation frontier){
+    public static void requireRootEvidence(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaIdentity sourceOwner,
+            TargetProtocolActivatePayload activation,
+            TargetProtocolRootIssuerEvidence evidence,
+            TargetQuotaMutation frontier) {
         Objects.requireNonNull(evidence).require(activation);
-        if(evidence.migrated()){
-            final var actual=TargetMigrationStore.requireActivated(view,overlay,scope,lineage,frontier);
-            if(!actual.owner().identity().equals(sourceOwner)||!Arrays.equals(actual.canonicalBytes(),evidence.migration().canonicalBytes()))throw new IllegalStateException("reader extension changed actual migration A/root");
-            final var attempt=TargetMigrationActivationAttempt.decode(payload(view,overlay,ColumnFamily.META,TargetMigrationActivationAttempt.keyFor(actual.plan().migrationId()),TargetMigrationActivationAttempt.VALUE_TYPE));
+        if (evidence.migrated()) {
+            final var actual = TargetMigrationStore.requireActivated(view, overlay, scope, lineage, frontier);
+            if (!actual.owner().identity().equals(sourceOwner)
+                    || !Arrays.equals(
+                            actual.canonicalBytes(), evidence.migration().canonicalBytes())) {
+                throw new IllegalStateException("reader extension changed actual migration A/root");
+            }
+            final var attempt = TargetMigrationActivationAttempt.decode(payload(
+                    view,
+                    overlay,
+                    ColumnFamily.META,
+                    TargetMigrationActivationAttempt.keyFor(actual.plan().migrationId()),
+                    TargetMigrationActivationAttempt.VALUE_TYPE));
             attempt.requirePlan(actual.plan());
-            if(!Arrays.equals(attempt.digest(),evidence.activationAttemptDigest())||!Arrays.equals(attempt.input().canonicalEnvelope(),actual.activation().canonicalEnvelope()))throw new IllegalStateException("reader extension changed original durable Prepared/A registration");
-        }else{
-            final var actual=TargetInitialControlSnapshot.decode(payload(view,overlay,ColumnFamily.META,KeyCodec.metaFixed(10),TargetInitialControlSnapshot.VALUE_TYPE));
-            if(!actual.root().equals(sourceOwner)||!scope.equals(actual.input().scope())||!Arrays.equals(lineage,actual.input().lineage())||!Arrays.equals(actual.canonicalBytes(),evidence.initial().canonicalBytes()))
+            if (!Arrays.equals(attempt.digest(), evidence.activationAttemptDigest())
+                    || !Arrays.equals(
+                            attempt.input().canonicalEnvelope(),
+                            actual.activation().canonicalEnvelope())) {
+                throw new IllegalStateException("reader extension changed original durable Prepared/A registration");
+            }
+        } else {
+            final var actual = TargetInitialControlSnapshot.decode(payload(
+                    view, overlay, ColumnFamily.META, KeyCodec.metaFixed(10), TargetInitialControlSnapshot.VALUE_TYPE));
+            if (!actual.root().equals(sourceOwner)
+                    || !scope.equals(actual.input().scope())
+                    || !Arrays.equals(lineage, actual.input().lineage())
+                    || !Arrays.equals(
+                            actual.canonicalBytes(), evidence.initial().canonicalBytes())) {
                 throw new IllegalStateException("reader extension changed actual immutable initial Root snapshot");
+            }
             actual.mutation().requireAtOrBefore(frontier);
-            final byte[] firstKey=resultKey(actual.initialGrant().systemMutationId());final var first=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,firstKey,TargetResultRecord.VALUE_TYPE));first.requireStored(firstKey,TargetResultRecord.VALUE_TYPE,first.canonicalBytes());
-            final var result=SystemMutationResult.decode(first.typedPayload());
-            if(first.kind()!=TargetResultRecord.Kind.SYSTEM||!first.appliedFirst()||!first.primaryIdentity().equals(sourceOwner)||!first.mutation().equals(actual.mutation())
-                    ||result.mutationType()!=SystemMutationType.APPLY_SHARD_CONTROL||result.applyStatus()!=ApplyStatus.APPLIED||result.stableCode()!=StableCode.OK||!Arrays.equals(result.mutationId(),actual.initialGrant().systemMutationId())
-                    ||!Arrays.equals(result.mutationHash(),actual.initialGrant().systemMutationHash())||!Arrays.equals(result.authorIdentity(),actual.authorIdentity())
-                    ||!Arrays.equals(result.appliedSourcePosition(),actual.mutation().source().canonicalBytes()))throw new IllegalStateException("Root extension lost original accepted initial grant first");
-            final byte[] posKey=positionKey(actual.mutation().source());final var pos=TargetResultRecord.decode(payload(view,overlay,ColumnFamily.DEDUPE,posKey,TargetResultRecord.VALUE_TYPE));pos.requireStored(posKey,TargetResultRecord.VALUE_TYPE,pos.canonicalBytes());pos.requireFirst(first);
-            if(pos.kind()!=TargetResultRecord.Kind.POSITION_SYSTEM||!pos.primaryIdentity().equals(sourceOwner)||!pos.mutation().equals(actual.mutation()))throw new IllegalStateException("Root extension lost original initial grant POSITION");
-            final byte[] ownerKey=sourceOwner.key();ownerKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;final var owner=TargetQuotaIncarnation.decodeForStore(ownerKey,payload(view,overlay,ColumnFamily.META,ownerKey,TargetQuotaIncarnation.VALUE_TYPE),scope.shard(),scope.tenantScope());
-            first.requireOwner(owner);pos.requireOwner(owner);
+            final byte[] firstKey = resultKey(actual.initialGrant().systemMutationId());
+            final var first = TargetResultRecord.decode(
+                    payload(view, overlay, ColumnFamily.DEDUPE, firstKey, TargetResultRecord.VALUE_TYPE));
+            first.requireStored(firstKey, TargetResultRecord.VALUE_TYPE, first.canonicalBytes());
+            final var result = SystemMutationResult.decode(first.typedPayload());
+            if (first.kind() != TargetResultRecord.Kind.SYSTEM
+                    || !first.appliedFirst()
+                    || !first.primaryIdentity().equals(sourceOwner)
+                    || !first.mutation().equals(actual.mutation())
+                    || result.mutationType() != SystemMutationType.APPLY_SHARD_CONTROL
+                    || result.applyStatus() != ApplyStatus.APPLIED
+                    || result.stableCode() != StableCode.OK
+                    || !Arrays.equals(result.mutationId(), actual.initialGrant().systemMutationId())
+                    || !Arrays.equals(
+                            result.mutationHash(), actual.initialGrant().systemMutationHash())
+                    || !Arrays.equals(result.authorIdentity(), actual.authorIdentity())
+                    || !Arrays.equals(
+                            result.appliedSourcePosition(),
+                            actual.mutation().source().canonicalBytes())) {
+                throw new IllegalStateException("Root extension lost original accepted initial grant first");
+            }
+            final byte[] posKey = positionKey(actual.mutation().source());
+            final var pos = TargetResultRecord.decode(
+                    payload(view, overlay, ColumnFamily.DEDUPE, posKey, TargetResultRecord.VALUE_TYPE));
+            pos.requireStored(posKey, TargetResultRecord.VALUE_TYPE, pos.canonicalBytes());
+            pos.requireFirst(first);
+            if (pos.kind() != TargetResultRecord.Kind.POSITION_SYSTEM
+                    || !pos.primaryIdentity().equals(sourceOwner)
+                    || !pos.mutation().equals(actual.mutation())) {
+                throw new IllegalStateException("Root extension lost original initial grant POSITION");
+            }
+            final byte[] ownerKey = sourceOwner.key();
+            ownerKey[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var owner = TargetQuotaIncarnation.decodeForStore(
+                    ownerKey,
+                    payload(view, overlay, ColumnFamily.META, ownerKey, TargetQuotaIncarnation.VALUE_TYPE),
+                    scope.shard(),
+                    scope.tenantScope());
+            first.requireOwner(owner);
+            pos.requireOwner(owner);
         }
     }
     /** Actual Native activation is the reader permission; a format-1 compatibility snapshot is not a Target Root. */
-    public static boolean readerAuthorized(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple){
-        final var actual=applied(reader,scope,lineage,tuple);if(actual==null)return false;
-        if(actual.rootEvidence()!=null)return true;
-        final byte[] raw=reader.get(ColumnFamily.META,KeyCodec.metaFixed(10));if(raw==null)return false;
-        final var initial=TargetInitialControlSnapshot.decode(TargetValueEnvelope.decode(raw,TargetInitialControlSnapshot.VALUE_TYPE).payload());
-        return initial.input().scope().equals(scope)&&Arrays.equals(initial.input().lineage(),lineage)&&initial.input().protocolTuples().contains(tuple)
-            &&initial.input().protocolTuples().contains(actual.body().payload().descriptor().base().systemMutationTuple());
+    public static boolean readerAuthorized(
+            TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage, ProtocolTuple tuple) {
+        final var actual = applied(reader, scope, lineage, tuple);
+        if (actual == null) {
+            return false;
+        }
+        if (actual.rootEvidence() != null) {
+            return true;
+        }
+        final byte[] raw = reader.get(ColumnFamily.META, KeyCodec.metaFixed(10));
+        if (raw == null) {
+            return false;
+        }
+        final var initial = TargetInitialControlSnapshot.decode(
+                TargetValueEnvelope.decode(raw, TargetInitialControlSnapshot.VALUE_TYPE)
+                        .payload());
+        return initial.input().scope().equals(scope)
+                && Arrays.equals(initial.input().lineage(), lineage)
+                && initial.input().protocolTuples().contains(tuple)
+                && initial.input()
+                        .protocolTuples()
+                        .contains(actual.body().payload().descriptor().base().systemMutationTuple());
     }
     /** The enabling Source may archive its own exact activation in the same Native batch. */
-    public static TargetProtocolActivationRecord requireProjectedFullSourceArchiveReader(TargetStoreBackend.Reader reader,
-            List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,TargetQuotaMutation at,
-            com.nereusstream.delay.ownership.SourceReplayEntry actualInput){
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
-        final byte[] before=reader.get(ColumnFamily.META,key),raw=reader.projected(ColumnFamily.META,key,overlay);
-        if(raw==null)throw new IllegalStateException("complete Source archive requires its actual descriptor21 activation");
-        final var record=TargetProtocolActivationRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
-        if(!record.body().payload().descriptor().supportsMigrationFullSourceArchive()||record.rootEvidence()==null)
-            throw new IllegalStateException("complete Source archive lacks its exact original Root reader authorization");
-        final var owner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-        if(before!=null){
-            if(!Arrays.equals(before,raw))throw new IllegalStateException("archive reader activation cannot change its original retained row");
-            requireApplied(reader,List.of(),scope,lineage,owner,record,reader.aggregate().mutation());
-        }else{
-            if(!record.appliedAt().equals(at)||at.sequence()!=TargetQuotaMutation.increment(reader.sourceSequence())
-                    ||reader.source()==null||at.source().compareTo(reader.source())<=0
-                    ||!(actualInput instanceof com.nereusstream.delay.ownership.SourceReplayMutation actual)
-                    ||!Arrays.equals(actual.position().canonicalBytes(),at.source().canonicalBytes())
-                    ||!Arrays.equals(actual.mutation().canonicalEnvelope(),record.marker().canonicalEnvelope()))
-                throw new IllegalStateException("archive reader activation overlay is not this actual Source successor");
-            requireNewProjected(reader,overlay,ColumnFamily.META,key);
-            requireNewProjected(reader,overlay,ColumnFamily.DEDUPE,resultKey(record.marker().systemMutationId()));
-            requireNewProjected(reader,overlay,ColumnFamily.DEDUPE,positionKey(at.source()));
-            requireApplied(reader,overlay,scope,lineage,owner,record,at);
+    public static TargetProtocolActivationRecord requireProjectedFullSourceArchiveReader(
+            TargetStoreBackend.Reader reader,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaMutation at,
+            com.nereusstream.delay.ownership.SourceReplayEntry actualInput) {
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetMigrationFullSourceArchive());
+        final byte[] before = reader.get(ColumnFamily.META, key),
+                raw = reader.projected(ColumnFamily.META, key, overlay);
+        if (raw == null) {
+            throw new IllegalStateException("complete Source archive requires its actual descriptor21 activation");
+        }
+        final var record = TargetProtocolActivationRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetProtocolActivationRecord.VALUE_TYPE)
+                        .payload(),
+                scope,
+                lineage);
+        if (!record.body().payload().descriptor().supportsMigrationFullSourceArchive()
+                || record.rootEvidence() == null) {
+            throw new IllegalStateException(
+                    "complete Source archive lacks its exact original Root reader authorization");
+        }
+        final var owner = new TargetQuotaIdentity(
+                TargetQuotaIdentity.Kind.SHARD,
+                scope.shard(),
+                reader.aggregate().accountingIncarnation(),
+                null,
+                null);
+        if (before != null) {
+            if (!Arrays.equals(before, raw)) {
+                throw new IllegalStateException("archive reader activation cannot change its original retained row");
+            }
+            requireApplied(
+                    reader,
+                    List.of(),
+                    scope,
+                    lineage,
+                    owner,
+                    record,
+                    reader.aggregate().mutation());
+        } else {
+            if (!record.appliedAt().equals(at)
+                    || at.sequence() != TargetQuotaMutation.increment(reader.sourceSequence())
+                    || reader.source() == null
+                    || at.source().compareTo(reader.source()) <= 0
+                    || !(actualInput instanceof com.nereusstream.delay.ownership.SourceReplayMutation actual)
+                    || !Arrays.equals(
+                            actual.position().canonicalBytes(), at.source().canonicalBytes())
+                    || !Arrays.equals(
+                            actual.mutation().canonicalEnvelope(),
+                            record.marker().canonicalEnvelope())) {
+                throw new IllegalStateException(
+                        "archive reader activation overlay is not this actual Source successor");
+            }
+            requireNewProjected(reader, overlay, ColumnFamily.META, key);
+            requireNewProjected(
+                    reader,
+                    overlay,
+                    ColumnFamily.DEDUPE,
+                    resultKey(record.marker().systemMutationId()));
+            requireNewProjected(reader, overlay, ColumnFamily.DEDUPE, positionKey(at.source()));
+            requireApplied(reader, overlay, scope, lineage, owner, record, at);
         }
         return record;
     }
-    private static void requireNewProjected(TargetStoreBackend.Reader reader,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key){
-        TargetStoreBackend.Edit selected=null;
-        for(var edit:overlay)if(edit.family()==family&&Arrays.equals(edit.key(),key)){
-            if(selected!=null)throw new IllegalStateException("archive reader activation repeats one actual Native key");selected=edit;
+
+    private static void requireNewProjected(
+            TargetStoreBackend.Reader reader, List<TargetStoreBackend.Edit> overlay, ColumnFamily family, byte[] key) {
+        TargetStoreBackend.Edit selected = null;
+        for (var edit : overlay) {
+            if (edit.family() == family && Arrays.equals(edit.key(), key)) {
+                if (selected != null) {
+                    throw new IllegalStateException("archive reader activation repeats one actual Native key");
+                }
+                selected = edit;
+            }
         }
-        if(selected==null||selected.before()!=null||selected.after()==null||reader.get(family,key)!=null)
+        if (selected == null
+                || selected.before() != null
+                || selected.after() == null
+                || reader.get(family, key) != null) {
             throw new IllegalStateException("archive reader activation needs its exact new Native53/first/POS batch");
+        }
     }
     /** Read-only ledger dependency; no local runtime capability or current reader/Owner is substituted for historical bytes. */
-    public static void requirePriorActivation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,TargetQuotaScope scope,byte[] lineage,
-            TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
-        final var activation=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
-        requireApplied(view,overlay,scope,lineage,sourceOwner,activation,frontier);business.requireAfter(activation.appliedAt());
+    public static void requirePriorActivation(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaIdentity sourceOwner,
+            TargetQuotaMutation business,
+            TargetQuotaMutation frontier) {
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final var activation = TargetProtocolActivationRecord.decodeForStore(
+                key,
+                payload(view, overlay, ColumnFamily.META, key, TargetProtocolActivationRecord.VALUE_TYPE),
+                scope,
+                lineage);
+        requireApplied(view, overlay, scope, lineage, sourceOwner, activation, frontier);
+        business.requireAfter(activation.appliedAt());
     }
-    public static boolean isActivated(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple,SourcePosition source){
-        final var record=applied(reader,scope,lineage,tuple);return record!=null&&record.body().payload().descriptor().supportsAcceptedHistoryTip()&&record.appliedAt().source().compareTo(source)<0;
+
+    public static boolean isActivated(
+            TargetStoreBackend.Reader reader,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            ProtocolTuple tuple,
+            SourcePosition source) {
+        final var record = applied(reader, scope, lineage, tuple);
+        return record != null
+                && record.body().payload().descriptor().supportsAcceptedHistoryTip()
+                && record.appliedAt().source().compareTo(source) < 0;
     }
-    public static boolean isActivatedForRetirement(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
-            ProtocolTuple tuple,SourcePosition source,TargetExternalEvidenceObjectResource resource){
-        final var record=applied(reader,scope,lineage,tuple);
-        return record!=null&&record.body().payload().descriptor().supportsAcceptedHistoryTip()&&record.appliedAt().source().compareTo(source)<0
-                &&(!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
-                    ||record.body().payload().descriptor().supportsCapacityOwnerStaging());
+
+    public static boolean isActivatedForRetirement(
+            TargetStoreBackend.Reader reader,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            ProtocolTuple tuple,
+            SourcePosition source,
+            TargetExternalEvidenceObjectResource resource) {
+        final var record = applied(reader, scope, lineage, tuple);
+        return record != null
+                && record.body().payload().descriptor().supportsAcceptedHistoryTip()
+                && record.appliedAt().source().compareTo(source) < 0
+                && (!(resource.provenance() instanceof TargetExternalEvidenceObjectResource.ReservedStaging)
+                        || record.body().payload().descriptor().supportsCapacityOwnerStaging());
     }
-    public static void requireCapacityOwnerStaging(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
-            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
-        final var record=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
-        requireApplied(view,overlay,scope,lineage,sourceOwner,record,frontier);business.requireAfter(record.appliedAt());
-        if(!record.body().payload().descriptor().supportsCapacityOwnerStaging())
+
+    public static void requireCapacityOwnerStaging(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaIdentity sourceOwner,
+            TargetQuotaMutation business,
+            TargetQuotaMutation frontier) {
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final var record = TargetProtocolActivationRecord.decodeForStore(
+                key,
+                payload(view, overlay, ColumnFamily.META, key, TargetProtocolActivationRecord.VALUE_TYPE),
+                scope,
+                lineage);
+        requireApplied(view, overlay, scope, lineage, sourceOwner, record, frontier);
+        business.requireAfter(record.appliedAt());
+        if (!record.body().payload().descriptor().supportsCapacityOwnerStaging()) {
             throw new IllegalStateException("capacity-root staging requires original descriptor4 activation");
+        }
     }
-    public static TargetProtocolActivationRecord applied(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,ProtocolTuple tuple){
-        final byte[] key=TargetProtocolActivationRecord.key(tuple),raw=reader.get(ColumnFamily.META,key);if(raw==null)return null;
+
+    public static TargetProtocolActivationRecord applied(
+            TargetStoreBackend.Reader reader, TargetQuotaScope scope, byte[] lineage, ProtocolTuple tuple) {
+        final byte[] key = TargetProtocolActivationRecord.key(tuple), raw = reader.get(ColumnFamily.META, key);
+        if (raw == null) {
+            return null;
+        }
         requireLocalCompanion(true);
-        final var record=TargetProtocolActivationRecord.decodeForStore(key,TargetValueEnvelope.decode(raw,TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
-        final var owner=new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD,scope.shard(),reader.aggregate().accountingIncarnation(),null,null);
-        requireApplied(reader,List.of(),scope,lineage,owner,record,reader.aggregate().mutation());return record;
+        final var record = TargetProtocolActivationRecord.decodeForStore(
+                key,
+                TargetValueEnvelope.decode(raw, TargetProtocolActivationRecord.VALUE_TYPE)
+                        .payload(),
+                scope,
+                lineage);
+        final var owner = new TargetQuotaIdentity(
+                TargetQuotaIdentity.Kind.SHARD,
+                scope.shard(),
+                reader.aggregate().accountingIncarnation(),
+                null,
+                null);
+        requireApplied(
+                reader,
+                List.of(),
+                scope,
+                lineage,
+                owner,
+                record,
+                reader.aggregate().mutation());
+        return record;
     }
-    public static void requireRetainedMarkerConfirmation(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,
-            TargetQuotaScope scope,byte[] lineage,TargetQuotaIdentity sourceOwner,TargetQuotaMutation business,TargetQuotaMutation frontier){
-        final byte[] key=TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
-        final var record=TargetProtocolActivationRecord.decodeForStore(key,payload(view,overlay,ColumnFamily.META,key,TargetProtocolActivationRecord.VALUE_TYPE),scope,lineage);
-        requireApplied(view,overlay,scope,lineage,sourceOwner,record,frontier);business.requireAfter(record.appliedAt());
-        if(!record.body().payload().descriptor().supportsRetainedMarkerConfirmation())
+
+    public static void requireRetainedMarkerConfirmation(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetQuotaIdentity sourceOwner,
+            TargetQuotaMutation business,
+            TargetQuotaMutation frontier) {
+        final byte[] key = TargetProtocolActivationRecord.key(ProtocolTuple.targetEvidenceRetirement());
+        final var record = TargetProtocolActivationRecord.decodeForStore(
+                key,
+                payload(view, overlay, ColumnFamily.META, key, TargetProtocolActivationRecord.VALUE_TYPE),
+                scope,
+                lineage);
+        requireApplied(view, overlay, scope, lineage, sourceOwner, record, frontier);
+        business.requireAfter(record.appliedAt());
+        if (!record.body().payload().descriptor().supportsRetainedMarkerConfirmation()) {
             throw new IllegalStateException("retained marker confirmation requires actual descriptor5 activation");
+        }
     }
-    public static void requireHistoryBinding(TargetStoreBackend.Reader reader,TargetQuotaScope scope,byte[] lineage,
-            TargetRetirementAuthorizationHistory.Grant grant,SourcePosition source){
-        final var record=applied(reader,scope,lineage,grant.activation().tuple());
-        if(record==null)throw new IllegalStateException("original history activation projection is unavailable");
-        final var payload=record.body().payload();final var reference=grant.activation();
-        if(record.appliedAt().source().compareTo(source)>=0||!Arrays.equals(record.digest(),grant.targetActivationDigest())
-                ||!Arrays.equals(payload.descriptor().digest(),grant.targetDescriptorDigest())||!Arrays.equals(record.marker().mutationHash(),grant.markerHash())
-                ||!Arrays.equals(reference.mutationId(),record.marker().systemMutationId())||!Arrays.equals(reference.sourcePosition().canonicalBytes(),record.appliedAt().source().canonicalBytes())
-                ||!Arrays.equals(reference.canonicalSchemaHash(),payload.descriptor().targetSchemaHash())
-                ||!Arrays.equals(reference.compatibleReaderSetEvidenceHash(),payload.readerEvidenceHash()))
-            throw new CommandResolutionException(StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION,"original Source history mismatches actual prior Target activation");
+
+    public static void requireHistoryBinding(
+            TargetStoreBackend.Reader reader,
+            TargetQuotaScope scope,
+            byte[] lineage,
+            TargetRetirementAuthorizationHistory.Grant grant,
+            SourcePosition source) {
+        final var record = applied(reader, scope, lineage, grant.activation().tuple());
+        if (record == null) {
+            throw new IllegalStateException("original history activation projection is unavailable");
+        }
+        final var payload = record.body().payload();
+        final var reference = grant.activation();
+        if (record.appliedAt().source().compareTo(source) >= 0
+                || !Arrays.equals(record.digest(), grant.targetActivationDigest())
+                || !Arrays.equals(payload.descriptor().digest(), grant.targetDescriptorDigest())
+                || !Arrays.equals(record.marker().mutationHash(), grant.markerHash())
+                || !Arrays.equals(reference.mutationId(), record.marker().systemMutationId())
+                || !Arrays.equals(
+                        reference.sourcePosition().canonicalBytes(),
+                        record.appliedAt().source().canonicalBytes())
+                || !Arrays.equals(
+                        reference.canonicalSchemaHash(), payload.descriptor().targetSchemaHash())
+                || !Arrays.equals(reference.compatibleReaderSetEvidenceHash(), payload.readerEvidenceHash())) {
+            throw new CommandResolutionException(
+                    StableCode.UNACTIVATED_SYSTEM_PROTOCOL_VERSION,
+                    "original Source history mismatches actual prior Target activation");
+        }
     }
-    private static byte[] resultKey(byte[] id){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_SYSTEM_TAG,TargetKeyCodec.KEY_FORMAT},id);}
-    private static void requireLocalCompanion(boolean needed){
-        if(needed&&TargetCheckpointSemanticSnapshot.MAX_SCHEMA_VERSION<TargetProtocolActivationDescriptor.TARGET_CHECKPOINT_SCHEMA)
-            throw new IllegalStateException("Target activation requires its independently implemented checkpoint companion");
+
+    private static byte[] resultKey(byte[] id) {
+        return Bytes.concat(new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, id);
     }
-    private static byte[] positionKey(SourcePosition source){return Bytes.concat(new byte[]{TargetKeyCodec.RESULT_POSITION_TAG,TargetKeyCodec.KEY_FORMAT},source.canonicalBytes());}
-    private static void absent(TargetStoreBackend.Reader reader,ColumnFamily family,byte[] key){if(reader.get(family,key)!=null)throw new IllegalStateException("first activation encountered existing Source result");}
-    private static byte[] payload(TargetStoreBackend.Reader reader,ColumnFamily family,byte[] key,int type){return payload(reader,List.of(),family,key,type);}
-    private static byte[] payload(TargetRecordAccounting.View view,List<TargetStoreBackend.Edit> overlay,ColumnFamily family,byte[] key,int type){return TargetValueEnvelope.decode(Objects.requireNonNull(view.projected(family,key,overlay),"actual activation dependency"),type).payload();}
+
+    private static void requireLocalCompanion(boolean needed) {
+        if (needed
+                && TargetCheckpointSemanticSnapshot.MAX_SCHEMA_VERSION
+                        < TargetProtocolActivationDescriptor.TARGET_CHECKPOINT_SCHEMA) {
+            throw new IllegalStateException(
+                    "Target activation requires its independently implemented checkpoint companion");
+        }
+    }
+
+    private static byte[] positionKey(SourcePosition source) {
+        return Bytes.concat(
+                new byte[] {TargetKeyCodec.RESULT_POSITION_TAG, TargetKeyCodec.KEY_FORMAT}, source.canonicalBytes());
+    }
+
+    private static void absent(TargetStoreBackend.Reader reader, ColumnFamily family, byte[] key) {
+        if (reader.get(family, key) != null) {
+            throw new IllegalStateException("first activation encountered existing Source result");
+        }
+    }
+
+    private static byte[] payload(TargetStoreBackend.Reader reader, ColumnFamily family, byte[] key, int type) {
+        return payload(reader, List.of(), family, key, type);
+    }
+
+    private static byte[] payload(
+            TargetRecordAccounting.View view,
+            List<TargetStoreBackend.Edit> overlay,
+            ColumnFamily family,
+            byte[] key,
+            int type) {
+        return TargetValueEnvelope.decode(
+                        Objects.requireNonNull(view.projected(family, key, overlay), "actual activation dependency"),
+                        type)
+                .payload();
+    }
 }

@@ -66,6 +66,11 @@ public final class WorkClassDispatcher {
         return eventLoop.pendingBytes(Objects.requireNonNull(workClass, "workClass"));
     }
 
-    boolean withdrawQueued(final WorkClassTask task) { return eventLoop.withdrawQueued(task); }
-    boolean hasActiveTask(final WorkClassTask task) { return eventLoop.hasActiveTask(task); }
+    boolean withdrawQueued(final WorkClassTask task) {
+        return eventLoop.withdrawQueued(task);
+    }
+
+    boolean hasActiveTask(final WorkClassTask task) {
+        return eventLoop.hasActiveTask(task);
+    }
 }

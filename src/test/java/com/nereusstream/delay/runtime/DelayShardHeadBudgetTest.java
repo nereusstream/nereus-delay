@@ -48,13 +48,11 @@ class DelayShardHeadBudgetTest {
             assertEquals(32_000_049L, requiredRecords);
             assertTrue(requiredRecords < Integer.MAX_VALUE);
             final DelayShard undersized = boundedShard(
-                    fixture.store,
-                    new HeadReadPolicy(Math.toIntExact(requiredRecords - 1), 1_000_000, 1_000, () -> 0));
+                    fixture.store, new HeadReadPolicy(Math.toIntExact(requiredRecords - 1), 1_000_000, 1_000, () -> 0));
             assertThrows(IllegalStateException.class, undersized::requireExplicitFiniteHeadReadPolicy);
 
             final DelayShard complete = boundedShard(
-                    fixture.store,
-                    new HeadReadPolicy(Math.toIntExact(requiredRecords), 1_000_000, 1_000, () -> 0));
+                    fixture.store, new HeadReadPolicy(Math.toIntExact(requiredRecords), 1_000_000, 1_000, () -> 0));
             complete.requireExplicitFiniteHeadReadPolicy();
         }
     }
@@ -189,16 +187,16 @@ class DelayShardHeadBudgetTest {
             // The completed read path observes times 0..9 while reading the Lane,
             // DUE, ORDERED, and Native inputs. The final plan completion check
             // must observe time 10 and yield before any write.
-            final DelayShard shard = boundedShard(
-                    fixture.store, new HeadReadPolicy(100, 1_000_000, 10, clock::getAndIncrement));
+            final DelayShard shard =
+                    boundedShard(fixture.store, new HeadReadPolicy(100, 1_000_000, 10, clock::getAndIncrement));
             final PreparedCommand cancel =
                     PreparedCommand.cancel(fixture.shardId, fixture.first.delayMessageId(), 0, 30_000);
             final List<String> before = snapshot(fixture.store);
             final long writes = fixture.store.operationStatistics().nativeWriteCalls();
             final long sequence = shard.mutationSequence();
 
-            final HeadReadIncompleteException incomplete = assertThrows(
-                    HeadReadIncompleteException.class, () -> shard.apply(cancel, fixture.position(2)));
+            final HeadReadIncompleteException incomplete =
+                    assertThrows(HeadReadIncompleteException.class, () -> shard.apply(cancel, fixture.position(2)));
 
             assertEquals(BoundedReadBudget.Exhaustion.ELAPSED, incomplete.reason());
             assertEquals(11, clock.get());

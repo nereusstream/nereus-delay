@@ -56,14 +56,32 @@ public final class TargetClaimRecord {
             final long executionBytes,
             final long controlVersion,
             final TargetQuotaMutation creation) {
-        this(original, messageVersion, messageDigest, selected, owner, storeIncarnation, sequence, deadline,
-                executionBytes, controlVersion, creation, null);
+        this(
+                original,
+                messageVersion,
+                messageDigest,
+                selected,
+                owner,
+                storeIncarnation,
+                sequence,
+                deadline,
+                executionBytes,
+                controlVersion,
+                creation,
+                null);
     }
 
     public TargetClaimRecord(
-            final TargetGenerationRuntimeIndex original, final long messageVersion, final byte[] messageDigest,
-            final TargetHeadRef selected, final OwnerIdentity owner, final byte[] storeIncarnation,
-            final long sequence, final long deadline, final long executionBytes, final long controlVersion,
+            final TargetGenerationRuntimeIndex original,
+            final long messageVersion,
+            final byte[] messageDigest,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final byte[] storeIncarnation,
+            final long sequence,
+            final long deadline,
+            final long executionBytes,
+            final long controlVersion,
             final TargetQuotaMutation creation,
             final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         this.original = Objects.requireNonNull(original, "original");
@@ -99,8 +117,10 @@ public final class TargetClaimRecord {
         this.deadline = deadline;
         this.executionBytes = executionBytes;
         this.controlVersion = controlVersion;
-        if (policyHead != null && (!selected.nativeCandidate() || policyHead.oxiaVersion() <= 0
-                || policyHead.canonicalBytes().length > MAX_POLICY_HEAD_BYTES)) {
+        if (policyHead != null
+                && (!selected.nativeCandidate()
+                        || policyHead.oxiaVersion() <= 0
+                        || policyHead.canonicalBytes().length > MAX_POLICY_HEAD_BYTES)) {
             throw new IllegalArgumentException("Native Claim requires a bounded positive policy head revision");
         }
         this.policyHead = policyHead;
@@ -108,9 +128,13 @@ public final class TargetClaimRecord {
         digest = Bytes.sha256(DIGEST_DOMAIN, identityFields(), claimId);
     }
 
-    public int version() { return policyHead == null ? VERSION : NATIVE_VERSION; }
+    public int version() {
+        return policyHead == null ? VERSION : NATIVE_VERSION;
+    }
 
-    public com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead() { return policyHead; }
+    public com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead() {
+        return policyHead;
+    }
 
     public TargetTimelineWorkRef work() {
         return original.timeline();
@@ -198,9 +222,7 @@ public final class TargetClaimRecord {
      * this projection alone grants no Producer permission.
      */
     public TargetMessageRecord admitted(
-            final TargetMessageRecord current,
-            final AttemptObligationRef publishingAttempt,
-            final int attemptNo) {
+            final TargetMessageRecord current, final AttemptObligationRef publishingAttempt, final int attemptNo) {
         requireCurrent(Objects.requireNonNull(current, "current"));
         Objects.requireNonNull(publishingAttempt, "publishingAttempt");
         final TargetTimelineWorkRef claimedWork = work();
@@ -240,10 +262,9 @@ public final class TargetClaimRecord {
         obligations.add(insertAt, publishingAttempt);
 
         final boolean uncertainRetry = work().workKind() == TimelineWorkKind.UNCERTAIN_RETRY;
-        final int uncertainRetries = Math.addExact(
-                prior.uncertainRetryAdmissionsUsed(), uncertainRetry ? 1 : 0);
-        final boolean hasUncertain = obligations.stream()
-                .anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
+        final int uncertainRetries = Math.addExact(prior.uncertainRetryAdmissionsUsed(), uncertainRetry ? 1 : 0);
+        final boolean hasUncertain =
+                obligations.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN);
         final long runtimeRevision = TargetQueueState.nextRevision(prior.runtimeRevision());
         final var nextRuntime = new TargetGenerationRuntimeIndex(
                 original.generation(),
@@ -348,7 +369,9 @@ public final class TargetClaimRecord {
     private byte[] identityFields() {
         return CanonicalProtobuf.message(out -> {
             out.writeBytes(fields());
-            if (policyHead != null) { CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes()); }
+            if (policyHead != null) {
+                CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes());
+            }
         });
     }
 
@@ -357,7 +380,9 @@ public final class TargetClaimRecord {
             out.writeBytes(fields());
             CanonicalProtobuf.bytes(out, 13, claimId);
             CanonicalProtobuf.bytes(out, 14, digest);
-            if (policyHead != null) { CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes()); }
+            if (policyHead != null) {
+                CanonicalProtobuf.bytes(out, 15, policyHead.canonicalBytes());
+            }
         });
     }
 
@@ -374,11 +399,14 @@ public final class TargetClaimRecord {
             f.add(reader.next());
         }
         final boolean nativeV2 = QueryCodecSupport.uint32(f.get(0), 1) == NATIVE_VERSION;
-        QueryCodecSupport.requireNumbers(f, nativeV2
-                ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
-                : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, "TargetClaimRecord");
-        if (!nativeV2 && (QueryCodecSupport.uint32(f.get(0), 1) != VERSION
-                || encoded.length > MAX_V1_CANONICAL_BYTES)) {
+        QueryCodecSupport.requireNumbers(
+                f,
+                nativeV2
+                        ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+                        : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+                "TargetClaimRecord");
+        if (!nativeV2
+                && (QueryCodecSupport.uint32(f.get(0), 1) != VERSION || encoded.length > MAX_V1_CANONICAL_BYTES)) {
             throw new IllegalArgumentException("unknown Target Claim version");
         }
         final byte[] owner = QueryCodecSupport.bytes(f.get(5), 6);
@@ -397,8 +425,10 @@ public final class TargetClaimRecord {
                 QueryCodecSupport.uint(f.get(9), 10),
                 QueryCodecSupport.uint64Bits(f.get(10), 11),
                 TargetQuotaMutation.decode(QueryCodecSupport.bytes(f.get(11), 12)),
-                nativeV2 ? com.nereusstream.delay.protocol.HandoffPolicyHeadRef.decode(
-                        QueryCodecSupport.bytes(f.get(14), 15)) : null);
+                nativeV2
+                        ? com.nereusstream.delay.protocol.HandoffPolicyHeadRef.decode(
+                                QueryCodecSupport.bytes(f.get(14), 15))
+                        : null);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetClaimRecord");
         return result;
     }

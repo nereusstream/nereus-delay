@@ -1,7 +1,7 @@
 package com.nereusstream.delay.runtime;
 
-import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.ownership.TargetPayloadSummaryLegacyPrefix;
+import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.TargetQuotaAccounting;
@@ -34,23 +34,32 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
      * separately by the closed Source-family calculation. Touched and changed sets differ: prepare
      * looks up every touched counter twice, whereas the backend rechecks only changed counters.
      */
-    static void envelopeProjectionReads(java.util.function.BiConsumer<Integer,Long> add,
-            boolean rootInOverlay,long touchedCounters,long changedCounters,
-            long touchedTargets,long changedTargets){
-        add.accept(com.nereusstream.delay.protocol.TargetQuotaAggregate.VALUE_TYPE,2L);
-        if(!rootInOverlay)add.accept(TargetQuotaIncarnation.VALUE_TYPE,1L);
-        add.accept(TargetQuotaBookkeeping.VALUE_TYPE,1L);
-        add.accept(TargetQuotaCounter.VALUE_TYPE,Math.addExact(Math.multiplyExact(2L,touchedCounters),changedCounters));
-        add.accept(com.nereusstream.delay.protocol.TargetQuotaTotal.VALUE_TYPE,
-                Math.addExact(touchedTargets,Math.multiplyExact(2L,changedTargets)));
+    static void envelopeProjectionReads(
+            java.util.function.BiConsumer<Integer, Long> add,
+            boolean rootInOverlay,
+            long touchedCounters,
+            long changedCounters,
+            long touchedTargets,
+            long changedTargets) {
+        add.accept(com.nereusstream.delay.protocol.TargetQuotaAggregate.VALUE_TYPE, 2L);
+        if (!rootInOverlay) {
+            add.accept(TargetQuotaIncarnation.VALUE_TYPE, 1L);
+        }
+        add.accept(TargetQuotaBookkeeping.VALUE_TYPE, 1L);
+        add.accept(
+                TargetQuotaCounter.VALUE_TYPE, Math.addExact(Math.multiplyExact(2L, touchedCounters), changedCounters));
+        add.accept(
+                com.nereusstream.delay.protocol.TargetQuotaTotal.VALUE_TYPE,
+                Math.addExact(touchedTargets, Math.multiplyExact(2L, changedTargets)));
     }
 
     /** Backend.measure writes one aggregate plus the Source position and sequence for a Source batch. */
-    static long envelopeWriteRecords(long completeBusiness,long changedCounters,long changedTargets,
-            boolean fence,boolean cursors){
-        long records=Math.addExact(Math.addExact(completeBusiness,changedCounters),changedTargets);
-        return Math.addExact(records,3L+(fence?1:0)+(cursors?1:0));
+    static long envelopeWriteRecords(
+            long completeBusiness, long changedCounters, long changedTargets, boolean fence, boolean cursors) {
+        long records = Math.addExact(Math.addExact(completeBusiness, changedCounters), changedTargets);
+        return Math.addExact(records, 3L + (fence ? 1 : 0) + (cursors ? 1 : 0));
     }
+
     private final TargetQuotaScope scope;
     private final byte[] lineage;
     private final SourcePosition source;
@@ -71,8 +80,18 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final int maximumCounters,
             final int maximumTargets,
             final int maximumDomains) {
-        this(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets, maximumDomains,
-                null, TargetScopeFeeAuthority.UNAVAILABLE, null, null);
+        this(
+                scope,
+                lineage,
+                source,
+                mutationDigest,
+                maximumCounters,
+                maximumTargets,
+                maximumDomains,
+                null,
+                TargetScopeFeeAuthority.UNAVAILABLE,
+                null,
+                null);
     }
 
     private TargetSourceAccounting(
@@ -106,36 +125,79 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         this.maximumDomains = maximumDomains;
         this.scopeSource = scopeSource;
         this.scopeFees = Objects.requireNonNull(scopeFees, "original Scope fee authority");
-        if (payloadSummaryInitialization != null && legacyPrefix != null)
+        if (payloadSummaryInitialization != null && legacyPrefix != null) {
             throw new IllegalArgumentException("legacy v1 prefix cannot initialize a v2 payload summary");
+        }
         this.payloadSummaryInitialization = payloadSummaryInitialization;
         this.legacyPrefix = legacyPrefix;
     }
 
     /** The complete actual frame is retained separately from business authorization and the logical first. */
     public TargetSourceAccounting withScopeSource(final SystemMutation input, final TargetScopeFeeAuthority fees) {
-        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, Objects.requireNonNull(input), Objects.requireNonNull(fees), payloadSummaryInitialization, legacyPrefix);
+        return new TargetSourceAccounting(
+                scope,
+                lineage,
+                source,
+                mutationDigest,
+                maximumCounters,
+                maximumTargets,
+                maximumDomains,
+                Objects.requireNonNull(input),
+                Objects.requireNonNull(fees),
+                payloadSummaryInitialization,
+                legacyPrefix);
     }
 
     /** Commands and ordinary business inputs only settle their additional scoped Native effects. */
     public TargetSourceAccounting withScopeFees(final TargetScopeFeeAuthority fees) {
-        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, scopeSource, Objects.requireNonNull(fees), payloadSummaryInitialization, legacyPrefix);
+        return new TargetSourceAccounting(
+                scope,
+                lineage,
+                source,
+                mutationDigest,
+                maximumCounters,
+                maximumTargets,
+                maximumDomains,
+                scopeSource,
+                Objects.requireNonNull(fees),
+                payloadSummaryInitialization,
+                legacyPrefix);
     }
 
     /** Only the original protected bootstrap can attach its opaque same-cut qualification to this Source batch. */
     public TargetSourceAccounting withPayloadSummaryInitialization(
             TargetPayloadObligationSummaryBootstrap.Qualification qualification) {
-        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, scopeSource, scopeFees, Objects.requireNonNull(qualification), legacyPrefix);
+        return new TargetSourceAccounting(
+                scope,
+                lineage,
+                source,
+                mutationDigest,
+                maximumCounters,
+                maximumTargets,
+                maximumDomains,
+                scopeSource,
+                scopeFees,
+                Objects.requireNonNull(qualification),
+                legacyPrefix);
     }
 
     /** The private exact-event recovery permit grants no live v1 writer or v2 initialization capability. */
     public TargetSourceAccounting withLegacyPrefix(TargetPayloadSummaryLegacyPrefix.EventPermit permit) {
-        if (permit == null) return this;
-        return new TargetSourceAccounting(scope, lineage, source, mutationDigest, maximumCounters, maximumTargets,
-                maximumDomains, scopeSource, scopeFees, payloadSummaryInitialization, permit);
+        if (permit == null) {
+            return this;
+        }
+        return new TargetSourceAccounting(
+                scope,
+                lineage,
+                source,
+                mutationDigest,
+                maximumCounters,
+                maximumTargets,
+                maximumDomains,
+                scopeSource,
+                scopeFees,
+                payloadSummaryInitialization,
+                permit);
     }
 
     @Override
@@ -157,22 +219,32 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
             final List<TargetStoreBackend.Edit> inputBusiness,
             final TargetStoreBackend.IngressFenceChange fence,
             final TargetStoreBackend.EvidenceCursorChange cursors) {
-        if (inputBusiness.size() > reader.maximumWriteRecords() || !scope.shard().equals(reader.shardId())) {
+        if (inputBusiness.size() > reader.maximumWriteRecords()
+                || !scope.shard().equals(reader.shardId())) {
             throw new IllegalArgumentException("source accounting record/scope limit mismatch");
         }
         final var aggregate = reader.aggregate();
         final var stamp =
                 new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, mutationDigest);
-        final boolean ownArchiveReplay=TargetMigrationArchiveStore.handlesSourceTail(reader,inputBusiness,stamp);
-        if(!ownArchiveReplay)TargetMigrationArchivePreparation.requireTail(reader,inputBusiness,stamp);
+        final boolean ownArchiveReplay = TargetMigrationArchiveStore.handlesSourceTail(reader, inputBusiness, stamp);
+        if (!ownArchiveReplay) {
+            TargetMigrationArchivePreparation.requireTail(reader, inputBusiness, stamp);
+        }
         final List<TargetStoreBackend.Edit> archivedBusiness;
-        final var archiveTail=reader.archiveTailProof();
-        if(archiveTail!=null&&!ownArchiveReplay){
-            final var migration=TargetMigrationStore.requireActivated(reader,List.of(),scope,lineage,reader.aggregate().mutation());
-            final var retirement=Objects.requireNonNull(TargetMigrationRetirementStore.selected(reader,List.of(),migration,reader.aggregate().mutation()));
-            archivedBusiness=TargetMigrationArchiveStore.appendTail(reader,inputBusiness,migration,retirement,archiveTail.actual(),stamp,archiveTail);
-        }else archivedBusiness=inputBusiness;
-        if(archivedBusiness.size()>reader.maximumWriteRecords())throw new IllegalArgumentException("archive Source batch exceeds its original write-record reservation");
+        final var archiveTail = reader.archiveTailProof();
+        if (archiveTail != null && !ownArchiveReplay) {
+            final var migration = TargetMigrationStore.requireActivated(
+                    reader, List.of(), scope, lineage, reader.aggregate().mutation());
+            final var retirement = Objects.requireNonNull(TargetMigrationRetirementStore.selected(
+                    reader, List.of(), migration, reader.aggregate().mutation()));
+            archivedBusiness = TargetMigrationArchiveStore.appendTail(
+                    reader, inputBusiness, migration, retirement, archiveTail.actual(), stamp, archiveTail);
+        } else {
+            archivedBusiness = inputBusiness;
+        }
+        if (archivedBusiness.size() > reader.maximumWriteRecords()) {
+            throw new IllegalArgumentException("archive Source batch exceeds its original write-record reservation");
+        }
         TargetMigrationStore.requireGuardEdits(reader, archivedBusiness, stamp);
         TargetMigrationRetirementStore.requireEdits(reader, archivedBusiness, stamp);
         final var rootId = new TargetQuotaIdentity(
@@ -216,10 +288,11 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                         1,
                         stamp)
                 : priorRoot;
-        final var business = TargetScopeNativeSettlement.append(reader, archivedBusiness, scope, lineage, stamp, seed,
-                maximumDomains, scopeSource, scopeFees);
-        TargetMigrationArchiveStore.requireEdits(reader,business,stamp);
-        TargetPayloadObligationSource.requireSource(reader, business, scope, lineage, stamp, payloadSummaryInitialization, legacyPrefix);
+        final var business = TargetScopeNativeSettlement.append(
+                reader, archivedBusiness, scope, lineage, stamp, seed, maximumDomains, scopeSource, scopeFees);
+        TargetMigrationArchiveStore.requireEdits(reader, business, stamp);
+        TargetPayloadObligationSource.requireSource(
+                reader, business, scope, lineage, stamp, payloadSummaryInitialization, legacyPrefix);
         final var beforeView =
                 new TargetRecordAccounting(reader, List.of(), scope, lineage, stamp, seed, maximumDomains);
         final var afterView = new TargetRecordAccounting(reader, business, scope, lineage, stamp, seed, maximumDomains);
@@ -298,17 +371,25 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
                     || !Arrays.equals(cursors.before(), reader.get(ColumnFamily.META, KeyCodec.metaFixed(6)))) {
                 throw new IllegalStateException("Target cursor seed requires its established root and exact before");
             }
-            final byte[] prior = cursors.before() == null ? new byte[0]
+            final byte[] prior = cursors.before() == null
+                    ? new byte[0]
                     : TargetValueEnvelope.decode(cursors.before(), 1).payload();
             if (prior.length != 0) {
-                final var fee = TargetRecordAccounting.resources(descriptor.accounting().recordCharge(
-                        TargetQuotaAccounting.RecordClass.STATE, KeyCodec.metaFixed(6).length, prior.length));
+                final var fee = TargetRecordAccounting.resources(descriptor
+                        .accounting()
+                        .recordCharge(
+                                TargetQuotaAccounting.RecordClass.STATE, KeyCodec.metaFixed(6).length, prior.length));
                 merge(removed, rootId, fee);
                 merge(removed, seed.tenantOwner(), fee);
             }
-            final var fee = TargetRecordAccounting.resources(descriptor.accounting().recordCharge(
-                    TargetQuotaAccounting.RecordClass.STATE, KeyCodec.metaFixed(6).length,
-                    TargetValueEnvelope.decode(cursors.encodedAfter(), 1).payload().length));
+            final var fee = TargetRecordAccounting.resources(descriptor
+                    .accounting()
+                    .recordCharge(
+                            TargetQuotaAccounting.RecordClass.STATE,
+                            KeyCodec.metaFixed(6).length,
+                            TargetValueEnvelope.decode(cursors.encodedAfter(), 1)
+                                    .payload()
+                                    .length));
             merge(added, rootId, fee);
             merge(added, seed.tenantOwner(), fee);
         }

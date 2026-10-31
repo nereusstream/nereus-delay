@@ -18,30 +18,39 @@ public final class TargetChannelControlRequest implements ControlOperationReques
     private final ControlReason reason;
 
     private TargetChannelControlRequest(
-            final ControlOperationKind operation, final TargetChannelIdentity channel,
-            final byte[] expectedPriorDigest, final OwnerIdentity owner, final ControlReason reason) {
+            final ControlOperationKind operation,
+            final TargetChannelIdentity channel,
+            final byte[] expectedPriorDigest,
+            final OwnerIdentity owner,
+            final ControlReason reason) {
         this.operation = Objects.requireNonNull(operation, "operation");
         this.channel = Objects.requireNonNull(channel, "channel");
         this.owner = Objects.requireNonNull(owner, "owner");
         if (owner.canonicalBytes().length > TargetQuotaClaimCharge.MAX_OWNER_BYTES) {
             throw new IllegalArgumentException("channel Control Owner identity exceeds its bound");
         }
-        this.expectedPriorDigest = expectedPriorDigest == null ? null
+        this.expectedPriorDigest = expectedPriorDigest == null
+                ? null
                 : TargetCompatibilityCodec.assigned(expectedPriorDigest, 32, "priorChannelDigest");
         this.reason = reason;
         switch (operation) {
             case CREATE_TARGET_CHANNEL -> {
-                if (expectedPriorDigest != null || reason != null || channel.context().channelGeneration() != 1) {
+                if (expectedPriorDigest != null
+                        || reason != null
+                        || channel.context().channelGeneration() != 1) {
                     throw new IllegalArgumentException("channel creation requires a fresh slot and generation one");
                 }
             }
             case RENEW_TARGET_CHANNEL -> {
-                if (expectedPriorDigest == null || reason != null || channel.context().channelGeneration() == 1) {
+                if (expectedPriorDigest == null
+                        || reason != null
+                        || channel.context().channelGeneration() == 1) {
                     throw new IllegalArgumentException("channel renewal requires an exact predecessor");
                 }
             }
             case STOP_TARGET_CHANNEL_NEW_WORK -> {
-                if (expectedPriorDigest == null || reason == null
+                if (expectedPriorDigest == null
+                        || reason == null
                         || !Arrays.equals(expectedPriorDigest, channel.digest())) {
                     throw new IllegalArgumentException("channel stop must retain the exact current identity");
                 }
@@ -56,23 +65,43 @@ public final class TargetChannelControlRequest implements ControlOperationReques
 
     public static TargetChannelControlRequest renew(
             final TargetChannelIdentity channel, final byte[] priorDigest, final OwnerIdentity owner) {
-        return new TargetChannelControlRequest(ControlOperationKind.RENEW_TARGET_CHANNEL, channel,
-                Objects.requireNonNull(priorDigest, "priorDigest"), owner, null);
+        return new TargetChannelControlRequest(
+                ControlOperationKind.RENEW_TARGET_CHANNEL,
+                channel,
+                Objects.requireNonNull(priorDigest, "priorDigest"),
+                owner,
+                null);
     }
 
     public static TargetChannelControlRequest stop(
             final TargetChannelIdentity channel, final OwnerIdentity owner, final ControlReason reason) {
-        return new TargetChannelControlRequest(ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK,
-                channel, channel.digest(), owner, Objects.requireNonNull(reason, "reason"));
+        return new TargetChannelControlRequest(
+                ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK,
+                channel,
+                channel.digest(),
+                owner,
+                Objects.requireNonNull(reason, "reason"));
     }
 
-    public ControlOperationKind operationKind() { return operation; }
-    public TargetChannelIdentity channel() { return channel; }
-    public OwnerIdentity owner() { return owner; }
+    public ControlOperationKind operationKind() {
+        return operation;
+    }
+
+    public TargetChannelIdentity channel() {
+        return channel;
+    }
+
+    public OwnerIdentity owner() {
+        return owner;
+    }
+
     public byte[] expectedPriorDigest() {
         return expectedPriorDigest == null ? null : Bytes.copy(expectedPriorDigest);
     }
-    public ControlReason reason() { return reason; }
+
+    public ControlReason reason() {
+        return reason;
+    }
 
     public int controlKind() {
         return switch (operation) {
@@ -92,21 +121,26 @@ public final class TargetChannelControlRequest implements ControlOperationReques
         return CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.uint32(out, 1, 1);
             CanonicalProtobuf.bytes(out, 2, channel.canonicalBytes());
-            if (expectedPriorDigest != null) { CanonicalProtobuf.bytes(out, 3, expectedPriorDigest); }
+            if (expectedPriorDigest != null) {
+                CanonicalProtobuf.bytes(out, 3, expectedPriorDigest);
+            }
             CanonicalProtobuf.bytes(out, 4, owner.canonicalBytes());
-            if (reason != null) { CanonicalProtobuf.bytes(out, 5, reason.canonicalBytes()); }
+            if (reason != null) {
+                CanonicalProtobuf.bytes(out, 5, reason.canonicalBytes());
+            }
         });
     }
 
     public static TargetChannelControlRequest decode(final ControlOperationKind operation, final byte[] encoded) {
-        final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false,
-                "Target channel Control request");
-        final int[] required = switch (operation) {
-            case CREATE_TARGET_CHANNEL -> new int[] {1, 2, 4};
-            case RENEW_TARGET_CHANNEL -> new int[] {1, 2, 3, 4};
-            case STOP_TARGET_CHANNEL_NEW_WORK -> new int[] {1, 2, 3, 4, 5};
-            default -> throw new IllegalArgumentException("unknown channel lifecycle operation");
-        };
+        final var fields =
+                TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 5, false, "Target channel Control request");
+        final int[] required =
+                switch (operation) {
+                    case CREATE_TARGET_CHANNEL -> new int[] {1, 2, 4};
+                    case RENEW_TARGET_CHANNEL -> new int[] {1, 2, 3, 4};
+                    case STOP_TARGET_CHANNEL_NEW_WORK -> new int[] {1, 2, 3, 4, 5};
+                    default -> throw new IllegalArgumentException("unknown channel lifecycle operation");
+                };
         QueryCodecSupport.requireNumbers(fields, required, "Target channel Control request");
         if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unknown channel Control request version");
@@ -117,20 +151,27 @@ public final class TargetChannelControlRequest implements ControlOperationReques
         if (ownerBytes.length > TargetQuotaClaimCharge.MAX_OWNER_BYTES) {
             throw new IllegalArgumentException("channel Control Owner exceeds its bound");
         }
-        final var result = new TargetChannelControlRequest(operation, channel,
-                create ? null : QueryCodecSupport.fixed(fields.get(2), 3, 32), OwnerIdentity.decode(ownerBytes),
+        final var result = new TargetChannelControlRequest(
+                operation,
+                channel,
+                create ? null : QueryCodecSupport.fixed(fields.get(2), 3, 32),
+                OwnerIdentity.decode(ownerBytes),
                 operation == ControlOperationKind.STOP_TARGET_CHANNEL_NEW_WORK
-                        ? ControlReason.decode(QueryCodecSupport.bytes(fields.getLast(), 5)) : null);
+                        ? ControlReason.decode(QueryCodecSupport.bytes(fields.getLast(), 5))
+                        : null);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "Target channel Control request");
         return result;
     }
 
     @Override
     public boolean equals(final Object other) {
-        return other instanceof TargetChannelControlRequest that && operation == that.operation
+        return other instanceof TargetChannelControlRequest that
+                && operation == that.operation
                 && Arrays.equals(canonicalBytes(), that.canonicalBytes());
     }
 
     @Override
-    public int hashCode() { return Arrays.hashCode(canonicalBytes()); }
+    public int hashCode() {
+        return Arrays.hashCode(canonicalBytes());
+    }
 }

@@ -1,12 +1,12 @@
 package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.PreparedPublishPreflight;
+import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.TargetOrdinaryPublishRequest;
-import com.nereusstream.delay.adapter.BoundedDestinationPublishAdapter.TargetOrdinaryPublishPreflight;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
@@ -112,17 +112,35 @@ public final class PulsarClientArtifactDestinationTransport
             final byte[] producerNameHash,
             final PublishEvidenceProvider publishEvidenceProvider,
             final boolean nativePreparedDeliveryEnabled) {
-        this(null, producer, authenticatedClusterId, resourceIncarnation, physicalTopic,
-                physicalTopicCreationTimestamp, partition, producerNameHash, publishEvidenceProvider,
-                nativePreparedDeliveryEnabled, Duration.ofSeconds(30), null);
+        this(
+                null,
+                producer,
+                authenticatedClusterId,
+                resourceIncarnation,
+                physicalTopic,
+                physicalTopicCreationTimestamp,
+                partition,
+                producerNameHash,
+                publishEvidenceProvider,
+                nativePreparedDeliveryEnabled,
+                Duration.ofSeconds(30),
+                null);
     }
 
     /** Managed opening binds the actual shared client and keeps the generation allocation until native cleanup. */
-    public PulsarClientArtifactDestinationTransport(final PulsarClient client, final Producer<byte[]> producer,
-            final String authenticatedClusterId, final byte[] resourceIncarnation, final String physicalTopic,
-            final long physicalTopicCreationTimestamp, final int partition, final byte[] producerNameHash,
-            final PublishEvidenceProvider publishEvidenceProvider, final boolean nativePreparedDeliveryEnabled,
-            final Duration closeTimeout, final TargetDestinationSdkBudget.Client budget) {
+    public PulsarClientArtifactDestinationTransport(
+            final PulsarClient client,
+            final Producer<byte[]> producer,
+            final String authenticatedClusterId,
+            final byte[] resourceIncarnation,
+            final String physicalTopic,
+            final long physicalTopicCreationTimestamp,
+            final int partition,
+            final byte[] producerNameHash,
+            final PublishEvidenceProvider publishEvidenceProvider,
+            final boolean nativePreparedDeliveryEnabled,
+            final Duration closeTimeout,
+            final TargetDestinationSdkBudget.Client budget) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.backend = client == null ? null : PulsarClientArtifactOwnedBackendGroup.find(client);
         this.producerClose = new PulsarClientArtifactProducerClose(client, producer, closeTimeout, budget);
@@ -185,9 +203,9 @@ public final class PulsarClientArtifactDestinationTransport
                     DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
         try {
-            return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, () -> producer.newMessage()
-                    .value(request.payload())
-                    .sendAsync())
+            return PulsarClientArtifactOwnedBackendGroup.nativeSend(
+                            producer,
+                            () -> producer.newMessage().value(request.payload()).sendAsync())
                     .handle((messageId, failure) -> failure == null
                             ? success(request, preparedPublishHash, messageId)
                             : failure(request, preparedPublishHash, failure));
@@ -208,13 +226,15 @@ public final class PulsarClientArtifactDestinationTransport
 
     @Override
     public CompletionStage<DestinationPublishResult> publishPreparedRecord(
-            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
             final PreparedPublishPreflight ownershipGate) {
         return publishPreparedRecordInternal(record, artifacts, Objects.requireNonNull(ownershipGate, "ownershipGate"));
     }
 
     private CompletionStage<DestinationPublishResult> publishPreparedRecordInternal(
-            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
             final PreparedPublishPreflight ownershipGate) {
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
@@ -280,11 +300,14 @@ public final class PulsarClientArtifactDestinationTransport
         }
         final var builder = PulsarClientArtifactRecordEncoder.configureTargetOrdinary(producer, request);
         final var denied = gate.check(request);
-        if (denied != null) { return CompletableFuture.completedFuture(denied); }
+        if (denied != null) {
+            return CompletableFuture.completedFuture(denied);
+        }
         // Synchronous failure after this boundary is intentionally propagated: completion/ownership is unobserved.
-        return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, builder::sendAsync).handle((id, failure) -> failure == null
-                ? success(request, id)
-                : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        return PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, builder::sendAsync)
+                .handle((id, failure) -> failure == null
+                        ? success(request, id)
+                        : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
     }
 
     private DestinationPublishResult success(final TargetOrdinaryPublishRequest request, final MessageId id) {
@@ -292,26 +315,40 @@ public final class PulsarClientArtifactDestinationTransport
                 || !(id instanceof MessageIdAdv advanced)
                 || !expectedGuard.equals(guarded.resourceGuard())
                 || !physicalTopic.equals(guarded.physicalTopic())
-                || partition != guarded.partition() || advanced.getPartitionIndex() != partition
-                || advanced.getLedgerId() < 0 || advanced.getEntryId() < 0
-                || guarded.brokerEntryTimestamp() < 0 || guarded.responseEvidence() == null) {
+                || partition != guarded.partition()
+                || advanced.getPartitionIndex() != partition
+                || advanced.getLedgerId() < 0
+                || advanced.getEntryId() < 0
+                || guarded.brokerEntryTimestamp() < 0
+                || guarded.responseEvidence() == null) {
             return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
         }
         final var e = guarded.responseEvidence();
         final int batch = advanced.getBatchIndex();
         if (!new TopicResourceGuardAttestation(expectedGuard, physicalTopic, partition).equals(e.attestation())
-                || e.ledgerId() != advanced.getLedgerId() || e.entryId() != advanced.getEntryId()
+                || e.ledgerId() != advanced.getLedgerId()
+                || e.entryId() != advanced.getEntryId()
                 || e.brokerEntryTimestamp() != guarded.brokerEntryTimestamp()
                 || batch >= 0 && (advanced.getBatchSize() <= 0 || batch >= advanced.getBatchSize())) {
             return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
         }
         try {
-            final var typed = PulsarSendAckEvidence.published(request, producerNameHash,
-                    advanced.getLedgerId(), advanced.getEntryId(), Math.max(0, batch),
-                    e.brokerEntryTimestamp(), e.sequenceId(), e.authenticatedResponseCommandSha256());
+            final var typed = PulsarSendAckEvidence.published(
+                    request,
+                    producerNameHash,
+                    advanced.getLedgerId(),
+                    advanced.getEntryId(),
+                    Math.max(0, batch),
+                    e.brokerEntryTimestamp(),
+                    e.sequenceId(),
+                    e.authenticatedResponseCommandSha256());
             typed.requireOrdinaryTargetPublishedBinding(request.publication());
-            return DestinationPublishResult.published(expectedTarget(), partition,
-                    request.publication().publishAttemptId(), e.brokerEntryTimestamp(), typed.canonicalBytes());
+            return DestinationPublishResult.published(
+                    expectedTarget(),
+                    partition,
+                    request.publication().publishAttemptId(),
+                    e.brokerEntryTimestamp(),
+                    typed.canonicalBytes());
         } catch (RuntimeException inconsistentEvidence) {
             return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
         }
@@ -321,7 +358,11 @@ public final class PulsarClientArtifactDestinationTransport
     public void close() {
         producerClose.close();
     }
-    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
+
+    @Override
+    public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+        return backend;
+    }
 
     private DestinationPublishResult success(
             final PulsarDestinationRequest request, final byte[] preparedPublishHash, final MessageId messageId) {

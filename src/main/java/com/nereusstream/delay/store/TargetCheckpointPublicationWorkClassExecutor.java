@@ -16,32 +16,41 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
     private final WorkClassExecutionRegistry workClasses;
     private final CheckpointPublicationCoordinator publication;
 
-    public TargetCheckpointPublicationWorkClassExecutor(WorkClassExecutionRegistry workClasses,
-            CheckpointPublicationCoordinator publication) {
+    public TargetCheckpointPublicationWorkClassExecutor(
+            WorkClassExecutionRegistry workClasses, CheckpointPublicationCoordinator publication) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.publication = Objects.requireNonNull(publication, "publication");
         publication.resources().bindWorkClassExecutionRegistry(workClasses);
     }
 
     /** Pure queue identity/admission; authentication and provider/Catalog I/O run only in the selected action. */
-    public Submission submit(CheckpointUploadIntent pending, TargetCheckpointRootVerifier.AuthenticatedImage image,
-            long expectedCatalogGeneration, long nowEpochMs, CheckpointUploadAdapter adapter) {
+    public Submission submit(
+            CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            long expectedCatalogGeneration,
+            long nowEpochMs,
+            CheckpointUploadAdapter adapter) {
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(adapter, "adapter");
-        if (nowEpochMs < 0 || pending.baseCatalogGeneration() != expectedCatalogGeneration
+        if (nowEpochMs < 0
+                || pending.baseCatalogGeneration() != expectedCatalogGeneration
                 || !pending.shard().shardId().equals(image.manifest().shardId())
                 || !Arrays.equals(pending.checkpointId(), image.manifest().checkpointId())) {
             throw new IllegalArgumentException("Target publication request does not match its exact image/intent");
         }
-        final byte[] identity = Bytes.concat(pending.canonicalBytes(), image.manifest().manifestSha256());
-        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
-                "target-checkpoint-publication/" + Bytes.hex(Bytes.sha256(identity)), identity.length);
+        final byte[] identity =
+                Bytes.concat(pending.canonicalBytes(), image.manifest().manifestSha256());
+        final var task = new WorkClassTask(
+                WorkClass.CHECKPOINT,
+                "target-checkpoint-publication/" + Bytes.hex(Bytes.sha256(identity)),
+                identity.length);
         final var result = new Submission(task);
         workClasses.submit(task, () -> {
             try {
-                result.complete(new Outcome(publication.publishTarget(pending, image, expectedCatalogGeneration,
-                        nowEpochMs, adapter), null));
+                result.complete(new Outcome(
+                        publication.publishTarget(pending, image, expectedCatalogGeneration, nowEpochMs, adapter),
+                        null));
             } catch (RuntimeException failure) {
                 result.complete(new Outcome(null, failure));
             } catch (Error failure) {
@@ -53,19 +62,27 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
     }
 
     /** Queues candidate inspection, Manifest construction and full authentication before upload/Catalog I/O. */
-    public Submission submitCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
-            LongSupplier clock, CheckpointUploadAdapter adapter) {
+    public Submission submitCandidate(
+            TargetCheckpointRootVerifier.CandidateImage candidate,
+            LongSupplier clock,
+            CheckpointUploadAdapter adapter) {
         return submitCandidate(candidate, clock, adapter, null);
     }
 
     /** Explicit first-publication path; namespace initialization needs separate trusted permission. */
-    public Submission submitInitialCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
-            LongSupplier clock, CheckpointUploadAdapter adapter, CatalogInitializationAuthority initialization) {
+    public Submission submitInitialCandidate(
+            TargetCheckpointRootVerifier.CandidateImage candidate,
+            LongSupplier clock,
+            CheckpointUploadAdapter adapter,
+            CatalogInitializationAuthority initialization) {
         return submitCandidate(candidate, clock, adapter, Objects.requireNonNull(initialization, "initialization"));
     }
 
-    private Submission submitCandidate(TargetCheckpointRootVerifier.CandidateImage candidate,
-            LongSupplier clock, CheckpointUploadAdapter adapter, CatalogInitializationAuthority initialization) {
+    private Submission submitCandidate(
+            TargetCheckpointRootVerifier.CandidateImage candidate,
+            LongSupplier clock,
+            CheckpointUploadAdapter adapter,
+            CatalogInitializationAuthority initialization) {
         Objects.requireNonNull(candidate, "candidate");
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(clock, "clock");
@@ -80,7 +97,9 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
                     CanonicalProtobuf.bytes(entry, 3, file.checksum());
                     CanonicalProtobuf.bytes(entry, 4, file.objectKey());
                     CanonicalProtobuf.bytes(entry, 5, file.objectVersion());
-                    if (file.etag() != null) { CanonicalProtobuf.bytes(entry, 6, file.etag()); }
+                    if (file.etag() != null) {
+                        CanonicalProtobuf.bytes(entry, 6, file.etag());
+                    }
                 }));
             }
             CanonicalProtobuf.bytes(out, 5, CanonicalProtobuf.message(limits -> {
@@ -102,9 +121,11 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
                 CanonicalProtobuf.int64(limits, 16, candidate.semantic().maximumAdmissionFrameBytes());
             }));
         });
-        final var task = new WorkClassTask(WorkClass.CHECKPOINT,
+        final var task = new WorkClassTask(
+                WorkClass.CHECKPOINT,
                 (initialization == null ? "target-candidate-publication/" : "target-initial-publication/")
-                        + Bytes.hex(Bytes.sha256(identity)), identity.length);
+                        + Bytes.hex(Bytes.sha256(identity)),
+                identity.length);
         final var result = new Submission(task);
         workClasses.submit(task, () -> {
             try {
@@ -112,8 +133,12 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
                 if (initialization != null) {
                     publication.initializeTarget(candidate.pending(), image, initialization);
                 }
-                final var published = publication.publishTarget(candidate.pending(), image,
-                        candidate.pending().baseCatalogGeneration(), clock.getAsLong(), adapter);
+                final var published = publication.publishTarget(
+                        candidate.pending(),
+                        image,
+                        candidate.pending().baseCatalogGeneration(),
+                        clock.getAsLong(),
+                        adapter);
                 result.authenticatedImage = image;
                 result.complete(new Outcome(published, null));
             } catch (RuntimeException failure) {
@@ -131,20 +156,32 @@ public final class TargetCheckpointPublicationWorkClassExecutor {
         private volatile Outcome outcome;
         private TargetCheckpointRootVerifier.AuthenticatedImage authenticatedImage;
 
-        private Submission(WorkClassTask task) { this.task = task; }
-        public WorkClassTask task() { return task; }
-        public Optional<Outcome> outcome() { return Optional.ofNullable(outcome); }
+        private Submission(WorkClassTask task) {
+            this.task = task;
+        }
+
+        public WorkClassTask task() {
+            return task;
+        }
+
+        public Optional<Outcome> outcome() {
+            return Optional.ofNullable(outcome);
+        }
 
         /** Available only after successful candidate publication; the caller retains the image protections. */
         public Optional<TargetCheckpointRootVerifier.AuthenticatedImage> authenticatedImage() {
             final var settled = outcome;
-            if (settled == null || settled.failure() != null || authenticatedImage == null) { return Optional.empty(); }
+            if (settled == null || settled.failure() != null || authenticatedImage == null) {
+                return Optional.empty();
+            }
             authenticatedImage.requireCurrent();
             return Optional.of(authenticatedImage);
         }
 
         private synchronized void complete(Outcome result) {
-            if (outcome != null) { throw new IllegalStateException("Target publication already completed"); }
+            if (outcome != null) {
+                throw new IllegalStateException("Target publication already completed");
+            }
             outcome = result;
         }
     }

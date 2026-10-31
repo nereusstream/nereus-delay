@@ -14,7 +14,18 @@ import java.util.function.Supplier;
 /** One-row recovery turns and one caller-owned asynchronous history load; no extra thread, queue or SEND path. */
 public final class TargetPublishRecoveryMaintenance {
     public enum Status {
-        DISCOVERED, SCAN_YIELD, RESTART_SCAN, LOADING, SUBMITTED, WAITING_SOURCE, RECONCILING, SETTLED, SOURCE_REJECTED, ALREADY_HANDLED, IDLE, FAILED
+        DISCOVERED,
+        SCAN_YIELD,
+        RESTART_SCAN,
+        LOADING,
+        SUBMITTED,
+        WAITING_SOURCE,
+        RECONCILING,
+        SETTLED,
+        SOURCE_REJECTED,
+        ALREADY_HANDLED,
+        IDLE,
+        FAILED
     }
 
     /** Authenticated history and policy/key/time preparation must run outside the Store and maintenance thread. */
@@ -26,33 +37,60 @@ public final class TargetPublishRecoveryMaintenance {
     /** Actual provider authentication of the private guarded scan plus original Source/resource/Artifact protection. */
     @FunctionalInterface
     public interface ResolutionAuthority {
-        void requireAuthenticated(com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown unknown,
+        void requireAuthenticated(
+                com.nereusstream.delay.runtime.TargetPublishOutcomeStore.KafkaUnknown unknown,
                 com.nereusstream.delay.protocol.PublishEvidence evidence);
     }
 
-    public record Resolution(com.nereusstream.delay.protocol.PublishEvidence evidence,
-            com.nereusstream.delay.protocol.AuthorIdentity service, com.nereusstream.delay.protocol.StableCode stableCode,
-            TargetPublishOutcomeMutationFactory signer, ResolutionAuthority authority,TargetArchivedKafkaResolution archived) {
-        public Resolution(com.nereusstream.delay.protocol.PublishEvidence evidence,com.nereusstream.delay.protocol.AuthorIdentity service,
-                com.nereusstream.delay.protocol.StableCode code,TargetPublishOutcomeMutationFactory signer,ResolutionAuthority authority){
-            this(evidence,service,code,signer,authority,null);
+    public record Resolution(
+            com.nereusstream.delay.protocol.PublishEvidence evidence,
+            com.nereusstream.delay.protocol.AuthorIdentity service,
+            com.nereusstream.delay.protocol.StableCode stableCode,
+            TargetPublishOutcomeMutationFactory signer,
+            ResolutionAuthority authority,
+            TargetArchivedKafkaResolution archived) {
+        public Resolution(
+                com.nereusstream.delay.protocol.PublishEvidence evidence,
+                com.nereusstream.delay.protocol.AuthorIdentity service,
+                com.nereusstream.delay.protocol.StableCode code,
+                TargetPublishOutcomeMutationFactory signer,
+                ResolutionAuthority authority) {
+            this(evidence, service, code, signer, authority, null);
         }
-        public static Resolution archived(TargetArchivedKafkaResolution actual){
-            final var mutation=Objects.requireNonNull(actual).mutation();final var body=com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
-            return new Resolution(com.nereusstream.delay.protocol.PublishEvidence.decode(body.evidence()),
-                    com.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity()),body.stableCode(),null,null,actual);
+
+        public static Resolution archived(TargetArchivedKafkaResolution actual) {
+            final var mutation = Objects.requireNonNull(actual).mutation();
+            final var body = com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(
+                    mutation.canonicalBody());
+            return new Resolution(
+                    com.nereusstream.delay.protocol.PublishEvidence.decode(body.evidence()),
+                    com.nereusstream.delay.protocol.AuthorIdentity.decode(mutation.authorIdentity()),
+                    body.stableCode(),
+                    null,
+                    null,
+                    actual);
         }
+
         public Resolution {
             Objects.requireNonNull(evidence, "actual recovery evidence");
             Objects.requireNonNull(service, "actual SERVICE author");
             Objects.requireNonNull(stableCode, "result code");
-            if(archived==null){Objects.requireNonNull(signer,"SERVICE signer");Objects.requireNonNull(authority,"actual recovery authority");}
-            else{
-                final var mutation=archived.mutation();final var body=com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(mutation.canonicalBody());
+            if (archived == null) {
+                Objects.requireNonNull(signer, "SERVICE signer");
+                Objects.requireNonNull(authority, "actual recovery authority");
+            } else {
+                final var mutation = archived.mutation();
+                final var body = com.nereusstream.delay.protocol.PublishOutcomeBody.decodeEvidenceResolution(
+                        mutation.canonicalBody());
                 archived.prepared().requireExact(mutation);
-                if(signer!=null||authority!=null||!java.util.Arrays.equals(evidence.canonicalBytes(),body.evidence())
-                        ||!java.util.Arrays.equals(service.canonicalBytes(),mutation.authorIdentity())||stableCode!=body.stableCode())
-                    throw new IllegalArgumentException("archived resolution must retain its exact sealed Source image without Worker signing keys");
+                if (signer != null
+                        || authority != null
+                        || !java.util.Arrays.equals(evidence.canonicalBytes(), body.evidence())
+                        || !java.util.Arrays.equals(service.canonicalBytes(), mutation.authorIdentity())
+                        || stableCode != body.stableCode()) {
+                    throw new IllegalArgumentException(
+                            "archived resolution must retain its exact sealed Source image without Worker signing keys");
+                }
             }
             if (service.kind() != com.nereusstream.delay.protocol.AuthorIdentity.Kind.SERVICE) {
                 throw new IllegalArgumentException("recovery resolution requires its SERVICE identity");
@@ -60,10 +98,18 @@ public final class TargetPublishRecoveryMaintenance {
         }
     }
 
-    public record Prepared(SystemMutation admission, OwnerIdentity owner,
-            WorkerPublishOutcomeMutationFactory.OutcomeContext context, Resolution resolution) {
-        public Prepared(SystemMutation admission, OwnerIdentity owner,
-                WorkerPublishOutcomeMutationFactory.OutcomeContext context) { this(admission, owner, context, null); }
+    public record Prepared(
+            SystemMutation admission,
+            OwnerIdentity owner,
+            WorkerPublishOutcomeMutationFactory.OutcomeContext context,
+            Resolution resolution) {
+        public Prepared(
+                SystemMutation admission,
+                OwnerIdentity owner,
+                WorkerPublishOutcomeMutationFactory.OutcomeContext context) {
+            this(admission, owner, context, null);
+        }
+
         public Prepared {
             Objects.requireNonNull(admission, "admission");
             Objects.requireNonNull(owner, "owner");
@@ -72,7 +118,9 @@ public final class TargetPublishRecoveryMaintenance {
     }
 
     public record Turn(Status status, SystemMutation mutation, Throwable failure) {
-        public Turn { Objects.requireNonNull(status, "status"); }
+        public Turn {
+            Objects.requireNonNull(status, "status");
+        }
     }
 
     private final TargetWorkerShardRuntime worker;
@@ -86,8 +134,12 @@ public final class TargetPublishRecoveryMaintenance {
     private CompletableFuture<Prepared> loading;
     private TargetPublishRecoveryExecutor.Submission pending;
 
-    public TargetPublishRecoveryMaintenance(TargetWorkerShardRuntime worker, TargetPublishRecoveryExecutor executor,
-            Supplier<BoundedReadBudget> reads, History history, LongSupplier ownerClock) {
+    public TargetPublishRecoveryMaintenance(
+            TargetWorkerShardRuntime worker,
+            TargetPublishRecoveryExecutor executor,
+            Supplier<BoundedReadBudget> reads,
+            History history,
+            LongSupplier ownerClock) {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.executor.requireWorker(this.worker);
@@ -102,16 +154,19 @@ public final class TargetPublishRecoveryMaintenance {
             if (pending != null) {
                 if (executor.settleApplied(ownerClock)) {
                     final var mutation = pending.mutation();
-                    final boolean rejected=pending.rejected();
+                    final boolean rejected = pending.rejected();
                     pending = null;
                     selected = null;
                     loading = null;
                     // Any Source/local delta can insert an earlier attempt; do not rebase an old cursor by guesswork.
                     cursor = null;
-                    return new Turn(rejected?Status.SOURCE_REJECTED:Status.SETTLED, mutation, null);
+                    return new Turn(rejected ? Status.SOURCE_REJECTED : Status.SETTLED, mutation, null);
                 }
                 executor.retryHandoff(ownerClock);
-                return new Turn(pending.awaitingCompletion()?Status.RECONCILING:Status.WAITING_SOURCE,pending.mutation(),pending.failure().orElse(null));
+                return new Turn(
+                        pending.awaitingCompletion() ? Status.RECONCILING : Status.WAITING_SOURCE,
+                        pending.mutation(),
+                        pending.failure().orElse(null));
             }
             if (selected == null) {
                 final var page = scanningKafkaUnknown
@@ -147,20 +202,29 @@ public final class TargetPublishRecoveryMaintenance {
                 prepared = Objects.requireNonNull(loading.join(), "prepared history");
             } catch (RuntimeException failedHistory) {
                 loading = null;
-                return new Turn(Status.FAILED, null,
+                return new Turn(
+                        Status.FAILED,
+                        null,
                         failedHistory.getCause() == null ? failedHistory : failedHistory.getCause());
             }
             selected.requireImage(prepared.admission(), selected.source());
             if (selected.attempt().phase() == com.nereusstream.delay.protocol.TargetQuotaAttemptBudget.Phase.UNKNOWN) {
-                pending = executor.submitResolution(readBudget(), prepared.admission(), prepared.owner(), prepared.context(),
-                        Objects.requireNonNull(prepared.resolution(), "actual K2 UNKNOWN recovery result"), ownerClock);
+                pending = executor.submitResolution(
+                        readBudget(),
+                        prepared.admission(),
+                        prepared.owner(),
+                        prepared.context(),
+                        Objects.requireNonNull(prepared.resolution(), "actual K2 UNKNOWN recovery result"),
+                        ownerClock);
             } else {
                 if (prepared.resolution() != null) {
                     throw new IllegalArgumentException("initial ADMITTED recovery cannot skip its Source UNKNOWN hold");
                 }
-                pending = executor.submit(readBudget(), prepared.admission(), prepared.owner(), prepared.context(), ownerClock);
+                pending = executor.submit(
+                        readBudget(), prepared.admission(), prepared.owner(), prepared.context(), ownerClock);
             }
-            return new Turn(Status.SUBMITTED, pending.mutation(), pending.failure().orElse(null));
+            return new Turn(
+                    Status.SUBMITTED, pending.mutation(), pending.failure().orElse(null));
         } catch (TargetPublishRecoveryDiscovery.StaleCursor changed) {
             cursor = null;
             return new Turn(Status.RESTART_SCAN, null, null);
@@ -172,18 +236,28 @@ public final class TargetPublishRecoveryMaintenance {
     }
 
     /** Drain owns only the selected row/loading/Source handoff; it does not start another discovery sweep. */
-    public synchronized boolean pendingForDrain(){return selected!=null||pending!=null||loading!=null&&!CheckpointInputFuture.ioExited(loading);}
-    public synchronized void retryLoadingCleanup(){if(loading!=null)CheckpointInputFuture.retryCleanup(loading);}
+    public synchronized boolean pendingForDrain() {
+        return selected != null || pending != null || loading != null && !CheckpointInputFuture.ioExited(loading);
+    }
+
+    public synchronized void retryLoadingCleanup() {
+        if (loading != null) {
+            CheckpointInputFuture.retryCleanup(loading);
+        }
+    }
 
     public synchronized Optional<SystemMutation> pendingMutation() {
         return pending == null ? Optional.empty() : Optional.of(pending.mutation());
     }
-    public synchronized boolean retainsAttempt(byte[] attempt){
-        com.nereusstream.delay.protocol.Bytes.requireLength(attempt,32,"original recovery Attempt ID");
-        return selected!=null&&java.util.Arrays.equals(selected.attempt().publishAttemptId(),attempt);
+
+    public synchronized boolean retainsAttempt(byte[] attempt) {
+        com.nereusstream.delay.protocol.Bytes.requireLength(attempt, 32, "original recovery Attempt ID");
+        return selected != null && java.util.Arrays.equals(selected.attempt().publishAttemptId(), attempt);
     }
 
-    private BoundedReadBudget readBudget() { return Objects.requireNonNull(reads.get(), "read budget"); }
+    private BoundedReadBudget readBudget() {
+        return Objects.requireNonNull(reads.get(), "read budget");
+    }
 
     private Turn clearHandled() {
         selected = null;
@@ -191,5 +265,4 @@ public final class TargetPublishRecoveryMaintenance {
         cursor = null;
         return new Turn(Status.ALREADY_HANDLED, null, null);
     }
-
 }

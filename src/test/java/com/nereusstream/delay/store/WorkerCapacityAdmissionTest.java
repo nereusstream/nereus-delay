@@ -60,9 +60,7 @@ class WorkerCapacityAdmissionTest {
         final ShardCapacityEnvelope shardEnvelope = envelope("native-memory-binding", 7, 0);
         final var resources = workerResources(7, 3, 11, 13, 17);
         final List<CapacityVector> mismatchedHardCaps = List.of(
-                workerHardCaps(7, 3, 10, 13, 17),
-                workerHardCaps(7, 3, 11, 12, 17),
-                workerHardCaps(7, 3, 11, 13, 16));
+                workerHardCaps(7, 3, 10, 13, 17), workerHardCaps(7, 3, 11, 12, 17), workerHardCaps(7, 3, 11, 13, 16));
 
         for (CapacityVector hardCaps : mismatchedHardCaps) {
             assertThrows(
@@ -173,5 +171,4 @@ class WorkerCapacityAdmissionTest {
                 .add(vector(CapacityDimension.DIRECT_BUFFER_BYTES, directBufferBytes))
                 .add(vector(CapacityDimension.OTHER_NATIVE_BYTES, otherNativeBytes));
     }
-
 }

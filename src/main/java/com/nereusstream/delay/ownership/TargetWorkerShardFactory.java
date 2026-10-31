@@ -11,11 +11,15 @@ public final class TargetWorkerShardFactory {
 
     /** Both same-DB and installed-checkpoint startup require final barrier/Claim recovery before Worker exposure. */
     public static TargetWorkerShardRuntime createRecovered(
-            final SourceRecordConsumer consumer, final SourceAssignment acceptedAssignment,
-            final WorkClassExecutionRegistry workClasses, final ShardStore store,
-            final SharedRocksDbResources resources, final TargetOwnerRecoveryCoordinator recovery,
+            final SourceRecordConsumer consumer,
+            final SourceAssignment acceptedAssignment,
+            final WorkClassExecutionRegistry workClasses,
+            final ShardStore store,
+            final SharedRocksDbResources resources,
+            final TargetOwnerRecoveryCoordinator recovery,
             final TargetWorkerShardRuntime.Maintenance maintenance) {
-        final var runtime = Objects.requireNonNull(recovery, "completed recovery").activeRuntime();
+        final var runtime =
+                Objects.requireNonNull(recovery, "completed recovery").activeRuntime();
         return create(consumer, acceptedAssignment, workClasses, store, resources, runtime, maintenance);
     }
 

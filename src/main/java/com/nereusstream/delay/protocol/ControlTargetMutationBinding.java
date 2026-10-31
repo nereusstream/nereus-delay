@@ -60,8 +60,10 @@ public final class ControlTargetMutationBinding {
                     if (!expected.equals(body.request())
                             || !Arrays.equals(actor.first(), author.operationActorIdHash())
                             || !Arrays.equals(actor.second(), author.authenticatedRoleSetHash())
-                            || !Arrays.equals(actor.digest(), author.tenantResourceScopeHash()))
-                        throw new IllegalArgumentException("summary initialization changed exact registered request/actor/roles/scope");
+                            || !Arrays.equals(actor.digest(), author.tenantResourceScopeHash())) {
+                        throw new IllegalArgumentException(
+                                "summary initialization changed exact registered request/actor/roles/scope");
+                    }
                     expectedLogicalIdentity = body.logicalIdentity();
                     break;
                 }
@@ -73,43 +75,63 @@ public final class ControlTargetMutationBinding {
                     if (!Arrays.equals(actualAuthor.first(), registeredAuthor.operationActorIdHash())
                             || !Arrays.equals(actualAuthor.second(), registeredAuthor.authenticatedRoleSetHash())
                             || !Arrays.equals(actualAuthor.digest(), registeredAuthor.tenantResourceScopeHash())) {
-                        throw new IllegalArgumentException("migration Source CONTROL author differs from its exact registered actor/roles/scope");
+                        throw new IllegalArgumentException(
+                                "migration Source CONTROL author differs from its exact registered actor/roles/scope");
                     }
                     requireControlRef(expectedControlRef, body.controlRef());
-                    if (!expected.equals(body.request())) throw new IllegalArgumentException("migration differs from its exact registered Control request");
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "migration differs from its exact registered Control request");
+                    }
                     expectedLogicalIdentity = body.logicalIdentity();
                     break;
                 }
-                if(prepared.request().branch() instanceof TargetScopeControlObligationRequest expected){
-                    final var body=TargetScopeControlObligationBody.decode(mutation.canonicalBody());
-                    requireControlRef(expectedControlRef,body.controlRef());
-                    if(!expected.equals(body.request()))throw new IllegalArgumentException("Scope Control obligation differs from its registered request");
-                    expectedLogicalIdentity=body.logicalIdentity();break;
+                if (prepared.request().branch() instanceof TargetScopeControlObligationRequest expected) {
+                    final var body = TargetScopeControlObligationBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "Scope Control obligation differs from its registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
                 }
-                if(prepared.request().branch() instanceof TargetParentControlCreditRequest expected){
-                    final var body=TargetParentControlCreditBody.decode(mutation.canonicalBody());
-                    requireControlRef(expectedControlRef,body.controlRef());
-                    if(!expected.equals(body.request()))throw new IllegalArgumentException("parent Control credit differs from its registered request");
-                    expectedLogicalIdentity=body.logicalIdentity();break;
+                if (prepared.request().branch() instanceof TargetParentControlCreditRequest expected) {
+                    final var body = TargetParentControlCreditBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException("parent Control credit differs from its registered request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
                 }
-                if(prepared.request().branch() instanceof TargetSloWriterControlRequest expected){
-                    final var body=TargetSloWriterControlBody.decode(mutation.canonicalBody());
-                    requireControlRef(expectedControlRef,body.controlRef());
-                    if(!expected.equals(body.request()))throw new IllegalArgumentException("Target SLO writer differs from its registered Control request");
-                    expectedLogicalIdentity=body.logicalIdentity();break;
+                if (prepared.request().branch() instanceof TargetSloWriterControlRequest expected) {
+                    final var body = TargetSloWriterControlBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException(
+                                "Target SLO writer differs from its registered Control request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
                 }
                 if (prepared.request().branch() instanceof TargetSloObservationControlRequest expected) {
                     final var body = TargetSloObservationControlBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef, body.controlRef());
-                    if (!expected.equals(body.request())) throw new IllegalArgumentException("Target SLO Control differs from registered request");
+                    if (!expected.equals(body.request())) {
+                        throw new IllegalArgumentException("Target SLO Control differs from registered request");
+                    }
                     expectedLogicalIdentity = body.logicalIdentity();
                     break;
                 }
-                if(prepared.request().branch() instanceof TargetProtocolActivatePayload expected){
-                    final var body=TargetProtocolActivationBody.decode(mutation.canonicalBody());
-                    requireControlRef(expectedControlRef,body.controlRef());
-                    if(!expected.equals(body.payload()))throw new IllegalArgumentException("Target activation differs from registered Control request");
-                    expectedLogicalIdentity=body.logicalIdentity();break;
+                if (prepared.request().branch() instanceof TargetProtocolActivatePayload expected) {
+                    final var body = TargetProtocolActivationBody.decode(mutation.canonicalBody());
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.payload())) {
+                        throw new IllegalArgumentException("Target activation differs from registered Control request");
+                    }
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
                 }
                 if (prepared.request().branch() instanceof TargetChannelControlRequest expected) {
                     final var body = TargetChannelControlBody.decode(mutation.canonicalBody());

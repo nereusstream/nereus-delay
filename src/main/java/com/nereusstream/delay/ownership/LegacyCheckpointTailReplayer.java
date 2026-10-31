@@ -43,14 +43,14 @@ public final class LegacyCheckpointTailReplayer {
         final SourceRecordConsumer.CheckpointCut exactCut = Objects.requireNonNull(sourceCut, "sourceCut");
         final Iterator<? extends SourceReplayEntry> exactTail = Objects.requireNonNull(sourceTail, "sourceTail");
         final LegacyApplierFactory exactFactory = Objects.requireNonNull(applierFactory, "applierFactory");
-        final PublicKey verificationKey = Objects.requireNonNull(
-                systemMutationVerificationKey, "systemMutationVerificationKey");
+        final PublicKey verificationKey =
+                Objects.requireNonNull(systemMutationVerificationKey, "systemMutationVerificationKey");
         final LongSupplier clock = Objects.requireNonNull(replayClock, "replayClock");
         final ReplayTurnBudget budget = Objects.requireNonNull(totalBudget, "totalBudget");
 
         final ShardStore store = exactCopy.store();
-        final SourcePosition checkpointPosition = Objects.requireNonNull(
-                store.appliedShardLogPosition(), "legacy checkpoint applied source position");
+        final SourcePosition checkpointPosition =
+                Objects.requireNonNull(store.appliedShardLogPosition(), "legacy checkpoint applied source position");
         final SourcePosition cutPosition = Objects.requireNonNull(exactCut.position(), "source cut position");
         validatePositions(store.shardId(), exactAssignment, checkpointPosition, cutPosition);
         requireCurrentCut(exactCut, cutPosition);
@@ -86,18 +86,19 @@ public final class LegacyCheckpointTailReplayer {
         final OwnedDelayShard owned = new OwnedDelayShard(applier, replayLease);
         owned.markCatchingUp(exactAssignment, exactSuccessor);
 
-        final CutBoundIterator boundedTail = new CutBoundIterator(
-                SourceReplayCursor.of(exactTail), exactCut, cutPosition);
-        final SourceReplayTurn<SourceReplayOutcome> turn = owned.replayTurn(
-                SourceReplayCursor.of(boundedTail), verificationKey, clock, budget);
+        final CutBoundIterator boundedTail =
+                new CutBoundIterator(SourceReplayCursor.of(exactTail), exactCut, cutPosition);
+        final SourceReplayTurn<SourceReplayOutcome> turn =
+                owned.replayTurn(SourceReplayCursor.of(boundedTail), verificationKey, clock, budget);
         requireCurrentCut(exactCut, cutPosition);
 
-        final SourcePosition appliedThrough = Objects.requireNonNull(
-                applier.lastAppliedSourcePosition(), "legacy applier source position");
+        final SourcePosition appliedThrough =
+                Objects.requireNonNull(applier.lastAppliedSourcePosition(), "legacy applier source position");
         if (!sameCanonicalPosition(appliedThrough, store.appliedShardLogPosition())) {
             throw new IllegalStateException("legacy applier and isolated Store source positions diverged");
         }
-        final int commandsApplied = (int) turn.results().stream().filter(SourceReplayOutcome::isCommand).count();
+        final int commandsApplied = (int)
+                turn.results().stream().filter(SourceReplayOutcome::isCommand).count();
         final int mutationsApplied = turn.results().size() - commandsApplied;
 
         if (boundedTail.cutConsumed() && sameCanonicalPosition(appliedThrough, cutPosition)) {
@@ -191,7 +192,9 @@ public final class LegacyCheckpointTailReplayer {
             Objects.requireNonNull(checkpointPosition, "checkpointPosition");
             Objects.requireNonNull(sourceCut, "sourceCut");
             Objects.requireNonNull(appliedThrough, "appliedThrough");
-            if (recordsApplied < 0 || commandsApplied < 0 || systemMutationsApplied < 0
+            if (recordsApplied < 0
+                    || commandsApplied < 0
+                    || systemMutationsApplied < 0
                     || recordsApplied != commandsApplied + systemMutationsApplied
                     || (status == Status.EXACT_CUT_REACHED) != (blockReason == BlockReason.NONE)) {
                 throw new IllegalArgumentException("invalid legacy source-tail replay result");

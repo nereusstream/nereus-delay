@@ -17,7 +17,9 @@ import java.util.Optional;
  */
 public interface SourceRecordConsumer extends AutoCloseable {
     /** Only an actually owned SDK group may participate in the Host's backend-failure lifecycle. */
-    default TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+    default TargetOwnedBackendGroup ownedBackendGroup() {
+        return null;
+    }
 
     /** Binds the original trusted Source frame hold before any Target payload is decoded. */
     default void bindFrameDecode(TargetWorkerSourceStartup actual) {

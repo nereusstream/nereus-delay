@@ -15,9 +15,23 @@ public record TargetQuotaMutation(
     public static final int MAX_SOURCE_CANONICAL_BYTES = 11 + 4 + TargetSourcePosition.MAX_CANONICAL_BYTES + 34;
     public static final int MAX_CANONICAL_BYTES = MAX_SOURCE_CANONICAL_BYTES + 11;
 
-    public TargetQuotaMutation(long sequence, SourcePosition source, byte[] mutationDigest, long localClaimOrdinal,
-            boolean reservationExpiry, boolean reservationClosure, boolean reservationCloseCursor) {
-        this(sequence, source, mutationDigest, localClaimOrdinal, reservationExpiry, reservationClosure, reservationCloseCursor, false);
+    public TargetQuotaMutation(
+            long sequence,
+            SourcePosition source,
+            byte[] mutationDigest,
+            long localClaimOrdinal,
+            boolean reservationExpiry,
+            boolean reservationClosure,
+            boolean reservationCloseCursor) {
+        this(
+                sequence,
+                source,
+                mutationDigest,
+                localClaimOrdinal,
+                reservationExpiry,
+                reservationClosure,
+                reservationCloseCursor,
+                false);
     }
 
     public TargetQuotaMutation(
@@ -53,7 +67,8 @@ public record TargetQuotaMutation(
 
     public TargetQuotaMutation {
         if (sequence == 0
-                || ((reservationExpiry || reservationClosure || reservationCloseCursor || migrationPreparation) && localClaimOrdinal == 0)
+                || ((reservationExpiry || reservationClosure || reservationCloseCursor || migrationPreparation)
+                        && localClaimOrdinal == 0)
                 || (reservationExpiry && reservationClosure)
                 || (reservationExpiry && reservationCloseCursor)
                 || (reservationClosure && reservationCloseCursor)
@@ -70,7 +85,11 @@ public record TargetQuotaMutation(
     }
 
     public boolean isLocalClaim() {
-        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure && !reservationCloseCursor && !migrationPreparation;
+        return localClaimOrdinal != 0
+                && !reservationExpiry
+                && !reservationClosure
+                && !reservationCloseCursor
+                && !migrationPreparation;
     }
 
     public boolean isLocalMutation() {
@@ -153,7 +172,9 @@ public record TargetQuotaMutation(
             if (isLocalMutation()) {
                 CanonicalProtobuf.uint64Bits(
                         out,
-                        migrationPreparation ? 8 : reservationCloseCursor ? 7 : reservationClosure ? 6 : reservationExpiry ? 5 : 4,
+                        migrationPreparation
+                                ? 8
+                                : reservationCloseCursor ? 7 : reservationClosure ? 6 : reservationExpiry ? 5 : 4,
                         localClaimOrdinal);
             }
         });

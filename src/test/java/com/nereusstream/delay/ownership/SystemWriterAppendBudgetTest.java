@@ -29,10 +29,12 @@ class SystemWriterAppendBudgetTest {
     void unknownAndRetryShareWindowUntilSdkAndCallerBothFinish() {
         final var classes = classes();
         try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(ShardStoreConfig.defaults(root))) {
-            final var pool = new SystemWriterAppendBudget(new SystemWriterAppendBudget.Limits(2, 256, 128, 1),
-                    classes, resources);
-            assertThrows(IllegalArgumentException.class, () -> new SystemWriterAppendBudget(
-                    new SystemWriterAppendBudget.Limits(2, 256, 128, 1), classes, resources));
+            final var pool = new SystemWriterAppendBudget(
+                    new SystemWriterAppendBudget.Limits(2, 256, 128, 1), classes, resources);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new SystemWriterAppendBudget(
+                            new SystemWriterAppendBudget.Limits(2, 256, 128, 1), classes, resources));
             final var shard = new ShardId(RouteIncarnation.random(), 0);
             final var writer = pool.registerWriter(shard);
             writer.bindProducer(new Object());
@@ -62,15 +64,15 @@ class SystemWriterAppendBudgetTest {
     @Test
     void failedCloseAndReplacementCannotDiscardOldUnknownOrShareProducerIdentity() {
         try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(ShardStoreConfig.defaults(root))) {
-            final var pool = new SystemWriterAppendBudget(new SystemWriterAppendBudget.Limits(1, 128, 128, 2),
-                    classes(), resources);
+            final var pool = new SystemWriterAppendBudget(
+                    new SystemWriterAppendBudget.Limits(1, 128, 128, 2), classes(), resources);
             final var shard = new ShardId(RouteIncarnation.random(), 0);
             final Object producer = new Object();
             final var old = pool.registerWriter(shard);
             old.bindProducer(producer);
             final var pending = old.tryReserve(shard).orElseThrow();
-            assertThrows(IllegalArgumentException.class,
-                    () -> old.tryReserve(new ShardId(shard.routeIncarnation(), 1)));
+            assertThrows(
+                    IllegalArgumentException.class, () -> old.tryReserve(new ShardId(shard.routeIncarnation(), 1)));
             old.invokeSdk(pending, () -> "send with ambiguous response");
             pending.callerReturned();
             final var replacement = pool.registerWriter(shard);
@@ -98,10 +100,10 @@ class SystemWriterAppendBudgetTest {
         final var entered = new CountDownLatch(1);
         final var release = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2);
-                var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(
-                        ShardStoreConfig.defaults(root))) {
-            final var pool = new SystemWriterAppendBudget(new SystemWriterAppendBudget.Limits(1, 128, 128, 1),
-                    classes(), resources);
+                var resources =
+                        WorkerRuntimeTestSupport.openWithSyntheticObservation(ShardStoreConfig.defaults(root))) {
+            final var pool = new SystemWriterAppendBudget(
+                    new SystemWriterAppendBudget.Limits(1, 128, 128, 1), classes(), resources);
             final var shard = new ShardId(RouteIncarnation.random(), 0);
             final var writer = pool.registerWriter(shard);
             writer.bindProducer(new Object());
@@ -140,10 +142,11 @@ class SystemWriterAppendBudgetTest {
     private static WorkClassExecutionRegistry classes() {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (var value : WorkClass.values()) {
-            policies.put(value, new WorkClassPolicy(1, 8, 4096, 8, 4096, 1_000_000_000L,
-                    1, 1, value == WorkClass.LEASE_FENCE));
+            policies.put(
+                    value,
+                    new WorkClassPolicy(1, 8, 4096, 8, 4096, 1_000_000_000L, 1, 1, value == WorkClass.LEASE_FENCE));
         }
-        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies,
-                1_000_000_000L, 1_000_000_000L, 8, 8), System::nanoTime);
+        return new WorkClassExecutionRegistry(
+                new WorkClassRuntimeConfig(policies, 1_000_000_000L, 1_000_000_000L, 8, 8), System::nanoTime);
     }
 }

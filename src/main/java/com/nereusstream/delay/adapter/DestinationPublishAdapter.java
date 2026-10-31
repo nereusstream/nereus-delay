@@ -10,7 +10,10 @@ import java.util.concurrent.CompletionStage;
 
 /** Target-side publish boundary. It reports side-effect evidence only; it never mutates shard state. */
 public interface DestinationPublishAdapter extends AutoCloseable {
-    default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return null; }
+    default com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+        return null;
+    }
+
     CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request);
 
     /**
@@ -47,7 +50,8 @@ public interface DestinationPublishAdapter extends AutoCloseable {
      * A legacy transport must not emulate this by checking before its ordinary record hook.
      */
     default CompletionStage<DestinationPublishResult> publishPreparedRecord(
-            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
             final BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(artifacts, "artifacts");
@@ -69,7 +73,8 @@ public interface DestinationPublishAdapter extends AutoCloseable {
     /** Full immutable channel remains available for multi-Target/generation routing until the last SDK gate. */
     default CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
             com.nereusstream.delay.protocol.TargetOrdinaryPublicationBinding publication,
-            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+            PulsarPreparedRecord record,
+            ArtifactGenerationSet artifacts,
             BoundedDestinationPublishAdapter.TargetPreparedPublishPreflight gate) {
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         return publishPreparedRecord(record, artifacts, (actual, set) -> gate.check(publication, actual, set));
@@ -77,7 +82,8 @@ public interface DestinationPublishAdapter extends AutoCloseable {
 
     default CompletionStage<DestinationPublishResult> publishTargetPreparedRecord(
             com.nereusstream.delay.protocol.TargetNativePublicationBinding publication,
-            PulsarPreparedRecord record, ArtifactGenerationSet artifacts,
+            PulsarPreparedRecord record,
+            ArtifactGenerationSet artifacts,
             BoundedDestinationPublishAdapter.TargetNativePreparedPublishPreflight gate) {
         PulsarPreparedRecordFactory.requireTargetBinding(publication, record, artifacts);
         return publishPreparedRecord(record, artifacts, (actual, set) -> gate.check(publication, actual, set));

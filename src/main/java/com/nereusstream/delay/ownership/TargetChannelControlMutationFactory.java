@@ -25,11 +25,14 @@ public final class TargetChannelControlMutationFactory {
     private final long queryPolicyVersion;
     private final long maximumFrameBytes;
 
-    public TargetChannelControlMutationFactory(final int keyVersion, final PrivateKey key,
-            final long queryPolicyVersion, final long maximumFrameBytes) {
-        if (keyVersion == 0 || queryPolicyVersion == 0
-                || maximumFrameBytes <= 0 || maximumFrameBytes == Long.MAX_VALUE) {
-            throw new IllegalArgumentException("channel control requires assigned signing/query and finite frame limits");
+    public TargetChannelControlMutationFactory(
+            final int keyVersion, final PrivateKey key, final long queryPolicyVersion, final long maximumFrameBytes) {
+        if (keyVersion == 0
+                || queryPolicyVersion == 0
+                || maximumFrameBytes <= 0
+                || maximumFrameBytes == Long.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "channel control requires assigned signing/query and finite frame limits");
         }
         this.keyVersion = keyVersion;
         this.key = Objects.requireNonNull(key, "key");
@@ -38,26 +41,55 @@ public final class TargetChannelControlMutationFactory {
     }
 
     /** Receipt/query and Source retry policies are explicit; neither is inferred from a channel lease expiration. */
-    public Prepared prepare(final byte[] operationId, final TargetChannelControlRequest request,
-            final ControlAuthorizationContext authenticated, final ControlOperationAuthorization.TargetScopeProof scope,
-            final long registrationRetryUntil, final long sourceRetryUntil) {
+    public Prepared prepare(
+            final byte[] operationId,
+            final TargetChannelControlRequest request,
+            final ControlAuthorizationContext authenticated,
+            final ControlOperationAuthorization.TargetScopeProof scope,
+            final long registrationRetryUntil,
+            final long sourceRetryUntil) {
         final var exact = Objects.requireNonNull(request, "request");
         final var actor = Objects.requireNonNull(authenticated, "authenticated");
-        final var author = new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash());
+        final var author =
+                new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash());
         final var operationRequest = exact.operationRequest();
-        final var ref = new ControlRef(operationId,
-                PreparedControlOperation.requestHash(exact.operationKind(), operationRequest), 0);
-        final var body = new TargetChannelControlBody(exact.channel().context().sourceShard(), sourceRetryUntil,
-                ref, exact, exact.expectedPriorDigest() == null ? 1 : 0);
-        final var image = SystemMutation.signed(body.shard(), SystemMutationType.APPLY_SHARD_CONTROL,
-                sourceRetryUntil, body.logicalIdentity(), body.canonicalBytes(),
-                AuthorIdentity.control(author.operationActorIdHash(), author.authenticatedRoleSetHash(),
-                        author.tenantResourceScopeHash()).canonicalBytes(), keyVersion, key);
-        final var target = new ControlTargetRef(0, ControlTargetKind.SHARD, new ShardSubject(body.shard()),
-                image.systemMutationId(), image.mutationHash());
-        final var prepared = PreparedControlOperation.prepare(operationId, exact.operationKind(), author,
-                operationRequest, List.of(target), queryPolicyVersion, registrationRetryUntil,
-                Integer.toUnsignedLong(keyVersion), key);
+        final var ref = new ControlRef(
+                operationId, PreparedControlOperation.requestHash(exact.operationKind(), operationRequest), 0);
+        final var body = new TargetChannelControlBody(
+                exact.channel().context().sourceShard(),
+                sourceRetryUntil,
+                ref,
+                exact,
+                exact.expectedPriorDigest() == null ? 1 : 0);
+        final var image = SystemMutation.signed(
+                body.shard(),
+                SystemMutationType.APPLY_SHARD_CONTROL,
+                sourceRetryUntil,
+                body.logicalIdentity(),
+                body.canonicalBytes(),
+                AuthorIdentity.control(
+                                author.operationActorIdHash(),
+                                author.authenticatedRoleSetHash(),
+                                author.tenantResourceScopeHash())
+                        .canonicalBytes(),
+                keyVersion,
+                key);
+        final var target = new ControlTargetRef(
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(body.shard()),
+                image.systemMutationId(),
+                image.mutationHash());
+        final var prepared = PreparedControlOperation.prepare(
+                operationId,
+                exact.operationKind(),
+                author,
+                operationRequest,
+                List.of(target),
+                queryPolicyVersion,
+                registrationRetryUntil,
+                Integer.toUnsignedLong(keyVersion),
+                key);
         ControlOperationAuthorization.authorize(prepared, actor, Objects.requireNonNull(scope, "scope"));
         ControlTargetMutationBinding.validate(prepared, target, image);
         if (image.encodeFrame().length > maximumFrameBytes || prepared.canonicalBytes().length > maximumFrameBytes) {
@@ -76,18 +108,25 @@ public final class TargetChannelControlMutationFactory {
             this.mutation = mutation;
         }
 
-        public PreparedControlOperation control() { return control; }
-        public SystemMutation mutation() { return mutation; }
+        public PreparedControlOperation control() {
+            return control;
+        }
+
+        public SystemMutation mutation() {
+            return mutation;
+        }
 
         /** Reuses original registered/signed bytes recovered from protected history; no signing or Source allocation. */
         public static Prepared restore(final PreparedControlOperation control, final SystemMutation mutation) {
-            final var body = TargetChannelControlBody.decode(Objects.requireNonNull(mutation, "mutation")
-                    .canonicalBody());
+            final var body = TargetChannelControlBody.decode(
+                    Objects.requireNonNull(mutation, "mutation").canonicalBody());
             final var registered = Objects.requireNonNull(control, "control");
-            if (registered.kind() != body.request().operationKind() || registered.targets().size() != 1) {
+            if (registered.kind() != body.request().operationKind()
+                    || registered.targets().size() != 1) {
                 throw new IllegalArgumentException("recovered lifecycle differs from its registered operation");
             }
-            ControlTargetMutationBinding.validate(registered, registered.targets().getFirst(), mutation);
+            ControlTargetMutationBinding.validate(
+                    registered, registered.targets().getFirst(), mutation);
             return new Prepared(registered, mutation);
         }
     }

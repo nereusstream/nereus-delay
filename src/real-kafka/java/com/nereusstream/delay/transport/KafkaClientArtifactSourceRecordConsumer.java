@@ -66,23 +66,37 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     }
 
     /** Explicit Target writer input path; the legacy constructor retains its Control reader boundary. */
-    public static KafkaClientArtifactSourceRecordConsumer forTarget(final GuardedConsumer<byte[], byte[]> consumer,
-            final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
-            final String physicalTopic, final Duration pollTimeout) {
-        return new KafkaClientArtifactSourceRecordConsumer(consumer, authenticatedClusterId, nativeTopicUuid,
-                shard, physicalTopic, pollTimeout, true, null);
+    public static KafkaClientArtifactSourceRecordConsumer forTarget(
+            final GuardedConsumer<byte[], byte[]> consumer,
+            final String authenticatedClusterId,
+            final UUID nativeTopicUuid,
+            final ShardId shard,
+            final String physicalTopic,
+            final Duration pollTimeout) {
+        return new KafkaClientArtifactSourceRecordConsumer(
+                consumer, authenticatedClusterId, nativeTopicUuid, shard, physicalTopic, pollTimeout, true, null);
     }
 
-    static KafkaClientArtifactSourceRecordConsumer forOwnedTarget(GuardedConsumer<byte[], byte[]> consumer,
-            String cluster, UUID topic, ShardId shard, String physicalTopic, Duration poll,
+    static KafkaClientArtifactSourceRecordConsumer forOwnedTarget(
+            GuardedConsumer<byte[], byte[]> consumer,
+            String cluster,
+            UUID topic,
+            ShardId shard,
+            String physicalTopic,
+            Duration poll,
             KafkaClientArtifactOwnedSourceBackend owner) {
-        return new KafkaClientArtifactSourceRecordConsumer(consumer, cluster, topic, shard, physicalTopic, poll,
-                true, Objects.requireNonNull(owner));
+        return new KafkaClientArtifactSourceRecordConsumer(
+                consumer, cluster, topic, shard, physicalTopic, poll, true, Objects.requireNonNull(owner));
     }
 
-    private KafkaClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[], byte[]> consumer,
-            final String authenticatedClusterId, final UUID nativeTopicUuid, final ShardId shard,
-            final String physicalTopic, final Duration pollTimeout, final boolean target,
+    private KafkaClientArtifactSourceRecordConsumer(
+            final GuardedConsumer<byte[], byte[]> consumer,
+            final String authenticatedClusterId,
+            final UUID nativeTopicUuid,
+            final ShardId shard,
+            final String physicalTopic,
+            final Duration pollTimeout,
+            final boolean target,
             final KafkaClientArtifactOwnedSourceBackend backend) {
         this.backend = backend;
         this.target = target;
@@ -109,9 +123,13 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         return backend == null ? pollOpen() : backend.nativeOperation(this::pollOpen);
     }
 
-    @Override public synchronized void bindFrameDecode(TargetWorkerSourceStartup actual) {
+    @Override
+    public synchronized void bindFrameDecode(TargetWorkerSourceStartup actual) {
         Objects.requireNonNull(actual, "original Source frame startup");
-        if (!target || backend == null || inFlight != null || !buffered.isEmpty()
+        if (!target
+                || backend == null
+                || inFlight != null
+                || !buffered.isEmpty()
                 || !actual.acceptedAssignment().shardId().equals(shard)
                 || frameStartup != null && frameStartup != actual) {
             throw new IllegalStateException("Kafka frame decoding must bind its original Source before delivery");
@@ -149,10 +167,11 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
                     record.leaderEpoch().orElse(null),
                     record.timestamp());
             final byte[] value = requireValue(record);
-            if (target) retainFrameDecode(position, value.length);
+            if (target) {
+                retainFrameDecode(position, value.length);
+            }
             final SourceReplayEntry entry = target
-                    ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(
-                            value, shard, position, null, null)
+                    ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(value, shard, position, null, null)
                     : KafkaClientArtifactSourceRecordDecoder.decode(value, shard, position, null, null);
             if (target) {
                 frameDecode.retainDecoded(entry);
@@ -169,26 +188,32 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     private void retainFrameDecode(SourcePosition position, long bytes) {
         if (frameDecode == null) {
-            if (frameStartup == null) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
-                    "Kafka active Source lacks its original complete frame hold");
+            if (frameStartup == null) {
+                throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                        "Kafka active Source lacks its original complete frame hold");
+            }
             frameDecode = frameStartup.acquireFrameDecode(position, bytes, null, null);
             frameDecodePosition = position;
             frameDecodeBytes = bytes;
-        } else if (frameDecodeBytes != bytes || !java.util.Arrays.equals(
-                frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
+        } else if (frameDecodeBytes != bytes
+                || !java.util.Arrays.equals(frameDecodePosition.canonicalBytes(), position.canonicalBytes())) {
             throw new IllegalStateException("Kafka active Source changed its retained raw frame");
         }
         frameDecode.requireCurrent();
     }
 
     private void releaseFrameDecode(SourceReplayEntry actual) {
-        if (!target) return;
+        if (!target) {
+            return;
+        }
         if (frameDecode == null || decodedFrameEntry != actual) {
             throw new IllegalStateException("Kafka ACK changed its original frame decode loan");
         }
         frameDecode.requestRelease();
-        if (!frameDecode.cleanupComplete()) throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
-                "Kafka ACK retains its original frame decode cleanup");
+        if (!frameDecode.cleanupComplete()) {
+            throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
+                    "Kafka ACK retains its original frame decode cleanup");
+        }
         frameDecode = null;
         frameDecodePosition = null;
         frameDecodeBytes = 0;
@@ -197,50 +222,78 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     @Override
     public synchronized void close() {
-        if (closed && backend != null && firstClose == null) firstClose = backend.originalClose();
-        if (closed && (firstClose == null || !firstClose.isCompletedExceptionally())) return;
+        if (closed && backend != null && firstClose == null) {
+            firstClose = backend.originalClose();
+        }
+        if (closed && (firstClose == null || !firstClose.isCompletedExceptionally())) {
+            return;
+        }
         closing = true;
         if (backend != null) {
             final var original = backend.closeSourceNormally();
-            if (firstClose == null) firstClose = original;
+            if (firstClose == null) {
+                firstClose = original;
+            }
         } else if (firstClose == null) {
-                firstClose = new java.util.concurrent.CompletableFuture<>();
-                try { consumer.close(); firstClose.complete(null); }
-                catch (RuntimeException | Error failed) { firstClose.completeExceptionally(failed); }
+            firstClose = new java.util.concurrent.CompletableFuture<>();
+            try {
+                consumer.close();
+                firstClose.complete(null);
+            } catch (RuntimeException | Error failed) {
+                firstClose.completeExceptionally(failed);
+            }
         }
         try {
             firstClose.copy().get(30_000, java.util.concurrent.TimeUnit.MILLISECONDS);
             closed = true;
         } catch (InterruptedException failed) {
-            Thread.currentThread().interrupt(); throw new IllegalStateException("K1 Source close interrupted", failed);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("K1 Source close interrupted", failed);
         } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failed) {
             throw new IllegalStateException("K1 Source original close remains unconfirmed", failed);
         }
     }
 
-    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() { return backend; }
+    @Override
+    public com.nereusstream.delay.ownership.TargetOwnedBackendGroup ownedBackendGroup() {
+        return backend;
+    }
 
-    @Override public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(SourcePosition resumeAfter) {
+    @Override
+    public synchronized com.nereusstream.delay.ownership.SourceReplaySuccessor successorAfter(
+            SourcePosition resumeAfter) {
         ensureOpen();
-        if (!target || backend == null || inFlight != null || !buffered.isEmpty() || lastAcknowledged != null
-                || !(resumeAfter instanceof KafkaSourcePosition anchor) || !shard.equals(anchor.shardId())
-                || !authenticatedClusterId.equals(anchor.authenticatedClusterId()) || !nativeTopicUuid.equals(anchor.nativeTopicUuid())) {
-            throw new IllegalArgumentException("active K1 proof must bind to its exact original Store cut before delivery");
+        if (!target
+                || backend == null
+                || inFlight != null
+                || !buffered.isEmpty()
+                || lastAcknowledged != null
+                || !(resumeAfter instanceof KafkaSourcePosition anchor)
+                || !shard.equals(anchor.shardId())
+                || !authenticatedClusterId.equals(anchor.authenticatedClusterId())
+                || !nativeTopicUuid.equals(anchor.nativeTopicUuid())) {
+            throw new IllegalArgumentException(
+                    "active K1 proof must bind to its exact original Store cut before delivery");
         }
-        if (!expectedGuard.equals(consumer.resourceGuard())) throw new IllegalStateException("active K1 resource guard changed");
+        if (!expectedGuard.equals(consumer.resourceGuard())) {
+            throw new IllegalStateException("active K1 resource guard changed");
+        }
         return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
     }
 
     void backendTerminated(KafkaClientArtifactOwnedSourceBackend original) {
-        if (original != backend || !original.nativeResourcesTerminated() || original.applicationReady())
+        if (original != backend || !original.nativeResourcesTerminated() || original.applicationReady()) {
             throw new IllegalStateException("K1 Source lacks its original backend termination proof");
+        }
         closed = true; // retained buffered/inFlight entry and original ACK result are not discarded
     }
 
     @Override
     public CheckpointCut checkpointCut(final SourcePosition expectedAppliedPosition) {
-        return backend == null ? checkpointCutOpen(expectedAppliedPosition)
-                : backend.nativeReadOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+        return backend == null
+                ? checkpointCutOpen(expectedAppliedPosition)
+                : backend.nativeReadOperation(
+                        com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
                         () -> checkpointCutOpen(expectedAppliedPosition));
     }
 
@@ -258,12 +311,18 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
             @Override
             public void requireCurrent() {
                 if (backend == null) {
-                    synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
+                    synchronized (KafkaClientArtifactSourceRecordConsumer.this) {
+                        requireCheckpointCut(expected);
+                    }
                 } else {
-                    backend.nativeReadOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK, () -> {
-                        synchronized (KafkaClientArtifactSourceRecordConsumer.this) { requireCheckpointCut(expected); }
-                        return null;
-                    });
+                    backend.nativeReadOperation(
+                            com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+                            () -> {
+                                synchronized (KafkaClientArtifactSourceRecordConsumer.this) {
+                                    requireCheckpointCut(expected);
+                                }
+                                return null;
+                            });
                 }
             }
         };
@@ -271,13 +330,15 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
 
     private void requireCheckpointCut(final KafkaSourcePosition expected) {
         ensureOpen();
-        if (inFlight != null || lastAcknowledged == null
+        if (inFlight != null
+                || lastAcknowledged == null
                 || !Bytes.constantTimeEquals(lastAcknowledged.canonicalBytes(), expected.canonicalBytes())
                 || !expectedGuard.equals(consumer.resourceGuard())
                 || !consumer.assignment().equals(Set.of(topicPartition))) {
             throw new IllegalStateException("Kafka checkpoint source cut is not the last durable ACK");
         }
-        final OffsetAndMetadata committed = consumer.committed(Set.of(topicPartition), pollTimeout).get(topicPartition);
+        final OffsetAndMetadata committed =
+                consumer.committed(Set.of(topicPartition), pollTimeout).get(topicPartition);
         if (committed == null || committed.offset() != expected.offset() + 1) {
             throw new IllegalStateException("Kafka checkpoint committed offset differs from the Store cut");
         }
@@ -286,9 +347,13 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
             final BufferedRecord fetched, final SourceReplayEntry expected, final SourceReplayEntry candidate) {
         if (backend != null) {
-            try { return backend.nativeOperation(com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
-                    () -> acknowledgeOpen(fetched, expected, candidate)); }
-            catch (RuntimeException | Error failed) { return SourceAcknowledgement.AcknowledgementResult.unknown(failed); }
+            try {
+                return backend.nativeOperation(
+                        com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.ACK,
+                        () -> acknowledgeOpen(fetched, expected, candidate));
+            } catch (RuntimeException | Error failed) {
+                return SourceAcknowledgement.AcknowledgementResult.unknown(failed);
+            }
         }
         return acknowledgeOpen(fetched, expected, candidate);
     }

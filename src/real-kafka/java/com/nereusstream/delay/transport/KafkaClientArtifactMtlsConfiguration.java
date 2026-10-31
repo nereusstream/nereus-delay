@@ -16,22 +16,28 @@ public final class KafkaClientArtifactMtlsConfiguration {
         return configure(operational, receipt.privateKeyPem(), receipt.certificateChainPem(), receipt.serverTrustPem());
     }
 
-    public static Map<String, Object> applySource(Map<String, Object> operational, LocalBrokerMtlsResolver.SourceReceipt receipt) {
+    public static Map<String, Object> applySource(
+            Map<String, Object> operational, LocalBrokerMtlsResolver.SourceReceipt receipt) {
         receipt.requireKafkaBootstrap(operational.get("bootstrap.servers"));
         return configure(operational, receipt.privateKeyPem(), receipt.certificateChainPem(), receipt.serverTrustPem());
     }
 
-    public static Map<String, Object> applyTargetRecovery(Map<String, Object> operational,
-            LocalBrokerMtlsResolver.TargetRecoveryReceipt receipt) {
+    public static Map<String, Object> applyTargetRecovery(
+            Map<String, Object> operational, LocalBrokerMtlsResolver.TargetRecoveryReceipt receipt) {
         receipt.requireKafkaBootstrap(operational.get("bootstrap.servers"));
         return configure(operational, receipt.privateKeyPem(), receipt.certificateChainPem(), receipt.serverTrustPem());
     }
 
-    private static Map<String,Object> configure(Map<String,Object> operational, byte[] keyPem, byte[] certPem, byte[] trustPem) {
+    private static Map<String, Object> configure(
+            Map<String, Object> operational, byte[] keyPem, byte[] certPem, byte[] trustPem) {
         for (String key : operational.keySet()) {
-            if (key.startsWith("ssl.") || key.startsWith("sasl.") || key.startsWith("security.")
-                    || key.startsWith("config.providers") || key.equals("interceptor.classes")
-                    || key.equals("metric.reporters") || key.equals("partitioner.class")
+            if (key.startsWith("ssl.")
+                    || key.startsWith("sasl.")
+                    || key.startsWith("security.")
+                    || key.startsWith("config.providers")
+                    || key.equals("interceptor.classes")
+                    || key.equals("metric.reporters")
+                    || key.equals("partitioner.class")
                     || key.equals("partition.assignment.strategy")) {
                 throw new IllegalArgumentException("new Target mTLS does not accept caller authentication overrides");
             }
@@ -44,16 +50,18 @@ public final class KafkaClientArtifactMtlsConfiguration {
         final var config = new HashMap<>(operational);
         config.put("security.protocol", "SSL");
         config.put(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG, "PEM");
-        config.put(SslConfigs.SSL_KEYSTORE_KEY_CONFIG,
-                new Password(new String(keyPem, StandardCharsets.US_ASCII)));
-        config.put(SslConfigs.SSL_KEYSTORE_CERTIFICATE_CHAIN_CONFIG,
+        config.put(SslConfigs.SSL_KEYSTORE_KEY_CONFIG, new Password(new String(keyPem, StandardCharsets.US_ASCII)));
+        config.put(
+                SslConfigs.SSL_KEYSTORE_CERTIFICATE_CHAIN_CONFIG,
                 new Password(new String(certPem, StandardCharsets.US_ASCII)));
         config.put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM");
-        config.put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG,
+        config.put(
+                SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG,
                 new Password(new String(trustPem, StandardCharsets.US_ASCII)));
         config.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
         return Map.copyOf(config);
     }
+
     private static void requireCodec(Object configured, Class<?> expected) {
         if (configured != expected && !expected.getName().equals(configured)) {
             throw new IllegalArgumentException("verified Broker mTLS requires the original byte-array codecs");

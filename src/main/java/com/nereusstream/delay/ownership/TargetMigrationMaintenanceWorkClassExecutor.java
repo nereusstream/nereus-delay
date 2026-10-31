@@ -13,52 +13,90 @@ final class TargetMigrationMaintenanceWorkClassExecutor {
     private volatile OwnedCheckpointIo<Boolean> io;
     private long sequence;
 
-    TargetMigrationMaintenanceWorkClassExecutor(TargetWorkerProcessRuntime.Assembly graph, String identity, long bytes) {
-        this.graph = Objects.requireNonNull(graph); this.identity = Objects.requireNonNull(identity); this.bytes = bytes;
-        graph.classes().requireTaskServiceable(new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL, identity, bytes),
-                graph.config().checkpoint().settlementTurn());
+    TargetMigrationMaintenanceWorkClassExecutor(
+            TargetWorkerProcessRuntime.Assembly graph, String identity, long bytes) {
+        this.graph = Objects.requireNonNull(graph);
+        this.identity = Objects.requireNonNull(identity);
+        this.bytes = bytes;
+        graph.classes()
+                .requireTaskServiceable(
+                        new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL, identity, bytes),
+                        graph.config().checkpoint().settlementTurn());
     }
 
     synchronized boolean idle() {
         if (io != null) {
             io.retryCleanup();
-            if (!io.operationExited() || !io.ioExited()) return false;
-            io.receipt().join(); io = null;
+            if (!io.operationExited() || !io.ioExited()) {
+                return false;
+            }
+            io.receipt().join();
+            io = null;
         }
         if (task != null) {
             final var state = graph.classes().state(task);
-            if (state.orElse(null) == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.FAILED)
+            if (state.orElse(null)
+                    == com.nereusstream.delay.scheduler.WorkClassExecutionRegistry.ExecutionState.FAILED) {
                 throw new IllegalStateException("original live migration WorkClass I/O admission failed");
-            if (state.isPresent()) return false;
+            }
+            if (state.isPresent()) {
+                return false;
+            }
             task = null;
         }
         return true;
     }
+
     synchronized void submit(Runnable step, Runnable current) {
-        if (!idle()) return;
-        final var next = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                identity + '-' + Long.toUnsignedString(++sequence), bytes);
+        if (!idle()) {
+            return;
+        }
+        final var next = new WorkClassTask(
+                WorkClass.OUTCOME_AND_CONTROL, identity + '-' + Long.toUnsignedString(++sequence), bytes);
         graph.classes().submit(next, () -> {
             synchronized (TargetMigrationMaintenanceWorkClassExecutor.this) {
-                io = OwnedCheckpointIo.submit(guard -> { guard.run(); step.run(); guard.run(); return true; }, current, graph.io());
+                io = OwnedCheckpointIo.submit(
+                        guard -> {
+                            guard.run();
+                            step.run();
+                            guard.run();
+                            return true;
+                        },
+                        current,
+                        graph.io());
             }
         });
         task = next;
     }
+
     synchronized void requestStop() {
-        if (task != null) { graph.classes().withdrawQueued(task); graph.classes().discardFailed(task); }
-        if (io != null) io.requestStop();
+        if (task != null) {
+            graph.classes().withdrawQueued(task);
+            graph.classes().discardFailed(task);
+        }
+        if (io != null) {
+            io.requestStop();
+        }
     }
+
     synchronized boolean ioExited() {
-        if (task != null && graph.classes().state(task).isPresent()) return false;
+        if (task != null && graph.classes().state(task).isPresent()) {
+            return false;
+        }
         if (io != null) {
             io.retryCleanup();
-            if (!io.operationExited() || !io.ioExited()) return false;
+            if (!io.operationExited() || !io.ioExited()) {
+                return false;
+            }
         }
         return true;
     }
+
     synchronized void clearExited() {
-        if (!ioExited()) return;
-        io = null; task = null;
+        if (!ioExited()) {
+            return;
+        }
+        io = null;
+        task = null;
     }
 }

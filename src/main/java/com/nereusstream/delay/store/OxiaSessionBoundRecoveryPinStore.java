@@ -129,14 +129,24 @@ final class OxiaSessionBoundRecoveryPinStore {
     }
 
     /** Atomically substitutes a complete new Owner-bound pin; neither record is deleted on uncertainty. */
-    RecoveryPin replace(RecoveryPin expected, RecoveryPin replacement, Runnable validateRequest,
+    RecoveryPin replace(
+            RecoveryPin expected,
+            RecoveryPin replacement,
+            Runnable validateRequest,
             LongSupplier currentCatalogGeneration) {
-        Objects.requireNonNull(expected); Objects.requireNonNull(replacement);
-        requireCallerSession(expected); requireCallerSession(replacement);
-        if (!expected.shard().equals(replacement.shard()) || !expected.candidate().equals(replacement.candidate())
+        Objects.requireNonNull(expected);
+        Objects.requireNonNull(replacement);
+        requireCallerSession(expected);
+        requireCallerSession(replacement);
+        if (!expected.shard().equals(replacement.shard())
+                || !expected.candidate().equals(replacement.candidate())
                 || Arrays.equals(expected.pinId(), replacement.pinId())
-                || Long.compareUnsigned(replacement.owner().ownerEpoch(), expected.owner().ownerEpoch()) <= 0) {
-            throw new IllegalArgumentException("RecoveryPin replacement must retain the candidate under a new Owner/pin identity");
+                || Long.compareUnsigned(
+                                replacement.owner().ownerEpoch(),
+                                expected.owner().ownerEpoch())
+                        <= 0) {
+            throw new IllegalArgumentException(
+                    "RecoveryPin replacement must retain the candidate under a new Owner/pin identity");
         }
         final byte[] encodedReplacement = replacement.canonicalBytes();
         if (encodedReplacement.length == 0 || encodedReplacement.length > MAX_PIN_BYTES) {
@@ -145,13 +155,16 @@ final class OxiaSessionBoundRecoveryPinStore {
         validateRequest.run();
         final PinRecord current = readPinRecord();
         if (current != null && current.pin().equals(replacement)) {
-            requireCatalogGeneration(replacement, currentCatalogGeneration); return current.pin();
+            requireCatalogGeneration(replacement, currentCatalogGeneration);
+            return current.pin();
         }
         if (current == null || !current.pin().equals(expected)) {
             throw new IllegalStateException("RecoveryPin replacement lost its exact previous protection");
         }
         try {
-            final PutResult result = client.put(pinRecordKey, encodedReplacement,
+            final PutResult result = client.put(
+                    pinRecordKey,
+                    encodedReplacement,
                     Set.of(PutOption.IfVersionIdEquals(current.version().versionId()), PutOption.AsEphemeralRecord));
             validatePinPutResult(result, replacement);
             final var observed = requirePinRecord(readPinRecord(), replacement);
@@ -160,13 +173,15 @@ final class OxiaSessionBoundRecoveryPinStore {
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
             final var observed = readPinRecord();
             if (observed != null && observed.pin().equals(replacement)) {
-                requireCatalogGeneration(replacement, currentCatalogGeneration); return observed.pin();
+                requireCatalogGeneration(replacement, currentCatalogGeneration);
+                return observed.pin();
             }
             throw new IllegalStateException("RecoveryPin replacement CAS lost", conflict);
         } catch (RuntimeException responseFailure) {
             final var observed = readPinRecord();
             if (observed != null && observed.pin().equals(replacement)) {
-                requireCatalogGeneration(replacement, currentCatalogGeneration); return observed.pin();
+                requireCatalogGeneration(replacement, currentCatalogGeneration);
+                return observed.pin();
             }
             throw responseFailure;
         }
@@ -176,11 +191,16 @@ final class OxiaSessionBoundRecoveryPinStore {
         final PinRecord active = readPinRecord();
         return active == null ? Optional.empty() : Optional.of(active.pin());
     }
-    PinRecord currentRecord() { return readPinRecord(); }
+
+    PinRecord currentRecord() {
+        return readPinRecord();
+    }
 
     /** Exact original record/version under the caller's finite metadata-read budget; not a pin-creation fence. */
-    PinRecord readForProtection(BoundedReadBudget budget){
-        if(!budget.beforeRead()||!budget.tryCharge(Bytes.utf8(pinRecordKey).length,MAX_PIN_BYTES))throw budget.incomplete();
+    PinRecord readForProtection(BoundedReadBudget budget) {
+        if (!budget.beforeRead() || !budget.tryCharge(Bytes.utf8(pinRecordKey).length, MAX_PIN_BYTES)) {
+            throw budget.incomplete();
+        }
         return readPinRecord();
     }
 

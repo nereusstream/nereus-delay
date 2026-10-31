@@ -249,7 +249,8 @@ public final class OxiaSyncTargetNativePolicyAuthority {
             if (result == null || !key.equals(result.key()) || result.version() == null) {
                 throw new IllegalStateException("Oxia Target Native put returned no exact version");
             }
-            final Publication publication = new Publication(externalVersion(result.version().versionId()), head);
+            final Publication publication =
+                    new Publication(externalVersion(result.version().versionId()), head);
             final Publication observed = decode(client.get(key), scope);
             if (observed == null || !publication.sameHead(observed)) {
                 throw new IllegalStateException("Oxia Target Native put did not reread as the exact current head");

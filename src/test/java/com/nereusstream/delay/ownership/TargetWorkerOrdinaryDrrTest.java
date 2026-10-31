@@ -57,8 +57,8 @@ class TargetWorkerOrdinaryDrrTest {
         final var head = head(physical, shard, 50);
         final var reads = new FakeReads(head);
         final var events = new CopyOnWriteArrayList<BoundedAsyncMetricExporter.MetricEvent>();
-        try (var metrics = new BoundedAsyncMetricExporter(
-                new BoundedAsyncMetricExporter.Limits(16, 144), events::add)) {
+        try (var metrics =
+                new BoundedAsyncMetricExporter(new BoundedAsyncMetricExporter.Limits(16, 144), events::add)) {
             final var drr = new TargetWorkerOrdinaryDrr(
                     new TargetWorkerTargetInventory.Snapshot(List.of(targetState(physical, head)), reads.cuts()),
                     ONE_VISIT,
@@ -67,53 +67,53 @@ class TargetWorkerOrdinaryDrrTest {
                     false,
                     metrics);
             final var turn = drr.runOrdinary(
-                    100,
-                    new SchedulerBudget(1, 200, 1_000_000_000L),
-                    (source, cost) -> Optional.of(() -> cost.head()));
+                    100, new SchedulerBudget(1, 200, 1_000_000_000L), (source, cost) -> Optional.of(() -> cost.head()));
             assertEquals(List.of(head.ref()), turn.claims());
             assertEquals(1, turn.targetVisits());
             assertEquals(50, turn.schedulingBytes());
             final var nextTurn = drr.runOrdinary(
-                    100,
-                    new SchedulerBudget(1, 200, 1_000_000_000L),
-                    (source, cost) -> Optional.of(() -> cost.head()));
+                    100, new SchedulerBudget(1, 200, 1_000_000_000L), (source, cost) -> Optional.of(() -> cost.head()));
             assertEquals(List.of(head.ref()), nextTurn.claims());
 
             metrics.stopAccepting();
             assertTrue(metrics.awaitTermination(Duration.ofSeconds(5)));
-            assertTrue(events.stream().anyMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS && event.value() == 1));
-            assertTrue(events.stream().anyMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_SCHEDULING_BYTES
-                    && event.value() == 50));
+            assertTrue(events.stream()
+                    .anyMatch(event -> event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS
+                            && event.value() == 1));
+            assertTrue(events.stream()
+                    .anyMatch(event ->
+                            event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_SCHEDULING_BYTES
+                                    && event.value() == 50));
             assertEquals(
                     2,
                     events.stream()
                             .filter(event -> event.metric()
-                                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_QUEUE_REFRESH_CALLS
+                                            == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_QUEUE_REFRESH_CALLS
                                     && event.value() == 1)
                             .count());
             assertEquals(
                     2,
                     events.stream()
-                            .filter(event -> event.metric()
-                                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS
-                                    && event.value() == 1)
+                            .filter(event ->
+                                    event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_HEAD_PROBE_CALLS
+                                            && event.value() == 1)
                             .count());
-            assertTrue(events.stream().anyMatch(event -> event.metric()
-                    == BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS && event.value() == 1));
+            assertTrue(events.stream()
+                    .anyMatch(event -> event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_DRR_CLAIM_TURNS
+                            && event.value() == 1));
             assertEquals(
                     1,
                     events.stream()
                             .filter(event -> event.metric()
                                     == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TARGET_SERVICE_INTERVAL_NANOS)
                             .count());
-            final var expectedStop = switch (turn.stop()) {
-                case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
-                case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
-                case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
-                case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
-            };
+            final var expectedStop =
+                    switch (turn.stop()) {
+                        case NORMAL -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_NORMAL;
+                        case READ_INCOMPLETE -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_READ_INCOMPLETE;
+                        case CREDIT_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_CREDIT_WAIT;
+                        case BUDGET_WAIT -> BoundedAsyncMetricExporter.Metric.TARGET_DRR_STOP_BUDGET_WAIT;
+                    };
             assertTrue(
                     events.stream().anyMatch(event -> event.metric() == expectedStop && event.value() == 1),
                     () -> "missing " + expectedStop + " in " + events);
@@ -169,18 +169,10 @@ class TargetWorkerOrdinaryDrrTest {
     @Test
     void ordinaryWakeWaitIsCappedByTheSafetyRecheck() {
         final long safetyRecheck = 250_000_000L;
-        assertEquals(
-                40_000_000L,
-                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(140), 100, safetyRecheck));
-        assertEquals(
-                safetyRecheck,
-                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(500), 100, safetyRecheck));
-        assertEquals(
-                safetyRecheck,
-                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.empty(), 100, safetyRecheck));
-        assertEquals(
-                safetyRecheck,
-                TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(99), 100, safetyRecheck));
+        assertEquals(40_000_000L, TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(140), 100, safetyRecheck));
+        assertEquals(safetyRecheck, TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(500), 100, safetyRecheck));
+        assertEquals(safetyRecheck, TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.empty(), 100, safetyRecheck));
+        assertEquals(safetyRecheck, TargetWorkerOrdinaryLoop.changeWaitNanos(OptionalLong.of(99), 100, safetyRecheck));
     }
 
     @Test
@@ -245,9 +237,7 @@ class TargetWorkerOrdinaryDrrTest {
         final var drr = schedule(List.of(targetState(physical, head)), new FakeReads(head), ONE_VISIT);
 
         final var turn = drr.runOrdinary(
-                100,
-                new SchedulerBudget(1, 200, 1_000_000_000L),
-                (source, cost) -> Optional.of(() -> cost.head()));
+                100, new SchedulerBudget(1, 200, 1_000_000_000L), (source, cost) -> Optional.of(() -> cost.head()));
 
         assertEquals(List.of(activeHead), turn.claims());
         assertEquals(50, turn.schedulingBytes());
@@ -277,10 +267,10 @@ class TargetWorkerOrdinaryDrrTest {
         final var first = nativeHeadAt(firstTarget, shard, 1_000, 3_000, 50);
         final var second = nativeHeadAt(secondTarget, shard, 1_000, 3_000, 50);
         final var reads = new FakeReads(first, second);
-        final var drr = schedule(
-                List.of(targetState(firstTarget, first), targetState(secondTarget, second)), reads, ONE_VISIT);
-        final TargetWorkerOrdinaryDrr.NativeSelector<TargetHeadRef> selector = (source, cost) ->
-                new TargetWorkerOrdinaryDrr.NativeSelection<>(
+        final var drr =
+                schedule(List.of(targetState(firstTarget, first), targetState(secondTarget, second)), reads, ONE_VISIT);
+        final TargetWorkerOrdinaryDrr.NativeSelector<TargetHeadRef> selector =
+                (source, cost) -> new TargetWorkerOrdinaryDrr.NativeSelection<>(
                         Optional.empty(),
                         OptionalLong.of(cost.head().target().equals(firstTarget.id()) ? 1_450 : 1_250));
         final var budget = new SchedulerBudget(1, 200, 1_000_000_000L);
@@ -418,14 +408,14 @@ class TargetWorkerOrdinaryDrrTest {
         final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
         final var inventoryTarget = new TargetWorkerTargetInventory.Target(
                 physical, List.of(new TargetWorkerTargetInventory.Source(shard, entry)));
-        final var heads = expectedHeads.stream().map(head -> new Head(shard, entry, head, 50)).toArray(Head[]::new);
+        final var heads = expectedHeads.stream()
+                .map(head -> new Head(shard, entry, head, 50))
+                .toArray(Head[]::new);
         final var drr = schedule(List.of(inventoryTarget), new FakeReads(heads), ONE_VISIT);
 
         for (TargetHeadRef expected : expectedHeads) {
             final var turn = drr.runOrdinary(
-                    100,
-                    new SchedulerBudget(1, 200, 1_000_000_000L),
-                    (source, cost) -> Optional.of(() -> cost.head()));
+                    100, new SchedulerBudget(1, 200, 1_000_000_000L), (source, cost) -> Optional.of(() -> cost.head()));
             assertEquals(List.of(expected), turn.claims());
         }
     }
@@ -835,9 +825,12 @@ class TargetWorkerOrdinaryDrrTest {
         assertEquals(TargetWorkerOrdinaryDrr.FreezeStop.READY, completePass.stop());
         assertEquals(3, completePass.eligibleTargets());
 
-        assertEquals(List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
-        assertEquals(List.of(second.id()), drr.runOrdinary(100, budget, selector).claims());
-        assertEquals(List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(second.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
     }
 
     @Test
@@ -859,8 +852,10 @@ class TargetWorkerOrdinaryDrrTest {
         drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
                 List.of(targetState(original, originalHead), targetState(newcomer, newHead)), reads.cuts()));
 
-        assertEquals(List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
-        assertEquals(List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(original.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(newcomer.id()), drr.runOrdinary(100, budget, selector).claims());
     }
 
     @Test
@@ -918,11 +913,12 @@ class TargetWorkerOrdinaryDrrTest {
 
         assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
         reads.replaceStoreIncarnation(shard);
-        drr.refreshSnapshot(new TargetWorkerTargetInventory.Snapshot(
-                List.of(targetState(physical, head)), reads.cuts()));
+        drr.refreshSnapshot(
+                new TargetWorkerTargetInventory.Snapshot(List.of(targetState(physical, head)), reads.cuts()));
 
         assertTrue(drr.runOrdinary(100, budget, selector).claims().isEmpty());
-        assertEquals(List.of(physical.id()), drr.runOrdinary(100, budget, selector).claims());
+        assertEquals(
+                List.of(physical.id()), drr.runOrdinary(100, budget, selector).claims());
     }
 
     private static TargetWorkerOrdinaryDrr schedule(
@@ -977,13 +973,7 @@ class TargetWorkerOrdinaryDrrTest {
         final byte[] token = Bytes.concat(new byte[] {1}, Bytes.u64be(2));
         final var nativeHead = new TargetHeadRef(
                 TargetKeyCodec.candidate(
-                        TargetKeyCodec.CandidateKind.NATIVE,
-                        physical.id(),
-                        domain,
-                        nativeAt,
-                        token,
-                        message,
-                        1),
+                        TargetKeyCodec.CandidateKind.NATIVE, physical.id(), domain, nativeAt, token, message, 1),
                 message,
                 1,
                 nativeAt);
@@ -996,13 +986,7 @@ class TargetWorkerOrdinaryDrrTest {
                 ordinary,
                 nativeHead);
         final var queue = new TargetQueueState(
-                physical.id(),
-                1,
-                1,
-                TargetQueueState.AdmissionState.OPEN,
-                bytes(16, 5),
-                1_000,
-                List.of(summary));
+                physical.id(), 1, 1, TargetQueueState.AdmissionState.OPEN, bytes(16, 5), 1_000, List.of(summary));
         return new Head(shard, new TargetQueueSnapshotReader.Entry(queue, physical), nativeHead, cost);
     }
 
@@ -1014,10 +998,8 @@ class TargetWorkerOrdinaryDrrTest {
             final TargetDomainState.Lifecycle lifecycle) {
         final var domain = new TargetKeyCodec.Domain(0, 1);
         final var ref = dueHead(physical, shard, domain, timeEpochMs);
-        final var summary = new TargetDomainState(
-                domain, lifecycle, bytes(32, 3), bytes(32, 4), null, ref, null);
-        final var queue = new TargetQueueState(
-                physical.id(), 1, 1, admissionState, bytes(16, 5), 0, List.of(summary));
+        final var summary = new TargetDomainState(domain, lifecycle, bytes(32, 3), bytes(32, 4), null, ref, null);
+        final var queue = new TargetQueueState(physical.id(), 1, 1, admissionState, bytes(16, 5), 0, List.of(summary));
         final var entry = new TargetQueueSnapshotReader.Entry(queue, physical);
         return new TargetWorkerTargetInventory.Target(
                 physical, List.of(new TargetWorkerTargetInventory.Source(shard, entry)));

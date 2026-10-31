@@ -10,22 +10,47 @@ public interface TargetMigrationAdoption extends AutoCloseable, CheckpointInputF
     void begin(TargetMigrationStore.Activated applied, TargetMigrationProcessDriver.Opening original);
     /** Empty means original publication/CAS is still pending; it does not permit an old writer to resume. */
     java.util.Optional<Adopted> advance();
+
     boolean ioExited();
+
     void requestStop();
+
     Throwable pendingIoFailure();
-    @Override void close();
+
+    @Override
+    void close();
 
     /** A durable exact CAS read, independently checked again before the original new Source can open. */
     final class Adopted {
         private final TargetMigrationCheckpointAdoption original;
+
         private Adopted(TargetMigrationCheckpointAdoption original) {
-            this.original = java.util.Objects.requireNonNull(original); original.requireAdopted();
+            this.original = java.util.Objects.requireNonNull(original);
+            original.requireAdopted();
         }
-        static Adopted afterOriginalCas(TargetMigrationCheckpointAdoption original) { return new Adopted(original); }
-        public TargetMigrationPlan plan() { return original.adoptedPlan(); }
-        public CheckpointManifest checkpoint() { return original.adoptedCheckpoint(); }
-        public WorkerAssignmentAuthority.Publication publication() { return original.adoptedPublication(); }
-        public void requireApplied(TargetMigrationStore.Activated exact) { original.requireAdoptedApplied(exact); }
-        public void requireCurrent() { original.requireAdoptedCurrent(); }
+
+        static Adopted afterOriginalCas(TargetMigrationCheckpointAdoption original) {
+            return new Adopted(original);
+        }
+
+        public TargetMigrationPlan plan() {
+            return original.adoptedPlan();
+        }
+
+        public CheckpointManifest checkpoint() {
+            return original.adoptedCheckpoint();
+        }
+
+        public WorkerAssignmentAuthority.Publication publication() {
+            return original.adoptedPublication();
+        }
+
+        public void requireApplied(TargetMigrationStore.Activated exact) {
+            original.requireAdoptedApplied(exact);
+        }
+
+        public void requireCurrent() {
+            original.requireAdoptedCurrent();
+        }
     }
 }

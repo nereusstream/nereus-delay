@@ -4,6 +4,6 @@ package com.nereusstream.delay.store;
 @FunctionalInterface
 public interface CatalogInitializationAuthority {
     /** Authenticate outside Catalog monitors; the returned short guard holds/rechecks rights until the CAS ends. */
-    TargetStoreBackend.CommitGuard acquire(CatalogInitialization initialization,
-            TargetCheckpointRootVerifier.AuthenticatedImage image);
+    TargetStoreBackend.CommitGuard acquire(
+            CatalogInitialization initialization, TargetCheckpointRootVerifier.AuthenticatedImage image);
 }

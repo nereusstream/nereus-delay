@@ -26,14 +26,22 @@ public final class KafkaClientArtifactSourceConsumerFactory {
             final String physicalTopic,
             final UUID nativeTopicUuid,
             final int partition) {
-        return create(configuration, authenticatedClusterId, physicalTopic, nativeTopicUuid, partition,
+        return create(
+                configuration,
+                authenticatedClusterId,
+                physicalTopic,
+                nativeTopicUuid,
+                partition,
                 java.time.Duration.ofSeconds(30));
     }
 
     /** Explicit Target cleanup deadline; failed bind retains this exact native consumer for retry. */
     public static GuardedConsumer<byte[], byte[]> create(
-            final Map<String, Object> configuration, final String authenticatedClusterId,
-            final String physicalTopic, final UUID nativeTopicUuid, final int partition,
+            final Map<String, Object> configuration,
+            final String authenticatedClusterId,
+            final String physicalTopic,
+            final UUID nativeTopicUuid,
+            final int partition,
             final java.time.Duration closeTimeout) {
         final Map<String, Object> sourceConfiguration =
                 new HashMap<>(Objects.requireNonNull(configuration, "configuration"));
@@ -41,11 +49,14 @@ public final class KafkaClientArtifactSourceConsumerFactory {
         final ConsumerResourceGuard guard = new ConsumerResourceGuard(
                 authenticatedClusterId, physicalTopic, toKafkaUuid(nativeTopicUuid), partition);
         final Consumer<byte[], byte[]> nativeConsumer;
-        try { nativeConsumer = new KafkaConsumer<>(sourceConfiguration); }
-        catch (org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer.ConstructionCleanupFailure partial) {
+        try {
+            nativeConsumer = new KafkaConsumer<>(sourceConfiguration);
+        } catch (org.apache.kafka.clients.consumer.internals.ClassicKafkaConsumer.ConstructionCleanupFailure partial) {
             throw new KafkaClientArtifactTargetCleanupFailure(partial, () -> {
                 partial.reconcile(closeTimeout);
-                if (!partial.resourcesTerminated()) throw new IllegalStateException("K1 partial Source reader is still live");
+                if (!partial.resourcesTerminated()) {
+                    throw new IllegalStateException("K1 partial Source reader is still live");
+                }
             });
         }
         try {
@@ -60,8 +71,8 @@ public final class KafkaClientArtifactSourceConsumerFactory {
             try {
                 closeGuardedNative(nativeConsumer, closeTimeout);
             } catch (RuntimeException | Error closeFailure) {
-                final var retained = new KafkaClientArtifactTargetCleanupFailure(failure,
-                        () -> closeGuardedNative(nativeConsumer, closeTimeout));
+                final var retained = new KafkaClientArtifactTargetCleanupFailure(
+                        failure, () -> closeGuardedNative(nativeConsumer, closeTimeout));
                 retained.addSuppressed(closeFailure);
                 throw retained;
             }

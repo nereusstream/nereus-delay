@@ -124,8 +124,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Target ordinary recheck interval exceeds nanoseconds", overflow);
         }
-        if (budget.maxBytes() < limits.sendEnvelopeBytes()
-                || budget.maxElapsedNanos() < limits.readElapsedNanos()) {
+        if (budget.maxBytes() < limits.sendEnvelopeBytes() || budget.maxElapsedNanos() < limits.readElapsedNanos()) {
             throw new IllegalArgumentException("ordinary turn budget cannot serve the activated Target envelope");
         }
         final long targets = inventory.maximumTargets();
@@ -179,8 +178,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     }
 
     private static TargetWorkerOrdinaryDrr.Requests requestsWithNativePolicyWakeups(
-            final TargetWorkerOrdinaryDrr.Requests delegate,
-            final NativePolicySubscriptions subscriptions) {
+            final TargetWorkerOrdinaryDrr.Requests delegate, final NativePolicySubscriptions subscriptions) {
         return new TargetWorkerOrdinaryDrr.Requests() {
             @Override
             public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
@@ -244,8 +242,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
             this.wakeup = Objects.requireNonNull(wakeup, "wakeup");
         }
 
-        synchronized void observe(
-                final TargetNativePolicyScope scope, final TargetNativePolicyAuthority authority) {
+        synchronized void observe(final TargetNativePolicyScope scope, final TargetNativePolicyAuthority authority) {
             Objects.requireNonNull(scope, "scope");
             Objects.requireNonNull(authority, "authority");
             final Slot slot = new Slot(scope.sourceShard(), scope.target(), scope.domain());
@@ -374,24 +371,22 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                 }
                 try {
                     if (scheduler == null || inventoryRefreshPending) {
-                        final var inventory = host.rebuildTargetInventory(
-                                inventoryLimits, ownerClock, monotonicClock, metrics);
+                        final var inventory =
+                                host.rebuildTargetInventory(inventoryLimits, ownerClock, monotonicClock, metrics);
                         if (inventory.stop() != TargetWorkerTargetInventory.Stop.COMPLETE) {
                             awaitChange(observedRevision);
                             continue;
                         }
                         nativePolicySubscriptions.reset();
                         if (scheduler == null) {
-                            scheduler = host.newOrdinaryDrr(
-                                    inventory, drrLimits, ownerClock, monotonicClock, metrics);
+                            scheduler = host.newOrdinaryDrr(inventory, drrLimits, ownerClock, monotonicClock, metrics);
                             recoveryReady = false;
                         } else {
                             scheduler.refreshInventory(inventory);
                         }
-                        host.registerTargetWakeups(
-                                inventory.snapshot().targets().stream()
-                                        .map(TargetWorkerTargetInventory.Target::id)
-                                        .toList());
+                        host.registerTargetWakeups(inventory.snapshot().targets().stream()
+                                .map(TargetWorkerTargetInventory.Target::id)
+                                .toList());
                         pendingTargetRefresh.clear();
                         inventoryRefreshPending = false;
                     } else if (scheduler != null && recoveryReady && !pendingTargetRefresh.isEmpty()) {
@@ -405,8 +400,8 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
                         boolean ready = false;
                         boolean incomplete = false;
                         for (long turn = 0; turn < maximumRecoveryTurns; turn++) {
-                            final var freeze = scheduler.freezeRecoveryFirstPass(
-                                    schedulerClock.getAsLong(), turnBudget, requests);
+                            final var freeze =
+                                    scheduler.freezeRecoveryFirstPass(schedulerClock.getAsLong(), turnBudget, requests);
                             if (freeze.stop() == TargetWorkerOrdinaryDrr.FreezeStop.READY) {
                                 ready = true;
                                 recoveryReady = true;
@@ -560,9 +555,7 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     }
 
     private void awaitSchedulerChange(
-            final long observedRevision,
-            final TargetWorkerOrdinaryDrr scheduler,
-            final long ordinaryPassEpochMs)
+            final long observedRevision, final TargetWorkerOrdinaryDrr scheduler, final long ordinaryPassEpochMs)
             throws InterruptedException {
         final long nowEpochMs = schedulerClock.getAsLong();
         if (nowEpochMs < 0) {
@@ -585,9 +578,8 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
         long timeoutNanos = safetyRecheckNanos;
         if (nextWakeEpochMs.isPresent() && nextWakeEpochMs.getAsLong() > nowEpochMs) {
             final long delayMillis = nextWakeEpochMs.getAsLong() - nowEpochMs;
-            final long delayNanos = delayMillis > Long.MAX_VALUE / 1_000_000L
-                    ? Long.MAX_VALUE
-                    : delayMillis * 1_000_000L;
+            final long delayNanos =
+                    delayMillis > Long.MAX_VALUE / 1_000_000L ? Long.MAX_VALUE : delayMillis * 1_000_000L;
             timeoutNanos = Math.min(timeoutNanos, delayNanos);
         }
         return timeoutNanos;
@@ -666,7 +658,12 @@ public final class TargetWorkerOrdinaryLoop implements AutoCloseable {
     /** Quarantine fences the Store separately; a current native turn must not block initiating backend close. */
     public void requestStop() {
         final Thread current;
-        synchronized (this) { closed = true; current = thread; }
-        if (current != null) { current.interrupt(); }
+        synchronized (this) {
+            closed = true;
+            current = thread;
+        }
+        if (current != null) {
+            current.interrupt();
+        }
     }
 }

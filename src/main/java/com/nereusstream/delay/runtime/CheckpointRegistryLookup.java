@@ -12,40 +12,61 @@ import java.util.function.Supplier;
 final class CheckpointRegistryLookup {
     private CheckpointRegistryLookup() {}
 
-    static <T> CompletableFuture<T> submit(Supplier<T> operation, Duration timeout, Runnable protection,
-            ThreadPoolExecutor executor, LongSupplier nanos) {
+    static <T> CompletableFuture<T> submit(
+            Supplier<T> operation,
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor,
+            LongSupplier nanos) {
         Objects.requireNonNull(operation, "operation");
         return submitBounded(guard -> operation.get(), timeout, protection, executor, nanos, true);
     }
 
     /** Supplies the same acceptance deadline and protection to each synchronous CAS step. */
-    static <T> CompletableFuture<T> submitProtected(Function<Runnable, T> operation, Duration timeout,
-            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos) {
+    static <T> CompletableFuture<T> submitProtected(
+            Function<Runnable, T> operation,
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor,
+            LongSupplier nanos) {
         return submitBounded(operation, timeout, protection, executor, nanos, false);
     }
 
-    private static <T> CompletableFuture<T> submitBounded(Function<Runnable, T> operation, Duration timeout,
-            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos, boolean checkBeforeAdmission) {
+    private static <T> CompletableFuture<T> submitBounded(
+            Function<Runnable, T> operation,
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor,
+            LongSupplier nanos,
+            boolean checkBeforeAdmission) {
         Objects.requireNonNull(operation, "operation");
         final Runnable guard = newGuard(timeout, protection, executor, nanos, checkBeforeAdmission);
-        return com.nereusstream.delay.ownership.OwnedCheckpointIo
-                .submit(operation, guard, executor).receipt();
+        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(operation, guard, executor)
+                .receipt();
     }
 
     static <T> com.nereusstream.delay.ownership.OwnedCheckpointIo<T> submitOwned(
-            Function<Runnable, T> operation, Duration timeout,
-            Runnable protection, ThreadPoolExecutor executor, LongSupplier nanos) {
-        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(operation,
-                newGuard(timeout, protection, executor, nanos, false), executor);
+            Function<Runnable, T> operation,
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor,
+            LongSupplier nanos) {
+        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(
+                operation, newGuard(timeout, protection, executor, nanos, false), executor);
     }
 
-    private static Runnable newGuard(Duration timeout, Runnable protection, ThreadPoolExecutor executor,
-            LongSupplier nanos, boolean checkBeforeAdmission) {
+    private static Runnable newGuard(
+            Duration timeout,
+            Runnable protection,
+            ThreadPoolExecutor executor,
+            LongSupplier nanos,
+            boolean checkBeforeAdmission) {
         Objects.requireNonNull(protection, "protection");
         Objects.requireNonNull(nanos, "nanos");
         final long duration;
-        try { duration = Objects.requireNonNull(timeout, "timeout").toNanos(); }
-        catch (ArithmeticException overflow) {
+        try {
+            duration = Objects.requireNonNull(timeout, "timeout").toNanos();
+        } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Registry timeout overflow", overflow);
         }
         if (duration <= 0 || duration == Long.MAX_VALUE) {
@@ -58,7 +79,9 @@ final class CheckpointRegistryLookup {
             throw new IllegalArgumentException("Registry executor requires finite threads/queue and AbortPolicy");
         }
         final long started = nanos.getAsLong();
-        if (checkBeforeAdmission) { protection.run(); }
+        if (checkBeforeAdmission) {
+            protection.run();
+        }
         return () -> {
             requireDeadline(nanos, started, duration);
             protection.run();

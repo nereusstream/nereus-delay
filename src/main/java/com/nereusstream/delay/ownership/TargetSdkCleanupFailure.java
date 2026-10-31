@@ -14,10 +14,14 @@ public class TargetSdkCleanupFailure extends IllegalStateException implements Ch
         this.close = Objects.requireNonNull(close, "same native cleanup");
     }
 
-    @Override public boolean cleanupComplete() { return complete; }
+    @Override
+    public boolean cleanupComplete() {
+        return complete;
+    }
 
     /** The owning I/O task schedules this command on the same finite executor. */
-    @Override public CompletableFuture<Void> retryCleanup() {
+    @Override
+    public CompletableFuture<Void> retryCleanup() {
         try {
             retryClose();
             return CompletableFuture.completedFuture(null);

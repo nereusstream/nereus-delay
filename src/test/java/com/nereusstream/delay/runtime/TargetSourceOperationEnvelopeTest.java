@@ -26,8 +26,7 @@ class TargetSourceOperationEnvelopeTest {
 
     @Test
     void basicCalculationTerminatesButFixedTermsDoNotQualifySourceService() {
-        final var fixed = assertTimeoutPreemptively(
-                CALCULATION_TIMEOUT, TargetSourceOperationEnvelope::basic);
+        final var fixed = assertTimeoutPreemptively(CALCULATION_TIMEOUT, TargetSourceOperationEnvelope::basic);
 
         assertTrue(fixed.readRecords() > 0);
         assertTrue(fixed.writeRecords() > 0);
@@ -59,20 +58,21 @@ class TargetSourceOperationEnvelopeTest {
         // decodeFrame accepts the exact opaque body; the typed managed-body decoder is a later step.
         final byte[] body = new byte[4096];
         final var shard = new ShardId(new RouteIncarnation(new byte[RouteIncarnation.LENGTH]), 1);
-        final var commandId = new CommandId(SelfRoutingId.fromLogicalUuid(
-                shard, UUID.fromString("00000000-0064-7000-8000-000000000001")).bytes());
-        final var messageId = new DelayMessageId(SelfRoutingId.fromLogicalUuid(
-                shard, UUID.fromString("00000000-0064-7000-8000-000000000002")).bytes());
-        final var command = PreparedCommand.create(
-                shard, commandId, messageId, CommandType.SCHEDULE, 100, body);
+        final var commandId = new CommandId(
+                SelfRoutingId.fromLogicalUuid(shard, UUID.fromString("00000000-0064-7000-8000-000000000001"))
+                        .bytes());
+        final var messageId = new DelayMessageId(
+                SelfRoutingId.fromLogicalUuid(shard, UUID.fromString("00000000-0064-7000-8000-000000000002"))
+                        .bytes());
+        final var command = PreparedCommand.create(shard, commandId, messageId, CommandType.SCHEDULE, 100, body);
         final byte[] actualFrame = CommandCodec.encodeFrame(command);
         assertArrayEquals(body, CommandCodec.decodeFrame(actualFrame).canonicalBody());
 
         assertTimeoutPreemptively(CALCULATION_TIMEOUT, () -> {
             TargetSourceOperationEnvelope.FrameDecodeBounds previous = null;
-            for (long frame : new long[] {
-                    actualFrame.length, 64L * 1024 * 1024, TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES
-            }) {
+            for (long frame :
+                    new long[] {actualFrame.length, 64L * 1024 * 1024, TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES
+                    }) {
                 final var current = TargetSourceOperationEnvelope.frameDecode(frame);
                 final long envelope = frame - ShardLogFrame.HEADER_LENGTH - ShardLogFrame.TRAILER_LENGTH;
                 // The original input F remains owned. ShardLogFrame.decode makes copyOfRange,
@@ -100,8 +100,11 @@ class TargetSourceOperationEnvelopeTest {
     @Test
     void actualFrameDecodeRejectsLengthsOutsideTheCompleteRepresentation() {
         for (long invalid : new long[] {
-                -1, 0, ShardLogFrame.HEADER_LENGTH + ShardLogFrame.TRAILER_LENGTH - 1L,
-                (long) TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES + 1, Long.MAX_VALUE
+            -1,
+            0,
+            ShardLogFrame.HEADER_LENGTH + ShardLogFrame.TRAILER_LENGTH - 1L,
+            (long) TargetMigrationArchiveSourceFrame.MAX_FRAME_BYTES + 1,
+            Long.MAX_VALUE
         }) {
             assertThrows(IllegalArgumentException.class, () -> TargetSourceOperationEnvelope.frameDecode(invalid));
         }

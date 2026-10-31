@@ -59,7 +59,9 @@ class TargetSourceBacklogTest {
         final var anchor = source(10, 100);
         final var active = new AtomicBoolean(true);
         final var cut = new TargetSourceBacklog.Cut(anchor, () -> {
-            if (!active.get()) { throw new IllegalStateException("fixture cut changed"); }
+            if (!active.get()) {
+                throw new IllegalStateException("fixture cut changed");
+            }
         });
         final var time = new AtomicLong(0);
         final var collector = collector(cut, time);
@@ -67,8 +69,9 @@ class TargetSourceBacklogTest {
         collector.add(anchor, 8);
         assertThrows(IllegalStateException.class, () -> collector.finish(source(11, 101)));
         assertThrows(IllegalStateException.class, () -> collector.add(source(11, 101), 129));
-        assertThrows(IllegalArgumentException.class, () -> collector.add(new KafkaSourcePosition(shard,
-                "other-cluster", topic, 11, 1, 101), 8));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> collector.add(new KafkaSourcePosition(shard, "other-cluster", topic, 11, 1, 101), 8));
         active.set(false);
         assertThrows(IllegalStateException.class, collector::requireCurrent);
         active.set(true);
@@ -78,8 +81,8 @@ class TargetSourceBacklogTest {
         final var another = collector(cut, backward);
         backward.set(9);
         assertThrows(IllegalStateException.class, another::remainingNanos);
-        final var limited = new TargetSourceBacklog.Collector(cut,
-                new TargetSourceBacklog.Limits(2, 128, 128, 1000), () -> 0, () -> {});
+        final var limited = new TargetSourceBacklog.Collector(
+                cut, new TargetSourceBacklog.Limits(2, 128, 128, 1000), () -> 0, () -> {});
         limited.add(anchor, 8);
         limited.add(source(11, 101), 16);
         assertThrows(IllegalStateException.class, () -> limited.add(source(12, 102), 16));
@@ -92,33 +95,48 @@ class TargetSourceBacklogTest {
         collector.add(cut.applied(), 8);
         collector.add(source(11, 101), 32);
         final var snapshot = collector.finish(source(11, 101));
-        final var command = PreparedCommand.reschedule(shard, DelayMessageId.random(shard),
-                new MessagePrecondition(null, null), 200, 1000, 1000);
+        final var command = PreparedCommand.reschedule(
+                shard, DelayMessageId.random(shard), new MessagePrecondition(null, null), 200, 1000, 1000);
         final var route = route(topic);
         final var time = new AtomicLong(0);
-        final var gate = new TargetSourceBacklogAdmission(new TargetSourceBacklogAdmission.Limits(2, 64, 100, 1000),
-                ignored -> snapshot, () -> 150, time::get, (actual, bytes) -> {});
+        final var gate = new TargetSourceBacklogAdmission(
+                new TargetSourceBacklogAdmission.Limits(2, 64, 100, 1000),
+                ignored -> snapshot,
+                () -> 150,
+                time::get,
+                (actual, bytes) -> {});
         gate.requireAllowed(command, route, 32);
-        assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED,
-                assertThrows(SubmissionPlanException.class, () -> gate.requireAllowed(command, route, 33)).code());
+        assertEquals(
+                StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED,
+                assertThrows(SubmissionPlanException.class, () -> gate.requireAllowed(command, route, 33))
+                        .code());
         assertThrows(SubmissionPlanException.class, () -> gate.requireAllowed(command, route(UUID.randomUUID()), 1));
         time.set(1000);
         assertThrows(SubmissionPlanException.class, () -> gate.requireAllowed(command, route, 1));
-        final var oldest = new TargetSourceBacklogAdmission(new TargetSourceBacklogAdmission.Limits(2, 64, 49, 1000),
-                ignored -> snapshot, () -> 150, () -> 0, (actual, bytes) -> {});
+        final var oldest = new TargetSourceBacklogAdmission(
+                new TargetSourceBacklogAdmission.Limits(2, 64, 49, 1000),
+                ignored -> snapshot,
+                () -> 150,
+                () -> 0,
+                (actual, bytes) -> {});
         assertThrows(SubmissionPlanException.class, () -> oldest.requireAllowed(command, route, 1));
-        final var denied = new TargetSourceBacklogAdmission(new TargetSourceBacklogAdmission.Limits(2, 64, 100, 1000),
-                ignored -> snapshot, () -> 150, () -> 0,
-                (actual, bytes) -> { throw new IllegalStateException("retention fixture denied"); });
+        final var denied = new TargetSourceBacklogAdmission(
+                new TargetSourceBacklogAdmission.Limits(2, 64, 100, 1000),
+                ignored -> snapshot,
+                () -> 150,
+                () -> 0,
+                (actual, bytes) -> {
+                    throw new IllegalStateException("retention fixture denied");
+                });
         assertThrows(SubmissionPlanException.class, () -> denied.requireAllowed(command, route, 1));
-        final var cancel = PreparedCommand.cancel(shard, CommandId.random(shard), command.delayMessageId(),
-                new MessagePrecondition(null, null), 1000);
+        final var cancel = PreparedCommand.cancel(
+                shard, CommandId.random(shard), command.delayMessageId(), new MessagePrecondition(null, null), 1000);
         denied.requireAllowed(cancel, route, 1);
     }
 
     private TargetSourceBacklog.Collector collector(TargetSourceBacklog.Cut cut, AtomicLong time) {
-        return new TargetSourceBacklog.Collector(cut, new TargetSourceBacklog.Limits(8, 1024, 128, 1000),
-                time::get, () -> {});
+        return new TargetSourceBacklog.Collector(
+                cut, new TargetSourceBacklog.Limits(8, 1024, 128, 1000), time::get, () -> {});
     }
 
     @Test
@@ -129,8 +147,12 @@ class TargetSourceBacklogTest {
         collector.add(source(11, 101), 32);
         final var snapshot = collector.finish(source(11, 101));
         final var route = route(topic);
-        final var gate = new TargetSourceBacklogAdmission(new TargetSourceBacklogAdmission.Limits(1, 64, 100, 1000),
-                ignored -> snapshot, () -> 150, () -> 0, (actual, bytes) -> {});
+        final var gate = new TargetSourceBacklogAdmission(
+                new TargetSourceBacklogAdmission.Limits(1, 64, 100, 1000),
+                ignored -> snapshot,
+                () -> 150,
+                () -> 0,
+                (actual, bytes) -> {});
         final var routes = new com.nereusstream.delay.route.RouteSnapshotProvider() {
             @Override
             public RouteSnapshot activeForNewSchedule(
@@ -140,29 +162,44 @@ class TargetSourceBacklogTest {
             }
 
             @Override
-            public RouteSnapshot exact(RouteIncarnation incarnation,
-                    com.nereusstream.delay.semantic.AuthenticatedTenantContext tenant) {
+            public RouteSnapshot exact(
+                    RouteIncarnation incarnation, com.nereusstream.delay.semantic.AuthenticatedTenantContext tenant) {
                 return route;
             }
 
             @Override
-            public long publishedRevision() { return 1; }
+            public long publishedRevision() {
+                return 1;
+            }
         };
         final var resolver = new com.nereusstream.delay.submission.RouteBoundSubmissionTransportPlanResolver(
                 routes, () -> 150, null, gate);
-        final var coordinator = new com.nereusstream.delay.submission.DefaultSubmissionCoordinator(resolver,
-                key -> { throw new AssertionError("backpressured growth reached transport lookup"); },
-                key -> { throw new AssertionError("backpressured growth reached outcome projector lookup"); });
-        final var command = PreparedCommand.reschedule(shard, DelayMessageId.random(shard),
-                new MessagePrecondition(null, null), 200, 1000, 1000);
+        final var coordinator = new com.nereusstream.delay.submission.DefaultSubmissionCoordinator(
+                resolver,
+                key -> {
+                    throw new AssertionError("backpressured growth reached transport lookup");
+                },
+                key -> {
+                    throw new AssertionError("backpressured growth reached outcome projector lookup");
+                });
+        final var command = PreparedCommand.reschedule(
+                shard, DelayMessageId.random(shard), new MessagePrecondition(null, null), 200, 1000, 1000);
         final var prepared = com.nereusstream.delay.protocol.PreparedSubmission.managed(
                 com.nereusstream.delay.protocol.CommandCodec.encodeManagedFrame(command));
         final var permit = new com.nereusstream.delay.transport.LocalTransportOwnershipPermit(
                 com.nereusstream.delay.transport.PhysicalEnqueueAttemptId.random());
-        final var result = coordinator.submit(new com.nereusstream.delay.semantic.AuthenticatedTenantContext(
-                        bytes(2), bytes(3), bytes(12)), prepared, permit).toCompletableFuture().get();
-        assertEquals(com.nereusstream.delay.protocol.EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, result.managed().kind());
-        assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED,
+        final var result = coordinator
+                .submit(
+                        new com.nereusstream.delay.semantic.AuthenticatedTenantContext(bytes(2), bytes(3), bytes(12)),
+                        prepared,
+                        permit)
+                .toCompletableFuture()
+                .get();
+        assertEquals(
+                com.nereusstream.delay.protocol.EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED,
+                result.managed().kind());
+        assertEquals(
+                StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED,
                 result.managed().definitelyNotQueued().error().code());
         assertEquals(com.nereusstream.delay.transport.TransportOwnershipState.INVALID, permit.state());
     }
@@ -173,17 +210,43 @@ class TargetSourceBacklogTest {
 
     private RouteSnapshot route(UUID nativeTopic) throws Exception {
         final var broker = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", nativeTopic));
-        final var quota = new QuotaGrantRef(bytes(1), 1,
-                new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        return RouteSnapshot.create(shard.routeIncarnation(), bytes(2), bytes(3), RouteLifecycle.ACTIVE_FOR_NEW,
-                900, new KafkaIngressRouteResource("cluster", "source", nativeTopic, 1),
-                RoutingHashVersion.ROUTING_HASH, new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1), 1,
+        final var quota = new QuotaGrantRef(
+                bytes(1), 1, new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        return RouteSnapshot.create(
+                shard.routeIncarnation(),
+                bytes(2),
+                bytes(3),
+                RouteLifecycle.ACTIVE_FOR_NEW,
+                900,
+                new KafkaIngressRouteResource("cluster", "source", nativeTopic, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
+                1,
                 List.of(new RoutePartitionPolicy(0, ActivationBarrier.kafka(broker, 0, 0, 0), quota, 1, bytes(4))),
-                100, 200, 1024, 4096, 10, 8192, 500, 100, 1000,
-                new IngressCredentialBindingRef(bytes(5), 1, bytes(6), bytes(7), bytes(8)), bytes(9),
-                new TrustedUtcIntervalEvidence(200, 201, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
-                        Arrays.copyOf(bytes(10), 8), 1, 2, 3, bytes(11), 0, null),
-                1, KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
+                100,
+                200,
+                1024,
+                4096,
+                10,
+                8192,
+                500,
+                100,
+                1000,
+                new IngressCredentialBindingRef(bytes(5), 1, bytes(6), bytes(7), bytes(8)),
+                bytes(9),
+                new TrustedUtcIntervalEvidence(
+                        200,
+                        201,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        Arrays.copyOf(bytes(10), 8),
+                        1,
+                        2,
+                        3,
+                        bytes(11),
+                        0,
+                        null),
+                1,
+                KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
     }
 
     private static byte[] bytes(int seed) {

@@ -58,8 +58,10 @@ class TargetMaterializedAdmissionTest {
         final byte[] changed = publication.canonicalBytes();
         changed[changed.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> TargetOrdinaryPublicationBinding.decode(changed));
-        assertThrows(IllegalArgumentException.class, () -> TargetOrdinaryPublicationBinding.decode(
-                new byte[TargetOrdinaryPublicationBinding.MAX_CANONICAL_BYTES + 1]));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetOrdinaryPublicationBinding.decode(
+                        new byte[TargetOrdinaryPublicationBinding.MAX_CANONICAL_BYTES + 1]));
     }
 
     @Test
@@ -75,39 +77,74 @@ class TargetMaterializedAdmissionTest {
         final var keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final var owner = f.claim().owner();
         final var mutation = SystemMutation.signed(
-                body.shard(), SystemMutationType.TARGET_PUBLISH_ADMISSION, body.retryUntilEpochMs(),
-                body.publishAttemptId(), body.canonicalBytes(),
-                AuthorIdentity.owner(owner.deploymentId(), owner.workerRunId(),
-                                owner.ownerEpoch(), owner.leaseFencingDigest())
+                body.shard(),
+                SystemMutationType.TARGET_PUBLISH_ADMISSION,
+                body.retryUntilEpochMs(),
+                body.publishAttemptId(),
+                body.canonicalBytes(),
+                AuthorIdentity.owner(
+                                owner.deploymentId(),
+                                owner.workerRunId(),
+                                owner.ownerEpoch(),
+                                owner.leaseFencingDigest())
                         .canonicalBytes(),
-                1, keys.getPrivate());
-        assertArrayEquals(mutation.encodeFrame(), SystemMutation.decodeFrame(mutation.encodeFrame()).encodeFrame());
+                1,
+                keys.getPrivate());
+        assertArrayEquals(
+                mutation.encodeFrame(),
+                SystemMutation.decodeFrame(mutation.encodeFrame()).encodeFrame());
         final var oldSource = (KafkaSourcePosition) f.binding().bindingSource();
-        final var at = new KafkaSourcePosition(oldSource.shardId(), oldSource.authenticatedClusterId(),
-                oldSource.nativeTopicUuid(), oldSource.offset() + 1, oldSource.leaderEpoch(),
+        final var at = new KafkaSourcePosition(
+                oldSource.shardId(),
+                oldSource.authenticatedClusterId(),
+                oldSource.nativeTopicUuid(),
+                oldSource.offset() + 1,
+                oldSource.leaderEpoch(),
                 body.decisionTime().earliestEpochMs());
         final var scope = new TargetQuotaScope(at.shardId(), repeated(32, 0x51), null);
         final var accepted = TargetPublishAdmissionVerifier.decideFirstApplication(
-                scope, mutation, at,
+                scope,
+                mutation,
+                at,
                 (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
-                        keys.getPublic(), ProtocolTuple.targetMaterializedPublishAdmission(), 10, 10, 100,
-                        (e, g, h, i) -> true, (materialized, source) -> {
+                        keys.getPublic(),
+                        ProtocolTuple.targetMaterializedPublishAdmission(),
+                        10,
+                        10,
+                        100,
+                        (e, g, h, i) -> true,
+                        (materialized, source) -> {
                             assertEquals(publication, materialized.publication());
                             assertEquals(at, source);
                         }));
         assertNull(accepted.rejection());
-        assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
+        assertEquals(
+                StableCode.UNAUTHORIZED_SYSTEM_MUTATION,
                 TargetPublishAdmissionVerifier.decideFirstApplication(
-                                scope, mutation, at,
+                                scope,
+                                mutation,
+                                at,
                                 (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
-                                        keys.getPublic(), ProtocolTuple.targetPublishAdmission(),
-                                        10, 10, 100, (e, g, h, i) -> true))
+                                        keys.getPublic(),
+                                        ProtocolTuple.targetPublishAdmission(),
+                                        10,
+                                        10,
+                                        100,
+                                        (e, g, h, i) -> true))
                         .rejection());
-        assertThrows(IllegalStateException.class, () -> TargetPublishAdmissionVerifier.decideFirstApplication(
-                scope, mutation, at,
-                (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
-                        keys.getPublic(), ProtocolTuple.targetMaterializedPublishAdmission(),
-                        10, 10, 100, (e, g, h, i) -> true)));
+        assertThrows(
+                IllegalStateException.class,
+                () -> TargetPublishAdmissionVerifier.decideFirstApplication(
+                        scope,
+                        mutation,
+                        at,
+                        (a, b, c, d) -> new TargetPublishAdmissionVerifier.Authorization(
+                                keys.getPublic(),
+                                ProtocolTuple.targetMaterializedPublishAdmission(),
+                                10,
+                                10,
+                                100,
+                                (e, g, h, i) -> true)));
     }
 
     private record Fixture(
@@ -130,8 +167,9 @@ class TargetMaterializedAdmissionTest {
         final long part = publication.physical().physicalPartition();
         assertDoesNotThrow(() -> pulsarAck(publication, part, publication.preparedPublishHash())
                 .requireOrdinaryTargetPublishedBinding(publication));
-        assertThrows(IllegalArgumentException.class, () -> pulsarAck(publication, part + 1,
-                publication.preparedPublishHash()).requireOrdinaryTargetPublishedBinding(publication));
+        assertThrows(IllegalArgumentException.class, () -> pulsarAck(
+                        publication, part + 1, publication.preparedPublishHash())
+                .requireOrdinaryTargetPublishedBinding(publication));
         assertThrows(IllegalArgumentException.class, () -> pulsarAck(publication, part, repeated(32, 0x61))
                 .requireOrdinaryTargetPublishedBinding(publication));
     }
@@ -147,8 +185,11 @@ class TargetMaterializedAdmissionTest {
             CanonicalProtobuf.uint64(out, 6, publication.deliverAtEpochMs());
             CanonicalProtobuf.bytes(out, 7, repeated(32, 0x61));
             CanonicalProtobuf.uint64(out, 8, 1);
-            CanonicalProtobuf.bytes(out, 9,
-                    ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId()).canonicalBytes());
+            CanonicalProtobuf.bytes(
+                    out,
+                    9,
+                    ExternalDeliveryIdentity.publishAttempt(publication.publishAttemptId())
+                            .canonicalBytes());
             CanonicalProtobuf.bytes(out, 10, preparedHash);
             CanonicalProtobuf.bytes(out, 11, repeated(32, 0x62));
         });
@@ -167,22 +208,59 @@ class TargetMaterializedAdmissionTest {
         final var template = TargetQuotaClaimCharge.decode(vector("target-quota-claim", "native"));
         final var intent = binding.intent();
         final var locator = new TargetMessageLocator(
-                binding.messageId(), 0, binding.target(), binding.domain(), binding.accountingIncarnation(),
-                intent.orderingMode(), binding.orderingDomain(), binding.digest());
+                binding.messageId(),
+                0,
+                binding.target(),
+                binding.domain(),
+                binding.accountingIncarnation(),
+                intent.orderingMode(),
+                binding.orderingDomain(),
+                binding.digest());
         final var work = new TargetTimelineWorkRef(
-                locator, TimelineWorkKind.INITIAL_SCHEDULE, intent.deliverAtEpochMs(), intent.deliverAtEpochMs(),
-                binding.bindingSource().sourceOrderToken(), 1, 1, UncertainRetryAuthority.NONE, null, null, false);
+                locator,
+                TimelineWorkKind.INITIAL_SCHEDULE,
+                intent.deliverAtEpochMs(),
+                intent.deliverAtEpochMs(),
+                binding.bindingSource().sourceOrderToken(),
+                1,
+                1,
+                UncertainRetryAuthority.NONE,
+                null,
+                null,
+                false);
         final var initial = new TargetMessageRecord(
-                locator, 1, intent.deliverAtEpochMs(), intent.expireAtEpochMs(), intent.deliverAtEpochMs(),
-                intent.nativeDeliveryPolicy(), binding.bindingSource(),
+                locator,
+                1,
+                intent.deliverAtEpochMs(),
+                intent.expireAtEpochMs(),
+                intent.deliverAtEpochMs(),
+                intent.nativeDeliveryPolicy(),
+                binding.bindingSource(),
                 intent.hasInlinePayload() ? intent.inlinePayload() : null,
                 intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload()),
-                new TargetGenerationRuntimeIndex(0, GenerationAggregateState.SCHEDULED, CurrentSendWorkKind.TIMELINE,
-                        work, null, null, List.of(), 0, 0, false, 1));
+                new TargetGenerationRuntimeIndex(
+                        0,
+                        GenerationAggregateState.SCHEDULED,
+                        CurrentSendWorkKind.TIMELINE,
+                        work,
+                        null,
+                        null,
+                        List.of(),
+                        0,
+                        0,
+                        false,
+                        1));
         final var claim = new TargetClaimRecord(
-                initial.runtime(), initial.stateVersion(), initial.digest(),
+                initial.runtime(),
+                initial.stateVersion(),
+                initial.digest(),
                 new TargetHeadRef(work.ordinaryKey(), locator.messageId(), 0, work.ordinaryEligibilityAtEpochMs()),
-                template.owner(), template.storeIncarnation(), 3, intent.expireAtEpochMs() - 1, 128, 1,
+                template.owner(),
+                template.storeIncarnation(),
+                3,
+                intent.expireAtEpochMs() - 1,
+                128,
+                1,
                 template.creation());
         return new Fixture(binding, physical, channel, initial, claim, claim.claimed(initial));
     }
@@ -193,7 +271,11 @@ class TargetMaterializedAdmissionTest {
 
     private static TargetOrdinaryPublicationBinding publication(Fixture f, byte[] artifacts) {
         return TargetOrdinaryPublicationBinding.fromClaim(
-                f.claim(), f.claimed(), f.binding(), f.physical(), f.channel(),
+                f.claim(),
+                f.claimed(),
+                f.binding(),
+                f.physical(),
+                f.channel(),
                 new ProfileRef(Bytes.utf8("capability"), 1, repeated(32, 0x41), ProfileKind.DELIVERY_CAPABILITY),
                 artifacts);
     }
@@ -211,22 +293,41 @@ class TargetMaterializedAdmissionTest {
         final var record = PulsarPreparedRecordFactory.targetManaged(
                 publication, message, payload, ResolvedPayload.of(message.inlinePayload()), sequence, artifacts);
         assertEquals(record, PulsarPreparedRecord.decode(record.canonicalBytes()));
-        assertEquals(DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, record.template().deliveryContract());
+        assertEquals(
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, record.template().deliveryContract());
         assertNull(record.template().nativeDeliverAtEpochMs());
-        assertEquals(publication.adapterMetadata().pulsar().properties(), record.template().callerProperties());
-        assertArrayEquals(publication.adapterMetadata().pulsar().orderingKey(), record.template().orderingKey());
+        assertEquals(
+                publication.adapterMetadata().pulsar().properties(),
+                record.template().callerProperties());
+        assertArrayEquals(
+                publication.adapterMetadata().pulsar().orderingKey(),
+                record.template().orderingKey());
         assertEquals(publication.eventTimeEpochMs(), record.template().eventTimeEpochMs());
         assertArrayEquals(publication.preparedPublishHash(), record.preparedIdentityHash());
         assertArrayEquals(message.inlinePayload(), record.resolvedPayload().bytes());
         assertEquals(9, record.finalReservedProperties().size());
-        assertThrows(IllegalArgumentException.class, () -> PulsarPreparedRecordFactory.targetManaged(
-                publication, f.claimed(), payload, record.resolvedPayload(), sequence, artifacts));
-        assertThrows(IllegalArgumentException.class, () -> PulsarPreparedRecordFactory.targetManaged(
-                publication, message, PayloadForPublish.inline(Bytes.utf8("wrong")),
-                ResolvedPayload.of(Bytes.utf8("wrong")), sequence, artifacts));
-        assertThrows(IllegalArgumentException.class, () -> PulsarPreparedRecordFactory.targetManaged(
-                publication, message, payload, record.resolvedPayload(),
-                PulsarSequenceAuthority.managedJournal(repeated(32, 0x72), 7, repeated(32, 0x73)), artifacts));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarPreparedRecordFactory.targetManaged(
+                        publication, f.claimed(), payload, record.resolvedPayload(), sequence, artifacts));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarPreparedRecordFactory.targetManaged(
+                        publication,
+                        message,
+                        PayloadForPublish.inline(Bytes.utf8("wrong")),
+                        ResolvedPayload.of(Bytes.utf8("wrong")),
+                        sequence,
+                        artifacts));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarPreparedRecordFactory.targetManaged(
+                        publication,
+                        message,
+                        payload,
+                        record.resolvedPayload(),
+                        PulsarSequenceAuthority.managedJournal(repeated(32, 0x72), 7, repeated(32, 0x73)),
+                        artifacts));
     }
 
     @Test
@@ -245,30 +346,50 @@ class TargetMaterializedAdmissionTest {
                 publication, message, projection, resolved, sequence, artifacts);
         assertEquals(descriptor, record.template().payload().object());
         final var foreign = new CommittedPayloadDescriptor(
-                descriptor.objectStoreProfile(), descriptor.container(), Bytes.utf8("another-object"),
-                descriptor.immutableObjectVersion(), descriptor.etag(), descriptor.length(),
-                descriptor.payloadSha256(), descriptor.reservationId(), descriptor.proofId());
-        assertThrows(IllegalArgumentException.class, () -> PulsarPreparedRecordFactory.targetManaged(
-                publication, message, PayloadForPublish.object(foreign), resolved, sequence, artifacts));
-        assertThrows(IllegalArgumentException.class, () -> PulsarPreparedRecordFactory.targetManaged(
-                publication, message, PayloadForPublish.inline(resolved.bytes()), resolved, sequence, artifacts));
+                descriptor.objectStoreProfile(),
+                descriptor.container(),
+                Bytes.utf8("another-object"),
+                descriptor.immutableObjectVersion(),
+                descriptor.etag(),
+                descriptor.length(),
+                descriptor.payloadSha256(),
+                descriptor.reservationId(),
+                descriptor.proofId());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarPreparedRecordFactory.targetManaged(
+                        publication, message, PayloadForPublish.object(foreign), resolved, sequence, artifacts));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarPreparedRecordFactory.targetManaged(
+                        publication,
+                        message,
+                        PayloadForPublish.inline(resolved.bytes()),
+                        resolved,
+                        sequence,
+                        artifacts));
     }
 
     @Test
     void targetGenerationsAndSourceShardsSharePhysicalPoolAndRetainOldZombies() throws Exception {
         final var f = fixture();
         final var channel = f.channel();
-        final var renewal = channelFor(channel, channel.context().sourceShard(),
+        final var renewal = channelFor(
+                channel,
+                channel.context().sourceShard(),
                 TargetQueueState.nextRevision(channel.context().channelGeneration()));
         renewal.requireSuccessorOf(channel);
-        final var other = channelFor(channel,
-                new ShardId(channel.context().sourceShard().routeIncarnation(),
-                        channel.context().sourceShard().partition() + 1), channel.context().channelGeneration());
+        final var other = channelFor(
+                channel,
+                new ShardId(
+                        channel.context().sourceShard().routeIncarnation(),
+                        channel.context().sourceShard().partition() + 1),
+                channel.context().channelGeneration());
         final var pool = new DestinationPhysicalAdmission(2, 100);
         pool.registerTargetCluster(f.physical().resource().pulsar().authenticatedClusterId(), 2, 100);
         for (var candidate : List.of(channel, renewal, other)) {
-            pool.registerTargetChannel(new DestinationPhysicalAdmission.TargetChannelSpec(
-                    candidate, f.physical(), 2, 100, 2, 100));
+            pool.registerTargetChannel(
+                    new DestinationPhysicalAdmission.TargetChannelSpec(candidate, f.physical(), 2, 100, 2, 100));
             pool.openTargetReady(candidate);
         }
         assertEquals(0, pool.workerSnapshot().protectedReadyRequests());
@@ -279,7 +400,8 @@ class TargetMaterializedAdmissionTest {
         pool.closeTargetReady(channel);
         assertThrows(IllegalStateException.class, () -> pool.unregisterTargetChannel(channel));
         final var second = pool.tryAcquireTarget(renewal, 30).reservation();
-        assertEquals(DestinationPhysicalAdmission.Rejection.WORKER_CAPACITY,
+        assertEquals(
+                DestinationPhysicalAdmission.Rejection.WORKER_CAPACITY,
                 pool.tryAcquireTarget(other, 1).rejection());
         assertEquals(1, pool.targetChannelSnapshot(channel).zombieRequests());
         pool.closeTargetSourceShard(channel.context().sourceShard());
@@ -304,13 +426,19 @@ class TargetMaterializedAdmissionTest {
         final var admitted = admission(f, publication);
         final var message = f.claim().admitted(f.claimed(), admitted.obligation(), admitted.attemptNo());
         final var record = PulsarPreparedRecordFactory.targetManaged(
-                publication, message, PayloadForPublish.inline(message.inlinePayload()),
-                ResolvedPayload.of(message.inlinePayload()), PulsarSequenceAuthority.managedJournal(
-                        repeated(32, 0x72), 7, Bytes.sha256(f.channel().context().producerIdentity())), artifacts);
+                publication,
+                message,
+                PayloadForPublish.inline(message.inlinePayload()),
+                ResolvedPayload.of(message.inlinePayload()),
+                PulsarSequenceAuthority.managedJournal(
+                        repeated(32, 0x72),
+                        7,
+                        Bytes.sha256(f.channel().context().producerIdentity())),
+                artifacts);
         final var pool = new DestinationPhysicalAdmission(1, 100_000);
         pool.registerTargetCluster(f.physical().resource().pulsar().authenticatedClusterId(), 1, 100_000);
-        pool.registerTargetChannel(new DestinationPhysicalAdmission.TargetChannelSpec(
-                f.channel(), f.physical(), 1, 100_000, 1, 100_000));
+        pool.registerTargetChannel(
+                new DestinationPhysicalAdmission.TargetChannelSpec(f.channel(), f.physical(), 1, 100_000, 1, 100_000));
         pool.openTargetReady(f.channel());
         final var tasks = new ArrayList<Runnable>();
         final var physical = new CompletableFuture<DestinationPublishResult>();
@@ -325,7 +453,8 @@ class TargetMaterializedAdmissionTest {
 
             @Override
             public java.util.concurrent.CompletionStage<DestinationPublishResult> publishPreparedRecord(
-                    PulsarPreparedRecord actual, ArtifactGenerationSet actualArtifacts,
+                    PulsarPreparedRecord actual,
+                    ArtifactGenerationSet actualArtifacts,
                     BoundedDestinationPublishAdapter.PreparedPublishPreflight ownershipGate) {
                 assertEquals(record, actual);
                 assertArrayEquals(artifacts.setDigest(), actualArtifacts.setDigest());
@@ -345,7 +474,8 @@ class TargetMaterializedAdmissionTest {
             preflights.incrementAndGet();
             return null;
         };
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> adapter.submitTargetPreparedRecord(publication, record, artifacts, null));
         final var legacyRecordCalls = new AtomicInteger();
         final DestinationPublishAdapter legacy = new DestinationPublishAdapter() {
@@ -364,8 +494,11 @@ class TargetMaterializedAdmissionTest {
             }
         };
         final var unsupported = new BoundedDestinationPublishAdapter(legacy, pool, classes, Runnable::run);
-        unsupported.submitTargetPreparedRecord(publication, record, artifacts, fixtureGate)
-                .outcome().toCompletableFuture().join();
+        unsupported
+                .submitTargetPreparedRecord(publication, record, artifacts, fixtureGate)
+                .outcome()
+                .toCompletableFuture()
+                .join();
         assertEquals(0, legacyRecordCalls.get());
         assertEquals(0, preflights.get());
         assertEquals(0, pool.workerSnapshot().activeRequests());
@@ -376,7 +509,8 @@ class TargetMaterializedAdmissionTest {
         tasks.removeFirst().run();
         assertEquals(0, calls.get());
         assertEquals(0, preflights.get());
-        assertEquals(DestinationPublishResult.Disposition.UNKNOWN,
+        assertEquals(
+                DestinationPublishResult.Disposition.UNKNOWN,
                 stopped.outcome().toCompletableFuture().join().disposition());
         assertEquals(0, pool.workerSnapshot().activeRequests());
         pool.openTargetReady(f.channel());
@@ -398,26 +532,50 @@ class TargetMaterializedAdmissionTest {
     private static TargetChannelIdentity channelFor(TargetChannelIdentity prior, ShardId shard, long generation) {
         final var c = prior.context();
         final var context = new TargetChannelIdentity.Context(
-                shard, c.target(), c.domain(), c.accountingIncarnation(), c.dispatchCompatibilityRef(),
-                c.controlScopeRef(), c.kind(), c.channelSlot(), generation, c.evidenceGeneration(),
+                shard,
+                c.target(),
+                c.domain(),
+                c.accountingIncarnation(),
+                c.dispatchCompatibilityRef(),
+                c.controlScopeRef(),
+                c.kind(),
+                c.channelSlot(),
+                generation,
+                c.evidenceGeneration(),
                 c.resourceGuardAttestationDigest());
         final var lease = prior.credentialLease();
-        return new TargetChannelIdentity(context, new CredentialUseLease(
-                lease.profile(), lease.kind(), context.credentialHolderScope(), lease.secretGeneration(),
-                lease.credentialBindingDigest(), lease.resolvedCredentialFingerprintDigest(), lease.issuedAt(),
-                lease.validUntilEpochMs(), lease.protectionRevision()));
+        return new TargetChannelIdentity(
+                context,
+                new CredentialUseLease(
+                        lease.profile(),
+                        lease.kind(),
+                        context.credentialHolderScope(),
+                        lease.secretGeneration(),
+                        lease.credentialBindingDigest(),
+                        lease.resolvedCredentialFingerprintDigest(),
+                        lease.issuedAt(),
+                        lease.validUntilEpochMs(),
+                        lease.protectionRevision()));
     }
 
     private static WorkClassExecutionRegistry workClasses() {
         final var policies = new EnumMap<WorkClass, WorkClassPolicy>(WorkClass.class);
         for (var kind : WorkClass.values()) {
             final boolean protectedClass = kind != WorkClass.QUERY && kind != WorkClass.CHECKPOINT;
-            policies.put(kind, new WorkClassPolicy(
-                    1, 1, 1_000_000, 1, 1_000_000, 1_000, protectedClass ? 1 : 0,
-                    protectedClass ? 8 : 0, kind == WorkClass.LEASE_FENCE));
+            policies.put(
+                    kind,
+                    new WorkClassPolicy(
+                            1,
+                            1,
+                            1_000_000,
+                            1,
+                            1_000_000,
+                            1_000,
+                            protectedClass ? 1 : 0,
+                            protectedClass ? 8 : 0,
+                            kind == WorkClass.LEASE_FENCE));
         }
-        return new WorkClassExecutionRegistry(
-                new WorkClassRuntimeConfig(policies, 100, 100, 16, 8_000_000), () -> 0);
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100, 16, 8_000_000), () -> 0);
     }
 
     @Test
@@ -432,43 +590,63 @@ class TargetMaterializedAdmissionTest {
         final var identity = PulsarPreparedRecordFactory.targetJournalIdentity(publication, message, payload, at);
         final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
         final var rows = new ArrayList<PulsarAttemptJournal.JournalRecord>();
-        final var journal = PulsarAttemptJournal.forTargets(at.shardId(), request -> {
-            final var position = journalPosition(rows.size());
-            final var bytes = TargetPulsarAttemptJournalRecordCodec.encode(request);
-            rows.add(TargetPulsarAttemptJournalRecordCodec.decode(bytes, position));
-            return position;
-        }, null, 16, 100_000);
-        final var mapped = journal.appendOrReuseCurrent(producer, identity).record().mapping();
+        final var journal = PulsarAttemptJournal.forTargets(
+                at.shardId(),
+                request -> {
+                    final var position = journalPosition(rows.size());
+                    final var bytes = TargetPulsarAttemptJournalRecordCodec.encode(request);
+                    rows.add(TargetPulsarAttemptJournalRecordCodec.decode(bytes, position));
+                    return position;
+                },
+                null,
+                16,
+                100_000);
+        final var mapped =
+                journal.appendOrReuseCurrent(producer, identity).record().mapping();
         assertEquals(0, mapped.sequenceId());
         assertTrue(journal.appendOrReuseCurrent(producer, identity).idempotent());
         assertEquals(1, rows.size());
         final var record = PulsarPreparedRecordFactory.targetManaged(
                 publication, message, payload, ResolvedPayload.of(message.inlinePayload()), mapped, artifacts);
         assertArrayEquals(mapped.mappingId(), record.sequenceAuthority().journalMappingId());
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> PulsarAttemptJournalRecordCodec.encode(rowsRequest(rows.getFirst())));
-        assertThrows(IllegalArgumentException.class, () -> PulsarAttemptJournalRecordCodec.decode(
-                TargetPulsarAttemptJournalRecordCodec.encode(rowsRequest(rows.getFirst())),
-                rows.getFirst().position()));
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarAttemptJournalRecordCodec.decode(
+                        TargetPulsarAttemptJournalRecordCodec.encode(rowsRequest(rows.getFirst())),
+                        rows.getFirst().position()));
+        assertThrows(
+                IllegalStateException.class,
                 () -> journal.sendAfterMapped(mapped, ignored -> CompletableFuture.completedFuture(record)));
         journal.markOwnershipStarted(mapped);
-        final var recovered = PulsarAttemptJournal.forTargets(at.shardId(), request -> {
-            throw new AssertionError("recovery token check must not append");
-        }, null, 16, 100_000);
+        final var recovered = PulsarAttemptJournal.forTargets(
+                at.shardId(),
+                request -> {
+                    throw new AssertionError("recovery token check must not append");
+                },
+                null,
+                16,
+                100_000);
         rows.forEach(recovered::replay);
         assertEquals(PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED, recovered.state(mapped.mappingId()));
         assertTrue(recovered.markOwnershipStarted(mapped).idempotent());
         final var sends = new AtomicInteger();
-        assertThrows(IllegalStateException.class, () -> recovered.sendAfterOwnershipStarted(mapped, ignored -> {
-            sends.incrementAndGet();
-            return CompletableFuture.completedFuture(record);
-        }));
+        assertThrows(
+                IllegalStateException.class,
+                () -> recovered.sendAfterOwnershipStarted(mapped, ignored -> {
+                    sends.incrementAndGet();
+                    return CompletableFuture.completedFuture(record);
+                }));
         journal.sendAfterOwnershipStarted(mapped, ignored -> {
-            sends.incrementAndGet();
-            return CompletableFuture.completedFuture(record);
-        }).toCompletableFuture().join();
-        assertThrows(IllegalStateException.class,
+                    sends.incrementAndGet();
+                    return CompletableFuture.completedFuture(record);
+                })
+                .toCompletableFuture()
+                .join();
+        assertThrows(
+                IllegalStateException.class,
                 () -> journal.sendAfterOwnershipStarted(mapped, ignored -> CompletableFuture.completedFuture(record)));
         assertEquals(1, sends.get());
         assertThrows(IllegalStateException.class, () -> journal.retireNotPublished(mapped.mappingId()));
@@ -479,15 +657,18 @@ class TargetMaterializedAdmissionTest {
         final var f = fixture();
         final var at = (KafkaSourcePosition) f.binding().bindingSource();
         final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
-        final var renewedChannel = channelFor(f.channel(), at.shardId(),
+        final var renewedChannel = channelFor(
+                f.channel(),
+                at.shardId(),
                 TargetQueueState.nextRevision(f.channel().context().channelGeneration()));
         final var renewed = PulsarAttemptJournal.ProducerKey.target(renewedChannel, f.physical());
         assertEquals(producer, renewed);
         final var entries = new AtomicInteger();
-        final var journal = PulsarAttemptJournal.forTargets(at.shardId(),
-                request -> journalPosition(entries.getAndIncrement()), null, 16, 100_000);
+        final var journal = PulsarAttemptJournal.forTargets(
+                at.shardId(), request -> journalPosition(entries.getAndIncrement()), null, 16, 100_000);
         final var first = targetJournalIdentity(f, repeated(32, 0x81));
-        final var mapping = journal.appendOrReuseCurrent(producer, first).record().mapping();
+        final var mapping =
+                journal.appendOrReuseCurrent(producer, first).record().mapping();
         assertThrows(IllegalStateException.class, () -> journal.appendOrReuseCurrent(renewed, first));
         journal.retireNotPublished(mapping.mappingId());
         final var second = journal.appendOrReuseCurrent(renewed, targetJournalIdentity(f, repeated(32, 0x82)));
@@ -505,46 +686,62 @@ class TargetMaterializedAdmissionTest {
         final var shard = f.channel().context().sourceShard();
         final var producer = PulsarAttemptJournal.ProducerKey.target(f.channel(), f.physical());
         final var durable = new ArrayList<PulsarAttemptJournal.JournalRecord>();
-        assertThrows(IllegalArgumentException.class, () -> PulsarAttemptJournal.forTargets(
-                shard, request -> journalPosition(0), null, Integer.MAX_VALUE, Long.MAX_VALUE));
-        final var journal = PulsarAttemptJournal.forTargets(shard, request -> {
-            final var position = journalPosition(durable.size());
-            durable.add(TargetPulsarAttemptJournalRecordCodec.decode(
-                    TargetPulsarAttemptJournalRecordCodec.encode(request), position));
-            if (request.kind() == PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED) {
-                throw new IllegalStateException("fixture committed Journal response loss");
-            }
-            return position;
-        }, null, 16, 100_000);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PulsarAttemptJournal.forTargets(
+                        shard, request -> journalPosition(0), null, Integer.MAX_VALUE, Long.MAX_VALUE));
+        final var journal = PulsarAttemptJournal.forTargets(
+                shard,
+                request -> {
+                    final var position = journalPosition(durable.size());
+                    durable.add(TargetPulsarAttemptJournalRecordCodec.decode(
+                            TargetPulsarAttemptJournalRecordCodec.encode(request), position));
+                    if (request.kind() == PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED) {
+                        throw new IllegalStateException("fixture committed Journal response loss");
+                    }
+                    return position;
+                },
+                null,
+                16,
+                100_000);
         final var first = targetJournalIdentity(f, repeated(32, 0x81));
-        final var mapping = journal.appendOrReuseCurrent(producer, first).record().mapping();
+        final var mapping =
+                journal.appendOrReuseCurrent(producer, first).record().mapping();
         assertThrows(IllegalStateException.class, () -> journal.markOwnershipStarted(mapping));
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> journal.appendOrReuseCurrent(producer, targetJournalIdentity(f, repeated(32, 0x82))));
         assertEquals(2, durable.size());
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> journal.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture(null)));
-        final var partial = PulsarAttemptJournal.forTargets(shard,
-                request -> journalPosition(10), null, 1, 100_000);
+        final var partial = PulsarAttemptJournal.forTargets(shard, request -> journalPosition(10), null, 1, 100_000);
         partial.replay(durable.getFirst());
         assertThrows(IllegalStateException.class, () -> partial.replay(durable.get(1)));
         assertThrows(IllegalStateException.class, () -> partial.markOwnershipStarted(mapping));
-        final var complete = PulsarAttemptJournal.forTargets(shard,
-                request -> journalPosition(10), null, 16, 100_000);
+        final var complete = PulsarAttemptJournal.forTargets(shard, request -> journalPosition(10), null, 16, 100_000);
         durable.forEach(complete::replay);
         assertEquals(PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED, complete.state(mapping.mappingId()));
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> complete.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture(null)));
         final byte[] tampered = TargetPulsarAttemptJournalRecordCodec.encode(rowsRequest(durable.getFirst()));
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> TargetPulsarAttemptJournalRecordCodec.decode(tampered, journalPosition(0)));
     }
 
     private static PulsarAttemptJournal.CurrentAttemptIdentity targetJournalIdentity(Fixture f, byte[] attempt) {
-        return new PulsarAttemptJournal.CurrentAttemptIdentity(f.binding().messageId(), 0, attempt,
-                repeated(32, 0x83), repeated(32, 0x84), DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
-                f.binding().bindingSource().canonicalBytes(), repeated(32, 0x85));
+        return new PulsarAttemptJournal.CurrentAttemptIdentity(
+                f.binding().messageId(),
+                0,
+                attempt,
+                repeated(32, 0x83),
+                repeated(32, 0x84),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                f.binding().bindingSource().canonicalBytes(),
+                repeated(32, 0x85));
     }
 
     private static PulsarAttemptJournal.AppendRequest rowsRequest(PulsarAttemptJournal.JournalRecord record) {
@@ -559,17 +756,37 @@ class TargetMaterializedAdmissionTest {
         final long[] reserve = new long[CapacityDimension.COUNT];
         reserve[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 256;
         final var time = new TrustedUtcIntervalEvidence(
-                f.claimed().deliverAtEpochMs(), f.claimed().deliverAtEpochMs() + 1,
-                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"),
-                1, 1, 1, repeated(32, 0x43), 0, null);
-        final var ref = new AttemptObligationRef(publication.publishAttemptId(), publication.locator().generation(),
+                f.claimed().deliverAtEpochMs(),
+                f.claimed().deliverAtEpochMs() + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("clock"),
+                1,
+                1,
+                1,
+                repeated(32, 0x43),
+                0,
+                null);
+        final var ref = new AttemptObligationRef(
+                publication.publishAttemptId(),
+                publication.locator().generation(),
                 AttemptLedgerState.PUBLISHING,
                 KeyCodec.inflight((byte) 2, f.claim().owner().ownerEpoch(), publication.publishAttemptId()));
         return new TargetPublishAdmissionBody(
-                f.binding().bindingSource().shardId(), time.latestEpochMs() + 10_000, f.claim().owner(),
-                f.claim().storeIncarnation(), f.claim().claimId(), publication.locator(), publication.attemptNo(),
-                publication.publishAttemptId(), ref, 128, new CapacityVector(reserve), CapacityVector.empty(), time,
-                publication, f.claim());
+                f.binding().bindingSource().shardId(),
+                time.latestEpochMs() + 10_000,
+                f.claim().owner(),
+                f.claim().storeIncarnation(),
+                f.claim().claimId(),
+                publication.locator(),
+                publication.attemptNo(),
+                publication.publishAttemptId(),
+                ref,
+                128,
+                new CapacityVector(reserve),
+                CapacityVector.empty(),
+                time,
+                publication,
+                f.claim());
     }
 
     private static byte[] repeated(int count, int value) {
@@ -580,8 +797,8 @@ class TargetMaterializedAdmissionTest {
 
     private static byte[] vector(String name, String key) throws Exception {
         final var values = new Properties();
-        try (var input = TargetMaterializedAdmissionTest.class.getResourceAsStream(
-                "/ndip3/" + name + "-vectors.properties")) {
+        try (var input =
+                TargetMaterializedAdmissionTest.class.getResourceAsStream("/ndip3/" + name + "-vectors.properties")) {
             values.load(input);
         }
         return HexFormat.of().parseHex(values.getProperty(key));

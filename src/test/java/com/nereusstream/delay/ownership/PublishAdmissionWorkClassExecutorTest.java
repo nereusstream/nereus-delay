@@ -79,7 +79,8 @@ class PublishAdmissionWorkClassExecutorTest {
                 7,
                 new KafkaActivationBarrier(shardId, "queued-admission-cluster", sourceTopic, 0));
         final InMemoryOwnerLeaseStore leaseBackend = new InMemoryOwnerLeaseStore();
-        final OwnerLease lease = leaseBackend.acquire(
+        final OwnerLease lease = leaseBackend
+                .acquire(
                         assignment,
                         "queued-admission-owner",
                         Bytes.sha256(Bytes.utf8("queued-admission-session")),
@@ -160,15 +161,7 @@ class PublishAdmissionWorkClassExecutorTest {
                     },
                     ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
             final PublishAdmissionWorkClassExecutor.Submission submission = executor.submit(
-                    claim,
-                    reservation,
-                    descriptor,
-                    certificate,
-                    decision,
-                    2_500,
-                    1,
-                    keyPair.getPrivate(),
-                    () -> 101);
+                    claim, reservation, descriptor, certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);
 
             assertEquals(1, workClasses.registeredActions());
             assertTrue(leaseBackend.release(lease));
@@ -192,7 +185,8 @@ class PublishAdmissionWorkClassExecutorTest {
                 8,
                 new KafkaActivationBarrier(shardId, "replacement-store-cluster", sourceTopic, 0));
         final InMemoryOwnerLeaseStore leaseBackend = new InMemoryOwnerLeaseStore();
-        final OwnerLease lease = leaseBackend.acquire(
+        final OwnerLease lease = leaseBackend
+                .acquire(
                         assignment,
                         "replacement-store-owner",
                         Bytes.sha256(Bytes.utf8("replacement-store-session")),
@@ -212,10 +206,8 @@ class PublishAdmissionWorkClassExecutorTest {
                 10_000);
         final KafkaSourcePosition schedulePosition =
                 new KafkaSourcePosition(shardId, "replacement-store-cluster", sourceTopic, 0, null, 1_000);
-        final ShardStoreConfig oldConfig =
-                ShardStoreConfig.defaults(tempDir.resolve("replacement-store-old"));
-        final ShardStoreConfig replacementConfig =
-                ShardStoreConfig.defaults(tempDir.resolve("replacement-store-new"));
+        final ShardStoreConfig oldConfig = ShardStoreConfig.defaults(tempDir.resolve("replacement-store-old"));
+        final ShardStoreConfig replacementConfig = ShardStoreConfig.defaults(tempDir.resolve("replacement-store-new"));
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
 
         try (SharedRocksDbResources oldResources = new SharedRocksDbResources(oldConfig);
@@ -257,7 +249,8 @@ class PublishAdmissionWorkClassExecutorTest {
             replacementOwned.recordCatchup(schedulePosition);
             replacementOwned.activateForCommands(authority, 101);
             assertFalse(Bytes.constantTimeEquals(
-                    oldStore.metadata().storeIncarnation(), replacementStore.metadata().storeIncarnation()));
+                    oldStore.metadata().storeIncarnation(),
+                    replacementStore.metadata().storeIncarnation()));
 
             final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, payload.length);
             permits.registerShard(new ClaimExecutionAdmission.ShardSpec(shardId, 1, payload.length));

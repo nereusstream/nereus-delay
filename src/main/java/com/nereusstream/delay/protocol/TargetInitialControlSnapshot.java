@@ -17,37 +17,65 @@ public final class TargetInitialControlSnapshot {
     private final byte[] author;
     private final byte[] digest;
 
-    public TargetInitialControlSnapshot(TargetControlSnapshotInput input, TargetQuotaIdentity root,
-            TargetQuotaMutation mutation, TargetQuotaGrantActivation initialGrant, byte[] author) {
+    public TargetInitialControlSnapshot(
+            TargetControlSnapshotInput input,
+            TargetQuotaIdentity root,
+            TargetQuotaMutation mutation,
+            TargetQuotaGrantActivation initialGrant,
+            byte[] author) {
         this.input = Objects.requireNonNull(input, "input");
         this.root = Objects.requireNonNull(root, "root");
         this.mutation = Objects.requireNonNull(mutation, "mutation");
         mutation.requireSourceApplied();
-        if (mutation.sequence() != 1 || root.kind() != TargetQuotaIdentity.Kind.SHARD
+        if (mutation.sequence() != 1
+                || root.kind() != TargetQuotaIdentity.Kind.SHARD
                 || !root.shard().equals(input.scope().shard())
-                || !Arrays.equals(mutation.source().canonicalBytes(), input.source().canonicalBytes())
+                || !Arrays.equals(
+                        mutation.source().canonicalBytes(), input.source().canonicalBytes())
                 || !Arrays.equals(mutation.mutationDigest(), input.envelopeDigest())
                 || AuthorIdentity.decode(author).kind() != AuthorIdentity.Kind.CONTROL) {
             throw new IllegalArgumentException("Target initial control record changes its root/Source/author");
         }
         this.initialGrant = Objects.requireNonNull(initialGrant, "initialGrant");
-        input.requireInitial(input.scope(), input.lineage(), initialGrant.grant(), mutation.source(),
-                mutation.mutationDigest());
-        if (initialGrant.request().prior() != null || initialGrant.allocation() != null
-                || !initialGrant.mutation().equals(mutation) || !initialGrant.grant().scope().equals(input.scope())) {
+        input.requireInitial(
+                input.scope(), input.lineage(), initialGrant.grant(), mutation.source(), mutation.mutationDigest());
+        if (initialGrant.request().prior() != null
+                || initialGrant.allocation() != null
+                || !initialGrant.mutation().equals(mutation)
+                || !initialGrant.grant().scope().equals(input.scope())) {
             throw new IllegalArgumentException("Target control snapshot changes its original first Shard grant");
         }
         this.author = Bytes.copy(author);
         digest = Bytes.sha256(DOMAIN, fields());
     }
 
-    public TargetControlSnapshotInput input() { return input; }
-    public TargetQuotaIdentity root() { return root; }
-    public TargetQuotaMutation mutation() { return mutation; }
-    public TargetQuotaGrantActivation initialGrant() { return initialGrant; }
-    public byte[] authorIdentity() { return Bytes.copy(author); }
-    public byte[] snapshotDigest() { return Bytes.copy(digest); }
-    public byte[] key() { return KeyCodec.metaFixed(10); }
+    public TargetControlSnapshotInput input() {
+        return input;
+    }
+
+    public TargetQuotaIdentity root() {
+        return root;
+    }
+
+    public TargetQuotaMutation mutation() {
+        return mutation;
+    }
+
+    public TargetQuotaGrantActivation initialGrant() {
+        return initialGrant;
+    }
+
+    public byte[] authorIdentity() {
+        return Bytes.copy(author);
+    }
+
+    public byte[] snapshotDigest() {
+        return Bytes.copy(digest);
+    }
+
+    public byte[] key() {
+        return KeyCodec.metaFixed(10);
+    }
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
@@ -68,8 +96,8 @@ public final class TargetInitialControlSnapshot {
     }
 
     public static TargetInitialControlSnapshot decode(byte[] encoded) {
-        final var fields = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 7, false,
-                "Target initial control snapshot");
+        final var fields = TargetCompatibilityCodec.read(
+                encoded, MAX_CANONICAL_BYTES, 7, false, "Target initial control snapshot");
         QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7}, "Target initial control snapshot");
         if (QueryCodecSupport.uint32(fields.getFirst(), 1) != 1) {
             throw new IllegalArgumentException("unsupported Target initial control snapshot version");

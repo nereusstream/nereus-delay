@@ -166,8 +166,7 @@ public final class TargetMembershipControlVerifier {
             if (!required.equals(grant.required())) {
                 throw unauthorized("membership required contract differs from exact Profile semantics");
             }
-            grant.requireSourceRegistration(
-                    request.value(), prepared.operationId(), mutation.mutationHash(), source);
+            grant.requireSourceRegistration(request.value(), prepared.operationId(), mutation.mutationHash(), source);
             return new Change(Action.GRANT, null, new TargetMembershipAuthority.AppliedGrant(grant, null));
         }
         final var before = membership.resolve(request.value());

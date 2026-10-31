@@ -166,8 +166,8 @@ public final class LegacyCheckpointStateInventory {
                 final ColumnFamilyHandle inflight = byName.get(ColumnFamily.INFLIGHT.rocksName());
                 for (ColumnFamily family : ColumnFamily.values()) {
                     final ColumnFamilyHandle handle = byName.get(family.rocksName());
-                    try (RocksIterator iterator = db.newIterator(
-                            Objects.requireNonNull(handle, "columnFamilyHandle"))) {
+                    try (RocksIterator iterator =
+                            db.newIterator(Objects.requireNonNull(handle, "columnFamilyHandle"))) {
                         iterator.seekToFirst();
                         while (iterator.isValid()) {
                             if (!budget.beforeRead()) {
@@ -247,10 +247,14 @@ public final class LegacyCheckpointStateInventory {
                                         ConflictReason.MESSAGE_KEY_MALFORMED));
                             } else if (family == ColumnFamily.ID && messageKey) {
                                 final DelayMessageId messageId = messageId(key);
-                                if (!messageId.routingId().shardId().equals(proof.metadata().shardId())) {
+                                if (!messageId
+                                        .routingId()
+                                        .shardId()
+                                        .equals(proof.metadata().shardId())) {
                                     throw new IllegalArgumentException("legacy Message key belongs to another Shard");
                                 }
-                                final byte[] payload = ValueEnvelope.decode(value, MESSAGE_VALUE_TYPE).payload();
+                                final byte[] payload = ValueEnvelope.decode(value, MESSAGE_VALUE_TYPE)
+                                        .payload();
                                 if (RetiredMessageIdentityRecord.isEncoded(payload)) {
                                     final RetiredMessageIdentityRecord retired =
                                             RetiredMessageIdentityRecord.decode(payload);
@@ -282,7 +286,9 @@ public final class LegacyCheckpointStateInventory {
                                     final MessageRecord message = MessageRecord.decode(payload);
                                     final SourcePosition schedulePosition =
                                             SourcePositionCodec.decode(message.scheduleSourcePosition());
-                                    if (!schedulePosition.shardId().equals(proof.metadata().shardId())) {
+                                    if (!schedulePosition
+                                            .shardId()
+                                            .equals(proof.metadata().shardId())) {
                                         throw new IllegalArgumentException(
                                                 "legacy Message source position belongs to another Shard");
                                     }
@@ -292,17 +298,19 @@ public final class LegacyCheckpointStateInventory {
                                             || (schedulePosition.compareTo(proof.appliedSourcePosition()) == 0
                                                     && !Arrays.equals(
                                                             schedulePosition.canonicalBytes(),
-                                                            proof.appliedSourcePosition().canonicalBytes()))) {
+                                                            proof.appliedSourcePosition()
+                                                                    .canonicalBytes()))) {
                                         conflicts.add(conflict(
                                                 oldMessageKey,
                                                 schedulePosition,
                                                 ConflictReason.MESSAGE_SCHEDULE_SOURCE_OUTSIDE_CHECKPOINT));
                                     }
-                                    final TimelineWorkRef timelineWork = message.runtimeIndex().timeline();
-                                    final byte[] currentTimelineKey = message.status() == MessageStatus.SCHEDULED
-                                                    && timelineWork != null
-                                            ? timelineWork.encodedTimelineKey()
-                                            : null;
+                                    final TimelineWorkRef timelineWork =
+                                            message.runtimeIndex().timeline();
+                                    final byte[] currentTimelineKey =
+                                            message.status() == MessageStatus.SCHEDULED && timelineWork != null
+                                                    ? timelineWork.encodedTimelineKey()
+                                                    : null;
                                     final byte[] currentExpiryKey = message.status() == MessageStatus.SCHEDULED
                                             ? KeyCodec.timelineExpiry(
                                                     message.expireAtEpochMs(),
@@ -355,24 +363,20 @@ public final class LegacyCheckpointStateInventory {
                                     }
                                     if (message.status() == MessageStatus.SCHEDULED) {
                                         auditScheduledIndexes(
-                                                db,
-                                                timeline,
-                                                messageId,
-                                                message,
-                                                schedulePosition,
-                                                budget,
-                                                conflicts);
+                                                db, timeline, messageId, message, schedulePosition, budget, conflicts);
                                     }
                                 }
                             }
                             if (family == ColumnFamily.META
                                     && Arrays.equals(key, KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE))) {
                                 try {
-                                    final byte[] sequence = ValueEnvelope.decode(value, 1).payload();
+                                    final byte[] sequence =
+                                            ValueEnvelope.decode(value, 1).payload();
                                     if (sequence.length != Long.BYTES) {
                                         throw new IllegalArgumentException("invalid persisted Claim sequence");
                                     }
-                                    claimSequenceHighWater = java.nio.ByteBuffer.wrap(sequence).getLong();
+                                    claimSequenceHighWater =
+                                            java.nio.ByteBuffer.wrap(sequence).getLong();
                                 } catch (IllegalArgumentException malformedSequence) {
                                     claimSequenceHighWaterReadable = false;
                                     conflicts.add(conflict(
@@ -384,15 +388,13 @@ public final class LegacyCheckpointStateInventory {
                             }
                             if (malformedLaneRecordKey) {
                                 conflicts.add(conflict(
-                                        key,
-                                        "LANE",
-                                        proof.appliedSourcePosition(),
-                                        ConflictReason.LANE_KEY_MALFORMED));
+                                        key, "LANE", proof.appliedSourcePosition(), ConflictReason.LANE_KEY_MALFORMED));
                             } else if (family == ColumnFamily.META && laneRecordKey) {
                                 final DestinationLaneId keyLaneId = laneId(key);
                                 LaneStateSnapshot lane = null;
                                 try {
-                                    final byte[] payload = ValueEnvelope.decode(value, 2).payload();
+                                    final byte[] payload =
+                                            ValueEnvelope.decode(value, 2).payload();
                                     lane = decodeLaneState(payload);
                                 } catch (IllegalArgumentException malformedRecord) {
                                     conflicts.add(conflict(
@@ -422,11 +424,15 @@ public final class LegacyCheckpointStateInventory {
                             }
                             if (terminalGenerationKey) {
                                 final DelayMessageId terminalMessageId = terminalMessageId(key);
-                                if (!terminalMessageId.routingId().shardId().equals(proof.metadata().shardId())) {
+                                if (!terminalMessageId
+                                        .routingId()
+                                        .shardId()
+                                        .equals(proof.metadata().shardId())) {
                                     throw new IllegalArgumentException(
                                             "legacy terminal summary belongs to another Shard");
                                 }
-                                final byte[] payload = ValueEnvelope.decode(value, 1).payload();
+                                final byte[] payload =
+                                        ValueEnvelope.decode(value, 1).payload();
                                 final TerminalGenerationRecord terminal = TerminalGenerationRecord.decode(payload);
                                 if (!terminal.messageId().equals(terminalMessageId)
                                         || !Arrays.equals(
@@ -436,8 +442,8 @@ public final class LegacyCheckpointStateInventory {
                                     throw new IllegalArgumentException(
                                             "legacy terminal summary identity differs from its key");
                                 }
-                                final SourcePosition terminalPosition = SourcePositionCodec.decode(
-                                        terminal.appliedSourcePosition());
+                                final SourcePosition terminalPosition =
+                                        SourcePositionCodec.decode(terminal.appliedSourcePosition());
                                 if (!terminalPosition.sameSourceIdentity(proof.appliedSourcePosition())
                                         || terminalPosition.compareTo(proof.appliedSourcePosition()) > 0) {
                                     conflicts.add(conflict(
@@ -468,8 +474,8 @@ public final class LegacyCheckpointStateInventory {
                             if (claimRecordKey) {
                                 ClaimRecord claim = null;
                                 try {
-                                    final byte[] payload =
-                                            ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE).payload();
+                                    final byte[] payload = ValueEnvelope.decode(value, ClaimRecord.VALUE_TYPE)
+                                            .payload();
                                     claim = ClaimRecord.decode(payload);
                                 } catch (IllegalArgumentException malformedRecord) {
                                     conflicts.add(conflict(
@@ -479,7 +485,9 @@ public final class LegacyCheckpointStateInventory {
                                             ConflictReason.CLAIM_RECORD_MALFORMED));
                                 }
                                 if (claim != null) {
-                                    if (!claim.delayMessageId().routingId().shardId()
+                                    if (!claim.delayMessageId()
+                                            .routingId()
+                                            .shardId()
                                             .equals(proof.metadata().shardId())) {
                                         throw new IllegalArgumentException("legacy Claim belongs to another Shard");
                                     }
@@ -503,9 +511,13 @@ public final class LegacyCheckpointStateInventory {
                                             ConflictReason.ATTEMPT_LEDGER_MALFORMED));
                                 }
                                 if (ledger != null && attemptPosition != null) {
-                                    if (!ledger.delayMessageId().routingId().shardId()
+                                    if (!ledger.delayMessageId()
+                                                    .routingId()
+                                                    .shardId()
                                                     .equals(proof.metadata().shardId())
-                                            || !attemptPosition.shardId().equals(proof.metadata().shardId())) {
+                                            || !attemptPosition
+                                                    .shardId()
+                                                    .equals(proof.metadata().shardId())) {
                                         throw new IllegalArgumentException(
                                                 "legacy publish attempt belongs to another Shard");
                                     }
@@ -614,8 +626,7 @@ public final class LegacyCheckpointStateInventory {
                 conflicts);
     }
 
-    private static void auditAttemptAdmission(
-            final PublishAttemptLedger ledger, final List<Conflict> conflicts) {
+    private static void auditAttemptAdmission(final PublishAttemptLedger ledger, final List<Conflict> conflicts) {
         final byte[] admissionBytes = ledger.admissionBytes();
         // Older embedded ledgers may retain opaque tokens. Only bytes with the canonical current
         // PUBLISH_ADMISSION protobuf marker are interpreted; other bytes remain untouched.
@@ -628,10 +639,7 @@ public final class LegacyCheckpointStateInventory {
             admission = PublishAdmissionBody.decode(admissionBytes);
         } catch (IllegalArgumentException malformed) {
             conflicts.add(conflict(
-                    ledger.encodedKey(),
-                    "ATTEMPT",
-                    sourcePosition,
-                    ConflictReason.ATTEMPT_ADMISSION_MALFORMED));
+                    ledger.encodedKey(), "ATTEMPT", sourcePosition, ConflictReason.ATTEMPT_ADMISSION_MALFORMED));
             return;
         }
         final OwnerIdentity owner = OwnerIdentity.decode(admission.ownerIdentity());
@@ -647,10 +655,7 @@ public final class LegacyCheckpointStateInventory {
                 || !Arrays.equals(ledger.preparedPublishHash(), admission.preparedPublishHash())
                 || ledger.attemptNo() != admission.descriptor().attemptNo()) {
             conflicts.add(conflict(
-                    ledger.encodedKey(),
-                    "ATTEMPT",
-                    sourcePosition,
-                    ConflictReason.ATTEMPT_ADMISSION_LEDGER_MISMATCH));
+                    ledger.encodedKey(), "ATTEMPT", sourcePosition, ConflictReason.ATTEMPT_ADMISSION_LEDGER_MISMATCH));
         }
     }
 
@@ -666,20 +671,14 @@ public final class LegacyCheckpointStateInventory {
         final TimelineWorkRef work = message.runtimeIndex().timeline();
         final byte[] messageKey = KeyCodec.idMessage(messageId);
         if (work == null) {
-            conflicts.add(conflict(
-                    messageKey,
-                    schedulePosition,
-                    ConflictReason.SCHEDULED_WORK_REFERENCE_MISSING));
+            conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.SCHEDULED_WORK_REFERENCE_MISSING));
             return;
         }
         final boolean ordered = message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO;
         if (work.orderedHeadBlocking() != ordered
                 || work.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
                 || work.actionAtEpochMs() > message.deliverAtEpochMs()) {
-            conflicts.add(conflict(
-                    messageKey,
-                    schedulePosition,
-                    ConflictReason.SCHEDULED_WORK_FIELDS_DISAGREE));
+            conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.SCHEDULED_WORK_FIELDS_DISAGREE));
             return;
         }
         final long eligibleAt = ordered
@@ -699,10 +698,8 @@ public final class LegacyCheckpointStateInventory {
                         messageId,
                         message.generation());
         if (!Arrays.equals(expectedTimelineKey, work.encodedTimelineKey())) {
-            conflicts.add(conflict(
-                    messageKey,
-                    schedulePosition,
-                    ConflictReason.SCHEDULED_WORK_KEY_DISAGREES_WITH_MESSAGE));
+            conflicts.add(
+                    conflict(messageKey, schedulePosition, ConflictReason.SCHEDULED_WORK_KEY_DISAGREES_WITH_MESSAGE));
             return;
         }
         final byte[] timelineValue = readPoint(db, timeline, expectedTimelineKey, budget);
@@ -711,8 +708,8 @@ public final class LegacyCheckpointStateInventory {
         } else if (!matchesTimelineValue(timelineValue, messageId, message, work)) {
             conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.DUE_INDEX_VALUE_MISMATCH));
         }
-        final byte[] expiryKey = KeyCodec.timelineExpiry(
-                message.expireAtEpochMs(), message.laneId(), messageId, message.generation());
+        final byte[] expiryKey =
+                KeyCodec.timelineExpiry(message.expireAtEpochMs(), message.laneId(), messageId, message.generation());
         final byte[] expiryValue = readPoint(db, timeline, expiryKey, budget);
         if (expiryValue == null) {
             conflicts.add(conflict(messageKey, schedulePosition, ConflictReason.EXPIRY_INDEX_MISSING));
@@ -752,15 +749,11 @@ public final class LegacyCheckpointStateInventory {
             referencedAttemptKeys.add(Bytes.hex(encodedKey));
             final byte[] encodedLedger = readPoint(db, inflight, encodedKey, budget);
             if (encodedLedger == null) {
-                conflicts.add(conflict(
-                        conflictKey, recordKind, sourcePosition, ConflictReason.ATTEMPT_OBLIGATION_MISSING));
-            } else if (!matchesAttemptObligation(encodedLedger, messageId, generation, obligation)) {
                 conflicts.add(
-                        conflict(
-                                conflictKey,
-                                recordKind,
-                                sourcePosition,
-                                ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH));
+                        conflict(conflictKey, recordKind, sourcePosition, ConflictReason.ATTEMPT_OBLIGATION_MISSING));
+            } else if (!matchesAttemptObligation(encodedLedger, messageId, generation, obligation)) {
+                conflicts.add(conflict(
+                        conflictKey, recordKind, sourcePosition, ConflictReason.ATTEMPT_OBLIGATION_VALUE_MISMATCH));
             }
         }
     }
@@ -778,28 +771,24 @@ public final class LegacyCheckpointStateInventory {
         for (ClaimRecordEntry entry : claimRecords) {
             final ClaimRecord claim = entry.claim();
             final String messageId = Bytes.hex(claim.delayMessageId().bytes());
-            claimsByMessage.computeIfAbsent(messageId, ignored -> new ArrayList<>()).add(entry);
+            claimsByMessage
+                    .computeIfAbsent(messageId, ignored -> new ArrayList<>())
+                    .add(entry);
             final CurrentMessageState message = messages.get(messageId);
-            final LaneStateSnapshot lane = laneStates.get(Bytes.hex(claim.laneId().bytes()));
-            final SourcePosition sourcePosition =
-                    message == null ? appliedSourcePosition : message.sourcePosition();
+            final LaneStateSnapshot lane =
+                    laneStates.get(Bytes.hex(claim.laneId().bytes()));
+            final SourcePosition sourcePosition = message == null ? appliedSourcePosition : message.sourcePosition();
             if (!entry.keyMatches()) {
-                conflicts.add(conflict(
-                        entry.key(),
-                        "CLAIM",
-                        sourcePosition,
-                        ConflictReason.CLAIM_RECORD_KEY_VALUE_MISMATCH));
+                conflicts.add(
+                        conflict(entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_RECORD_KEY_VALUE_MISMATCH));
             }
             if (!Arrays.equals(claim.storeIncarnation(), storeIncarnation)) {
                 conflicts.add(conflict(
-                        entry.key(),
-                        "CLAIM",
-                        sourcePosition,
-                        ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_RECORD_STORE_INCARNATION_MISMATCH));
             }
             if (!matchesClaimIdDerivation(claim)) {
-                conflicts.add(conflict(
-                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_ID_DERIVATION_MISMATCH));
+                conflicts.add(
+                        conflict(entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_ID_DERIVATION_MISMATCH));
             }
             if (claimSequenceHighWaterReadable
                     && Long.compareUnsigned(claim.claimSequence(), claimSequenceHighWater) > 0) {
@@ -821,21 +810,15 @@ public final class LegacyCheckpointStateInventory {
                     && Arrays.equals(message.claimId(), claim.claimId())
                     && !claimDeadlineWithinMessageExpiry(message, claim)) {
                 conflicts.add(conflict(
-                        entry.key(),
-                        "CLAIM",
-                        sourcePosition,
-                        ConflictReason.CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY));
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY));
             }
             if (message != null && !matchesClaimSourceTimeline(message, claim)) {
-                conflicts.add(conflict(
-                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_SOURCE_TIMELINE_MISMATCH));
+                conflicts.add(
+                        conflict(entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_SOURCE_TIMELINE_MISMATCH));
             }
             if (message == null || !representsCurrentClaim(message, claim, lane) || !entry.keyMatches()) {
                 conflicts.add(conflict(
-                        entry.key(),
-                        "CLAIM",
-                        sourcePosition,
-                        ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE));
+                        entry.key(), "CLAIM", sourcePosition, ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE));
             }
         }
         for (Map.Entry<String, CurrentMessageState> messageEntry : messages.entrySet()) {
@@ -845,20 +828,18 @@ public final class LegacyCheckpointStateInventory {
             }
             final List<ClaimRecordEntry> claims = claimsByMessage.getOrDefault(messageEntry.getKey(), List.of());
             if (claims.size() > 1) {
-                conflicts.add(conflict(
-                        message.key(),
-                        message.sourcePosition(),
-                        ConflictReason.CLAIM_MULTIPLE_FOR_MESSAGE));
+                conflicts.add(
+                        conflict(message.key(), message.sourcePosition(), ConflictReason.CLAIM_MULTIPLE_FOR_MESSAGE));
             }
             final boolean represented = claims.stream()
                     .anyMatch(entry -> entry.keyMatches()
                             && representsCurrentClaim(
                                     message,
                                     entry.claim(),
-                                    laneStates.get(Bytes.hex(entry.claim().laneId().bytes()))));
+                                    laneStates.get(
+                                            Bytes.hex(entry.claim().laneId().bytes()))));
             if (!represented) {
-                conflicts.add(conflict(
-                        message.key(), message.sourcePosition(), ConflictReason.CLAIM_RECORD_MISSING));
+                conflicts.add(conflict(message.key(), message.sourcePosition(), ConflictReason.CLAIM_RECORD_MISSING));
             }
         }
     }
@@ -883,7 +864,7 @@ public final class LegacyCheckpointStateInventory {
                 && Bytes.constantTimeEquals(
                         precondition.expectedObligationSetDigest(),
                         GenerationRuntimeIndex.obligationSetDigest(message.attemptObligations()))
-                        && matchesClaimSourceTimeline(message, claim);
+                && matchesClaimSourceTimeline(message, claim);
     }
 
     private static boolean matchesClaimIdDerivation(final ClaimRecord claim) {
@@ -904,8 +885,7 @@ public final class LegacyCheckpointStateInventory {
                 <= message.expireAtEpochMs();
     }
 
-    private static boolean matchesClaimSourceTimeline(
-            final CurrentMessageState message, final ClaimRecord claim) {
+    private static boolean matchesClaimSourceTimeline(final CurrentMessageState message, final ClaimRecord claim) {
         final byte[] encodedSourceWork = claim.sourceTimelineWork();
         if (encodedSourceWork.length == 0) {
             // Claim v1 did not retain the original typed work projection; leave it for
@@ -917,8 +897,7 @@ public final class LegacyCheckpointStateInventory {
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
         if (sourceWork.runtimeRevision() != precondition.stateVersion()
                 || sourceWork.retryEligibilityAtEpochMs() != message.retryEligibilityAtEpochMs()
-                || sourceWork.orderedHeadBlocking()
-                        != (message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO)
+                || sourceWork.orderedHeadBlocking() != (message.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO)
                 || sourceWork.actionAtEpochMs() > message.deliverAtEpochMs()
                 || precondition.expectedAdmissionsUsed() == Integer.MAX_VALUE
                 || sourceWork.candidateAttemptNo() != precondition.expectedAdmissionsUsed() + 1) {
@@ -961,8 +940,7 @@ public final class LegacyCheckpointStateInventory {
         final LaneRecordEnvelope envelope = LaneRecordEnvelope.decode(encoded);
         if (!envelope.isActive()) {
             final LaneTerminalGuard guard = envelope.terminalGuard();
-            return new LaneStateSnapshot(
-                    guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), 0, false);
+            return new LaneStateSnapshot(guard.laneId(), guard.laneIncarnation(), guard.laneControlVersion(), 0, false);
         }
         final ActiveLaneState typed = envelope.typedActiveState().orElse(null);
         if (typed != null) {
@@ -971,11 +949,7 @@ public final class LegacyCheckpointStateInventory {
         }
         final LaneRecord adapter = LaneRecord.decode(envelope.activeStateBytes());
         return new LaneStateSnapshot(
-                adapter.laneId(),
-                adapter.laneIncarnation(),
-                adapter.laneControlVersion(),
-                adapter.laneVersion(),
-                true);
+                adapter.laneId(), adapter.laneIncarnation(), adapter.laneControlVersion(), adapter.laneVersion(), true);
     }
 
     private static void auditTerminalSummaries(
@@ -984,7 +958,8 @@ public final class LegacyCheckpointStateInventory {
             final List<Conflict> conflicts) {
         for (TerminalSummaryEntry entry : terminalSummaries.values()) {
             final TerminalGenerationRecord summary = entry.summary();
-            final CurrentMessageState message = messages.get(Bytes.hex(summary.messageId().bytes()));
+            final CurrentMessageState message =
+                    messages.get(Bytes.hex(summary.messageId().bytes()));
             if (message != null
                     && message.generation() == summary.generation()
                     && (message.status() != summary.status()
@@ -1000,8 +975,8 @@ public final class LegacyCheckpointStateInventory {
         for (CurrentMessageState message : messages.values()) {
             if (isTerminalStatus(message.status())
                     && !terminalSummaries.containsKey(terminalIdentityKey(message.messageId(), message.generation()))) {
-                conflicts.add(conflict(
-                        message.key(), message.sourcePosition(), ConflictReason.TERMINAL_SUMMARY_MISSING));
+                conflicts.add(
+                        conflict(message.key(), message.sourcePosition(), ConflictReason.TERMINAL_SUMMARY_MISSING));
             }
         }
     }
@@ -1016,7 +991,8 @@ public final class LegacyCheckpointStateInventory {
             if (!budget.beforeTimedWork()) {
                 throw budget.incomplete();
             }
-            final CurrentMessageState message = messages.get(Bytes.hex(index.messageId().bytes()));
+            final CurrentMessageState message =
+                    messages.get(Bytes.hex(index.messageId().bytes()));
             final SourcePosition sourcePosition = message == null ? appliedSourcePosition : message.sourcePosition();
             if (message == null
                     || message.status() != MessageStatus.SCHEDULED
@@ -1044,36 +1020,42 @@ public final class LegacyCheckpointStateInventory {
     private static TimelineIndexIdentity decodeMessageTimelineIndexIdentity(final byte[] key) {
         final int tag = Byte.toUnsignedInt(key[0]);
         if (tag == 4) {
-            final int expectedLength = 2 + Long.BYTES + DestinationLaneId.LENGTH
-                    + DelayMessageId.LENGTH + Integer.BYTES;
-            if (key.length != expectedLength || java.nio.ByteBuffer.wrap(key, 2, Long.BYTES).getLong() < 0) {
+            final int expectedLength =
+                    2 + Long.BYTES + DestinationLaneId.LENGTH + DelayMessageId.LENGTH + Integer.BYTES;
+            if (key.length != expectedLength
+                    || java.nio.ByteBuffer.wrap(key, 2, Long.BYTES).getLong() < 0) {
                 throw new IllegalArgumentException("malformed expiry index key");
             }
             final int messageOffset = 2 + Long.BYTES + DestinationLaneId.LENGTH;
             return new TimelineIndexIdentity(
                     tag,
                     new DelayMessageId(Arrays.copyOfRange(key, messageOffset, messageOffset + DelayMessageId.LENGTH)),
-                    java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES).getInt());
+                    java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES)
+                            .getInt());
         }
         final int tokenOffset = 2 + DestinationLaneId.LENGTH + Long.BYTES;
         if (key.length <= tokenOffset) {
             throw new IllegalArgumentException("truncated due/ordered index key");
         }
-        final int tokenLength = switch (Byte.toUnsignedInt(key[tokenOffset])) {
-            case 1 -> 9;
-            case 2 -> 21;
-            default -> throw new IllegalArgumentException("unknown timeline source-order token");
-        };
+        final int tokenLength =
+                switch (Byte.toUnsignedInt(key[tokenOffset])) {
+                    case 1 -> 9;
+                    case 2 -> 21;
+                    default -> throw new IllegalArgumentException("unknown timeline source-order token");
+                };
         final int messageOffset = tokenOffset + tokenLength;
         final int expectedLength = messageOffset + DelayMessageId.LENGTH + Integer.BYTES;
         if (key.length != expectedLength
-                || java.nio.ByteBuffer.wrap(key, 2 + DestinationLaneId.LENGTH, Long.BYTES).getLong() < 0) {
+                || java.nio.ByteBuffer.wrap(key, 2 + DestinationLaneId.LENGTH, Long.BYTES)
+                                .getLong()
+                        < 0) {
             throw new IllegalArgumentException("malformed due/ordered index key");
         }
         return new TimelineIndexIdentity(
                 tag,
                 new DelayMessageId(Arrays.copyOfRange(key, messageOffset, messageOffset + DelayMessageId.LENGTH)),
-                java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES).getInt());
+                java.nio.ByteBuffer.wrap(key, messageOffset + DelayMessageId.LENGTH, Integer.BYTES)
+                        .getInt());
     }
 
     private static boolean isTerminalStatus(final MessageStatus status) {
@@ -1095,7 +1077,8 @@ public final class LegacyCheckpointStateInventory {
             final int generation,
             final AttemptObligationRef expected) {
         try {
-            final byte[] payload = ValueEnvelope.decode(encodedLedger, PublishAttemptLedger.VALUE_TYPE).payload();
+            final byte[] payload = ValueEnvelope.decode(encodedLedger, PublishAttemptLedger.VALUE_TYPE)
+                    .payload();
             final PublishAttemptLedger ledger = PublishAttemptLedger.decode(payload);
             return ledger.delayMessageId().equals(messageId)
                     && ledger.generation() == generation
@@ -1129,9 +1112,7 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private static Conflict conflict(
-            final byte[] messageKey,
-            final SourcePosition sourcePosition,
-            final ConflictReason reason) {
+            final byte[] messageKey, final SourcePosition sourcePosition, final ConflictReason reason) {
         return conflict(messageKey, "MESSAGE", sourcePosition, reason);
     }
 
@@ -1150,7 +1131,7 @@ public final class LegacyCheckpointStateInventory {
             case PUBLISHING, UNCERTAIN -> MessageDisposition.PRESERVE_OLD_SEND_RECOVERY;
             case HANDED_OFF -> MessageDisposition.PRESERVE_BROKER_RESPONSIBILITY;
             case CANCELED, SUPERSEDED, PUBLISHED, EXPIRED, DEAD_LETTER ->
-                    MessageDisposition.PRESERVE_TERMINAL_AND_REFERENCES;
+                MessageDisposition.PRESERVE_TERMINAL_AND_REFERENCES;
         };
     }
 
@@ -1161,7 +1142,7 @@ public final class LegacyCheckpointStateInventory {
             case PUBLISHING, UNCERTAIN -> ConflictReason.UNRESOLVED_SEND_REQUIRES_OLD_RECOVERY;
             case HANDED_OFF -> ConflictReason.HANDOFF_REQUIRES_OLD_BROKER_RESPONSIBILITY;
             case CANCELED, SUPERSEDED, PUBLISHED, EXPIRED, DEAD_LETTER ->
-                    ConflictReason.TERMINAL_REQUIRES_FLOOR_AND_REFERENCE_CLOSURE;
+                ConflictReason.TERMINAL_REQUIRES_FLOOR_AND_REFERENCE_CLOSURE;
         };
     }
 
@@ -1237,8 +1218,7 @@ public final class LegacyCheckpointStateInventory {
     }
 
     private static DelayMessageId terminalMessageId(final byte[] key) {
-        return new DelayMessageId(
-                java.util.Arrays.copyOfRange(key, 2, 2 + DelayMessageId.LENGTH));
+        return new DelayMessageId(java.util.Arrays.copyOfRange(key, 2, 2 + DelayMessageId.LENGTH));
     }
 
     private static boolean isAttemptLedgerKey(final byte[] key) {
@@ -1344,7 +1324,8 @@ public final class LegacyCheckpointStateInventory {
 
     private static LegacyNamespaceBlocker runtimeMetadataBlocker(final int fixedKind, final byte[] encodedValue) {
         try {
-            final byte[] payload = ValueEnvelope.decode(encodedValue, META_FIXED_VALUE_TYPE).payload();
+            final byte[] payload =
+                    ValueEnvelope.decode(encodedValue, META_FIXED_VALUE_TYPE).payload();
             switch (fixedKind) {
                 case META_INGRESS_FENCE_STATE -> IngressFenceState.decode(payload);
                 case META_EVIDENCE_CURSORS -> StoreRuntimeMetadata.decodeEvidenceCursors(payload);
@@ -1379,11 +1360,15 @@ public final class LegacyCheckpointStateInventory {
             final LegacyCheckpointImageInspector.ImageProof left,
             final LegacyCheckpointImageInspector.ImageProof right) {
         if (!left.metadata().shardId().equals(right.metadata().shardId())
-                || !Bytes.constantTimeEquals(left.metadata().dbIdentity(), right.metadata().dbIdentity())
-                || !left.metadata().storeIncarnationUuid().equals(right.metadata().storeIncarnationUuid())
+                || !Bytes.constantTimeEquals(
+                        left.metadata().dbIdentity(), right.metadata().dbIdentity())
+                || !left.metadata()
+                        .storeIncarnationUuid()
+                        .equals(right.metadata().storeIncarnationUuid())
                 || !Bytes.constantTimeEquals(left.checkpointId(), right.checkpointId())
                 || !Bytes.constantTimeEquals(
-                        left.appliedSourcePosition().canonicalBytes(), right.appliedSourcePosition().canonicalBytes())
+                        left.appliedSourcePosition().canonicalBytes(),
+                        right.appliedSourcePosition().canonicalBytes())
                 || left.mutationSequence() != right.mutationSequence()
                 || left.physicalBytes() != right.physicalBytes()
                 || left.files().size() != right.files().size()) {
@@ -1421,10 +1406,14 @@ public final class LegacyCheckpointStateInventory {
         }
 
         @Override
-        public byte[] key() { return Bytes.copy(key); }
+        public byte[] key() {
+            return Bytes.copy(key);
+        }
 
         @Override
-        public byte[] value() { return Bytes.copy(value); }
+        public byte[] value() {
+            return Bytes.copy(value);
+        }
 
         public byte[] canonicalBytes() {
             return Bytes.concat(Bytes.u64be(ordinal), Bytes.u8(family.ordinal()), Bytes.lp32(key), Bytes.lp32(value));
@@ -1436,7 +1425,8 @@ public final class LegacyCheckpointStateInventory {
         private final Inventory inventory;
         private final List<RawEntry> entries;
 
-        private CompleteView(final CheckpointManifest manifest, final Inventory inventory, final List<RawEntry> entries) {
+        private CompleteView(
+                final CheckpointManifest manifest, final Inventory inventory, final List<RawEntry> entries) {
             this.manifest = manifest;
             this.inventory = inventory;
             this.entries = List.copyOf(entries);
@@ -1445,9 +1435,17 @@ public final class LegacyCheckpointStateInventory {
             }
         }
 
-        public CheckpointManifest manifest() { return manifest; }
-        public Inventory inventory() { return inventory; }
-        public List<RawEntry> entries() { return entries; }
+        public CheckpointManifest manifest() {
+            return manifest;
+        }
+
+        public Inventory inventory() {
+            return inventory;
+        }
+
+        public List<RawEntry> entries() {
+            return entries;
+        }
     }
 
     /** Actual source-applied old Store snapshot; unlike CompleteView this is not certified by the C Manifest. */
@@ -1458,79 +1456,148 @@ public final class LegacyCheckpointStateInventory {
         private final List<RawEntry> entries;
         private final ShardStore.ReadView readView;
 
-        private LiveView(StoreMetadata metadata, SourcePosition applied, long sequence,
-                         List<RawEntry> entries, ShardStore.ReadView readView) {
-            this.metadata = metadata; this.applied = applied; this.sequence = sequence;
-            this.entries = List.copyOf(entries); this.readView = readView;
+        private LiveView(
+                StoreMetadata metadata,
+                SourcePosition applied,
+                long sequence,
+                List<RawEntry> entries,
+                ShardStore.ReadView readView) {
+            this.metadata = metadata;
+            this.applied = applied;
+            this.sequence = sequence;
+            this.entries = List.copyOf(entries);
+            this.readView = readView;
         }
-        public StoreMetadata metadata() { return metadata; }
-        public SourcePosition applied() { return applied; }
-        public long sequence() { return sequence; }
-        public List<RawEntry> entries() { return entries; }
-        public ShardStore.ReadView readView() { return readView; }
+
+        public StoreMetadata metadata() {
+            return metadata;
+        }
+
+        public SourcePosition applied() {
+            return applied;
+        }
+
+        public long sequence() {
+            return sequence;
+        }
+
+        public List<RawEntry> entries() {
+            return entries;
+        }
+
+        public ShardStore.ReadView readView() {
+            return readView;
+        }
     }
 
     public static LiveView baselineView(CompleteView complete) {
         final var proof = complete.inventory().physicalProof();
-        return new LiveView(proof.metadata(), proof.appliedSourcePosition(), proof.mutationSequence(), complete.entries(), null);
+        return new LiveView(
+                proof.metadata(), proof.appliedSourcePosition(), proof.mutationSequence(), complete.entries(), null);
     }
 
     /** Reads every CF under one original Store monitor and one shared finite read budget, after the real old applier. */
-    public static LiveView inspectLive(ShardStore store, CompleteView baseline, SourcePosition expectedApplied,
-                                       ReadLimits limits, Runnable originalGuard) {
+    public static LiveView inspectLive(
+            ShardStore store,
+            CompleteView baseline,
+            SourcePosition expectedApplied,
+            ReadLimits limits,
+            Runnable originalGuard) {
         return inspectLive(store, baseline, expectedApplied, limits, originalGuard, null);
     }
 
-    public static LiveView inspectLive(ShardStore store, CompleteView baseline, SourcePosition expectedApplied,
-                                       ReadLimits limits, Runnable originalGuard,
-                                       com.nereusstream.delay.protocol.TargetMigrationPlan migration) {
-        Objects.requireNonNull(store, "store"); Objects.requireNonNull(baseline, "baseline");
-        Objects.requireNonNull(expectedApplied, "expectedApplied"); Objects.requireNonNull(originalGuard, "originalGuard");
-        if (limits.maxRecords() == Integer.MAX_VALUE || limits.maxBytes() == Long.MAX_VALUE
-                || limits.maxElapsedNanos() == Long.MAX_VALUE) throw new IllegalArgumentException("live migration view requires finite limits");
+    public static LiveView inspectLive(
+            ShardStore store,
+            CompleteView baseline,
+            SourcePosition expectedApplied,
+            ReadLimits limits,
+            Runnable originalGuard,
+            com.nereusstream.delay.protocol.TargetMigrationPlan migration) {
+        Objects.requireNonNull(store, "store");
+        Objects.requireNonNull(baseline, "baseline");
+        Objects.requireNonNull(expectedApplied, "expectedApplied");
+        Objects.requireNonNull(originalGuard, "originalGuard");
+        if (limits.maxRecords() == Integer.MAX_VALUE
+                || limits.maxBytes() == Long.MAX_VALUE
+                || limits.maxElapsedNanos() == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("live migration view requires finite limits");
+        }
         originalGuard.run();
         if (store.metadata().storeFormatVersion() != 1
-                || !Arrays.equals(store.metadata().storeIncarnation(), baseline.inventory().physicalProof().metadata().storeIncarnation())
-                || !Arrays.equals(store.metadata().dbIdentity(), baseline.manifest().dbIdentity()))
+                || !Arrays.equals(
+                        store.metadata().storeIncarnation(),
+                        baseline.inventory().physicalProof().metadata().storeIncarnation())
+                || !Arrays.equals(
+                        store.metadata().dbIdentity(), baseline.manifest().dbIdentity())) {
             throw new IllegalArgumentException("live legacy view changed original Store identity");
-        final var budget = new BoundedReadBudget(limits.maxRecords(), limits.maxBytes(), limits.maxElapsedNanos(), System::nanoTime);
+        }
+        final var budget = new BoundedReadBudget(
+                limits.maxRecords(), limits.maxBytes(), limits.maxElapsedNanos(), System::nanoTime);
         final var read = store.readWithBudget(budget, () -> {
             originalGuard.run();
             final SourcePosition actual = store.appliedShardLogPosition();
-            if (actual == null || !Arrays.equals(actual.canonicalBytes(), expectedApplied.canonicalBytes()))
+            if (actual == null || !Arrays.equals(actual.canonicalBytes(), expectedApplied.canonicalBytes())) {
                 throw new IllegalArgumentException("old applier has not materialized the exact requested Source entry");
+            }
             final List<RawEntry> rows = new ArrayList<>();
             for (var family : ColumnFamily.values()) {
-                final var result = store.visitResult(family, new byte[0], null, limits.maxRecords(), budget, (row, shared) -> {
-                    if (rows.size() >= limits.maxRecords()) throw new IllegalStateException("live legacy complete view exceeds record bound");
-                    final boolean progressKey = family == ColumnFamily.META && Arrays.equals(row.key(),
-                            com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(expectedApplied.shardId()));
-                    if (progressKey) {
-                        if (migration == null) throw new IllegalArgumentException("migration shadow progress has no original Plan");
-                        final var progress = com.nereusstream.delay.protocol.TargetMigrationShadowProgress.decode(
-                                TargetValueEnvelope.decode(row.value(), com.nereusstream.delay.protocol.TargetMigrationShadowProgress.VALUE_TYPE).payload());
-                        progress.requirePlan(migration);
-                        if (!progress.appliedAt().source().sameSourceIdentity(expectedApplied)
-                                || progress.appliedAt().source().compareTo(expectedApplied) > 0
-                                || Long.compareUnsigned(progress.appliedAt().sequence(), store.shardMutationSequence()) > 0)
-                            throw new IllegalArgumentException("migration shadow progress exceeds actual old Source/sequence");
-                    } else {
-                        ValueEnvelope.decodeAny(row.value());
-                        final var unknown = uninspectedNamespace(family, row.key(), row.value());
-                        if (unknown != null && unknown.reason() == ConflictReason.LEGACY_KEY_KIND_UNRECOGNIZED)
-                            throw new IllegalArgumentException("unknown legacy namespace in actual Source prefix");
-                    }
-                    rows.add(new RawEntry(rows.size(), family, row.key(), row.value()));
-                    return true;
-                });
-                if (result.stop() != ShardStore.VisitStop.RANGE_END)
+                final var result =
+                        store.visitResult(family, new byte[0], null, limits.maxRecords(), budget, (row, shared) -> {
+                            if (rows.size() >= limits.maxRecords()) {
+                                throw new IllegalStateException("live legacy complete view exceeds record bound");
+                            }
+                            final boolean progressKey = family == ColumnFamily.META
+                                    && Arrays.equals(
+                                            row.key(),
+                                            com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(
+                                                    expectedApplied.shardId()));
+                            if (progressKey) {
+                                if (migration == null) {
+                                    throw new IllegalArgumentException(
+                                            "migration shadow progress has no original Plan");
+                                }
+                                final var progress =
+                                        com.nereusstream.delay.protocol.TargetMigrationShadowProgress.decode(
+                                                TargetValueEnvelope.decode(
+                                                                row.value(),
+                                                                com.nereusstream.delay.protocol
+                                                                        .TargetMigrationShadowProgress.VALUE_TYPE)
+                                                        .payload());
+                                progress.requirePlan(migration);
+                                if (!progress.appliedAt().source().sameSourceIdentity(expectedApplied)
+                                        || progress.appliedAt().source().compareTo(expectedApplied) > 0
+                                        || Long.compareUnsigned(
+                                                        progress.appliedAt().sequence(), store.shardMutationSequence())
+                                                > 0) {
+                                    throw new IllegalArgumentException(
+                                            "migration shadow progress exceeds actual old Source/sequence");
+                                }
+                            } else {
+                                ValueEnvelope.decodeAny(row.value());
+                                final var unknown = uninspectedNamespace(family, row.key(), row.value());
+                                if (unknown != null
+                                        && unknown.reason() == ConflictReason.LEGACY_KEY_KIND_UNRECOGNIZED) {
+                                    throw new IllegalArgumentException(
+                                            "unknown legacy namespace in actual Source prefix");
+                                }
+                            }
+                            rows.add(new RawEntry(rows.size(), family, row.key(), row.value()));
+                            return true;
+                        });
+                if (result.stop() != ShardStore.VisitStop.RANGE_END) {
                     throw new IllegalStateException("live legacy complete view did not exhaust its fixed CF range");
+                }
             }
             originalGuard.run();
             return new LiveView(store.metadata(), actual, store.shardMutationSequence(), rows, null);
         });
         originalGuard.run();
-        return new LiveView(read.value().metadata(), read.value().applied(), read.value().sequence(), read.value().entries(), read.view());
+        return new LiveView(
+                read.value().metadata(),
+                read.value().applied(),
+                read.value().sequence(),
+                read.value().entries(),
+                read.view());
     }
 
     public record Inventory(
@@ -1627,8 +1694,7 @@ public final class LegacyCheckpointStateInventory {
         TERMINAL_REQUIRES_FLOOR_AND_REFERENCE_CLOSURE
     }
 
-    public record Conflict(
-            byte[] oldKeyDigest, String recordKind, byte[] sourcePosition, ConflictReason reason) {
+    public record Conflict(byte[] oldKeyDigest, String recordKind, byte[] sourcePosition, ConflictReason reason) {
         public Conflict {
             Bytes.requireLength(oldKeyDigest, 32, "oldKeyDigest");
             oldKeyDigest = Bytes.copy(oldKeyDigest);

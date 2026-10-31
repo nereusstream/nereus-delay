@@ -145,7 +145,10 @@ public final class BoundedReadBudget {
     public long maxBytes() {
         return maxBytes;
     }
-    public int maxRecords(){return maxRecords;}
+
+    public int maxRecords() {
+        return maxRecords;
+    }
 
     /** Includes the attempted byte charge even when it did not fit the remaining allowance. */
     public long actualBytes() {

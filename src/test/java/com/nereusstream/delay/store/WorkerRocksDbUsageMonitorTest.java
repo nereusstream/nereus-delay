@@ -150,8 +150,7 @@ class WorkerRocksDbUsageMonitorTest {
                 Long.MAX_VALUE);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config, envelope, observation)) {
-            final WorkerRocksDbUsageMonitor monitor =
-                    resources.startRocksDbUsageMonitor(limits(), Duration.ofHours(1));
+            final WorkerRocksDbUsageMonitor monitor = resources.startRocksDbUsageMonitor(limits(), Duration.ofHours(1));
             monitor.pollNow();
             assertNotNull(monitor.lastFailure());
             assertEquals(WorkerRuntimeSafetyGate.State.DRAIN_OR_MIGRATE, resources.runtimeSafetyState());

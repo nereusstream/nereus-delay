@@ -295,15 +295,15 @@ public final class TargetOrderState {
     }
 
     /** Builds the strict-order successor for one source-ordered Admission of an already claimed Message. */
-    public TargetOrderState afterAdmission(
-            final TargetMessageRecord before, final TargetMessageRecord admitted) {
+    public TargetOrderState afterAdmission(final TargetMessageRecord before, final TargetMessageRecord admitted) {
         Objects.requireNonNull(before, "before");
         Objects.requireNonNull(admitted, "admitted");
         if (gate != Gate.OPEN
                 || barrier == null
                 || before.runtime().currentWorkKind() != CurrentSendWorkKind.CLAIMED
                 || admitted.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
-                || !Arrays.equals(before.locator().canonicalBytes(), admitted.locator().canonicalBytes())) {
+                || !Arrays.equals(
+                        before.locator().canonicalBytes(), admitted.locator().canonicalBytes())) {
             throw new IllegalArgumentException("strict Admission does not advance the exact claimed Message");
         }
         requireLocatorProjection(before.locator());
@@ -324,8 +324,7 @@ public final class TargetOrderState {
         }
         byte[] nextWatermark = null;
         if (orderingContract == OrderingContract.ADMISSION_WATERMARK) {
-            if (lastAdmittedOrder != null
-                    && Arrays.compareUnsigned(order, lastAdmittedOrder.encodedKey()) < 0) {
+            if (lastAdmittedOrder != null && Arrays.compareUnsigned(order, lastAdmittedOrder.encodedKey()) < 0) {
                 throw new IllegalArgumentException("strict Admission rewinds the durable watermark");
             }
             nextWatermark = order;
@@ -349,13 +348,13 @@ public final class TargetOrderState {
     }
 
     /** Advances the exact barrier projection while preserving the strict-order block for an unresolved attempt. */
-    public TargetOrderState afterUnknownOutcome(
-            final TargetMessageRecord before, final TargetMessageRecord uncertain) {
+    public TargetOrderState afterUnknownOutcome(final TargetMessageRecord before, final TargetMessageRecord uncertain) {
         Objects.requireNonNull(before, "before");
         Objects.requireNonNull(uncertain, "uncertain");
         if (barrier == null
                 || before.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO
-                || !Arrays.equals(before.locator().canonicalBytes(), uncertain.locator().canonicalBytes())
+                || !Arrays.equals(
+                        before.locator().canonicalBytes(), uncertain.locator().canonicalBytes())
                 || before.runtime().attemptObligations().isEmpty()
                 || uncertain.runtime().attemptObligations().isEmpty()) {
             throw new IllegalArgumentException("strict UNKNOWN result does not retain its exact order barrier");
@@ -397,10 +396,14 @@ public final class TargetOrderState {
     public TargetOrderState afterNotPublishedOutcome(
             final TargetMessageRecord before, final TargetMessageRecord settled) {
         final Long retryAt = settled.runtime().timeline() == null
-                ? null : settled.runtime().timeline().retryEligibilityAtEpochMs();
-        if (barrier == null || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
-                || !settled.equals(before.notPublishedOutcome(before.runtime().publishAttemptId(),
-                        settled.aggregateState() == GenerationAggregateState.DEAD_LETTER, retryAt))) {
+                ? null
+                : settled.runtime().timeline().retryEligibilityAtEpochMs();
+        if (barrier == null
+                || before.runtime().currentWorkKind() != CurrentSendWorkKind.PUBLISHING
+                || !settled.equals(before.notPublishedOutcome(
+                        before.runtime().publishAttemptId(),
+                        settled.aggregateState() == GenerationAggregateState.DEAD_LETTER,
+                        retryAt))) {
             throw new IllegalArgumentException("strict rejection successor differs from the exact current attempt");
         }
         return afterDefinitiveOutcome(before, settled);
@@ -408,8 +411,10 @@ public final class TargetOrderState {
 
     /** Late evidence clears only the exact terminal barrier after its final obligation is settled. */
     public TargetOrderState afterTerminalOutcome(
-            final TargetMessageRecord before, final TargetMessageRecord settled,
-            final byte[] attemptId, final boolean published) {
+            final TargetMessageRecord before,
+            final TargetMessageRecord settled,
+            final byte[] attemptId,
+            final boolean published) {
         if (barrier == null || !settled.equals(before.terminalOutcome(attemptId, published))) {
             throw new IllegalArgumentException("strict terminal result differs from the exact retained obligation");
         }
@@ -417,46 +422,75 @@ public final class TargetOrderState {
     }
 
     public TargetOrderState afterEvidenceResolution(
-            final TargetMessageRecord before, final TargetMessageRecord after, final byte[] attemptId,
-            final boolean published, final boolean permanent, final Long retryAt,
+            final TargetMessageRecord before,
+            final TargetMessageRecord after,
+            final byte[] attemptId,
+            final boolean published,
+            final boolean permanent,
+            final Long retryAt,
             final TargetTimelineWorkRef claimedWork) {
-        if (barrier == null || !after.equals(before.evidenceOutcome(
-                attemptId, published, permanent, retryAt, claimedWork))) {
+        if (barrier == null
+                || !after.equals(before.evidenceOutcome(attemptId, published, permanent, retryAt, claimedWork))) {
             throw new IllegalArgumentException("strict evidence differs from its exact UNCERTAIN obligation");
         }
         return afterDefinitiveOutcome(before, after);
     }
 
     public TargetOrderState afterHistoricalTerminalOutcome(
-            final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
-            final byte[] attemptId, final int effect) {
+            final TargetTerminalGenerationRecord before,
+            final TargetTerminalGenerationRecord after,
+            final byte[] attemptId,
+            final int effect) {
         return afterHistoricalOutcome(before, after, attemptId, effect, false);
     }
 
     public TargetOrderState afterHistoricalEvidenceResolution(
-            final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
-            final byte[] attemptId, final int effect) {
+            final TargetTerminalGenerationRecord before,
+            final TargetTerminalGenerationRecord after,
+            final byte[] attemptId,
+            final int effect) {
         return afterHistoricalOutcome(before, after, attemptId, effect, true);
     }
 
     private TargetOrderState afterHistoricalOutcome(
-            final TargetTerminalGenerationRecord before, final TargetTerminalGenerationRecord after,
-            final byte[] attemptId, final int effect, final boolean resolution) {
+            final TargetTerminalGenerationRecord before,
+            final TargetTerminalGenerationRecord after,
+            final byte[] attemptId,
+            final int effect,
+            final boolean resolution) {
         requireTerminalBarrierProjection(before);
-        final var runtime = resolution ? before.runtime().evidenceOutcome(attemptId, effect == 1, false, null)
-                : effect == 3 ? before.runtime().unknownOutcome(attemptId)
-                : before.runtime().terminalOutcome(attemptId, effect == 1);
-        final var expected = new TargetTerminalGenerationRecord(before.locator(), before.stateVersion(),
-                before.terminalCode(), runtime, before.mutation(), before.recoveryLineage());
+        final var runtime = resolution
+                ? before.runtime().evidenceOutcome(attemptId, effect == 1, false, null)
+                : effect == 3
+                        ? before.runtime().unknownOutcome(attemptId)
+                        : before.runtime().terminalOutcome(attemptId, effect == 1);
+        final var expected = new TargetTerminalGenerationRecord(
+                before.locator(),
+                before.stateVersion(),
+                before.terminalCode(),
+                runtime,
+                before.mutation(),
+                before.recoveryLineage());
         if (effect < 1 || effect > 3 || !Arrays.equals(expected.canonicalBytes(), after.canonicalBytes())) {
             throw new IllegalArgumentException("historical strict result changed its exact terminal decision");
         }
-        final var next = new TargetOrderState(target, orderingDomain, sourceShard, executionDomain,
-                accountingIncarnation, orderingContract, TargetQueueState.nextRevision(stateRevision),
-                controlVersion, gate, lastAdmittedOrder == null ? null : lastAdmittedOrder.encodedKey(), null,
-                runtime.attemptObligations().isEmpty() ? null : new TargetOrderBarrier(
-                        after.locator(), barrier.order().encodedKey(),
-                        runtime.runtimeRevision(), runtime.runtimeDigest()));
+        final var next = new TargetOrderState(
+                target,
+                orderingDomain,
+                sourceShard,
+                executionDomain,
+                accountingIncarnation,
+                orderingContract,
+                TargetQueueState.nextRevision(stateRevision),
+                controlVersion,
+                gate,
+                lastAdmittedOrder == null ? null : lastAdmittedOrder.encodedKey(),
+                null,
+                runtime.attemptObligations().isEmpty()
+                        ? null
+                        : new TargetOrderBarrier(
+                                after.locator(), barrier.order().encodedKey(),
+                                runtime.runtimeRevision(), runtime.runtimeDigest()));
         next.requireSuccessorOf(this);
         if (next.barrier() != null) {
             next.requireTerminalBarrierProjection(after);
@@ -480,9 +514,7 @@ public final class TargetOrderState {
                 gate,
                 lastAdmittedOrder == null ? null : lastAdmittedOrder.encodedKey(),
                 null,
-                published.runtime().attemptObligations().isEmpty()
-                        ? null
-                        : TargetOrderBarrier.fromMessage(published));
+                published.runtime().attemptObligations().isEmpty() ? null : TargetOrderBarrier.fromMessage(published));
         successor.requireSuccessorOf(this);
         if (successor.barrier() != null) {
             successor.requireBarrierProjection(published);

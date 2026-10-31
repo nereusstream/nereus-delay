@@ -116,7 +116,6 @@ import com.nereusstream.delay.protocol.TargetQuotaAggregate;
 import com.nereusstream.delay.protocol.TargetQuotaCounter;
 import com.nereusstream.delay.protocol.TargetQuotaGrant;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
-import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlRequest;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
 import com.nereusstream.delay.protocol.TargetQuotaTotal;
@@ -182,9 +181,8 @@ class TargetQuotaGrantStoreTest {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
         final String configuredNamespace = System.getenv("NEREUS_DELAY_OXIA_NAMESPACE");
-        final String namespace = configuredNamespace == null || configuredNamespace.isBlank()
-                ? "default"
-                : configuredNamespace;
+        final String namespace =
+                configuredNamespace == null || configuredNamespace.isBlank() ? "default" : configuredNamespace;
         final String prefix = "nereus-delay-real-target-root/" + UUID.randomUUID();
         final var template = TargetQuotaGrantActivation.decode(raw("target.initial.activation"));
         final var source = (KafkaSourcePosition) template.mutation().source();
@@ -211,10 +209,11 @@ class TargetQuotaGrantStoreTest {
         final var signed = signed(firstGrant, bytes(32, 0x70), actor, keys);
         final var registrations = new InMemoryControlTargetRegistrationAuthority();
         registrations.register(signed.control());
-        final var grantAuthority = authority(
-                registrations, keys, actor, firstPosition, firstGrant, (a, b, c, d) -> {});
+        final var grantAuthority = authority(registrations, keys, actor, firstPosition, firstGrant, (a, b, c, d) -> {});
         final var barrier = new KafkaActivationBarrier(
-                scope.shard(), firstPosition.authenticatedClusterId(), firstPosition.nativeTopicUuid(),
+                scope.shard(),
+                firstPosition.authenticatedClusterId(),
+                firstPosition.nativeTopicUuid(),
                 firstPosition.offset() + 1);
         final var firstAssignment = new SourceAssignment(
                 scope.shard(), Bytes.sha256(Bytes.utf8("first-real-target-root-owner")), 1, barrier);
@@ -223,11 +222,11 @@ class TargetQuotaGrantStoreTest {
         final var config = ShardStoreConfig.defaults(root);
         final var limits = new TargetStoreBackend.WriteLimits(64, 2 << 20);
         final byte[] lineage = bytes(16, 0xcc);
-        final var physical = CanonicalTargetPartition.decode(
-                vector("target-identity-vectors.properties", "pulsar.canonical"));
+        final var physical =
+                CanonicalTargetPartition.decode(vector("target-identity-vectors.properties", "pulsar.canonical"));
         final var target = physical.id();
-        final var grantAt = source(firstPosition, firstPosition.offset() + 1,
-                firstPosition.brokerLogAppendTimeEpochMs() + 1);
+        final var grantAt =
+                source(firstPosition, firstPosition.offset() + 1, firstPosition.brokerLogAppendTimeEpochMs() + 1);
         final var queueAt = source(grantAt, grantAt.offset() + 1, grantAt.brokerLogAppendTimeEpochMs() + 1);
         final var closeAt = source(queueAt, queueAt.offset() + 1, queueAt.brokerLogAppendTimeEpochMs() + 1);
         final OwnerLease oldActive;
@@ -237,15 +236,22 @@ class TargetQuotaGrantStoreTest {
                 endpoint, namespace, "target-root-owner-a-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix)) {
             final var leases = new OxiaOwnerLeaseStore(first.backend());
             final long now = System.currentTimeMillis();
-            final var acquiring = leases.acquire(
-                            firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
+            final var acquiring = leases.acquire(firstAssignment, "target-root-a", first.sessionIdentity(), now, 60_000)
                     .orElseThrow();
             try (var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                     var store = ShardStore.openTarget(config, scope.shard(), resources)) {
                 final var initialized = TargetStoreBootstrap.commit(
                         TargetStoreBootstrap.prepare(
-                                store, scope, lineage, limits, budget(), signed.control(), signed.mutation(),
-                                firstPosition, grantAuthority, (a, b, c) -> {}),
+                                store,
+                                scope,
+                                lineage,
+                                limits,
+                                budget(),
+                                signed.control(),
+                                signed.mutation(),
+                                firstPosition,
+                                grantAuthority,
+                                (a, b, c) -> {}),
                         (a, b, c) -> ownerGuard(leases, acquiring, ShardLifecycleState.ACQUIRING));
                 assertArrayEquals(lineage, initialized.root().recoveryLineage());
                 assertEquals(
@@ -264,38 +270,78 @@ class TargetQuotaGrantStoreTest {
                 targetAmounts[CapacityDimension.RESERVATION_MESSAGES.wireValue() - 1] = 1;
                 final var targetGrant = new TargetQuotaGrantControlRequest(
                         new TargetQuotaGrant(
-                                scope.forTarget(target), bytes(32, 0x72), 1, original.accounting(),
+                                scope.forTarget(target),
+                                bytes(32, 0x72),
+                                1,
+                                original.accounting(),
                                 new TargetQuotaUsage(new CapacityVector(targetAmounts), 1, 64, 64, 64),
-                                original.tenantPolicyVersion(), original.tenantPolicyHash()),
-                        null, null);
+                                original.tenantPolicyVersion(),
+                                original.tenantPolicyHash()),
+                        null,
+                        null);
                 final var signedTargetGrant = signed(targetGrant, bytes(32, 0x73), actor, keys);
                 registrations.register(signedTargetGrant.control());
                 final var grantStore = new TargetQuotaGrantStore(backend, scope, lineage, 16, 1);
-                assertEquals(StableCode.OK, grantStore.commit(
-                                grantStore.prepareFirst(budget(), signedTargetGrant.control(),
-                                        signedTargetGrant.mutation(), grantAt,
-                                        authority(registrations, keys, actor, grantAt, targetGrant,
-                                                (a, b, c, d) -> {})),
-                                (a, b, c) -> ownerGuard(leases, oldActive))
-                        .stableCode());
+                assertEquals(
+                        StableCode.OK,
+                        grantStore
+                                .commit(
+                                        grantStore.prepareFirst(
+                                                budget(),
+                                                signedTargetGrant.control(),
+                                                signedTargetGrant.mutation(),
+                                                grantAt,
+                                                authority(
+                                                        registrations,
+                                                        keys,
+                                                        actor,
+                                                        grantAt,
+                                                        targetGrant,
+                                                        (a, b, c, d) -> {})),
+                                        (a, b, c) -> ownerGuard(leases, oldActive))
+                                .stableCode());
                 final var activation = TargetQuotaGrantActivation.decode(TargetValueEnvelope.decode(
-                        store.get(ColumnFamily.META, Bytes.concat(
-                                new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
-                                targetGrant.next().scope().keySuffix())),
-                        TargetQuotaGrantActivation.VALUE_TYPE).payload());
+                                store.get(
+                                        ColumnFamily.META,
+                                        Bytes.concat(
+                                                new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1},
+                                                targetGrant.next().scope().keySuffix())),
+                                TargetQuotaGrantActivation.VALUE_TYPE)
+                        .payload());
                 final var queue = new TargetQueueState(
-                        target, 1, 1, TargetQueueState.AdmissionState.OPEN,
-                        activation.allocation().identity().accountingIncarnation(), 0, List.of());
-                new TargetMessageStore(backend, 1, 1, 1).applyAccounted(
-                        budget(),
-                        reader -> new TargetMessageStore.Input(List.of(), List.of(), List.of(
-                                reader.replace(ColumnFamily.META, TargetKeyCodec.identity(target),
-                                        CanonicalTargetPartition.VALUE_TYPE, physical.canonicalBytes()),
-                                reader.replace(ColumnFamily.META, TargetKeyCodec.state(target),
-                                        TargetQueueState.VALUE_TYPE, queue.canonicalBytes()))),
-                        new TargetSourceAccounting(scope, lineage, queueAt,
-                                Bytes.sha256(Bytes.utf8("real-oxia-close-queue-fixture")), 16, 1, 1),
-                        (a, b, c) -> ownerGuard(leases, oldActive));
+                        target,
+                        1,
+                        1,
+                        TargetQueueState.AdmissionState.OPEN,
+                        activation.allocation().identity().accountingIncarnation(),
+                        0,
+                        List.of());
+                new TargetMessageStore(backend, 1, 1, 1)
+                        .applyAccounted(
+                                budget(),
+                                reader -> new TargetMessageStore.Input(
+                                        List.of(),
+                                        List.of(),
+                                        List.of(
+                                                reader.replace(
+                                                        ColumnFamily.META,
+                                                        TargetKeyCodec.identity(target),
+                                                        CanonicalTargetPartition.VALUE_TYPE,
+                                                        physical.canonicalBytes()),
+                                                reader.replace(
+                                                        ColumnFamily.META,
+                                                        TargetKeyCodec.state(target),
+                                                        TargetQueueState.VALUE_TYPE,
+                                                        queue.canonicalBytes()))),
+                                new TargetSourceAccounting(
+                                        scope,
+                                        lineage,
+                                        queueAt,
+                                        Bytes.sha256(Bytes.utf8("real-oxia-close-queue-fixture")),
+                                        16,
+                                        1,
+                                        1),
+                                (a, b, c) -> ownerGuard(leases, oldActive));
                 final var closeRequest = new TargetCloseRequest(
                         target,
                         List.of(new TargetCloseRequest.ShardTarget(
@@ -303,41 +349,70 @@ class TargetQuotaGrantStoreTest {
                         new CloseLaneRequest(
                                 new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null),
                                 ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED,
-                                false, AcknowledgementSet.empty()));
-                final var signedClose = signedClose(closeRequest, bytes(32, 0x74), actor, keys,
-                        closeAt.brokerLogAppendTimeEpochMs() + 2000);
+                                false,
+                                AcknowledgementSet.empty()));
+                final var signedClose = signedClose(
+                        closeRequest, bytes(32, 0x74), actor, keys, closeAt.brokerLogAppendTimeEpochMs() + 2000);
                 registrations.register(signedClose.control());
                 final var closeStore = new TargetCloseStore(backend, scope, lineage, 16, 1);
-                assertEquals(StableCode.OK, closeStore.commit(
-                                closeStore.prepareFirst(
-                                        budget(), signedClose.control(), signedClose.mutation(), closeAt,
-                                        new TargetCloseVerifier.Authority(
-                                                registrations, (version, position) -> keys.getPublic(),
-                                                (actualScope, request, position, actualQueue) -> {
-                                                    assertEquals(scope, actualScope);
-                                                    assertEquals(target, request.target());
-                                                    assertEquals(queue.controlVersion(), actualQueue.controlVersion());
-                                                }, actor, prepared -> true)),
-                                (a, b, c) -> ownerGuard(leases, oldActive))
-                        .stableCode());
+                assertEquals(
+                        StableCode.OK,
+                        closeStore
+                                .commit(
+                                        closeStore.prepareFirst(
+                                                budget(),
+                                                signedClose.control(),
+                                                signedClose.mutation(),
+                                                closeAt,
+                                                new TargetCloseVerifier.Authority(
+                                                        registrations,
+                                                        (version, position) -> keys.getPublic(),
+                                                        (actualScope, request, position, actualQueue) -> {
+                                                            assertEquals(scope, actualScope);
+                                                            assertEquals(target, request.target());
+                                                            assertEquals(
+                                                                    queue.controlVersion(),
+                                                                    actualQueue.controlVersion());
+                                                        },
+                                                        actor,
+                                                        prepared -> true)),
+                                        (a, b, c) -> ownerGuard(leases, oldActive))
+                                .stableCode());
                 final var controls = closeStore.reservationControls((reader, binding) -> java.util.Optional.empty());
-                assertEquals(TargetReservationClosureStore.Progress.OPEN,
+                assertEquals(
+                        TargetReservationClosureStore.Progress.OPEN,
                         new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
                                 .progress(budget(), target, (a, b) -> ownerGuard(leases, oldActive)));
                 assertEquals(4, store.shardMutationSequence());
                 final var oldClasses = workClasses();
                 final var oldRuntime = new TargetSourceApplyRuntime(
-                        initialized, store, firstAssignment, oldActive,
+                        initialized,
+                        store,
+                        firstAssignment,
+                        oldActive,
                         new TargetSourceApplyRuntime.Authorities(
-                                leases, SourceReplaySuccessor.strictKafka(),
-                                entry -> { throw new AssertionError("GC cannot resolve a grant"); },
-                                entry -> { throw new AssertionError("GC cannot resolve a fence"); },
-                                entry -> { throw new AssertionError("unexpected Target expiry authority"); },
-                                entry -> { throw new AssertionError("GC cannot resolve a Close"); },
-                                entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
+                                leases,
+                                SourceReplaySuccessor.strictKafka(),
+                                entry -> {
+                                    throw new AssertionError("GC cannot resolve a grant");
+                                },
+                                entry -> {
+                                    throw new AssertionError("GC cannot resolve a fence");
+                                },
+                                entry -> {
+                                    throw new AssertionError("unexpected Target expiry authority");
+                                },
+                                entry -> {
+                                    throw new AssertionError("GC cannot resolve a Close");
+                                },
+                                entry -> {
+                                    throw new AssertionError("GC cannot resolve membership issuance");
+                                },
                                 (a, b, c) -> ownerGuard(leases, oldActive),
                                 (a, b) -> ownerGuard(leases, oldActive),
-                                entry -> { throw new AssertionError("GC cannot resolve a command"); }),
+                                entry -> {
+                                    throw new AssertionError("GC cannot resolve a command");
+                                }),
                         new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                         System::nanoTime);
                 final var oldWorker = TargetWorkerShardFactory.create(
@@ -349,51 +424,65 @@ class TargetQuotaGrantStoreTest {
                         oldRuntime,
                         new TargetWorkerShardRuntime.Maintenance(
                                 controls,
-                                new TargetReservationClosureWorkClassExecutor.Limits(
-                                        4096, 250_000, 60_000_000_000L),
-                                new TargetReservationExpiryWorkClassExecutor.Limits(
-                                        2048, 100_000, 60_000_000_000L),
+                                new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
+                                new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
                                 (a, b, c) -> ownerGuard(leases, oldActive),
-                                ignored -> { throw new AssertionError("old GC cannot materialize"); },
-                                ignored -> { throw new AssertionError("old GC cannot expire"); },
-                                ignored -> { throw new AssertionError("old GC cannot complete Close"); },
+                                ignored -> {
+                                    throw new AssertionError("old GC cannot materialize");
+                                },
+                                ignored -> {
+                                    throw new AssertionError("old GC cannot expire");
+                                },
+                                ignored -> {
+                                    throw new AssertionError("old GC cannot complete Close");
+                                },
                                 System::currentTimeMillis));
                 final var oldControlHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
-                final var oldControls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(oldWorker,
+                final var oldControls = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                        oldWorker,
                         TargetQuotaGrantStoreTest::budget,
                         new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20),
                         ref -> oldControlHistory,
                         new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
                         System::currentTimeMillis);
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
                         oldControls.runTurn().status());
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
                         oldControls.runTurn().status());
                 final var oldPending = oldWorker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
                 assertTrue(oldPending.pending());
                 assertEquals(TargetReservationGcRuntime.Lane.CLOSE, oldPending.lane());
                 final long beforeOldLoss = store.latestSequenceNumber();
                 assertTrue(leases.release(oldActive));
-                final var oldFailed = oldWorker.runMaintenanceTurn(
-                        new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
+                final var oldFailed =
+                        oldWorker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
                 assertEquals(oldPending.task(), oldFailed.task());
-                assertEquals(TargetReservationClosureWorkClassExecutor.Kind.FAILED,
+                assertEquals(
+                        TargetReservationClosureWorkClassExecutor.Kind.FAILED,
                         oldFailed.closeResult().orElseThrow().kind());
                 assertTrue(oldRuntime.fenced());
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
                         oldControls.runTurn().status());
                 oldControlHistory.completeExceptionally(
                         new IllegalStateException("history completed after session loss"));
                 assertTrue(oldControls.result().isEmpty());
                 assertEquals(beforeOldLoss, store.latestSequenceNumber());
-                assertEquals(TargetReservationClosureStore.Progress.OPEN,
+                assertEquals(
+                        TargetReservationClosureStore.Progress.OPEN,
                         new TargetReservationClosureStore(backend, scope, lineage, 1, controls)
                                 .progress(budget(), target, (a, b) -> guard()));
             }
         }
 
         try (var second = OxiaSyncOwnerLeaseBackend.connect(
-                endpoint, namespace, "target-root-owner-b-" + UUID.randomUUID(), Duration.ofSeconds(15), prefix);
+                        endpoint,
+                        namespace,
+                        "target-root-owner-b-" + UUID.randomUUID(),
+                        Duration.ofSeconds(15),
+                        prefix);
                 var resources = WorkerRuntimeTestSupport.openWithSyntheticObservation(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
             final var leases = new OxiaOwnerLeaseStore(second.backend());
@@ -408,11 +497,14 @@ class TargetQuotaGrantStoreTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> TargetStoreBootstrap.reopen(
-                            reopened, scope, limits, budget(),
+                            reopened,
+                            scope,
+                            limits,
+                            budget(),
                             (metadata, actualScope) -> ownerGuard(leases, oldActive)));
             assertEquals(beforeRejectedRead, reopened.latestSequenceNumber());
-            final var recovered = TargetStoreBootstrap.reopen(
-                    reopened, scope, limits, budget(), (metadata, actualScope) -> {
+            final var recovered =
+                    TargetStoreBootstrap.reopen(reopened, scope, limits, budget(), (metadata, actualScope) -> {
                         if (!scope.equals(actualScope)) {
                             throw new IllegalStateException("Target reopen has another scope");
                         }
@@ -420,7 +512,8 @@ class TargetQuotaGrantStoreTest {
                     });
             assertArrayEquals(lineage, recovered.root().recoveryLineage());
             assertArrayEquals(originalRoot, recovered.root().canonicalBytes());
-            assertArrayEquals(closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(
+                    closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
             assertEquals(4, reopened.shardMutationSequence());
             assertEquals(oldActive.ownerEpoch(), reopened.runtimeMetadata().lastOpenedOwnerEpoch());
             final var replacement = TargetWorkerOwnerActivation.activate(
@@ -435,20 +528,36 @@ class TargetQuotaGrantStoreTest {
             final var closures = new TargetReservationClosureStore(recovered.backend(), scope, lineage, 1, controls);
             final TargetStoreBackend.ReadAuthority ownerReads =
                     (metadata, actualScope) -> ownerGuard(leases, replacement);
-            assertEquals(TargetReservationClosureStore.Progress.OPEN,
-                    closures.progress(budget(), target, ownerReads));
+            assertEquals(TargetReservationClosureStore.Progress.OPEN, closures.progress(budget(), target, ownerReads));
             final var classes = workClasses();
             final var sourceRuntime = new TargetSourceApplyRuntime(
-                    recovered, reopened, secondAssignment, replacement,
+                    recovered,
+                    reopened,
+                    secondAssignment,
+                    replacement,
                     new TargetSourceApplyRuntime.Authorities(
-                            leases, SourceReplaySuccessor.strictKafka(),
-                            entry -> { throw new AssertionError("GC cannot resolve a grant"); },
-                            entry -> { throw new AssertionError("GC cannot resolve a fence"); },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
-                            entry -> { throw new AssertionError("GC cannot resolve a Close"); },
-                            entry -> { throw new AssertionError("GC cannot resolve membership issuance"); },
-                            (a, b, c) -> ownerGuard(leases, replacement), ownerReads,
-                            entry -> { throw new AssertionError("GC cannot resolve a command"); }),
+                            leases,
+                            SourceReplaySuccessor.strictKafka(),
+                            entry -> {
+                                throw new AssertionError("GC cannot resolve a grant");
+                            },
+                            entry -> {
+                                throw new AssertionError("GC cannot resolve a fence");
+                            },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
+                            entry -> {
+                                throw new AssertionError("GC cannot resolve a Close");
+                            },
+                            entry -> {
+                                throw new AssertionError("GC cannot resolve membership issuance");
+                            },
+                            (a, b, c) -> ownerGuard(leases, replacement),
+                            ownerReads,
+                            entry -> {
+                                throw new AssertionError("GC cannot resolve a command");
+                            }),
                     new TargetSourceApplyRuntime.Limits(4096, 32L << 20, 60_000_000_000L, 16, 1),
                     System::nanoTime);
             final var cursorDelta = new java.util.concurrent.atomic.AtomicReference<TargetQuotaDelta>();
@@ -464,9 +573,14 @@ class TargetQuotaGrantStoreTest {
                             new TargetReservationClosureWorkClassExecutor.Limits(4096, 250_000, 60_000_000_000L),
                             new TargetReservationExpiryWorkClassExecutor.Limits(2048, 100_000, 60_000_000_000L),
                             (a, b, c) -> ownerGuard(leases, replacement),
-                            ignored -> { throw new AssertionError("empty Close cannot materialize"); },
-                            ignored -> { throw new AssertionError("empty Close cannot expire"); },
-                            cursorDelta::set, System::currentTimeMillis));
+                            ignored -> {
+                                throw new AssertionError("empty Close cannot materialize");
+                            },
+                            ignored -> {
+                                throw new AssertionError("empty Close cannot expire");
+                            },
+                            cursorDelta::set,
+                            System::currentTimeMillis));
             final var backlogCut = worker.captureSourceBacklogCut(System::currentTimeMillis);
             final long beforeGc = reopened.latestSequenceNumber();
             final var pending = worker.runMaintenanceTurn(new SchedulerBudget(1, 1, 60_000_000_000L));
@@ -475,20 +589,28 @@ class TargetQuotaGrantStoreTest {
             assertEquals(beforeGc, reopened.latestSequenceNumber());
             final var completed = worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L));
             assertEquals(pending.task(), completed.task());
-            assertEquals(TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE,
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.RESERVATIONS_COMPLETE,
                     completed.closeResult().orElseThrow().kind());
             assertEquals(5, reopened.latestSequenceNumber() - beforeGc);
             assertTrue(cursorDelta.get().mutation().reservationCloseCursor());
-            assertEquals(TargetReservationClosureStore.Progress.COMPLETE,
-                    closures.progress(budget(), target, ownerReads));
+            assertEquals(
+                    TargetReservationClosureStore.Progress.COMPLETE, closures.progress(budget(), target, ownerReads));
             assertEquals(4, reopened.shardMutationSequence());
-            assertArrayEquals(closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
-            assertEquals(TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
+            assertArrayEquals(
+                    closeAt.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes());
+            assertEquals(
+                    TargetReservationExpiryWorkClassExecutor.Kind.SWEEP_COMPLETE,
                     worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
-                            .expiryResult().orElseThrow().kind());
-            assertEquals(TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE,
+                            .expiryResult()
+                            .orElseThrow()
+                            .kind());
+            assertEquals(
+                    TargetReservationClosureWorkClassExecutor.Kind.SWEEP_COMPLETE,
                     worker.runMaintenanceTurn(new SchedulerBudget(100, 2_000_000, 60_000_000_000L))
-                            .closeResult().orElseThrow().kind());
+                            .closeResult()
+                            .orElseThrow()
+                            .kind());
             assertEquals(beforeGc + 5, reopened.latestSequenceNumber());
             backlogCut.requireCurrent(); // Local GC/Claims do not change the unapplied Source prefix.
             assertTrue(leases.release(replacement));
@@ -516,8 +638,8 @@ class TargetQuotaGrantStoreTest {
         final var rootOperation = fixture.rootOperation;
         final var rootAuthority = fixture.rootAuthority;
         final var config = ShardStoreConfig.defaults(root);
-        final var controlImages = new java.util.ArrayList<
-                com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
+        final var controlImages =
+                new java.util.ArrayList<com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage>();
         controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
                 earlier, rootOperation.mutation()));
         controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
@@ -600,31 +722,79 @@ class TargetQuotaGrantStoreTest {
             final var snapshot = fixture.snapshot();
             final long beforeSnapshotFailure = store.latestSequenceNumber();
             if (withSnapshot) {
-                assertThrows(IllegalArgumentException.class, () -> TargetStoreBootstrap.prepareWithControlSnapshot(
-                        store, scope, lineage, limits, budget(), rootOperation.control(), rootOperation.mutation(),
-                        earlier, rootAuthority, (a, b, c) -> {}, snapshot,
-                        (input, control, mutation, at) -> keys.getPublic()));
-                final var laterSnapshot = TargetControlSnapshotInput.signed(scope, lineage, rootRequest.next().digest(),
-                        origin, Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
-                        List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, snapshotKeys.getPrivate());
-                assertThrows(IllegalArgumentException.class, () -> TargetStoreBootstrap.prepareWithControlSnapshot(
-                        store, scope, lineage, limits, budget(), rootOperation.control(), rootOperation.mutation(),
-                        earlier, rootAuthority, (a, b, c) -> {}, laterSnapshot,
-                        (input, control, mutation, at) -> {
-                            throw new AssertionError("wrong Source reached authority");
-                        }));
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetStoreBootstrap.prepareWithControlSnapshot(
+                                store,
+                                scope,
+                                lineage,
+                                limits,
+                                budget(),
+                                rootOperation.control(),
+                                rootOperation.mutation(),
+                                earlier,
+                                rootAuthority,
+                                (a, b, c) -> {},
+                                snapshot,
+                                (input, control, mutation, at) -> keys.getPublic()));
+                final var laterSnapshot = TargetControlSnapshotInput.signed(
+                        scope,
+                        lineage,
+                        rootRequest.next().digest(),
+                        origin,
+                        Bytes.sha256(rootOperation.mutation().canonicalEnvelope()),
+                        List.of(ProtocolTuple.currentSystemMutation()),
+                        List.of(),
+                        1,
+                        snapshotKeys.getPrivate());
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TargetStoreBootstrap.prepareWithControlSnapshot(
+                                store,
+                                scope,
+                                lineage,
+                                limits,
+                                budget(),
+                                rootOperation.control(),
+                                rootOperation.mutation(),
+                                earlier,
+                                rootAuthority,
+                                (a, b, c) -> {},
+                                laterSnapshot,
+                                (input, control, mutation, at) -> {
+                                    throw new AssertionError("wrong Source reached authority");
+                                }));
                 assertEquals(beforeSnapshotFailure, store.latestSequenceNumber());
             }
             final var ready = withSnapshot
-                    ? TargetStoreBootstrap.prepareWithControlSnapshot(store, scope, lineage, limits, budget(),
-                            rootOperation.control(), rootOperation.mutation(), earlier, rootAuthority,
-                            (a, b, c) -> {}, snapshot, (input, control, mutation, at) -> {
+                    ? TargetStoreBootstrap.prepareWithControlSnapshot(
+                            store,
+                            scope,
+                            lineage,
+                            limits,
+                            budget(),
+                            rootOperation.control(),
+                            rootOperation.mutation(),
+                            earlier,
+                            rootAuthority,
+                            (a, b, c) -> {},
+                            snapshot,
+                            (input, control, mutation, at) -> {
                                 assertFalse(Thread.holdsLock(store));
                                 assertArrayEquals(snapshot.canonicalBytes(), input.canonicalBytes());
                                 return snapshotKeys.getPublic();
                             })
-                    : TargetStoreBootstrap.prepare(store, scope, lineage, limits, budget(), rootOperation.control(),
-                            rootOperation.mutation(), earlier, rootAuthority, (a, b, c) -> {});
+                    : TargetStoreBootstrap.prepare(
+                            store,
+                            scope,
+                            lineage,
+                            limits,
+                            budget(),
+                            rootOperation.control(),
+                            rootOperation.mutation(),
+                            earlier,
+                            rootAuthority,
+                            (a, b, c) -> {});
             final var initialized = TargetStoreBootstrap.commit(ready, (a, b, c) -> guard());
             final var backend = initialized.backend();
             final var shard = initialized.root();
@@ -632,32 +802,44 @@ class TargetQuotaGrantStoreTest {
             assertEquals(1, store.shardMutationSequence());
             final byte[] initialSnapshotRaw = store.get(ColumnFamily.META, KeyCodec.metaFixed(10));
             if (withSnapshot) {
-                final var persisted = TargetInitialControlSnapshot.decode(TargetValueEnvelope.decode(
-                        initialSnapshotRaw, 1).payload());
+                final var persisted = TargetInitialControlSnapshot.decode(
+                        TargetValueEnvelope.decode(initialSnapshotRaw, 1).payload());
                 assertArrayEquals(snapshot.canonicalBytes(), persisted.input().canonicalBytes());
                 assertEquals(shard.identity(), persisted.root());
                 assertEquals(earlier, persisted.mutation().source());
                 assertTrue(persisted.input().verifySignature(snapshotKeys.getPublic()));
-                final long charged = shard.accounting().recordCharge(TargetQuotaAccounting.RecordClass.STATE,
-                        KeyCodec.metaFixed(10).length, persisted.canonicalBytes().length)
+                final long charged = shard.accounting()
+                        .recordCharge(
+                                TargetQuotaAccounting.RecordClass.STATE,
+                                KeyCodec.metaFixed(10).length,
+                                persisted.canonicalBytes().length)
                         .amount(CapacityDimension.LOGICAL_STATE_BYTES);
                 assertTrue(charged > persisted.canonicalBytes().length);
                 final var reopenedRoot = TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard());
                 assertEquals(shard.identity(), reopenedRoot.root().identity());
                 assertArrayEquals(initialSnapshotRaw, store.get(ColumnFamily.META, KeyCodec.metaFixed(10)));
-                final var otherAuthor = AuthorIdentity.control(bytes(32, 0x19), actor.roleSet().digest(),
-                        actor.tenantResourceScopeHash()).canonicalBytes();
-                final var transplanted = new TargetInitialControlSnapshot(persisted.input(), persisted.root(),
-                        persisted.mutation(), persisted.initialGrant(), otherAuthor);
-                assertEquals(initialSnapshotRaw.length,
-                        TargetValueEnvelope.encode(1, transplanted.canonicalBytes()).length);
-                store.write(batch -> batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(10),
-                        transplanted.canonicalBytes()));
-                assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
-                        store, scope, limits, budget(), (a, b) -> guard())).getMessage().contains("Control author"));
+                final var otherAuthor = AuthorIdentity.control(
+                                bytes(32, 0x19), actor.roleSet().digest(), actor.tenantResourceScopeHash())
+                        .canonicalBytes();
+                final var transplanted = new TargetInitialControlSnapshot(
+                        persisted.input(),
+                        persisted.root(),
+                        persisted.mutation(),
+                        persisted.initialGrant(),
+                        otherAuthor);
+                assertEquals(
+                        initialSnapshotRaw.length, TargetValueEnvelope.encode(1, transplanted.canonicalBytes()).length);
+                store.write(batch ->
+                        batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(10), transplanted.canonicalBytes()));
+                assertTrue(assertThrows(
+                                IllegalStateException.class,
+                                () -> TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard()))
+                        .getMessage()
+                        .contains("Control author"));
                 store.write(batch -> batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)));
-                assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
-                        store, scope, limits, budget(), (a, b) -> guard()));
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard()));
                 store.write(batch -> batch.put(ColumnFamily.META, KeyCodec.metaFixed(10), initialSnapshotRaw));
                 TargetStoreBootstrap.reopen(store, scope, limits, budget(), (a, b) -> guard());
             } else {
@@ -749,7 +931,9 @@ class TargetQuotaGrantStoreTest {
                                 fenceResolutions.incrementAndGet();
                                 return new TargetSourceApplyRuntime.FenceControl(fenceAuthority, (a, b, c) -> guard());
                             },
-                            entry -> { throw new AssertionError("unexpected Target expiry authority"); },
+                            entry -> {
+                                throw new AssertionError("unexpected Target expiry authority");
+                            },
                             entry -> {
                                 throw new AssertionError("unexpected first Target Close authority");
                             },
@@ -782,7 +966,9 @@ class TargetQuotaGrantStoreTest {
             final var sourceClasses = workClasses();
             final var loop = new WorkerSourceApplyLoop(consumer, sourceClasses, runtime);
             final var firstTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
-            assertEquals(SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN, firstTurn.status(),
+            assertEquals(
+                    SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN,
+                    firstTurn.status(),
                     () -> String.valueOf(firstTurn.failure()));
             final long writtenBeforeAckRetry = store.latestSequenceNumber();
             final var completed = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
@@ -797,7 +983,11 @@ class TargetQuotaGrantStoreTest {
                     new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
             final var activeCandidateId = bytes(16, 0x35);
             final var activePending = pendingCandidate(
-                    scope.shard(), lineage, activeCandidateId, active, store.metadata().storeIncarnation());
+                    scope.shard(),
+                    lineage,
+                    activeCandidateId,
+                    active,
+                    store.metadata().storeIncarnation());
             final var activeIntents = new CheckpointUploadIntentStore();
             activeIntents.create(activePending);
             final Path activeCandidate = root.resolve("active-owner-candidate");
@@ -954,20 +1144,20 @@ class TargetQuotaGrantStoreTest {
                     () -> applier.prepare(budget(), operation.control(), resigned, expiredPosition, unavailable));
             final var expired = signed(request, bytes(32, 0x73), actor, keys);
             registrations.register(expired.control());
-            final var expiredMutation = SystemMutation.signed(expired.mutation().shardId(), expired.mutation().type(),
-                    expired.mutation().retryUntilEpochMs(), expired.mutation().logicalOperationIdentity(),
-                    expired.mutation().canonicalBody(), expired.mutation().authorIdentity(), 2,
+            final var expiredMutation = SystemMutation.signed(
+                    expired.mutation().shardId(),
+                    expired.mutation().type(),
+                    expired.mutation().retryUntilEpochMs(),
+                    expired.mutation().logicalOperationIdentity(),
+                    expired.mutation().canonicalBody(),
+                    expired.mutation().authorIdentity(),
+                    2,
                     KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
             final var rejectedAt = source(origin, origin.offset() + 3, 502);
             controlImages.add(new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
                     rejectedAt, expiredMutation));
             final var rejection = applier.commit(
-                    applier.prepareFirst(
-                            budget(),
-                            expired.control(),
-                            expiredMutation,
-                            rejectedAt,
-                            allowed),
+                    applier.prepareFirst(budget(), expired.control(), expiredMutation, rejectedAt, allowed),
                     (a, b, c) -> guard());
             assertEquals(ApplyStatus.REJECTED, rejection.applyStatus());
             assertEquals(StableCode.SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED, rejection.stableCode());
@@ -1144,7 +1334,8 @@ class TargetQuotaGrantStoreTest {
             assertTrue(Files.notExists(fencedCandidate));
             assertEquals(beforeOwnerLossRetry, store.latestSequenceNumber());
             leaseAuthority.transition(active, ShardLifecycleState.DRAINING).orElseThrow();
-            sourceClasses.runTurn(new SchedulerBudget(1, queuedBeforeDrain.task().bytes(), 1_000));
+            sourceClasses.runTurn(
+                    new SchedulerBudget(1, queuedBeforeDrain.task().bytes(), 1_000));
             assertTrue(queuedBeforeDrain.outcome().orElseThrow().failure() instanceof IllegalStateException);
             assertTrue(Files.notExists(fencedCandidate));
             assertEquals(beforeOwnerLossRetry, store.latestSequenceNumber());
@@ -1196,152 +1387,312 @@ class TargetQuotaGrantStoreTest {
         final var ledgerAuditLimits =
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
         final var dependencies = TargetCheckpointRootVerifier.auditImageDependencies(
-                physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits).dependencies();
+                        physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits)
+                .dependencies();
         assertEquals(3, dependencies.controlResults().size());
         assertEquals(3, dependencies.controlReferences().size());
         for (final var reference : dependencies.controlReferences()) {
-            final var original = controlImages.stream().filter(input ->
-                    Arrays.equals(input.image().systemMutationId(), SystemMutationResult.decode(
-                            reference.first().typedPayload()).mutationId())).findFirst().orElseThrow();
-            assertArrayEquals(original.image().canonicalEnvelope(),
+            final var original = controlImages.stream()
+                    .filter(input -> Arrays.equals(
+                            input.image().systemMutationId(),
+                            SystemMutationResult.decode(reference.first().typedPayload())
+                                    .mutationId()))
+                    .findFirst()
+                    .orElseThrow();
+            assertArrayEquals(
+                    original.image().canonicalEnvelope(),
                     reference.requireImage(original.image(), original.source()).canonicalEnvelope());
         }
-        assertTrue(dependencies.controlResults().stream().anyMatch(firstResult ->
-                SystemMutationResult.decode(firstResult.typedPayload()).applyStatus() == ApplyStatus.REJECTED));
-        final var checkedControls = dependencies.requireControlImages(controlImages, 1 << 20, budget(),
-                (input, firstResult) -> SystemMutationResult.decode(firstResult.typedPayload()).applyStatus()
-                        == ApplyStatus.APPLIED ? keys.getPublic() : null, () -> {});
+        assertTrue(dependencies.controlResults().stream()
+                .anyMatch(firstResult ->
+                        SystemMutationResult.decode(firstResult.typedPayload()).applyStatus() == ApplyStatus.REJECTED));
+        final var checkedControls = dependencies.requireControlImages(
+                controlImages,
+                1 << 20,
+                budget(),
+                (input, firstResult) ->
+                        SystemMutationResult.decode(firstResult.typedPayload()).applyStatus() == ApplyStatus.APPLIED
+                                ? keys.getPublic()
+                                : null,
+                () -> {});
         assertEquals(3, checkedControls.size());
         final var reverseControls = new java.util.ArrayList<>(controlImages);
         java.util.Collections.reverse(reverseControls);
-        assertEquals(checkedControls, dependencies.requireControlImages(reverseControls, 1 << 20, budget(),
-                (input, firstResult) -> keys.getPublic(), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                controlImages.subList(0, 2), 1 << 20, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                List.of(controlImages.getFirst(), controlImages.getFirst(), controlImages.getLast()),
-                1 << 20, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                controlImages, 1, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                controlImages, 1 << 20, budget(), (input, firstResult) -> null, () -> {}));
-        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
-                () -> dependencies.requireControlImages(controlImages, 1 << 20,
+        assertEquals(
+                checkedControls,
+                dependencies.requireControlImages(
+                        reverseControls, 1 << 20, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages.subList(0, 2),
+                        1 << 20,
+                        budget(),
+                        (input, firstResult) -> keys.getPublic(),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        List.of(controlImages.getFirst(), controlImages.getFirst(), controlImages.getLast()),
+                        1 << 20,
+                        budget(),
+                        (input, firstResult) -> keys.getPublic(),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages, 1, budget(), (input, firstResult) -> keys.getPublic(), () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages, 1 << 20, budget(), (input, firstResult) -> null, () -> {}));
+        assertThrows(
+                com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages,
+                        1 << 20,
                         new BoundedReadBudget(1, 1 << 20, 1_000_000, () -> 0),
-                        (input, firstResult) -> keys.getPublic(), () -> {}));
+                        (input, firstResult) -> keys.getPublic(),
+                        () -> {}));
         final var controlClock = new java.util.concurrent.atomic.AtomicLong();
-        assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
-                () -> dependencies.requireControlImages(controlImages, 1 << 20,
-                        new BoundedReadBudget(3, 1 << 20, 10, controlClock::get), (input, firstResult) -> {
+        assertThrows(
+                com.nereusstream.delay.store.ReadIncompleteException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages,
+                        1 << 20,
+                        new BoundedReadBudget(3, 1 << 20, 10, controlClock::get),
+                        (input, firstResult) -> {
                             controlClock.set(10);
                             return keys.getPublic();
-                        }, () -> {}));
+                        },
+                        () -> {}));
         final var wrongSourceControls = new java.util.ArrayList<>(controlImages);
-        wrongSourceControls.set(0, new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
-                origin, rootOperation.mutation()));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                wrongSourceControls, 1 << 20, budget(), (input, firstResult) -> {
-                    throw new AssertionError("wrong Source reached authentication");
-                }, () -> {}));
+        wrongSourceControls.set(
+                0,
+                new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                        origin, rootOperation.mutation()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        wrongSourceControls,
+                        1 << 20,
+                        budget(),
+                        (input, firstResult) -> {
+                            throw new AssertionError("wrong Source reached authentication");
+                        },
+                        () -> {}));
         final var changedSignatureControls = new java.util.ArrayList<>(controlImages);
         final var rootMutation = rootOperation.mutation();
-        changedSignatureControls.set(0, new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
-                earlier, SystemMutation.signed(rootMutation.shardId(), rootMutation.type(),
-                        rootMutation.retryUntilEpochMs(), rootMutation.logicalOperationIdentity(),
-                        rootMutation.canonicalBody(), rootMutation.authorIdentity(), 2, keys.getPrivate())));
-        assertThrows(IllegalArgumentException.class, () -> dependencies.requireControlImages(
-                changedSignatureControls, 1 << 20, budget(), (input, firstResult) -> {
-                    throw new AssertionError("changed envelope reached authentication");
-                }, () -> {}));
+        changedSignatureControls.set(
+                0,
+                new com.nereusstream.delay.store.TargetCheckpointDependencies.ControlImage(
+                        earlier,
+                        SystemMutation.signed(
+                                rootMutation.shardId(),
+                                rootMutation.type(),
+                                rootMutation.retryUntilEpochMs(),
+                                rootMutation.logicalOperationIdentity(),
+                                rootMutation.canonicalBody(),
+                                rootMutation.authorIdentity(),
+                                2,
+                                keys.getPrivate())));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dependencies.requireControlImages(
+                        changedSignatureControls,
+                        1 << 20,
+                        budget(),
+                        (input, firstResult) -> {
+                            throw new AssertionError("changed envelope reached authentication");
+                        },
+                        () -> {}));
         final var protectedControls = new java.util.concurrent.atomic.AtomicBoolean(true);
-        assertThrows(IllegalStateException.class, () -> dependencies.requireControlImages(
-                controlImages, 1 << 20, budget(), (input, firstResult) -> {
-                    protectedControls.set(false);
-                    return keys.getPublic();
-                }, () -> { if (!protectedControls.get()) { throw new IllegalStateException("protection lost"); } }));
+        assertThrows(
+                IllegalStateException.class,
+                () -> dependencies.requireControlImages(
+                        controlImages,
+                        1 << 20,
+                        budget(),
+                        (input, firstResult) -> {
+                            protectedControls.set(false);
+                            return keys.getPublic();
+                        },
+                        () -> {
+                            if (!protectedControls.get()) {
+                                throw new IllegalStateException("protection lost");
+                            }
+                        }));
         assertTrue(dependencies.admissionImagesComplete());
-        assertTrue(dependencies.controls().stream().anyMatch(control ->
-                control.valueType() == TargetQuotaGrantActivation.VALUE_TYPE));
+        assertTrue(dependencies.controls().stream()
+                .anyMatch(control -> control.valueType() == TargetQuotaGrantActivation.VALUE_TYPE));
         assertTrue(dependencies.profiles().isEmpty());
         assertTrue(dependencies.retryPolicies().isEmpty());
         assertTrue(dependencies.trustSets().isEmpty());
         final var semanticLimits = new TargetCheckpointSemanticSnapshot.Limits(64, 1 << 20, 1 << 20);
-        final var componentSemantics = TargetCheckpointSemanticSnapshot.collect(dependencies, List.of(),
+        final var componentSemantics = TargetCheckpointSemanticSnapshot.collect(
+                dependencies,
+                List.of(),
                 com.nereusstream.delay.store.TargetCheckpointSemanticSnapshotTestBridge.emptyProfiles(),
-                (ref, at) -> { throw new AssertionError("unexpected Retry Policy"); },
-                ref -> { throw new AssertionError("unexpected Trust Set"); }, budget(), semanticLimits, () -> {});
+                (ref, at) -> {
+                    throw new AssertionError("unexpected Retry Policy");
+                },
+                ref -> {
+                    throw new AssertionError("unexpected Trust Set");
+                },
+                budget(),
+                semanticLimits,
+                () -> {});
         assertEquals(1, componentSemantics.schemaVersion());
-        assertArrayEquals(componentSemantics.canonicalBytes(), TargetCheckpointSemanticSnapshot.decode(
-                componentSemantics.canonicalBytes(), semanticLimits).canonicalBytes());
+        assertArrayEquals(
+                componentSemantics.canonicalBytes(),
+                TargetCheckpointSemanticSnapshot.decode(componentSemantics.canonicalBytes(), semanticLimits)
+                        .canonicalBytes());
         final var originalControlAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                registrations, (version, at) -> version == 1 ? keys.getPublic() : null,
-                (input, firstResult) -> assertArrayEquals(input.source().canonicalBytes(),
+                registrations,
+                (version, at) -> version == 1 ? keys.getPublic() : null,
+                (input, firstResult) -> assertArrayEquals(
+                        input.source().canonicalBytes(),
                         firstResult.mutation().source().canonicalBytes()),
-                (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                        .Authorization(actor, ignored -> true), budget(), () -> {});
-        final var semantics = componentSemantics.withControlInputs(dependencies, controlImages, budget(),
-                semanticLimits, originalControlAuthority, () -> {});
+                (preparedControl, input) ->
+                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                actor, ignored -> true),
+                budget(),
+                () -> {});
+        final var semantics = componentSemantics.withControlInputs(
+                dependencies, controlImages, budget(), semanticLimits, originalControlAuthority, () -> {});
         final String controlEndpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         if (controlEndpoint != null && !controlEndpoint.isBlank()) {
             final String controlPrefix = "checkpoint-original-control/" + UUID.randomUUID();
-            try (var client = OxiaSyncOwnerLeaseBackend.connect(controlEndpoint, "default", controlPrefix,
-                    Duration.ofSeconds(15), controlPrefix + "/owner")) {
+            try (var client = OxiaSyncOwnerLeaseBackend.connect(
+                    controlEndpoint, "default", controlPrefix, Duration.ofSeconds(15), controlPrefix + "/owner")) {
                 final var actualRegistrations =
                         new com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthority(
-                        new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
-                                client, controlPrefix + "/registry"));
+                                new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
+                                        client, controlPrefix + "/registry"));
                 actualRegistrations.register(rootOperation.control());
                 actualRegistrations.register(operation.control());
                 final var actualAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        actualRegistrations, (version, at) -> version == 1 ? keys.getPublic() : null,
+                        actualRegistrations,
+                        (version, at) -> version == 1 ? keys.getPublic() : null,
                         (input, firstResult) -> {},
-                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                                .Authorization(actor, ignored -> true), budget(),
+                        (preparedControl, input) ->
+                                new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                        actor, ignored -> true),
+                        budget(),
                         client.backend()::assertConnectedSession);
-                assertArrayEquals(semantics.canonicalBytes(), componentSemantics.withControlInputs(
-                        dependencies, controlImages, budget(), semanticLimits, actualAuthority,
-                        client.backend()::assertConnectedSession).canonicalBytes());
+                assertArrayEquals(
+                        semantics.canonicalBytes(),
+                        componentSemantics
+                                .withControlInputs(
+                                        dependencies,
+                                        controlImages,
+                                        budget(),
+                                        semanticLimits,
+                                        actualAuthority,
+                                        client.backend()::assertConnectedSession)
+                                .canonicalBytes());
             }
         }
-        assertThrows(IllegalStateException.class, () -> componentSemantics.withControlInputs(
-                dependencies, controlImages, budget(), semanticLimits,
-                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        new InMemoryControlTargetRegistrationAuthority(), (version, at) -> keys.getPublic(),
-                        (input, firstResult) -> {}, (preparedControl, input) -> {
-                            throw new AssertionError("missing registry reached Source authority");
-                        }, budget(), () -> {}), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
-                dependencies, controlImages, budget(), semanticLimits,
-                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        registrations, (version, at) -> null, (input, firstResult) -> {},
-                        (preparedControl, input) -> {
-                            throw new AssertionError("missing key reached Source authority");
-                        }, budget(), () -> {}), () -> {}));
-        final var wrongActor = new ControlAuthorizationContext(bytes(32, 0x14), actor.roleSet(),
-                actor.tenantResourceScopeHash());
-        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
-                dependencies, controlImages, budget(), semanticLimits,
-                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        registrations, (version, at) -> keys.getPublic(), (input, firstResult) -> {},
-                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                                .Authorization(wrongActor, ignored -> true), budget(), () -> {}), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
-                dependencies, controlImages, budget(), semanticLimits,
-                new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        registrations, (version, at) -> keys.getPublic(), (input, firstResult) -> {},
-                        (preparedControl, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                                .Authorization(actor, ignored -> false), budget(), () -> {}), () -> {}));
+        assertThrows(
+                IllegalStateException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        controlImages,
+                        budget(),
+                        semanticLimits,
+                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                                new InMemoryControlTargetRegistrationAuthority(),
+                                (version, at) -> keys.getPublic(),
+                                (input, firstResult) -> {},
+                                (preparedControl, input) -> {
+                                    throw new AssertionError("missing registry reached Source authority");
+                                },
+                                budget(),
+                                () -> {}),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        controlImages,
+                        budget(),
+                        semanticLimits,
+                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                                registrations,
+                                (version, at) -> null,
+                                (input, firstResult) -> {},
+                                (preparedControl, input) -> {
+                                    throw new AssertionError("missing key reached Source authority");
+                                },
+                                budget(),
+                                () -> {}),
+                        () -> {}));
+        final var wrongActor =
+                new ControlAuthorizationContext(bytes(32, 0x14), actor.roleSet(), actor.tenantResourceScopeHash());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        controlImages,
+                        budget(),
+                        semanticLimits,
+                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                                registrations,
+                                (version, at) -> keys.getPublic(),
+                                (input, firstResult) -> {},
+                                (preparedControl, input) ->
+                                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                                wrongActor, ignored -> true),
+                                budget(),
+                                () -> {}),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        controlImages,
+                        budget(),
+                        semanticLimits,
+                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
+                                registrations,
+                                (version, at) -> keys.getPublic(),
+                                (input, firstResult) -> {},
+                                (preparedControl, input) ->
+                                        new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                                actor, ignored -> false),
+                                budget(),
+                                () -> {}),
+                        () -> {}));
         assertEquals(2, semantics.schemaVersion());
         assertEquals(3, semantics.controls().size());
-        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
-                dependencies, List.of(), budget(), semanticLimits, (input, firstResult) -> keys.getPublic(), () -> {}));
-        assertThrows(IllegalArgumentException.class, () -> componentSemantics.withControlInputs(
-                dependencies, controlImages, budget(), new TargetCheckpointSemanticSnapshot.Limits(2, 1 << 20, 1 << 20),
-                (input, firstResult) -> keys.getPublic(), () -> {}));
-        final var decodedSemantics = TargetCheckpointSemanticSnapshot.decode(
-                semantics.canonicalBytes(), semanticLimits);
-        TargetCheckpointRootVerifier.auditImageSemanticSnapshot(physicalDb, scope.shard(), imageLimits,
-                quotaAuditLimits, ledgerAuditLimits, decodedSemantics, semanticLimits);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        List.of(),
+                        budget(),
+                        semanticLimits,
+                        (input, firstResult) -> keys.getPublic(),
+                        () -> {}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> componentSemantics.withControlInputs(
+                        dependencies,
+                        controlImages,
+                        budget(),
+                        new TargetCheckpointSemanticSnapshot.Limits(2, 1 << 20, 1 << 20),
+                        (input, firstResult) -> keys.getPublic(),
+                        () -> {}));
+        final var decodedSemantics =
+                TargetCheckpointSemanticSnapshot.decode(semantics.canonicalBytes(), semanticLimits);
+        TargetCheckpointRootVerifier.auditImageSemanticSnapshot(
+                physicalDb,
+                scope.shard(),
+                imageLimits,
+                quotaAuditLimits,
+                ledgerAuditLimits,
+                decodedSemantics,
+                semanticLimits);
 
         final Path failedCandidate = root.resolve("target-candidate-over-budget");
         final Path unboundedCandidate = root.resolve("target-candidate-unbounded");
@@ -1363,7 +1714,11 @@ class TargetQuotaGrantStoreTest {
                     .orElseThrow();
             assertEquals(openedOwnerEpoch, candidateOwner.ownerEpoch());
             final var pending = pendingCandidate(
-                    scope.shard(), lineage, checkpointId, candidateOwner, live.metadata().storeIncarnation());
+                    scope.shard(),
+                    lineage,
+                    checkpointId,
+                    candidateOwner,
+                    live.metadata().storeIncarnation());
             final var candidateIntents = new CheckpointUploadIntentStore();
             candidateIntents.create(pending);
             final var candidateClasses = workClasses();
@@ -1403,7 +1758,8 @@ class TargetQuotaGrantStoreTest {
             final var queuedCandidate = candidateExecutor.submit(candidateRequest);
             assertTrue(Files.notExists(candidate));
             assertEquals(beforeQueue, live.operationStatistics().nativeWriteCalls());
-            candidateClasses.runTurn(new SchedulerBudget(1, queuedCandidate.task().bytes(), 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, queuedCandidate.task().bytes(), 1_000));
             assertEquals(candidate, queuedCandidate.outcome().orElseThrow().checkpointPath());
             final long beforeReuse = live.operationStatistics().nativeWriteCalls();
             final var queuedReuse = candidateExecutor.submit(candidateRequest);
@@ -1412,183 +1768,342 @@ class TargetQuotaGrantStoreTest {
             assertEquals(beforeReuse, live.operationStatistics().nativeWriteCalls());
             final Path semanticCandidate = root.resolve("target-semantic-candidate");
             final var semanticRequest = new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
-                    new TargetCheckpointCandidateWorkClassExecutor.Request(semanticCandidate, pending, candidateOwner,
-                            imageLimits, quotaAuditLimits, ledgerAuditLimits), semantics, semanticLimits,
+                    new TargetCheckpointCandidateWorkClassExecutor.Request(
+                            semanticCandidate,
+                            pending,
+                            candidateOwner,
+                            imageLimits,
+                            quotaAuditLimits,
+                            ledgerAuditLimits),
+                    semantics,
+                    semanticLimits,
                     () -> assertFalse(Thread.holdsLock(live), "protection I/O must stay outside Store locks"));
             final long beforeSemanticQueue = live.operationStatistics().nativeWriteCalls();
             final var semanticQueued = candidateExecutor.submitSemantic(semanticRequest);
             assertTrue(Files.notExists(semanticCandidate));
             assertEquals(beforeSemanticQueue, live.operationStatistics().nativeWriteCalls());
             assertTrue(semanticQueued.task().bytes() > semantics.canonicalBytes().length);
-            candidateClasses.runTurn(new SchedulerBudget(1, semanticQueued.task().bytes() - 1, 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, semanticQueued.task().bytes() - 1, 1_000));
             assertTrue(semanticQueued.outcome().isEmpty());
             assertTrue(Files.notExists(semanticCandidate));
-            candidateClasses.runTurn(new SchedulerBudget(1, semanticQueued.task().bytes(), 1_000));
-            assertEquals(semanticCandidate, semanticQueued.outcome().orElseThrow().checkpointPath());
-            assertArrayEquals(semantics.canonicalBytes(), TargetCheckpointSemanticSnapshotFile.read(
-                    semanticCandidate, semanticLimits).canonicalBytes());
-            assertTrue(CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream().anyMatch(file ->
-                    file.name().equals(TargetCheckpointSemanticSnapshotFile.NAME)));
-            TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(semanticCandidate, scope.shard(), imageLimits,
-                    quotaAuditLimits, ledgerAuditLimits, semanticLimits);
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, semanticQueued.task().bytes(), 1_000));
+            assertEquals(
+                    semanticCandidate, semanticQueued.outcome().orElseThrow().checkpointPath());
+            assertArrayEquals(
+                    semantics.canonicalBytes(),
+                    TargetCheckpointSemanticSnapshotFile.read(semanticCandidate, semanticLimits)
+                            .canonicalBytes());
+            assertTrue(CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream()
+                    .anyMatch(file -> file.name().equals(TargetCheckpointSemanticSnapshotFile.NAME)));
+            TargetCheckpointRootVerifier.auditPersistedSemanticSnapshot(
+                    semanticCandidate, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits);
             final var semanticInventory = CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream()
-                    .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
-                            Bytes.utf8("target-draft/" + file.name()), Bytes.utf8("immutable-version-1"), null))
+                    .map(file -> new CheckpointManifest.FileEntry(
+                            file.name(),
+                            file.length(),
+                            file.checksum(),
+                            Bytes.utf8("target-draft/" + file.name()),
+                            Bytes.utf8("immutable-version-1"),
+                            null))
                     .toList();
-            final var semanticManifest = new CheckpointManifest(pending.checkpointId(), lineage, 0, null, null,
-                    new CheckpointManifest.CreatedBy(pending.owner().deploymentId(), pending.owner().workerRunId(),
+            final var semanticManifest = new CheckpointManifest(
+                    pending.checkpointId(),
+                    lineage,
+                    0,
+                    null,
+                    null,
+                    new CheckpointManifest.CreatedBy(
+                            pending.owner().deploymentId(),
+                            pending.owner().workerRunId(),
                             live.runtimeMetadata().lastOpenedOwnerEpoch()),
-                    new CheckpointManifest.CreatedAt(900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43),
-                            1, 2, 3, bytes(32, 0x44), 0, null), scope.shard(), live.metadata().dbIdentity(),
-                    live.metadata().storeIncarnationUuid(), 2, live.shardMutationSequence(),
-                    live.appliedShardLogPosition(), semantics.snapshotDigest(), dependencies.semanticInputsDigest(),
-                    live.runtimeMetadata().evidenceCursors(), semanticInventory);
+                    new CheckpointManifest.CreatedAt(
+                            900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 0x43), 1, 2, 3, bytes(32, 0x44), 0, null),
+                    scope.shard(),
+                    live.metadata().dbIdentity(),
+                    live.metadata().storeIncarnationUuid(),
+                    2,
+                    live.shardMutationSequence(),
+                    live.appliedShardLogPosition(),
+                    semantics.snapshotDigest(),
+                    dependencies.semanticInputsDigest(),
+                    live.runtimeMetadata().evidenceCursors(),
+                    semanticInventory);
             if (!withSnapshot) {
-                assertTrue(assertThrows(IllegalArgumentException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
-                        .getMessage().contains("initial reader/control snapshot"));
+                assertTrue(assertThrows(
+                                IllegalArgumentException.class,
+                                () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
+                                        semanticCandidate,
+                                        semanticManifest,
+                                        imageLimits,
+                                        quotaAuditLimits,
+                                        ledgerAuditLimits,
+                                        semanticLimits))
+                        .getMessage()
+                        .contains("initial reader/control snapshot"));
             } else {
-                final long beforeAuthenticationWrites = live.operationStatistics().nativeWriteCalls();
+                final long beforeAuthenticationWrites =
+                        live.operationStatistics().nativeWriteCalls();
                 final var initialAuthentications = new java.util.concurrent.atomic.AtomicInteger();
-                final TargetStoreBootstrap.InitialControlAuthority originalReader = (input, preparedControl,
-                        originalMutation, originalSource) -> {
-                    assertFalse(Thread.holdsLock(live));
-                    assertEquals(earlier, originalSource);
-                    assertEquals(earlier, input.source());
-                    assertArrayEquals(rootOperation.control().canonicalBytes(), preparedControl.canonicalBytes());
-                    assertArrayEquals(rootOperation.mutation().canonicalEnvelope(),
-                            originalMutation.canonicalEnvelope());
-                    initialAuthentications.incrementAndGet();
-                    return snapshotKeys.getPublic(); // Distinct from the original Control issuer key.
-                };
+                final TargetStoreBootstrap.InitialControlAuthority originalReader =
+                        (input, preparedControl, originalMutation, originalSource) -> {
+                            assertFalse(Thread.holdsLock(live));
+                            assertEquals(earlier, originalSource);
+                            assertEquals(earlier, input.source());
+                            assertArrayEquals(
+                                    rootOperation.control().canonicalBytes(), preparedControl.canonicalBytes());
+                            assertArrayEquals(
+                                    rootOperation.mutation().canonicalEnvelope(), originalMutation.canonicalEnvelope());
+                            initialAuthentications.incrementAndGet();
+                            return snapshotKeys.getPublic(); // Distinct from the original Control issuer key.
+                        };
                 final var authenticatedManifest = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
-                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
-                        semanticLimits, originalControlAuthority, originalReader);
-                assertEquals(live.shardMutationSequence(), authenticatedManifest.root().mutationSequence());
+                        semanticCandidate,
+                        semanticManifest,
+                        imageLimits,
+                        quotaAuditLimits,
+                        ledgerAuditLimits,
+                        semanticLimits,
+                        originalControlAuthority,
+                        originalReader);
+                assertEquals(
+                        live.shardMutationSequence(),
+                        authenticatedManifest.root().mutationSequence());
                 final var emptyAdmissionManifest = TargetCheckpointRootVerifier.auditManifestAdmissionAuthentication(
-                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
-                        semanticLimits, budget(), (input, first) -> {
+                        semanticCandidate,
+                        semanticManifest,
+                        imageLimits,
+                        quotaAuditLimits,
+                        ledgerAuditLimits,
+                        semanticLimits,
+                        budget(),
+                        (input, first) -> {
                             throw new AssertionError("empty image invented Admission history");
-                        }, (actualScope, writer, mutation, source) -> {
+                        },
+                        (actualScope, writer, mutation, source) -> {
                             throw new AssertionError("empty image invented Admission authority");
-                        }, () -> assertFalse(Thread.holdsLock(live)));
+                        },
+                        () -> assertFalse(Thread.holdsLock(live)));
                 assertTrue(emptyAdmissionManifest.dependencies().admissions().isEmpty());
-                assertArrayEquals(authenticatedManifest.dependencies().semanticInputsDigest(),
+                assertArrayEquals(
+                        authenticatedManifest.dependencies().semanticInputsDigest(),
                         emptyAdmissionManifest.dependencies().semanticInputsDigest());
                 assertEquals(1, initialAuthentications.get());
                 if (controlEndpoint != null && !controlEndpoint.isBlank()) {
                     final String manifestPrefix = "checkpoint-manifest-control/" + UUID.randomUUID();
-                    try (var client = OxiaSyncOwnerLeaseBackend.connect(controlEndpoint, "default", manifestPrefix,
-                            Duration.ofSeconds(15), manifestPrefix + "/owner")) {
+                    try (var client = OxiaSyncOwnerLeaseBackend.connect(
+                            controlEndpoint,
+                            "default",
+                            manifestPrefix,
+                            Duration.ofSeconds(15),
+                            manifestPrefix + "/owner")) {
                         final var registered =
                                 new com.nereusstream.delay.ownership.OxiaControlTargetRegistrationAuthority(
-                                new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
-                                        client, manifestPrefix + "/registry"));
+                                        new com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackend(
+                                                client, manifestPrefix + "/registry"));
                         registered.register(rootOperation.control());
                         registered.register(operation.control());
                         final var nativeAuthority = new TargetCheckpointControlAuthority(
-                                registered, (version, at) -> version == 1 ? keys.getPublic() : null,
+                                registered,
+                                (version, at) -> version == 1 ? keys.getPublic() : null,
                                 (input, first) -> {},
-                                (preparedControl, input) -> new TargetCheckpointControlAuthority.Authorization(
-                                        actor, ignored -> true), budget(),
+                                (preparedControl, input) ->
+                                        new TargetCheckpointControlAuthority.Authorization(actor, ignored -> true),
+                                budget(),
                                 client.backend()::assertConnectedSession);
                         final var nativeProof = TargetCheckpointRootVerifier.auditManifestControlAuthentication(
-                                semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
-                                semanticLimits, nativeAuthority, originalReader);
-                        assertEquals(authenticatedManifest.root().mutationSequence(),
+                                semanticCandidate,
+                                semanticManifest,
+                                imageLimits,
+                                quotaAuditLimits,
+                                ledgerAuditLimits,
+                                semanticLimits,
+                                nativeAuthority,
+                                originalReader);
+                        assertEquals(
+                                authenticatedManifest.root().mutationSequence(),
                                 nativeProof.root().mutationSequence());
                         System.out.println("Native Oxia immutable registrations authenticated Target Manifest Controls "
                                 + "and distinct initial reader issuer on the actual RocksDB image.");
                     }
                 }
-                assertTrue(assertThrows(IllegalArgumentException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
-                                originalControlAuthority, (input, registered, mutation, at) -> keys.getPublic()))
-                        .getMessage().contains("snapshot issuer signature invalid"));
+                assertTrue(assertThrows(
+                                IllegalArgumentException.class,
+                                () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                        semanticCandidate,
+                                        semanticManifest,
+                                        imageLimits,
+                                        quotaAuditLimits,
+                                        ledgerAuditLimits,
+                                        semanticLimits,
+                                        originalControlAuthority,
+                                        (input, registered, mutation, at) -> keys.getPublic()))
+                        .getMessage()
+                        .contains("snapshot issuer signature invalid"));
                 final var readerRefusal = new IllegalStateException("original reader/Profile permission unavailable");
-                assertSame(readerRefusal, assertThrows(IllegalStateException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
-                                originalControlAuthority, (input, registered, mutation, at) -> {
-                                    throw readerRefusal;
-                                })));
+                assertSame(
+                        readerRefusal,
+                        assertThrows(
+                                IllegalStateException.class,
+                                () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                        semanticCandidate,
+                                        semanticManifest,
+                                        imageLimits,
+                                        quotaAuditLimits,
+                                        ledgerAuditLimits,
+                                        semanticLimits,
+                                        originalControlAuthority,
+                                        (input, registered, mutation, at) -> {
+                                            throw readerRefusal;
+                                        })));
                 final var missingRegistry = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        new InMemoryControlTargetRegistrationAuthority(), (version, at) -> keys.getPublic(),
-                        (input, first) -> {}, (registered, input) -> {
+                        new InMemoryControlTargetRegistrationAuthority(),
+                        (version, at) -> keys.getPublic(),
+                        (input, first) -> {},
+                        (registered, input) -> {
                             throw new AssertionError("missing registration reached Source authorization");
-                        }, budget(), () -> {});
-                assertThrows(IllegalStateException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
-                                missingRegistry, originalReader));
+                        },
+                        budget(),
+                        () -> {});
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                semanticCandidate,
+                                semanticManifest,
+                                imageLimits,
+                                quotaAuditLimits,
+                                ledgerAuditLimits,
+                                semanticLimits,
+                                missingRegistry,
+                                originalReader));
                 final var smallAuthenticationBudget = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        registrations, (version, at) -> keys.getPublic(), (input, first) -> {},
-                        (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                                .Authorization(actor, ignored -> true),
-                        new BoundedReadBudget(1, 1 << 20, 1_000_000, () -> 0), () -> {});
-                assertThrows(com.nereusstream.delay.store.ReadIncompleteException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
-                                smallAuthenticationBudget, originalReader));
+                        registrations,
+                        (version, at) -> keys.getPublic(),
+                        (input, first) -> {},
+                        (registered, input) ->
+                                new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                        actor, ignored -> true),
+                        new BoundedReadBudget(1, 1 << 20, 1_000_000, () -> 0),
+                        () -> {});
+                assertThrows(
+                        com.nereusstream.delay.store.ReadIncompleteException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                semanticCandidate,
+                                semanticManifest,
+                                imageLimits,
+                                quotaAuditLimits,
+                                ledgerAuditLimits,
+                                semanticLimits,
+                                smallAuthenticationBudget,
+                                originalReader));
                 final var heldProtection = new java.util.concurrent.atomic.AtomicBoolean(true);
                 final var protectedAuthority = new com.nereusstream.delay.store.TargetCheckpointControlAuthority(
-                        registrations, (version, at) -> keys.getPublic(), (input, first) -> {},
-                        (registered, input) -> new com.nereusstream.delay.store.TargetCheckpointControlAuthority
-                                .Authorization(actor, ignored -> true), budget(), () -> {
+                        registrations,
+                        (version, at) -> keys.getPublic(),
+                        (input, first) -> {},
+                        (registered, input) ->
+                                new com.nereusstream.delay.store.TargetCheckpointControlAuthority.Authorization(
+                                        actor, ignored -> true),
+                        budget(),
+                        () -> {
                             assertFalse(Thread.holdsLock(live));
                             if (!heldProtection.get()) {
                                 throw new IllegalStateException("history/pin protection lost");
                             }
                         });
-                assertThrows(IllegalStateException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(semanticCandidate,
-                                semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits,
-                                protectedAuthority, (input, registered, mutation, at) -> {
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> TargetCheckpointRootVerifier.auditManifestControlAuthentication(
+                                semanticCandidate,
+                                semanticManifest,
+                                imageLimits,
+                                quotaAuditLimits,
+                                ledgerAuditLimits,
+                                semanticLimits,
+                                protectedAuthority,
+                                (input, registered, mutation, at) -> {
                                     heldProtection.set(false);
                                     return snapshotKeys.getPublic();
                                 }));
-                assertEquals(beforeAuthenticationWrites, live.operationStatistics().nativeWriteCalls());
+                assertEquals(
+                        beforeAuthenticationWrites, live.operationStatistics().nativeWriteCalls());
                 final var manifestProof = TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
-                        semanticCandidate, semanticManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
+                        semanticCandidate,
+                        semanticManifest,
+                        imageLimits,
+                        quotaAuditLimits,
+                        ledgerAuditLimits,
                         semanticLimits);
                 assertEquals(live.shardMutationSequence(), manifestProof.root().mutationSequence());
-                assertArrayEquals(semantics.semanticInputsDigest(),
+                assertArrayEquals(
+                        semantics.semanticInputsDigest(),
                         manifestProof.dependencies().semanticInputsDigest());
                 final long beforeManifestChecks = live.operationStatistics().nativeWriteCalls();
-                assertTrue(assertThrows(IllegalArgumentException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
-                                copyManifestDigests(semanticManifest, bytes(32, 0x71),
-                                        semanticManifest.referencedSemanticVersionsDigest()),
-                                imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
-                        .getMessage().contains("control-state digest"));
-                assertTrue(assertThrows(IllegalArgumentException.class,
-                        () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
-                                copyManifestDigests(semanticManifest, semanticManifest.controlStateDigest(),
-                                        bytes(32, 0x72)),
-                                imageLimits, quotaAuditLimits, ledgerAuditLimits, semanticLimits))
-                        .getMessage().contains("semantic-version digest"));
+                assertTrue(assertThrows(
+                                IllegalArgumentException.class,
+                                () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
+                                        semanticCandidate,
+                                        copyManifestDigests(
+                                                semanticManifest,
+                                                bytes(32, 0x71),
+                                                semanticManifest.referencedSemanticVersionsDigest()),
+                                        imageLimits,
+                                        quotaAuditLimits,
+                                        ledgerAuditLimits,
+                                        semanticLimits))
+                        .getMessage()
+                        .contains("control-state digest"));
+                assertTrue(assertThrows(
+                                IllegalArgumentException.class,
+                                () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
+                                        semanticCandidate,
+                                        copyManifestDigests(
+                                                semanticManifest,
+                                                semanticManifest.controlStateDigest(),
+                                                bytes(32, 0x72)),
+                                        imageLimits,
+                                        quotaAuditLimits,
+                                        ledgerAuditLimits,
+                                        semanticLimits))
+                        .getMessage()
+                        .contains("semantic-version digest"));
                 final Path companion = semanticCandidate.resolve(TargetCheckpointSemanticSnapshotFile.NAME);
                 final byte[] completeCompanion = Files.readAllBytes(companion);
                 try {
                     // A self-consistent schema-1 companion and matching file hashes still omit original Controls.
                     Files.write(companion, componentSemantics.canonicalBytes());
-                    final var componentInventory = CheckpointFileInventory.collect(semanticCandidate, imageLimits)
-                            .stream()
-                            .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
-                                    Bytes.utf8("target-draft/" + file.name()), Bytes.utf8("immutable-version-1"), null))
-                            .toList();
+                    final var componentInventory =
+                            CheckpointFileInventory.collect(semanticCandidate, imageLimits).stream()
+                                    .map(file -> new CheckpointManifest.FileEntry(
+                                            file.name(),
+                                            file.length(),
+                                            file.checksum(),
+                                            Bytes.utf8("target-draft/" + file.name()),
+                                            Bytes.utf8("immutable-version-1"),
+                                            null))
+                                    .toList();
                     final var componentManifest = copyManifestDigests(
-                            copyManifest(semanticManifest, semanticManifest.checkpointId(),
-                                    semanticManifest.dbIdentity(), semanticManifest.shardMutationSequence(),
-                                    semanticManifest.appliedShardLogPosition(), componentInventory),
-                            componentSemantics.snapshotDigest(), componentSemantics.semanticInputsDigest());
-                    assertTrue(assertThrows(IllegalArgumentException.class,
-                            () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(semanticCandidate,
-                                    componentManifest, imageLimits, quotaAuditLimits, ledgerAuditLimits,
-                                    semanticLimits))
-                            .getMessage().contains("complete original-Control schema 2"));
+                            copyManifest(
+                                    semanticManifest,
+                                    semanticManifest.checkpointId(),
+                                    semanticManifest.dbIdentity(),
+                                    semanticManifest.shardMutationSequence(),
+                                    semanticManifest.appliedShardLogPosition(),
+                                    componentInventory),
+                            componentSemantics.snapshotDigest(),
+                            componentSemantics.semanticInputsDigest());
+                    assertTrue(assertThrows(
+                                    IllegalArgumentException.class,
+                                    () -> TargetCheckpointRootVerifier.auditManifestSemanticSnapshot(
+                                            semanticCandidate,
+                                            componentManifest,
+                                            imageLimits,
+                                            quotaAuditLimits,
+                                            ledgerAuditLimits,
+                                            semanticLimits))
+                            .getMessage()
+                            .contains("complete original-Control schema 2"));
                 } finally {
                     Files.write(companion, completeCompanion);
                 }
@@ -1597,37 +2112,60 @@ class TargetQuotaGrantStoreTest {
             final long beforeSemanticReuse = live.operationStatistics().nativeWriteCalls();
             final var semanticReuse = candidateExecutor.submitSemantic(semanticRequest);
             candidateClasses.runTurn(new SchedulerBudget(1, semanticReuse.task().bytes(), 1_000));
-            assertEquals(semanticCandidate, semanticReuse.outcome().orElseThrow().checkpointPath());
+            assertEquals(
+                    semanticCandidate, semanticReuse.outcome().orElseThrow().checkpointPath());
             assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
-            final var plainReuse = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
-                    .SemanticRequest(candidateRequest, semantics, semanticLimits, () -> {}));
+            final var plainReuse =
+                    candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                            candidateRequest, semantics, semanticLimits, () -> {}));
             candidateClasses.runTurn(new SchedulerBudget(1, plainReuse.task().bytes(), 1_000));
             assertNotNull(plainReuse.outcome().orElseThrow().failure());
             assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
             final var protectedState = new java.util.concurrent.atomic.AtomicBoolean(true);
             final Path protectionLostPath = root.resolve("target-semantic-lost-protection");
-            final var protectionLost = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
-                    .SemanticRequest(new TargetCheckpointCandidateWorkClassExecutor.Request(protectionLostPath,
-                            pending, candidateOwner, imageLimits, quotaAuditLimits, ledgerAuditLimits),
-                            semantics, semanticLimits, () -> {
-                                if (!protectedState.get()) { throw new IllegalStateException("protection lost"); }
+            final var protectionLost =
+                    candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                            new TargetCheckpointCandidateWorkClassExecutor.Request(
+                                    protectionLostPath,
+                                    pending,
+                                    candidateOwner,
+                                    imageLimits,
+                                    quotaAuditLimits,
+                                    ledgerAuditLimits),
+                            semantics,
+                            semanticLimits,
+                            () -> {
+                                if (!protectedState.get()) {
+                                    throw new IllegalStateException("protection lost");
+                                }
                             }));
             protectedState.set(false);
-            candidateClasses.runTurn(new SchedulerBudget(1, protectionLost.task().bytes(), 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, protectionLost.task().bytes(), 1_000));
             assertNotNull(protectionLost.outcome().orElseThrow().failure());
             assertTrue(Files.notExists(protectionLostPath));
             assertEquals(beforeSemanticReuse, live.operationStatistics().nativeWriteCalls());
             final Path semanticOverBudget = root.resolve("target-semantic-over-budget");
-            final var failedSemantic = candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor
-                    .SemanticRequest(new TargetCheckpointCandidateWorkClassExecutor.Request(semanticOverBudget,
-                            pending, candidateOwner, imageLimits, quotaAuditLimits,
-                            new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)),
-                            semantics, semanticLimits, () -> {}));
-            candidateClasses.runTurn(new SchedulerBudget(1, failedSemantic.task().bytes(), 1_000));
+            final var failedSemantic =
+                    candidateExecutor.submitSemantic(new TargetCheckpointCandidateWorkClassExecutor.SemanticRequest(
+                            new TargetCheckpointCandidateWorkClassExecutor.Request(
+                                    semanticOverBudget,
+                                    pending,
+                                    candidateOwner,
+                                    imageLimits,
+                                    quotaAuditLimits,
+                                    new TargetCheckpointRootVerifier.LedgerAuditLimits(1, 128, 100_000, 64L << 20)),
+                            semantics,
+                            semanticLimits,
+                            () -> {}));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, failedSemantic.task().bytes(), 1_000));
             assertNotNull(failedSemantic.outcome().orElseThrow().failure());
             assertTrue(Files.notExists(semanticOverBudget));
             assertArrayEquals(checkpointId, live.runtimeMetadata().lastCheckpointId());
-            try (var staging = Files.list(root.resolve("checkpoint-tmp"))) { assertEquals(0, staging.count()); }
+            try (var staging = Files.list(root.resolve("checkpoint-tmp"))) {
+                assertEquals(0, staging.count());
+            }
             final Path semanticFile = semanticCandidate.resolve(TargetCheckpointSemanticSnapshotFile.NAME);
             final byte[] semanticBefore = Files.readAllBytes(semanticFile);
             final byte[] semanticCorrupt = semanticBefore.clone();
@@ -1635,20 +2173,23 @@ class TargetQuotaGrantStoreTest {
             Files.write(semanticFile, semanticCorrupt);
             final long beforeCorruptReuse = live.operationStatistics().nativeWriteCalls();
             final var corruptSemantic = candidateExecutor.submitSemantic(semanticRequest);
-            candidateClasses.runTurn(new SchedulerBudget(1, corruptSemantic.task().bytes(), 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, corruptSemantic.task().bytes(), 1_000));
             assertNotNull(corruptSemantic.outcome().orElseThrow().failure());
             assertEquals(beforeCorruptReuse, live.operationStatistics().nativeWriteCalls());
             Files.write(semanticFile, semanticBefore);
-            assertThrows(IllegalArgumentException.class, () -> TargetCheckpointSemanticSnapshotFile.read(
-                    semanticCandidate, new TargetCheckpointSemanticSnapshot.Limits(1, 1, 1)));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TargetCheckpointSemanticSnapshotFile.read(
+                            semanticCandidate, new TargetCheckpointSemanticSnapshot.Limits(1, 1, 1)));
             final long beforeStaleCandidate = live.operationStatistics().nativeWriteCalls();
             final var staleIntents = new CheckpointUploadIntentStore();
             staleIntents.create(pending);
             final var staleIntentExecutor = new TargetCheckpointCandidateWorkClassExecutor(
                     candidateClasses, live, candidateLeases, staleIntents, () -> 100);
             final Path lostIntentCandidate = root.resolve("target-candidate-lost-intent");
-            final var queuedAfterIntentLoss = staleIntentExecutor.submit(
-                    new TargetCheckpointCandidateWorkClassExecutor.Request(
+            final var queuedAfterIntentLoss =
+                    staleIntentExecutor.submit(new TargetCheckpointCandidateWorkClassExecutor.Request(
                             lostIntentCandidate,
                             pending,
                             candidateOwner,
@@ -1668,22 +2209,26 @@ class TargetQuotaGrantStoreTest {
                             bytes(32, 0x48),
                             0,
                             null));
-            candidateClasses.runTurn(new SchedulerBudget(1, queuedAfterIntentLoss.task().bytes(), 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, queuedAfterIntentLoss.task().bytes(), 1_000));
             assertTrue(queuedAfterIntentLoss.outcome().orElseThrow().failure() instanceof IllegalStateException);
             assertTrue(Files.notExists(lostIntentCandidate));
             assertEquals(beforeStaleCandidate, live.operationStatistics().nativeWriteCalls());
             final Path lostOwnerCandidate = root.resolve("target-candidate-lost-owner");
-            final var queuedAfterOwnerLoss = candidateExecutor.submit(
-                    new TargetCheckpointCandidateWorkClassExecutor.Request(
+            final var queuedAfterOwnerLoss =
+                    candidateExecutor.submit(new TargetCheckpointCandidateWorkClassExecutor.Request(
                             lostOwnerCandidate,
                             pending,
                             candidateOwner,
                             imageLimits,
                             quotaAuditLimits,
                             ledgerAuditLimits));
-            candidateLeases.transition(candidateOwner, ShardLifecycleState.DRAINING).orElseThrow();
+            candidateLeases
+                    .transition(candidateOwner, ShardLifecycleState.DRAINING)
+                    .orElseThrow();
             final long beforeOwnerLoss = live.operationStatistics().nativeWriteCalls();
-            candidateClasses.runTurn(new SchedulerBudget(1, queuedAfterOwnerLoss.task().bytes(), 1_000));
+            candidateClasses.runTurn(
+                    new SchedulerBudget(1, queuedAfterOwnerLoss.task().bytes(), 1_000));
             assertTrue(queuedAfterOwnerLoss.outcome().orElseThrow().failure() instanceof IllegalStateException);
             assertTrue(Files.notExists(lostOwnerCandidate));
             assertEquals(beforeOwnerLoss, live.operationStatistics().nativeWriteCalls());
@@ -1804,16 +2349,21 @@ class TargetQuotaGrantStoreTest {
             assertThrows(IllegalStateException.class, () -> corrupt.recordControlSnapshot(legacyControl));
             assertEquals(beforeRejectedControl, corrupt.latestSequenceNumber());
             final byte[] originalControl = corrupt.get(ColumnFamily.META, KeyCodec.metaFixed(10));
-            corrupt.write(batch -> batch.putValue(
-                    ColumnFamily.META, 1, KeyCodec.metaFixed(10), legacyControl.canonicalBytes()));
+            corrupt.write(batch ->
+                    batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(10), legacyControl.canonicalBytes()));
             corrupt.flushAndSync();
-            assertTrue(assertThrows(IllegalArgumentException.class,
-                    () -> TargetCheckpointRootVerifier.auditIndependentLedger(
-                            physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
-                    .getMessage().contains("Target initial control snapshot"));
+            assertTrue(assertThrows(
+                            IllegalArgumentException.class,
+                            () -> TargetCheckpointRootVerifier.auditIndependentLedger(
+                                    physicalDb, scope.shard(), imageLimits, quotaAuditLimits, ledgerAuditLimits))
+                    .getMessage()
+                    .contains("Target initial control snapshot"));
             corrupt.write(batch -> {
-                if (originalControl == null) { batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10)); }
-                else { batch.put(ColumnFamily.META, KeyCodec.metaFixed(10), originalControl); }
+                if (originalControl == null) {
+                    batch.delete(ColumnFamily.META, KeyCodec.metaFixed(10));
+                } else {
+                    batch.put(ColumnFamily.META, KeyCodec.metaFixed(10), originalControl);
+                }
             });
         }
         TargetCheckpointRootVerifier.auditIndependentLedger(
@@ -1835,7 +2385,8 @@ class TargetQuotaGrantStoreTest {
                     SystemMutation.computeSystemMutationId(
                             scope.shard(),
                             SystemMutationType.APPLY_SHARD_CONTROL,
-                            activation.controlRef()
+                            activation
+                                    .controlRef()
                                     .logicalOperationIdentity(TargetQuotaGrantControlRequest.CONTROL_KIND),
                             changedHash),
                     changedHash,
@@ -2376,7 +2927,8 @@ class TargetQuotaGrantStoreTest {
                 if (selected == null) {
                     throw new IllegalStateException("source-ordered Schedule membership grant is unavailable");
                 }
-                final var intent = ScheduleCommandBody.decode(incoming.canonicalBody()).intent();
+                final var intent =
+                        ScheduleCommandBody.decode(incoming.canonicalBody()).intent();
                 final byte[] nativeScopeRef = intent.nativeDeliveryPolicy().allowsManagedHandoff()
                         ? Objects.requireNonNull(nativePolicyScopeRef.get(), "nativePolicyScopeRef")
                         : null;
@@ -2553,7 +3105,9 @@ class TargetQuotaGrantStoreTest {
             final var sourceHost = TargetWorkerHostTestBridge.withoutMaintenanceTimer(
                     workerClasses, store.sharedResources(), List.of(sourceHostWorker));
             TargetWorkerHostTestBridge.drainChanges(sourceHost);
-            final var controlCollection = assertControlCollection(sourceHostWorker, store,
+            final var controlCollection = assertControlCollection(
+                    sourceHostWorker,
+                    store,
                     List.of(signedRoot.mutation(), signedTarget.mutation(), member.mutation()));
             final var nativeScope = new TargetNativePolicyScope(
                     bytes(32, 0x78),
@@ -2592,7 +3146,8 @@ class TargetQuotaGrantStoreTest {
                             .status());
             assertEquals(beforeNativeInstallRevision + 1, sourceHost.targetQueueChangeRevision());
             controlCollection.late().complete(controlCollection.selected());
-            assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+            assertEquals(
+                    com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
                     controlCollection.pending().runTurn().status());
             assertTrue(controlCollection.pending().result().isEmpty());
             assertTrue(controlCollection.complete().result().isEmpty());
@@ -3048,8 +3603,8 @@ class TargetQuotaGrantStoreTest {
                     source(secondSeedAt, secondSeedAt.offset() + 1, secondSeedAt.brokerLogAppendTimeEpochMs() + 1);
             final byte[] firstSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-one"));
             final byte[] secondSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-two"));
-            final var secondControlScope = new TargetControlScope(
-                    physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x81)));
+            final var secondControlScope =
+                    new TargetControlScope(physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x81)));
             final var secondPolicy = new TargetMembershipPolicy(
                     scope.tenantScope(),
                     destination.ref(),
@@ -3102,11 +3657,11 @@ class TargetQuotaGrantStoreTest {
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayMutation(firstScheduleNativeApproval.mutation(), firstNativeApprovalAt, null, null),
                     (entry, outcome) -> {
-                        assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                        assertEquals(
+                                StableCode.OK, outcome.systemMutationResult().stableCode());
                         return SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
-            final var firstScheduleApprovalTurn =
-                    loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+            final var firstScheduleApprovalTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
             assertEquals(
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     firstScheduleApprovalTurn.status(),
@@ -3132,8 +3687,8 @@ class TargetQuotaGrantStoreTest {
                     new UUID((firstScheduleTime << 16) | 0x7102L, 0x8300000000000002L),
                     firstScheduleIntent,
                     firstScheduleTime + 1000);
-            final var hostOwner = new OwnerIdentity(
-                    bytes(16, 0x84), bytes(16, 0x85), active.ownerEpoch(), active.leaseToken());
+            final var hostOwner =
+                    new OwnerIdentity(bytes(16, 0x84), bytes(16, 0x85), active.ownerEpoch(), active.leaseToken());
             final var hostClaims = new java.util.concurrent.LinkedBlockingQueue<TargetClaimRecord>();
             final var hostFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
             final var schedulerEpoch = new java.util.concurrent.atomic.AtomicLong(firstScheduleTime - 1);
@@ -3156,9 +3711,7 @@ class TargetQuotaGrantStoreTest {
 
                 @Override
                 public Publication compareAndSet(
-                        final byte[] scopeDigest,
-                        final long expectedRevision,
-                        final TargetNativePolicyHead next) {
+                        final byte[] scopeDigest, final long expectedRevision, final TargetNativePolicyHead next) {
                     throw new UnsupportedOperationException("test policy authority is read-only");
                 }
 
@@ -3171,9 +3724,8 @@ class TargetQuotaGrantStoreTest {
                     return () -> {};
                 }
             };
-            final var hostPolicyAuthority =
-                    new java.util.concurrent.atomic.AtomicReference<TargetNativePolicyAuthority>(
-                            inMemoryHostPolicyAuthority);
+            final var hostPolicyAuthority = new java.util.concurrent.atomic.AtomicReference<
+                    TargetNativePolicyAuthority>(inMemoryHostPolicyAuthority);
             final var hostRequests = new TargetWorkerOrdinaryDrr.Requests() {
                 @Override
                 public java.util.Optional<TargetWorkerOrdinaryDrr.Request> resolve(
@@ -3202,9 +3754,7 @@ class TargetQuotaGrantStoreTest {
                     }
                     nativeContextResolutions.incrementAndGet();
                     return java.util.Optional.of(new TargetWorkerOrdinaryDrr.NativePolicyContext(
-                            hostPolicyAuthority.get(),
-                            store::appliedShardLogPosition,
-                            () -> {
+                            hostPolicyAuthority.get(), store::appliedShardLogPosition, () -> {
                                 final long now = schedulerEpoch.get();
                                 final long sample = timeSampleSequence.incrementAndGet();
                                 return new TrustedUtcIntervalEvidence(
@@ -3251,8 +3801,9 @@ class TargetQuotaGrantStoreTest {
                     final var publisherPermission = policyTrust
                             .publisher(nativeScope.digest(), 9, nativeActivationAt)
                             .orElseThrow();
-                    final var initialPublication = oxiaSubscriber.authority().publish(
-                            publisherPermission, actor, nativeActivationAt, 0, snapshot);
+                    final var initialPublication = oxiaSubscriber
+                            .authority()
+                            .publish(publisherPermission, actor, nativeActivationAt, 0, snapshot);
                     assertEquals(1, initialPublication.revision());
                     final var oxiaReadAuthority = oxiaSubscriber.authority().readAuthority();
                     hostPolicyAuthority.set(new TargetNativePolicyAuthority() {
@@ -3287,18 +3838,18 @@ class TargetQuotaGrantStoreTest {
                     });
                 }
                 hostLoop = sourceHost.startOrdinaryScheduling(
-                    new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
-                    new TargetWorkerOrdinaryDrr.Limits(
-                            32L << 20, 32L << 20, 32L << 20, 16, 4096, 32L << 20, 60_000_000_000L),
-                    new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
-                    java.time.Duration.ofMillis(50),
-                    hostRequests,
-                    hostClaims::add,
-                    () -> 100,
-                    schedulerEpoch::get,
-                    System::nanoTime,
-                    hostMetrics,
-                    hostFailure::set);
+                        new TargetWorkerTargetInventory.Limits(2, 16, 4, 8, 4096, 32L << 20, 60_000_000_000L),
+                        new TargetWorkerOrdinaryDrr.Limits(
+                                32L << 20, 32L << 20, 32L << 20, 16, 4096, 32L << 20, 60_000_000_000L),
+                        new SchedulerBudget(16, 32L << 20, 60_000_000_000L),
+                        java.time.Duration.ofMillis(50),
+                        hostRequests,
+                        hostClaims::add,
+                        () -> 100,
+                        schedulerEpoch::get,
+                        System::nanoTime,
+                        hostMetrics,
+                        hostFailure::set);
                 final long idleDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                 while (!hostLoop.isWaitingForQueueChange() && System.nanoTime() < idleDeadline) {
                     Thread.sleep(1);
@@ -3308,7 +3859,9 @@ class TargetQuotaGrantStoreTest {
                 final long beforeFirstSchedule = sourceHost.targetQueueChangeRevision();
                 queue.add(new SourceRecordConsumer.PolledSourceRecord(
                         new SourceReplayRecord(firstSourceSchedule, firstScheduleAt, null, null), (entry, outcome) -> {
-                            assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
+                            assertEquals(
+                                    StableCode.SCHEDULED,
+                                    outcome.commandResult().stableCode());
                             return SourceAcknowledgement.AcknowledgementResult.acked();
                         }));
                 final var firstScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
@@ -3321,8 +3874,7 @@ class TargetQuotaGrantStoreTest {
                         hostClaims.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS),
                         "Native Claim must wait for its action boundary without a queue-change notification");
 
-                final long firstPolicyDeadline =
-                        System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                final long firstPolicyDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
                 while ((nativeContextResolutions.get() == 0 || !hostLoop.isWaitingForQueueChange())
                         && System.nanoTime() < firstPolicyDeadline) {
                     Thread.sleep(1);
@@ -3359,19 +3911,21 @@ class TargetQuotaGrantStoreTest {
                         new SourceReplayMutation(
                                 earlierPolicyActivation.mutation(), secondNativeActivationAt, null, null),
                         (entry, outcome) -> {
-                            assertEquals(StableCode.OK, outcome.systemMutationResult().stableCode());
+                            assertEquals(
+                                    StableCode.OK,
+                                    outcome.systemMutationResult().stableCode());
                             return SourceAcknowledgement.AcknowledgementResult.acked();
                         }));
                 final long beforeEarlierPolicyActivation = sourceHost.targetQueueChangeRevision();
-                final var policyActivationTurn =
-                        loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
+                final var policyActivationTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
                 assertEquals(
                         SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                         policyActivationTurn.status(),
                         () -> String.valueOf(policyActivationTurn.failure()));
                 assertEquals(
                         earlierPolicy,
-                        sourceHostWorker.nativePolicyTrustStore(() -> 100)
+                        sourceHostWorker
+                                .nativePolicyTrustStore(() -> 100)
                                 .activation(nativeScope.digest(), earlierPolicy.generation())
                                 .orElseThrow()
                                 .snapshot());
@@ -3400,12 +3954,9 @@ class TargetQuotaGrantStoreTest {
                             oxiaPrefix,
                             policyTrust,
                             (publisher, controlActor, at) -> true)) {
-                        final var updated = replacementPublisher.authority().publish(
-                                publisherPermission,
-                                actor,
-                                secondNativeActivationAt,
-                                1,
-                                earlierPolicy);
+                        final var updated = replacementPublisher
+                                .authority()
+                                .publish(publisherPermission, actor, secondNativeActivationAt, 1, earlierPolicy);
                         assertEquals(2, updated.revision());
                     }
                     schedulerEpoch.set(firstScheduleTime);
@@ -3417,12 +3968,10 @@ class TargetQuotaGrantStoreTest {
                             TargetNativePolicyHead.next(previousPublication.head(), earlierPolicy)));
                 }
                 final var sourceCreatedClaim = hostClaims.poll(5, java.util.concurrent.TimeUnit.SECONDS);
-                assertNotNull(
-                        sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
+                assertNotNull(sourceCreatedClaim, () -> "Host missed the source-created Target: " + hostFailure.get());
                 if (realOxiaHostTimerRestart) {
                     assertTrue(
-                            generationTwoPolicyReads.get() > 0,
-                            "Host safety recheck did not reread Oxia revision 2");
+                            generationTwoPolicyReads.get() > 0, "Host safety recheck did not reread Oxia revision 2");
                     assertEquals(0, policyWakeupCalls.get(), "the post-restart Oxia policy notification is lost");
                 } else {
                     assertEquals(0, policyWakeupCalls.get(), "the current-policy notification is intentionally lost");
@@ -3432,31 +3981,41 @@ class TargetQuotaGrantStoreTest {
                 assertEquals(hostOwner, sourceCreatedClaim.owner());
                 assertNotNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
                 final var firstCacheRead = budget();
-                assertTrue(sourceHostWorker.readTargetQueue(firstCacheRead, physical.id(), () -> 100).isPresent());
+                assertTrue(sourceHostWorker
+                        .readTargetQueue(firstCacheRead, physical.id(), () -> 100)
+                        .isPresent());
                 final var cacheHitRead = budget();
-                assertTrue(sourceHostWorker.readTargetQueue(cacheHitRead, physical.id(), () -> 100).isPresent());
+                assertTrue(sourceHostWorker
+                        .readTargetQueue(cacheHitRead, physical.id(), () -> 100)
+                        .isPresent());
                 assertEquals(0, cacheHitRead.actualRecords());
                 hostLoop.close();
                 hostLoopClosed = true;
                 hostMetrics.stopAccepting();
                 assertTrue(hostMetrics.awaitTermination(Duration.ofSeconds(5)));
-                assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
-                        == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS));
-                assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
-                        == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES && event.value() > 0));
-                assertTrue(hostMetricEvents.stream().anyMatch(event -> event.metric()
-                                == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH
-                        && event.value() > 0));
+                assertTrue(hostMetricEvents.stream()
+                        .anyMatch(event -> event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_DRR_TURN_VISITS));
+                assertTrue(hostMetricEvents.stream()
+                        .anyMatch(
+                                event -> event.metric() == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_SCAN_PAGES
+                                        && event.value() > 0));
+                assertTrue(hostMetricEvents.stream()
+                        .anyMatch(event -> event.metric()
+                                        == BoundedAsyncMetricExporter.Metric.TARGET_INVENTORY_ACTIVE_MESSAGE_DEPTH
+                                && event.value() > 0));
                 final var localPendingHistory = new java.util.concurrent.CompletableFuture<SystemMutation>();
                 final var localCut = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
-                        sourceHostWorker, TargetQuotaGrantStoreTest::budget,
+                        sourceHostWorker,
+                        TargetQuotaGrantStoreTest::budget,
                         new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20),
                         ref -> localPendingHistory,
                         new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(64, 1 << 20),
                         () -> 100);
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
                         localCut.runTurn().status());
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
                         localCut.runTurn().status());
                 final var sourceBeforeRevoke = store.appliedShardLogPosition();
                 sourceHostWorker.revokeClaim(
@@ -3468,7 +4027,8 @@ class TargetQuotaGrantStoreTest {
                         () -> 100);
                 assertNull(store.get(ColumnFamily.INFLIGHT, sourceCreatedClaim.key()));
                 assertEquals(sourceBeforeRevoke, store.appliedShardLogPosition());
-                assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+                assertEquals(
+                        com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
                         localCut.runTurn().status());
                 localPendingHistory.completeExceptionally(new IllegalStateException("history completed after revoke"));
                 assertTrue(localCut.result().isEmpty());
@@ -3492,8 +4052,11 @@ class TargetQuotaGrantStoreTest {
                             TargetQueueState.VALUE_TYPE)
                     .payload());
             assertEquals(1, firstQueue.domains().size());
-            assertEquals(new TargetKeyCodec.Domain(0, 1), firstQueue.domains().getFirst().domain());
-            assertArrayEquals(controlScope.digest(), firstQueue.domains().getFirst().controlScopeRef());
+            assertEquals(
+                    new TargetKeyCodec.Domain(0, 1),
+                    firstQueue.domains().getFirst().domain());
+            assertArrayEquals(
+                    controlScope.digest(), firstQueue.domains().getFirst().controlScopeRef());
 
             membershipSeedStore.applyAccounted(
                     budget(),
@@ -3538,7 +4101,8 @@ class TargetQuotaGrantStoreTest {
                     secondCommandTime + 1000);
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayRecord(secondSourceSchedule, secondScheduleAt, null, null), (entry, outcome) -> {
-                        assertEquals(StableCode.SCHEDULED, outcome.commandResult().stableCode());
+                        assertEquals(
+                                StableCode.SCHEDULED, outcome.commandResult().stableCode());
                         return SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
             final var secondScheduleTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
@@ -3552,10 +4116,16 @@ class TargetQuotaGrantStoreTest {
                             TargetQueueState.VALUE_TYPE)
                     .payload());
             assertEquals(2, secondQueue.domains().size());
-            assertEquals(new TargetKeyCodec.Domain(0, 1), secondQueue.domains().get(0).domain());
-            assertEquals(new TargetKeyCodec.Domain(1, 1), secondQueue.domains().get(1).domain());
-            assertArrayEquals(controlScope.digest(), secondQueue.domains().get(0).controlScopeRef());
-            assertArrayEquals(secondControlScope.digest(), secondQueue.domains().get(1).controlScopeRef());
+            assertEquals(
+                    new TargetKeyCodec.Domain(0, 1),
+                    secondQueue.domains().get(0).domain());
+            assertEquals(
+                    new TargetKeyCodec.Domain(1, 1),
+                    secondQueue.domains().get(1).domain());
+            assertArrayEquals(
+                    controlScope.digest(), secondQueue.domains().get(0).controlScopeRef());
+            assertArrayEquals(
+                    secondControlScope.digest(), secondQueue.domains().get(1).controlScopeRef());
             final var firstScheduledMessage = TargetMessageRecord.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(firstSourceSchedule.delayMessageId())),
                             TargetMessageRecord.VALUE_TYPE)
@@ -3564,20 +4134,23 @@ class TargetQuotaGrantStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(secondSourceSchedule.delayMessageId())),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            assertEquals(new TargetKeyCodec.Domain(0, 1), firstScheduledMessage.locator().domain());
-            assertEquals(new TargetKeyCodec.Domain(1, 1), secondScheduledMessage.locator().domain());
+            assertEquals(
+                    new TargetKeyCodec.Domain(0, 1),
+                    firstScheduledMessage.locator().domain());
+            assertEquals(
+                    new TargetKeyCodec.Domain(1, 1),
+                    secondScheduledMessage.locator().domain());
             assertArrayEquals(
-                    secondScheduleAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+                    secondScheduleAt.canonicalBytes(),
+                    store.appliedShardLogPosition().canonicalBytes());
 
             final var thirdSeedAt = source(
-                    secondScheduleAt,
-                    secondScheduleAt.offset() + 1,
-                    secondScheduleAt.brokerLogAppendTimeEpochMs() + 1);
-            final var thirdScheduleAt = source(
-                    thirdSeedAt, thirdSeedAt.offset() + 1, thirdSeedAt.brokerLogAppendTimeEpochMs() + 1);
+                    secondScheduleAt, secondScheduleAt.offset() + 1, secondScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+            final var thirdScheduleAt =
+                    source(thirdSeedAt, thirdSeedAt.offset() + 1, thirdSeedAt.brokerLogAppendTimeEpochMs() + 1);
             final byte[] thirdSeedDigest = Bytes.sha256(Bytes.utf8("compatibility-domain-membership-three"));
-            final var thirdControlScope = new TargetControlScope(
-                    physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x85)));
+            final var thirdControlScope =
+                    new TargetControlScope(physical.id(), scope.shard(), List.of(), List.of(bytes(32, 0x85)));
             final var thirdPolicy = new TargetMembershipPolicy(
                     scope.tenantScope(),
                     destination.ref(),
@@ -3644,7 +4217,8 @@ class TargetQuotaGrantStoreTest {
             TargetWorkerHostTestBridge.drainChanges(sourceHost);
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayRecord(thirdSourceSchedule, thirdScheduleAt, null, null), (entry, outcome) -> {
-                        assertEquals(ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
+                        assertEquals(
+                                ApplyStatus.REJECTED, outcome.commandResult().applyStatus());
                         assertEquals(
                                 StableCode.TARGET_EXECUTION_DOMAIN_LIMIT_EXCEEDED,
                                 outcome.commandResult().stableCode());
@@ -3658,15 +4232,16 @@ class TargetQuotaGrantStoreTest {
             assertEquals(3, scheduleResolutions.get());
             assertTrue(store.latestSequenceNumber() > sequenceBeforeLimitRejection);
             assertArrayEquals(
-                    thirdScheduleAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+                    thirdScheduleAt.canonicalBytes(),
+                    store.appliedShardLogPosition().canonicalBytes());
             final byte[] rejectedResultKey = Bytes.concat(
                     new byte[] {TargetKeyCodec.RESULT_QUERY_TAG, TargetKeyCodec.KEY_FORMAT},
                     thirdSourceSchedule.commandId().bytes());
             final byte[] encodedRejectedResult = store.get(ColumnFamily.DEDUPE, rejectedResultKey);
             assertNotNull(encodedRejectedResult);
-            final var persistedRejection = TargetResultRecord.decode(TargetValueEnvelope.decode(
-                            encodedRejectedResult, TargetResultRecord.VALUE_TYPE)
-                    .payload());
+            final var persistedRejection = TargetResultRecord.decode(
+                    TargetValueEnvelope.decode(encodedRejectedResult, TargetResultRecord.VALUE_TYPE)
+                            .payload());
             assertEquals(TargetResultRecord.Kind.RESULT, persistedRejection.kind());
             final var persistedCommandResult = CommandResult.decode(persistedRejection.typedPayload());
             assertEquals(ApplyStatus.REJECTED, persistedCommandResult.applyStatus());
@@ -3679,44 +4254,43 @@ class TargetQuotaGrantStoreTest {
                                     TargetQueueState.VALUE_TYPE)
                             .payload());
             assertNull(store.get(ColumnFamily.ID, TargetKeyCodec.message(thirdSourceSchedule.delayMessageId())));
-            assertNull(store.get(ColumnFamily.ID, new TargetScheduleBinding(
-                            thirdSourceSchedule.delayMessageId(),
-                            CommandType.SCHEDULE,
-                            thirdSourceSchedule.canonicalBody(),
-                            thirdScheduleAt,
-                            physical.id(),
-                            new TargetKeyCodec.Domain(2, 1),
-                            targetActivation.allocation().identity().accountingIncarnation(),
-                            dispatch.digest(),
-                            dispatch.digest(),
-                            thirdControlScope.digest(),
-                            thirdScheduleGrant.digest(),
-                            null,
-                            null)
-                    .encodedKey()));
+            assertNull(store.get(
+                    ColumnFamily.ID,
+                    new TargetScheduleBinding(
+                                    thirdSourceSchedule.delayMessageId(),
+                                    CommandType.SCHEDULE,
+                                    thirdSourceSchedule.canonicalBody(),
+                                    thirdScheduleAt,
+                                    physical.id(),
+                                    new TargetKeyCodec.Domain(2, 1),
+                                    targetActivation.allocation().identity().accountingIncarnation(),
+                                    dispatch.digest(),
+                                    dispatch.digest(),
+                                    thirdControlScope.digest(),
+                                    thirdScheduleGrant.digest(),
+                                    null,
+                                    null)
+                            .encodedKey()));
             final var rejectedQueueChanges = TargetWorkerHostTestBridge.drainChanges(sourceHost);
             assertTrue(rejectedQueueChanges.dirtyTargets().isEmpty());
 
             final var cancelAt = source(
-                    thirdScheduleAt,
-                    thirdScheduleAt.offset() + 1,
-                    thirdScheduleAt.brokerLogAppendTimeEpochMs() + 1);
+                    thirdScheduleAt, thirdScheduleAt.offset() + 1, thirdScheduleAt.brokerLogAppendTimeEpochMs() + 1);
             final long cancelCommandTime = cancelAt.brokerLogAppendTimeEpochMs();
             final var cancel = PreparedCommand.cancel(
                     scope.shard(),
                     new CommandId(SelfRoutingId.fromLogicalUuid(
-                                    scope.shard(),
-                                    new UUID(
-                                            (cancelCommandTime << 16) | 0x7401L,
-                                            0x8600000000000001L))
+                                    scope.shard(), new UUID((cancelCommandTime << 16) | 0x7401L, 0x8600000000000001L))
                             .bytes()),
                     firstSourceSchedule.delayMessageId(),
                     new MessagePrecondition(0L, firstScheduledMessage.stateVersion()),
                     cancelCommandTime + 1000);
             queue.add(new SourceRecordConsumer.PolledSourceRecord(
                     new SourceReplayRecord(cancel, cancelAt, null, null), (entry, outcome) -> {
-                        assertEquals(ApplyStatus.APPLIED, outcome.commandResult().applyStatus());
-                        assertEquals(StableCode.CANCELED, outcome.commandResult().stableCode());
+                        assertEquals(
+                                ApplyStatus.APPLIED, outcome.commandResult().applyStatus());
+                        assertEquals(
+                                StableCode.CANCELED, outcome.commandResult().stableCode());
                         return SourceAcknowledgement.AcknowledgementResult.acked();
                     }));
             final var cancelTurn = loop.runTurn(new SchedulerBudget(1, 1_000_000, 1_000), () -> 100);
@@ -3724,7 +4298,8 @@ class TargetQuotaGrantStoreTest {
                     SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED,
                     cancelTurn.status(),
                     () -> String.valueOf(cancelTurn.failure()));
-            assertArrayEquals(cancelAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(
+                    cancelAt.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
             final var queueAfterCancel = TargetQueueState.decode(TargetValueEnvelope.decode(
                             store.get(ColumnFamily.META, TargetKeyCodec.state(physical.id())),
                             TargetQueueState.VALUE_TYPE)
@@ -3734,7 +4309,8 @@ class TargetQuotaGrantStoreTest {
                             store.get(ColumnFamily.ID, TargetKeyCodec.message(firstSourceSchedule.delayMessageId())),
                             TargetMessageRecord.VALUE_TYPE)
                     .payload());
-            assertEquals(GenerationAggregateState.CANCELED, canceledMessage.runtime().aggregateState());
+            assertEquals(
+                    GenerationAggregateState.CANCELED, canceledMessage.runtime().aggregateState());
         }
         try (var resources = new SharedRocksDbResources(config);
                 var reopened = ShardStore.openTarget(config, scope.shard(), resources)) {
@@ -3765,58 +4341,97 @@ class TargetQuotaGrantStoreTest {
             final byte[] closureBefore = reopened.get(ColumnFamily.META, closureKey);
             final var closure = TargetMembershipClosureRecord.decode(closureBytes);
             final var closeBody = closure.body();
-            final var changedClosure = new TargetMembershipClosureRecord(new TargetMembershipControlBody(
-                    closeBody.shard(), closeBody.retryUntil() + 1, closeBody.controlRef(), closeBody.request()),
-                    closure.mutation(), lineage);
+            final var changedClosure = new TargetMembershipClosureRecord(
+                    new TargetMembershipControlBody(
+                            closeBody.shard(), closeBody.retryUntil() + 1, closeBody.controlRef(), closeBody.request()),
+                    closure.mutation(),
+                    lineage);
             final byte[] closureAfter = TargetValueEnvelope.encode(
                     TargetMembershipClosureRecord.VALUE_TYPE, changedClosure.canonicalBytes());
             assertEquals(closureBefore.length, closureAfter.length);
             reopened.write(batch -> batch.put(ColumnFamily.META, closureKey, closureAfter));
-            assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
-                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
-                    .getMessage().contains("retained control lacks its exact first System result"));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetStoreBootstrap.reopen(
+                                    reopened,
+                                    scope,
+                                    new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                    budget(),
+                                    (a, b) -> guard()))
+                    .getMessage()
+                    .contains("retained control lacks its exact first System result"));
             reopened.write(batch -> batch.put(ColumnFamily.META, closureKey, closureBefore));
-            final var nativeRow = recovered.backend().guardedRead(budget(), reader -> reader.first(
-                    ColumnFamily.META, new byte[] {31, 1}, new byte[] {36, 1}, List.of()), (a, b) -> guard());
+            final var nativeRow = recovered
+                    .backend()
+                    .guardedRead(
+                            budget(),
+                            reader ->
+                                    reader.first(ColumnFamily.META, new byte[] {31, 1}, new byte[] {36, 1}, List.of()),
+                            (a, b) -> guard());
             final var nativeRecord = TargetNativePolicyControlRecord.decode(
                     TargetValueEnvelope.decode(nativeRow.value(), TargetNativePolicyControlRecord.VALUE_TYPE)
                             .payload());
             final var nativeBody = nativeRecord.body();
-            final var changedNative = new TargetNativePolicyControlRecord(new TargetNativePolicyControlBody(
-                    nativeBody.shard(), nativeBody.retryUntil() + 1, nativeBody.controlRef(), nativeBody.request(),
-                    nativeBody.expectedRecordState()), nativeRecord.mutation(), nativeRecord.author(),
-                    nativeRecord.grant(), lineage);
+            final var changedNative = new TargetNativePolicyControlRecord(
+                    new TargetNativePolicyControlBody(
+                            nativeBody.shard(),
+                            nativeBody.retryUntil() + 1,
+                            nativeBody.controlRef(),
+                            nativeBody.request(),
+                            nativeBody.expectedRecordState()),
+                    nativeRecord.mutation(),
+                    nativeRecord.author(),
+                    nativeRecord.grant(),
+                    lineage);
             final byte[] nativeAfter = TargetValueEnvelope.encode(
                     TargetNativePolicyControlRecord.VALUE_TYPE, changedNative.canonicalBytes());
             assertEquals(nativeRow.value().length, nativeAfter.length);
             reopened.write(batch -> batch.put(ColumnFamily.META, nativeRow.key(), nativeAfter));
-            assertTrue(assertThrows(IllegalStateException.class, () -> TargetStoreBootstrap.reopen(
-                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard()))
-                    .getMessage().contains("retained control lacks its exact first System result"));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetStoreBootstrap.reopen(
+                                    reopened,
+                                    scope,
+                                    new TargetStoreBackend.WriteLimits(64, 2 << 20),
+                                    budget(),
+                                    (a, b) -> guard()))
+                    .getMessage()
+                    .contains("retained control lacks its exact first System result"));
             reopened.write(batch -> batch.put(ColumnFamily.META, nativeRow.key(), nativeRow.value()));
-            TargetStoreBootstrap.reopen(reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(),
-                    (a, b) -> guard());
+            TargetStoreBootstrap.reopen(
+                    reopened, scope, new TargetStoreBackend.WriteLimits(64, 2 << 20), budget(), (a, b) -> guard());
         }
         final var imageLimits = new CheckpointManifestLimits(100, 64L << 20, 64L << 20, 1024, 1 << 20, 100, 1024);
         final var quotaLimits = new TargetCheckpointRootVerifier.QuotaAuditLimits(1_000, 8L << 20);
         final var ledgerLimits =
                 new TargetCheckpointRootVerifier.LedgerAuditLimits(10_000, 64L << 20, 100_000, 64L << 20);
         final var controlDependencies = TargetCheckpointRootVerifier.auditImageDependencies(
-                physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits).dependencies();
+                        physicalDb, scope.shard(), imageLimits, quotaLimits, ledgerLimits)
+                .dependencies();
         assertTrue(controlDependencies.admissionImagesComplete());
-        assertTrue(controlDependencies.controls().stream().anyMatch(control ->
-                control.valueType() == TargetMembershipClosureRecord.VALUE_TYPE));
-        final var nativeInputs = controlDependencies.controls().stream().filter(control ->
-                control.valueType() == TargetNativePolicyControlRecord.VALUE_TYPE)
-                .map(control -> TargetNativePolicyControlRecord.decode(control.payload())).toList();
+        assertTrue(controlDependencies.controls().stream()
+                .anyMatch(control -> control.valueType() == TargetMembershipClosureRecord.VALUE_TYPE));
+        final var nativeInputs = controlDependencies.controls().stream()
+                .filter(control -> control.valueType() == TargetNativePolicyControlRecord.VALUE_TYPE)
+                .map(control -> TargetNativePolicyControlRecord.decode(control.payload()))
+                .toList();
         // Two policy generations and two approved members remain, plus installation and member closure.
         assertEquals(6, nativeInputs.size());
-        assertEquals(List.of(1L, 2L), nativeInputs.stream().map(control -> control.body().request())
-                .filter(nativeRequest -> nativeRequest.operationKind()
-                        == ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY)
-                .map(nativeRequest -> nativeRequest.snapshot().generation()).sorted().toList());
-        assertEquals(2, nativeInputs.stream().filter(control -> control.body().request().operationKind()
-                == ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER).count());
+        assertEquals(
+                List.of(1L, 2L),
+                nativeInputs.stream()
+                        .map(control -> control.body().request())
+                        .filter(nativeRequest ->
+                                nativeRequest.operationKind() == ControlOperationKind.ACTIVATE_TARGET_NATIVE_POLICY)
+                        .map(nativeRequest -> nativeRequest.snapshot().generation())
+                        .sorted()
+                        .toList());
+        assertEquals(
+                2,
+                nativeInputs.stream()
+                        .filter(control -> control.body().request().operationKind()
+                                == ControlOperationKind.APPROVE_TARGET_NATIVE_MEMBER)
+                        .count());
         assertFalse(controlDependencies.profiles().isEmpty());
         assertFalse(controlDependencies.artifactDigests().isEmpty());
         try (var resources = new SharedRocksDbResources(config);
@@ -3845,7 +4460,8 @@ class TargetQuotaGrantStoreTest {
             final byte[] originalTotal = missingPolicy.get(ColumnFamily.META, totalKey);
             final var total = TargetQuotaTotal.decodeForStore(
                     totalKey,
-                    TargetValueEnvelope.decode(originalTotal, TargetQuotaTotal.VALUE_TYPE).payload(),
+                    TargetValueEnvelope.decode(originalTotal, TargetQuotaTotal.VALUE_TYPE)
+                            .payload(),
                     scope.shard(),
                     scope.tenantScope());
             final var inflatedTotal = new TargetQuotaTotal(
@@ -3939,13 +4555,25 @@ class TargetQuotaGrantStoreTest {
                 null);
     }
 
-    private static CheckpointManifest copyManifestDigests(CheckpointManifest manifest,
-            byte[] controlDigest, byte[] semanticDigest) {
-        return new CheckpointManifest(manifest.checkpointId(), manifest.recoveryLineageId(),
-                manifest.lineageGeneration(), manifest.parentCheckpoint(), manifest.restoredFromCheckpointId(),
-                manifest.createdBy(), manifest.createdAt(), manifest.shardId(), manifest.dbIdentity(),
-                manifest.sourceStoreIncarnation(), manifest.storeFormatVersion(), manifest.shardMutationSequence(),
-                manifest.appliedShardLogPosition(), controlDigest, semanticDigest, manifest.evidenceCursors(),
+    private static CheckpointManifest copyManifestDigests(
+            CheckpointManifest manifest, byte[] controlDigest, byte[] semanticDigest) {
+        return new CheckpointManifest(
+                manifest.checkpointId(),
+                manifest.recoveryLineageId(),
+                manifest.lineageGeneration(),
+                manifest.parentCheckpoint(),
+                manifest.restoredFromCheckpointId(),
+                manifest.createdBy(),
+                manifest.createdAt(),
+                manifest.shardId(),
+                manifest.dbIdentity(),
+                manifest.sourceStoreIncarnation(),
+                manifest.storeFormatVersion(),
+                manifest.shardMutationSequence(),
+                manifest.appliedShardLogPosition(),
+                controlDigest,
+                semanticDigest,
+                manifest.evidenceCursors(),
                 manifest.files());
     }
 
@@ -4004,75 +4632,119 @@ class TargetQuotaGrantStoreTest {
 
     private record ControlCollectionFixture(
             com.nereusstream.delay.ownership.TargetCheckpointControlInputs pending,
-            java.util.concurrent.CompletableFuture<SystemMutation> late, SystemMutation selected,
+            java.util.concurrent.CompletableFuture<SystemMutation> late,
+            SystemMutation selected,
             com.nereusstream.delay.ownership.TargetCheckpointControlInputs complete) {}
 
-    private static ControlCollectionFixture assertControlCollection(TargetWorkerShardRuntime worker, ShardStore store,
-            List<SystemMutation> originals) {
+    private static ControlCollectionFixture assertControlCollection(
+            TargetWorkerShardRuntime worker, ShardStore store, List<SystemMutation> originals) {
         final long before = store.latestSequenceNumber();
         final var audit = new TargetCheckpointRootVerifier.LedgerAuditLimits(4096, 32L << 20, 16_384, 32L << 20);
         final var bounds = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(8, 1 << 20);
-        final var limited = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                () -> new BoundedReadBudget(1, 1 << 20, 10_000_000_000L, System::nanoTime), audit,
-                ref -> { throw new AssertionError("incomplete cut read history"); }, bounds, () -> 100);
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.READ_YIELD,
+        final var limited = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker,
+                () -> new BoundedReadBudget(1, 1 << 20, 10_000_000_000L, System::nanoTime),
+                audit,
+                ref -> {
+                    throw new AssertionError("incomplete cut read history");
+                },
+                bounds,
+                () -> 100);
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.READ_YIELD,
                 limited.runTurn().status());
-        final var overCount = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                TargetQuotaGrantStoreTest::budget, audit,
-                ref -> { throw new AssertionError("over-count cut read history"); },
-                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(1, 1 << 20), () -> 100);
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+        final var overCount = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker,
+                TargetQuotaGrantStoreTest::budget,
+                audit,
+                ref -> {
+                    throw new AssertionError("over-count cut read history");
+                },
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(1, 1 << 20),
+                () -> 100);
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
                 overCount.runTurn().status());
         final var loading = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var calls = new java.util.concurrent.atomic.AtomicInteger();
         final var firstImage = new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
         final com.nereusstream.delay.ownership.TargetCheckpointControlInputs.History history = ref -> {
             assertFalse(Thread.holdsLock(store));
-            final var expected = originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
-                    SystemMutationResult.decode(ref.first().typedPayload()).mutationId())).findFirst().orElseThrow();
+            final var expected = originals.stream()
+                    .filter(image -> Arrays.equals(
+                            image.systemMutationId(),
+                            SystemMutationResult.decode(ref.first().typedPayload())
+                                    .mutationId()))
+                    .findFirst()
+                    .orElseThrow();
             calls.incrementAndGet();
-            if (firstImage.compareAndSet(null, expected)) { return loading; }
+            if (firstImage.compareAndSet(null, expected)) {
+                return loading;
+            }
             return java.util.concurrent.CompletableFuture.completedFuture(expected);
         };
-        final var collecting = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                TargetQuotaGrantStoreTest::budget, audit, history, bounds, () -> 100);
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
+        final var collecting = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker, TargetQuotaGrantStoreTest::budget, audit, history, bounds, () -> 100);
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.CAPTURED,
                 collecting.runTurn().status());
         final var opening = collecting.runTurn();
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
-                opening.status(), () -> String.valueOf(opening.failure()));
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
+                opening.status(),
+                () -> String.valueOf(opening.failure()));
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.LOADING,
                 collecting.runTurn().status());
         assertEquals(1, calls.get());
         assertTrue(collecting.result().isEmpty());
         loading.complete(firstImage.get());
         for (int turn = 0; turn < 16; turn++) {
             if (collecting.runTurn().status()
-                    == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.COMPLETE) { break; }
+                    == com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.COMPLETE) {
+                break;
+            }
         }
         final var result = collecting.result().orElseThrow();
         assertEquals(3, result.inputs().size());
         assertEquals(3, result.cut().dependencies().controlResults().size());
         assertEquals(3, calls.get());
-        final var tooBig = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                TargetQuotaGrantStoreTest::budget, audit, ref -> java.util.concurrent.CompletableFuture.completedFuture(
-                        originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
-                                SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
-                                .findFirst().orElseThrow()),
-                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(8, 1), () -> 100);
+        final var tooBig = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker,
+                TargetQuotaGrantStoreTest::budget,
+                audit,
+                ref -> java.util.concurrent.CompletableFuture.completedFuture(originals.stream()
+                        .filter(image -> Arrays.equals(
+                                image.systemMutationId(),
+                                SystemMutationResult.decode(ref.first().typedPayload())
+                                        .mutationId()))
+                        .findFirst()
+                        .orElseThrow()),
+                new com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Limits(8, 1),
+                () -> 100);
         tooBig.runTurn();
         tooBig.runTurn();
-        assertEquals(com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
+        assertEquals(
+                com.nereusstream.delay.ownership.TargetCheckpointControlInputs.Status.FAILED,
                 tooBig.runTurn().status());
         final var late = new java.util.concurrent.CompletableFuture<SystemMutation>();
         final var selected = new java.util.concurrent.atomic.AtomicReference<SystemMutation>();
-        final var pending = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(worker,
-                TargetQuotaGrantStoreTest::budget, audit, ref -> {
-                    selected.set(originals.stream().filter(image -> Arrays.equals(image.systemMutationId(),
-                            SystemMutationResult.decode(ref.first().typedPayload()).mutationId()))
-                            .findFirst().orElseThrow());
+        final var pending = new com.nereusstream.delay.ownership.TargetCheckpointControlInputs(
+                worker,
+                TargetQuotaGrantStoreTest::budget,
+                audit,
+                ref -> {
+                    selected.set(originals.stream()
+                            .filter(image -> Arrays.equals(
+                                    image.systemMutationId(),
+                                    SystemMutationResult.decode(ref.first().typedPayload())
+                                            .mutationId()))
+                            .findFirst()
+                            .orElseThrow());
                     return late;
-                }, bounds, () -> 100);
+                },
+                bounds,
+                () -> 100);
         pending.runTurn();
         pending.runTurn();
         assertEquals(before, store.latestSequenceNumber());
@@ -4167,26 +4839,45 @@ class TargetQuotaGrantStoreTest {
     private record Signed(PreparedControlOperation control, SystemMutation mutation) {}
 
     private static Signed signedMembership(
-            TargetMembershipControlRequest request, byte[] operation, ControlAuthorizationContext actor,
-            KeyPair keys, ShardId shard) {
+            TargetMembershipControlRequest request,
+            byte[] operation,
+            ControlAuthorizationContext actor,
+            KeyPair keys,
+            ShardId shard) {
         final var body = new TargetMembershipControlBody(
-                shard, 500,
-                new ControlRef(operation,
-                        PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()), 0),
+                shard,
+                500,
+                new ControlRef(
+                        operation,
+                        PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                        0),
                 request);
         final var mutation = SystemMutation.signed(
-                shard, SystemMutationType.APPLY_SHARD_CONTROL, body.retryUntil(), body.logicalIdentity(),
+                shard,
+                SystemMutationType.APPLY_SHARD_CONTROL,
+                body.retryUntil(),
+                body.logicalIdentity(),
                 body.canonicalBytes(),
                 AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
                         .canonicalBytes(),
-                1, keys.getPrivate());
+                1,
+                keys.getPrivate());
         final var target = new ControlTargetRef(
-                0, ControlTargetKind.SHARD, new ShardSubject(shard),
-                mutation.systemMutationId(), mutation.mutationHash());
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(shard),
+                mutation.systemMutationId(),
+                mutation.mutationHash());
         final var control = PreparedControlOperation.prepare(
-                operation, request.operationKind(),
+                operation,
+                request.operationKind(),
                 new ControlAuthor(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
-                request.operationRequest(), List.of(target), 1, 400, 1, keys.getPrivate());
+                request.operationRequest(),
+                List.of(target),
+                1,
+                400,
+                1,
+                keys.getPrivate());
         return new Signed(control, mutation);
     }
 
@@ -4235,7 +4926,10 @@ class TargetQuotaGrantStoreTest {
     }
 
     private static Signed signedClose(
-            TargetCloseRequest request, byte[] operation, ControlAuthorizationContext actor, KeyPair keys,
+            TargetCloseRequest request,
+            byte[] operation,
+            ControlAuthorizationContext actor,
+            KeyPair keys,
             long retryUntil) {
         final var ref = new ControlRef(
                 operation,
@@ -4243,20 +4937,33 @@ class TargetQuotaGrantStoreTest {
                 0);
         final var body = new TargetCloseBody(request.shards().getFirst().shard(), retryUntil, ref, request);
         final var mutation = SystemMutation.signed(
-                body.shard(), SystemMutationType.APPLY_SHARD_CONTROL, body.retryUntil(), body.logicalIdentity(),
+                body.shard(),
+                SystemMutationType.APPLY_SHARD_CONTROL,
+                body.retryUntil(),
+                body.logicalIdentity(),
                 body.canonicalBytes(),
                 AuthorIdentity.control(actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash())
                         .canonicalBytes(),
-                1, keys.getPrivate());
+                1,
+                keys.getPrivate());
         final var target = new ControlTargetRef(
-                0, ControlTargetKind.SHARD, new ShardSubject(body.shard()),
-                mutation.systemMutationId(), mutation.mutationHash());
+                0,
+                ControlTargetKind.SHARD,
+                new ShardSubject(body.shard()),
+                mutation.systemMutationId(),
+                mutation.mutationHash());
         return new Signed(
                 PreparedControlOperation.prepare(
-                        operation, request.operationKind(),
+                        operation,
+                        request.operationKind(),
                         new ControlAuthor(
                                 actor.actorIdHash(), actor.roleSet().digest(), actor.tenantResourceScopeHash()),
-                        request.operationRequest(), List.of(target), 1, 400, 1, keys.getPrivate()),
+                        request.operationRequest(),
+                        List.of(target),
+                        1,
+                        400,
+                        1,
+                        keys.getPrivate()),
                 mutation);
     }
 
@@ -4290,7 +4997,8 @@ class TargetQuotaGrantStoreTest {
         }
         Files.writeString(Path.of(ready), "ready\n");
         final Path release = Path.of(gate);
-        final long deadline = System.nanoTime() + java.time.Duration.ofSeconds(90).toNanos();
+        final long deadline =
+                System.nanoTime() + java.time.Duration.ofSeconds(90).toNanos();
         while (!Files.exists(release) && System.nanoTime() < deadline) {
             Thread.sleep(50);
         }
@@ -4305,9 +5013,7 @@ class TargetQuotaGrantStoreTest {
     }
 
     private static TargetStoreBackend.CommitGuard ownerGuard(
-            final OxiaOwnerLeaseStore leases,
-            final OwnerLease expected,
-            final ShardLifecycleState requiredState) {
+            final OxiaOwnerLeaseStore leases, final OwnerLease expected, final ShardLifecycleState requiredState) {
         return new TargetStoreBackend.CommitGuard() {
             @Override
             public void requireCurrent() {

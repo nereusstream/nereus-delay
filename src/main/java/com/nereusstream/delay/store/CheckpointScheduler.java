@@ -52,7 +52,8 @@ public final class CheckpointScheduler {
 
     /** Verifies the immutable settings before a configured Host admits periodic work. */
     public void requireConfiguration(long expectedIntervalMs, int expectedJitterPercent, int expectedMaximumShards) {
-        if (intervalMs != expectedIntervalMs || jitterPercent != expectedJitterPercent
+        if (intervalMs != expectedIntervalMs
+                || jitterPercent != expectedJitterPercent
                 || maxScheduledShards != expectedMaximumShards) {
             throw new IllegalArgumentException("checkpoint scheduler differs from the configured Worker");
         }

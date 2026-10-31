@@ -371,7 +371,8 @@ class ClaimHandoffWorkClassExecutorTest {
             assertEquals(ShardLifecycleState.ACTIVE_FOR_COMMANDS, owned.state());
             assertEquals(claimSequenceBefore, shard.claimSequence());
             assertEquals(storeSequenceBeforeReadYield, store.latestSequenceNumber());
-            assertEquals(nativeWritesBeforeReadYield, store.operationStatistics().nativeWriteCalls());
+            assertEquals(
+                    nativeWritesBeforeReadYield, store.operationStatistics().nativeWriteCalls());
             assertEquals(
                     MessageStatus.SCHEDULED,
                     shard.getMessage(schedule.delayMessageId()).status());

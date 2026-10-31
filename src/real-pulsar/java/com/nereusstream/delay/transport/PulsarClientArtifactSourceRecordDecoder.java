@@ -38,8 +38,12 @@ final class PulsarClientArtifactSourceRecordDecoder {
     }
 
     /** Explicit format-2 Source path; the default reader retains its legacy Control kind boundary. */
-    static SourceReplayEntry decodeTarget(final byte[] frame, final ShardId shard, final SourcePosition position,
-            final Long sourceConnectionGeneration, final byte[] guardAttestationDigest) {
+    static SourceReplayEntry decodeTarget(
+            final byte[] frame,
+            final ShardId shard,
+            final SourcePosition position,
+            final Long sourceConnectionGeneration,
+            final byte[] guardAttestationDigest) {
         if (!shard.equals(position.shardId())) {
             throw new IllegalArgumentException("Target Source position belongs to another Shard");
         }

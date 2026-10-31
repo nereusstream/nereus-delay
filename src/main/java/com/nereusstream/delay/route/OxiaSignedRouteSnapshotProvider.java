@@ -64,36 +64,52 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     public record RefreshLimits(int records, long bytes, long elapsedNanos) {
         public RefreshLimits {
-            if (records < 1 || records == Integer.MAX_VALUE || bytes < 1 || bytes == Long.MAX_VALUE
-                    || elapsedNanos < 1 || elapsedNanos == Long.MAX_VALUE) {
+            if (records < 1
+                    || records == Integer.MAX_VALUE
+                    || bytes < 1
+                    || bytes == Long.MAX_VALUE
+                    || elapsedNanos < 1
+                    || elapsedNanos == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Route refresh requires finite records/bytes/time");
             }
         }
     }
 
     /** Configured root borrows its existing finite pool; notification work remains on the original tracked task. */
-    public OxiaSignedRouteSnapshotProvider(OxiaRouteAuthoritySession session, String prefix, PublicKey key,
-            TrustedClock clock, java.util.concurrent.ThreadPoolExecutor pool, RefreshLimits limits,
+    public OxiaSignedRouteSnapshotProvider(
+            OxiaRouteAuthoritySession session,
+            String prefix,
+            PublicKey key,
+            TrustedClock clock,
+            java.util.concurrent.ThreadPoolExecutor pool,
+            RefreshLimits limits,
             java.util.function.LongSupplier nanos) {
         this(session, prefix, key, clock, false);
         if (pool.getMaximumPoolSize() == Integer.MAX_VALUE
                 || (long) pool.getQueue().size() + pool.getQueue().remainingCapacity() >= Integer.MAX_VALUE
-                || pool.getRejectedExecutionHandler().getClass() != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
+                || pool.getRejectedExecutionHandler().getClass()
+                        != java.util.concurrent.ThreadPoolExecutor.AbortPolicy.class) {
             throw new IllegalArgumentException("Route refresh requires a finite pool and AbortPolicy");
         }
-        sharedNotifications = pool; refreshLimits = Objects.requireNonNull(limits); refreshClock = Objects.requireNonNull(nanos);
+        sharedNotifications = pool;
+        refreshLimits = Objects.requireNonNull(limits);
+        refreshClock = Objects.requireNonNull(nanos);
     }
 
     /** Stops future refreshes without closing the shared authority that Host drain still needs. */
     public void stopNotificationIo() {
         synchronized (notificationLock) {
             refreshStopping = true;
-            if (notificationIo != null) notificationIo.requestStop();
+            if (notificationIo != null) {
+                notificationIo.requestStop();
+            }
         }
     }
 
     public boolean notificationIoExited() {
-        synchronized (notificationLock) { return notificationIo == null || notificationIo.ioExited(); }
+        synchronized (notificationLock) {
+            return notificationIo == null || notificationIo.ioExited();
+        }
     }
 
     /** Creates a provider over an owned/configured SyncOxiaClient. */
@@ -239,7 +255,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         }
         if (sharedNotifications != null) {
             stopNotificationIo();
-            if (!notificationIoExited()) throw new IllegalStateException("original Route refresh I/O remains pending");
+            if (!notificationIoExited()) {
+                throw new IllegalStateException("original Route refresh I/O remains pending");
+            }
         }
         active.clear();
         history.clear();
@@ -287,8 +305,10 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     private void refreshFromAuthority() {
-        final var budget = refreshLimits == null ? null : new com.nereusstream.delay.store.BoundedReadBudget(
-                refreshLimits.records(), refreshLimits.bytes(), refreshLimits.elapsedNanos(), refreshClock);
+        final var budget = refreshLimits == null
+                ? null
+                : new com.nereusstream.delay.store.BoundedReadBudget(
+                        refreshLimits.records(), refreshLimits.bytes(), refreshLimits.elapsedNanos(), refreshClock);
         requireRefreshRead(budget);
         final HeadEntry head = readHead();
         if (budget != null && head != null) {
@@ -304,46 +324,54 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
                     requireRefreshRead(budget);
                     final String key = eventKey(revision);
                     final GetResult result = client.get(key);
-                    if (result == null || !key.equals(result.key()) || result.value() == null || result.version() == null) {
-                        throw new RouteGapException("Oxia Route head references a missing or invalid immutable revision");
+                    if (result == null
+                            || !key.equals(result.key())
+                            || result.value() == null
+                            || result.version() == null) {
+                        throw new RouteGapException(
+                                "Oxia Route head references a missing or invalid immutable revision");
                     }
                     requireRefreshCharge(budget, key, result.value().length);
                     final var event = OxiaRouteSnapshotRecord.decode(result.value(), verificationKey);
-                    if (event.revision() != revision) throw new RouteGapException("Oxia Route revision/key mismatch");
+                    if (event.revision() != revision) {
+                        throw new RouteGapException("Oxia Route revision/key mismatch");
+                    }
                     events.put(revision, event);
                 }
             } else {
-            final CloseableIterable<GetResult> scan = client.rangeScan(eventPrefix, eventScanEnd);
-            try {
-                final var iterator = scan.iterator();
-                while (true) {
-                    requireRefreshRead(budget);
-                    if (!iterator.hasNext()) break;
-                    final GetResult result = iterator.next();
-                    if (result == null
-                            || result.key() == null
-                            || result.value() == null
-                            || result.version() == null
-                            || !result.key().startsWith(eventPrefix)) {
-                        throw new IllegalStateException("Oxia Route scan returned an invalid record");
-                    }
-                    requireRefreshCharge(budget, result.key(), result.value().length);
-                    final OxiaRouteSnapshotRecord event =
-                            OxiaRouteSnapshotRecord.decode(result.value(), verificationKey);
-                    if (!eventKey(event.revision()).equals(result.key())) {
-                        throw new IllegalStateException("Oxia Route event key is not bound to its revision");
-                    }
-                    if (event.revision() <= head.head().publishedRevision()) {
-                        final OxiaRouteSnapshotRecord previous = events.put(event.revision(), event);
-                        if (previous != null
-                                && !Bytes.constantTimeEquals(previous.canonicalBytes(), event.canonicalBytes())) {
-                            throw new IllegalStateException("Oxia Route stream has conflicting revisions");
+                final CloseableIterable<GetResult> scan = client.rangeScan(eventPrefix, eventScanEnd);
+                try {
+                    final var iterator = scan.iterator();
+                    while (true) {
+                        requireRefreshRead(budget);
+                        if (!iterator.hasNext()) {
+                            break;
+                        }
+                        final GetResult result = iterator.next();
+                        if (result == null
+                                || result.key() == null
+                                || result.value() == null
+                                || result.version() == null
+                                || !result.key().startsWith(eventPrefix)) {
+                            throw new IllegalStateException("Oxia Route scan returned an invalid record");
+                        }
+                        requireRefreshCharge(budget, result.key(), result.value().length);
+                        final OxiaRouteSnapshotRecord event =
+                                OxiaRouteSnapshotRecord.decode(result.value(), verificationKey);
+                        if (!eventKey(event.revision()).equals(result.key())) {
+                            throw new IllegalStateException("Oxia Route event key is not bound to its revision");
+                        }
+                        if (event.revision() <= head.head().publishedRevision()) {
+                            final OxiaRouteSnapshotRecord previous = events.put(event.revision(), event);
+                            if (previous != null
+                                    && !Bytes.constantTimeEquals(previous.canonicalBytes(), event.canonicalBytes())) {
+                                throw new IllegalStateException("Oxia Route stream has conflicting revisions");
+                            }
                         }
                     }
+                } finally {
+                    scan.close();
                 }
-            } finally {
-                scan.close();
-            }
             }
         }
 
@@ -355,7 +383,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             return;
         }
         for (long revision = 1; revision <= head.head().publishedRevision(); revision++) {
-            if (budget != null && !budget.beforeTimedWork()) throw new IllegalStateException("Route refresh decode deadline exceeded");
+            if (budget != null && !budget.beforeTimedWork()) {
+                throw new IllegalStateException("Route refresh decode deadline exceeded");
+            }
             final OxiaRouteSnapshotRecord event = events.get(revision);
             if (event == null || event.previousRevision() != revision - 1) {
                 throw new RouteGapException("Oxia Route stream has a missing or non-contiguous event");
@@ -378,6 +408,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             throw new IllegalStateException("Route refresh is stopped or exhausted");
         }
     }
+
     private void requireRefreshCharge(com.nereusstream.delay.store.BoundedReadBudget budget, String key, int bytes) {
         if (budget != null && !budget.tryCharge(key.getBytes(StandardCharsets.UTF_8).length, bytes)) {
             throw new IllegalStateException("Route refresh byte budget exhausted");
@@ -428,10 +459,16 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     private void onNotification(final Notification notification) {
         if (sharedNotifications != null) {
-            if (notification == null || notification.key() == null
-                    || !headKey.equals(notification.key()) && !notification.key().startsWith(eventPrefix)) return;
+            if (notification == null
+                    || notification.key() == null
+                    || !headKey.equals(notification.key())
+                            && !notification.key().startsWith(eventPrefix)) {
+                return;
+            }
             synchronized (notificationLock) {
-                if (refreshStopping) return;
+                if (refreshStopping) {
+                    return;
+                }
                 notificationDirty = true;
                 submitNotificationIo();
             }
@@ -450,14 +487,28 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     private void submitNotificationIo() {
-        if (refreshStopping || !notificationDirty || notificationIo != null && !notificationIo.ioExited()) return;
+        if (refreshStopping || !notificationDirty || notificationIo != null && !notificationIo.ioExited()) {
+            return;
+        }
         try {
-            notificationIo = com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(guard -> {
-                synchronized (notificationLock) { notificationDirty = false; }
-                refreshAfterNotification(); return true;
-            }, () -> { if (refreshStopping) throw new IllegalStateException("Route refresh stopped"); }, sharedNotifications);
+            notificationIo = com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(
+                    guard -> {
+                        synchronized (notificationLock) {
+                            notificationDirty = false;
+                        }
+                        refreshAfterNotification();
+                        return true;
+                    },
+                    () -> {
+                        if (refreshStopping) {
+                            throw new IllegalStateException("Route refresh stopped");
+                        }
+                    },
+                    sharedNotifications);
             notificationIo.receipt().whenComplete((value, error) -> {
-                synchronized (notificationLock) { submitNotificationIo(); }
+                synchronized (notificationLock) {
+                    submitNotificationIo();
+                }
             });
         } catch (java.util.concurrent.RejectedExecutionException rejected) {
             // Keep the dirty bit. A later notification or explicit refresh retries the original authority read.

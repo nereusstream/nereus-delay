@@ -56,12 +56,12 @@ class WorkerShardRuntimePhysicalLookupTest {
                     Bytes.utf8("lookup-worker"),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("lookup-fence")));
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
-            final var verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+            final var verificationKey =
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
             try (SharedRocksDbResources unprobedResources = new SharedRocksDbResources(config)) {
                 assertThrows(
                         IllegalStateException.class,
@@ -137,9 +137,8 @@ class WorkerShardRuntimePhysicalLookupTest {
                     Bytes.utf8("source-bound-worker"),
                     lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("source-bound-fence")));
-            final OwnedDelayShard owned =
-                    new OwnedDelayShard(
-                            BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
+            final OwnedDelayShard owned = new OwnedDelayShard(
+                    BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease, owner);
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.activateForCommands(authority, 101);
             final OutcomeWorkClassExecutor outcomes = new OutcomeWorkClassExecutor(

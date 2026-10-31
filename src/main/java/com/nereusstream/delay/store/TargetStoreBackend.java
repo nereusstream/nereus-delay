@@ -254,8 +254,10 @@ public final class TargetStoreBackend {
         }
 
         private static List<EvidenceCursor> priorCursors(final byte[] before) {
-            return before == null ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(
-                    TargetValueEnvelope.decode(before, 1).payload());
+            return before == null
+                    ? List.of()
+                    : StoreRuntimeMetadata.decodeEvidenceCursors(
+                            TargetValueEnvelope.decode(before, 1).payload());
         }
 
         private static EvidenceCursorChange advance(final byte[] before, final EvidenceCursor accepted) {
@@ -281,8 +283,10 @@ public final class TargetStoreBackend {
     }
 
     public record Mutation(
-            TargetQuotaTotalsDelta quota, List<Edit> business,
-            IngressFenceChange ingressFence, EvidenceCursorChange evidenceCursors) {
+            TargetQuotaTotalsDelta quota,
+            List<Edit> business,
+            IngressFenceChange ingressFence,
+            EvidenceCursorChange evidenceCursors) {
         public Mutation(final TargetQuotaTotalsDelta quota, final List<Edit> business) {
             this(quota, business, null, null);
         }
@@ -301,7 +305,8 @@ public final class TargetStoreBackend {
                 if (ingressFence != null || quota.counters().mutation().isLocalMutation()) {
                     throw new IllegalArgumentException("cursor seeds require a separate Source mutation");
                 }
-                StoreRuntimeMetadata.requireEvidenceCursorScope(evidenceCursors.after(), 2, quota.shardScope().shard());
+                StoreRuntimeMetadata.requireEvidenceCursorScope(
+                        evidenceCursors.after(), 2, quota.shardScope().shard());
             }
         }
     }
@@ -367,7 +372,9 @@ public final class TargetStoreBackend {
         /** Exact original maintenance acquisition, available only on the opaque candidate backend. */
         public com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate migrationCandidate() {
             requireActive();
-            if (migrationCandidate != null) migrationCandidate.requireStore(store);
+            if (migrationCandidate != null) {
+                migrationCandidate.requireStore(store);
+            }
             return migrationCandidate;
         }
 
@@ -375,7 +382,8 @@ public final class TargetStoreBackend {
             this(budget, null);
         }
 
-        private Reader(final BoundedReadBudget budget,
+        private Reader(
+                final BoundedReadBudget budget,
                 final com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof retirementProof) {
             this.budget = budget;
             this.retirementProof = retirementProof;
@@ -384,32 +392,50 @@ public final class TargetStoreBackend {
             writerContext = origin == null ? null : origin.openView();
         }
 
-        @Override public com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerOriginContext() {
-            requireActive(); return writerContext;
+        @Override
+        public com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerOriginContext() {
+            requireActive();
+            return writerContext;
         }
 
-        @Override public com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof retirementProof() {
-            requireActive(); return retirementProof;
+        @Override
+        public com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof retirementProof() {
+            requireActive();
+            return retirementProof;
         }
 
-        @Override public com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail archiveTailProof() {
-            requireActive(); return archiveTail;
+        @Override
+        public com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail archiveTailProof() {
+            requireActive();
+            return archiveTail;
         }
 
         public void requireBackend(final TargetStoreBackend expected) {
             requireActive();
-            if (expected != TargetStoreBackend.this) throw new IllegalArgumentException("retirement preparation belongs to another actual backend");
+            if (expected != TargetStoreBackend.this) {
+                throw new IllegalArgumentException("retirement preparation belongs to another actual backend");
+            }
         }
-        public void requireSourceFrameBinding(ShardStore actual,TargetQuotaScope expected,byte[] expectedLineage){
+
+        public void requireSourceFrameBinding(ShardStore actual, TargetQuotaScope expected, byte[] expectedLineage) {
             requireActive();
-            if(store!=actual||!scope.equals(expected)||!Arrays.equals(lineage,expectedLineage))
-                throw new IllegalArgumentException("Source frame qualification changed its actual Native Store/root lineage");
+            if (store != actual || !scope.equals(expected) || !Arrays.equals(lineage, expectedLineage)) {
+                throw new IllegalArgumentException(
+                        "Source frame qualification changed its actual Native Store/root lineage");
+            }
         }
-        public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract sourceFrameContract(){
+
+        public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.SourceFrameContract
+                sourceFrameContract() {
             requireActive();
-            final var inputs=sourceOperationInputs;
-            if(inputs==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable("Native plan has no original complete Source frame qualification");
-            final var actual=inputs.sourceFrameContract();actual.requireCurrent(this);return actual;
+            final var inputs = sourceOperationInputs;
+            if (inputs == null) {
+                throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                        "Native plan has no original complete Source frame qualification");
+            }
+            final var actual = inputs.sourceFrameContract();
+            actual.requireCurrent(this);
+            return actual;
         }
 
         private void requireActive() {
@@ -471,7 +497,8 @@ public final class TargetStoreBackend {
 
         /** Opaque same-view identity for privately preparing this exact prospective Source tail on owned I/O. */
         public ShardStore.ReadView archiveReadView() {
-            requireActive(); return store.captureReadView();
+            requireActive();
+            return store.captureReadView();
         }
 
         /** Native Store revision for detecting changes between separately protected read pages. */
@@ -547,11 +574,17 @@ public final class TargetStoreBackend {
             requireActive();
             final ShardStore.KeyValue[] selected = {null};
             final var result = store.visitResult(family, lower, null, 1, budget, (row, shared) -> {
-                selected[0] = row; return false;
+                selected[0] = row;
+                return false;
             });
-            if (result.stop() == ShardStore.VisitStop.INCOMPLETE) throw budget.incomplete();
-            if (result.stop() != ShardStore.VisitStop.VISITOR_STOPPED && result.stop() != ShardStore.VisitStop.RANGE_END)
-                throw new IllegalStateException("retirement preparation did not establish the next actual CF row or EOF");
+            if (result.stop() == ShardStore.VisitStop.INCOMPLETE) {
+                throw budget.incomplete();
+            }
+            if (result.stop() != ShardStore.VisitStop.VISITOR_STOPPED
+                    && result.stop() != ShardStore.VisitStop.RANGE_END) {
+                throw new IllegalStateException(
+                        "retirement preparation did not establish the next actual CF row or EOF");
+            }
             return selected[0];
         }
 
@@ -577,30 +610,54 @@ public final class TargetStoreBackend {
         }
         /** Same selected root/accounting binding for a protected paged fold; this does not audit any CF. */
         public TargetCheckpointRootVerifier.RootProof retirementRootProof() {
-            requireActive();final var aggregate=aggregate();
-            final var bookkeeping=com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
-                    get(ColumnFamily.META,com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(scope.shard())),
-                    com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE).payload());
-            final byte[] rootKey=bookkeeping.owner().key();rootKey[0]=TargetKeyCodec.QUOTA_INCARNATION_TAG;
-            final var root=com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(rootKey,
-                    TargetValueEnvelope.decode(get(ColumnFamily.META,rootKey),com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE).payload(),scope.shard(),scope.tenantScope());
-            if(!root.identity().equals(bookkeeping.owner())||!java.util.Arrays.equals(root.tenantScope(),scope.tenantScope())
-                    ||!java.util.Arrays.equals(root.recoveryLineage(),lineage)
-                    ||!java.util.Arrays.equals(root.accounting().canonicalBytes(),bookkeeping.accounting().canonicalBytes())
-                    ||!java.util.Arrays.equals(root.identity().accountingIncarnation(),aggregate.accountingIncarnation()))
+            requireActive();
+            final var aggregate = aggregate();
+            final var bookkeeping =
+                    com.nereusstream.delay.protocol.TargetQuotaBookkeeping.decode(TargetValueEnvelope.decode(
+                                    get(
+                                            ColumnFamily.META,
+                                            com.nereusstream.delay.protocol.TargetQuotaBookkeeping.keyFor(
+                                                    scope.shard())),
+                                    com.nereusstream.delay.protocol.TargetQuotaBookkeeping.VALUE_TYPE)
+                            .payload());
+            final byte[] rootKey = bookkeeping.owner().key();
+            rootKey[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
+            final var root = com.nereusstream.delay.protocol.TargetQuotaIncarnation.decodeForStore(
+                    rootKey,
+                    TargetValueEnvelope.decode(
+                                    get(ColumnFamily.META, rootKey),
+                                    com.nereusstream.delay.protocol.TargetQuotaIncarnation.VALUE_TYPE)
+                            .payload(),
+                    scope.shard(),
+                    scope.tenantScope());
+            if (!root.identity().equals(bookkeeping.owner())
+                    || !java.util.Arrays.equals(root.tenantScope(), scope.tenantScope())
+                    || !java.util.Arrays.equals(root.recoveryLineage(), lineage)
+                    || !java.util.Arrays.equals(
+                            root.accounting().canonicalBytes(),
+                            bookkeeping.accounting().canonicalBytes())
+                    || !java.util.Arrays.equals(
+                            root.identity().accountingIncarnation(), aggregate.accountingIncarnation())) {
                 throw new IllegalStateException("Native ledger changed original root/bookkeeping lineage");
-            final var proof=new TargetCheckpointRootVerifier.RootProof(metadata(),source(),sourceSequence(),root,bookkeeping,aggregate);
-            root.latestMutation().requireAtOrBefore(aggregate.mutation());bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
+            }
+            final var proof = new TargetCheckpointRootVerifier.RootProof(
+                    metadata(), source(), sourceSequence(), root, bookkeeping, aggregate);
+            root.latestMutation().requireAtOrBefore(aggregate.mutation());
+            bookkeeping.mutation().requireAtOrBefore(aggregate.mutation());
             return proof;
         }
         /** Complete cold-path fold of this exact guarded view, sharing its original finite Native budget. */
-        public TargetCheckpointDependencies auditLedger(TargetCheckpointRootVerifier.LedgerAuditLimits auditLimits){
+        public TargetCheckpointDependencies auditLedger(TargetCheckpointRootVerifier.LedgerAuditLimits auditLimits) {
             final var proof = retirementRootProof();
-            final var result=TargetCheckpointRootVerifier.auditLiveStoreDependencies(store,proof,auditLimits,budget);
-            requireWithinElapsedBudget();return result;
+            final var result =
+                    TargetCheckpointRootVerifier.auditLiveStoreDependencies(store, proof, auditLimits, budget);
+            requireWithinElapsedBudget();
+            return result;
         }
-        public TargetCheckpointDependencies auditLedger(){
-            return auditLedger(new TargetCheckpointRootVerifier.LedgerAuditLimits(budget.maxRecords(),budget.maxBytes(),budget.maxRecords(),budget.maxBytes()));
+
+        public TargetCheckpointDependencies auditLedger() {
+            return auditLedger(new TargetCheckpointRootVerifier.LedgerAuditLimits(
+                    budget.maxRecords(), budget.maxBytes(), budget.maxRecords(), budget.maxBytes()));
         }
 
         public TargetQuotaCounter counter(final TargetQuotaIdentity identity) {
@@ -643,7 +700,8 @@ public final class TargetStoreBackend {
     private volatile com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs sourceOperationInputs;
     private volatile TargetStoreBackend sourceOperationEnvelopeParent;
     private volatile boolean sourceOperationEnvelopeReady;
-    private final ThreadLocal<com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail> archiveTailContext = new ThreadLocal<>();
+    private final ThreadLocal<com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail>
+            archiveTailContext = new ThreadLocal<>();
 
     public TargetStoreBackend(
             final ShardStore store,
@@ -655,19 +713,28 @@ public final class TargetStoreBackend {
     }
 
     /** Only the opaque, independently sealed migration cut can operate while its Root is PREPARED. */
-    public static TargetStoreBackend forMigration(final ShardStore store, final TargetQuotaScope scope,
-            final byte[] shardAccountingIncarnation, final byte[] lineage, final WriteLimits limits,
+    public static TargetStoreBackend forMigration(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final byte[] shardAccountingIncarnation,
+            final byte[] lineage,
+            final WriteLimits limits,
             final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate candidate) {
         Objects.requireNonNull(candidate, "sealed migration candidate").requireStore(store);
-        if (!candidate.plan().scope().equals(scope) || !Arrays.equals(candidate.plan().newLineage(), lineage)
+        if (!candidate.plan().scope().equals(scope)
+                || !Arrays.equals(candidate.plan().newLineage(), lineage)
                 || !Arrays.equals(candidate.root().identity().accountingIncarnation(), shardAccountingIncarnation)) {
             throw new IllegalArgumentException("migration backend changed its actual candidate root");
         }
         return new TargetStoreBackend(store, scope, shardAccountingIncarnation, lineage, limits, candidate);
     }
 
-    private TargetStoreBackend(final ShardStore store, final TargetQuotaScope scope,
-            final byte[] shardAccountingIncarnation, final byte[] lineage, final WriteLimits limits,
+    private TargetStoreBackend(
+            final ShardStore store,
+            final TargetQuotaScope scope,
+            final byte[] shardAccountingIncarnation,
+            final byte[] lineage,
+            final WriteLimits limits,
             final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate migration) {
         this.store = Objects.requireNonNull(store, "store");
         this.scope = Objects.requireNonNull(scope, "scope");
@@ -682,7 +749,9 @@ public final class TargetStoreBackend {
             throw new IllegalArgumentException("Target backend requires explicit format and Shard/lineage binding");
         }
         genesis = TargetQuotaAggregate.genesis(scope.shard(), shardAccountingIncarnation);
-        if (migration == null) com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(store);
+        if (migration == null) {
+            com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(store);
+        }
     }
 
     /** Binds production composition to this exact native Store object, not merely a matching Shard ID. */
@@ -696,111 +765,177 @@ public final class TargetStoreBackend {
     public void bindSourceOperationEnvelope(
             com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs actual) {
         Objects.requireNonNull(actual).requireStore(store);
-        synchronized(store) {
-            if(sourceOperationInputs!=null&&sourceOperationInputs!=actual)
+        synchronized (store) {
+            if (sourceOperationInputs != null && sourceOperationInputs != actual) {
                 throw new IllegalStateException("actual Native backend changed its Source plan reservation");
-            sourceOperationInputs=actual;
+            }
+            sourceOperationInputs = actual;
         }
     }
 
     public boolean sourceOperationEnvelopeReady() {
-        final var actual=sourceOperationInputs;
-        final var parent=sourceOperationEnvelopeParent;
-        if(!(sourceOperationEnvelopeReady||parent!=null&&parent.sourceOperationEnvelopeReady())||actual==null||store.nativeExposureFenceRaised())return false;
-        actual.sourceFrameContract();return true;
+        final var actual = sourceOperationInputs;
+        final var parent = sourceOperationEnvelopeParent;
+        if (!(sourceOperationEnvelopeReady || parent != null && parent.sourceOperationEnvelopeReady())
+                || actual == null
+                || store.nativeExposureFenceRaised()) {
+            return false;
+        }
+        actual.sourceFrameContract();
+        return true;
     }
     /** Aliases the same actual Source reservation for its existing archive backend over this exact Store. */
-    public void shareSourceOperationEnvelope(TargetStoreBackend original){
+    public void shareSourceOperationEnvelope(TargetStoreBackend original) {
         Objects.requireNonNull(original);
-        if(original==this||original.store!=store||!original.scope.equals(scope)||!Arrays.equals(original.lineage,lineage)
-                ||original.sourceOperationEnvelopeParent!=null)
+        if (original == this
+                || original.store != store
+                || !original.scope.equals(scope)
+                || !Arrays.equals(original.lineage, lineage)
+                || original.sourceOperationEnvelopeParent != null) {
             throw new IllegalArgumentException("archive Source envelope changed its original Native backend");
+        }
         bindSourceOperationEnvelope(Objects.requireNonNull(original.sourceOperationInputs));
-        sourceOperationEnvelopeParent=original;
+        sourceOperationEnvelopeParent = original;
     }
 
     /** Only the original Source owned-I/O caller invokes this, after its real kernel has been installed. */
     public void verifySourceOperationEnvelope(BoundedReadBudget budget, ReadAuthority reads) {
-        final var actual=sourceOperationInputs;
-        if(actual==null)throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
-                "Source lacks its original Process Native-plan reservation");
+        final var actual = sourceOperationInputs;
+        if (actual == null) {
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                    "Source lacks its original Process Native-plan reservation");
+        }
         actual.requireStore(store);
         actual.prepareSourceFrames();
-        final var required=guardedRead(budget,reader->{
-            final var frames=actual.sourceFrameContract();
-            final var computed=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.required(reader,frames);
-            frames.requireService(reader,computed);return computed;
-        },reads);
+        final var required = guardedRead(
+                budget,
+                reader -> {
+                    final var frames = actual.sourceFrameContract();
+                    final var computed =
+                            com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.required(reader, frames);
+                    frames.requireService(reader, computed);
+                    return computed;
+                },
+                reads);
         actual.acquire(required);
         actual.requireStore(store);
-        sourceOperationEnvelopeReady=true;
+        sourceOperationEnvelopeReady = true;
     }
 
     /** A process-local continuation for prospective APPLIED work; it cannot be restored by serialization. */
     public static final class SourceOperationEnvelopeRequired extends RuntimeException {
-        private static final long serialVersionUID=1L;
+        private static final long serialVersionUID = 1L;
         private final transient TargetStoreBackend backend;
         private final transient com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs inputs;
         private final transient com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required;
-        private SourceOperationEnvelopeRequired(TargetStoreBackend backend,
+
+        private SourceOperationEnvelopeRequired(
+                TargetStoreBackend backend,
                 com.nereusstream.delay.ownership.TargetWorkerProcessRuntime.SourcePlanInputs inputs,
                 com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required) {
             super("actual APPLIED protocol family requires its complete Source service window");
-            this.backend=backend;this.inputs=inputs;this.required=required;
+            this.backend = backend;
+            this.inputs = inputs;
+            this.required = required;
         }
+
         @java.io.Serial
         private void readObject(java.io.ObjectInputStream ignored) throws java.io.InvalidObjectException {
-            throw new java.io.InvalidObjectException("Source operation continuation requires its original live Process and cannot be restored");
+            throw new java.io.InvalidObjectException(
+                    "Source operation continuation requires its original live Process and cannot be restored");
         }
+
         public void requireBackend(TargetStoreBackend actual) {
-            if(actual!=backend||backend.sourceOperationInputs!=inputs)
+            if (actual != backend || backend.sourceOperationInputs != inputs) {
                 throw new IllegalArgumentException("Source operation request changed its original backend/reservation");
+            }
         }
+
         public void acquire() {
-            if(Thread.holdsLock(backend.store))throw new IllegalStateException("Source operation window cannot grow inside a Native plan");
-            requireBackend(backend);inputs.acquire(required);
+            if (Thread.holdsLock(backend.store)) {
+                throw new IllegalStateException("Source operation window cannot grow inside a Native plan");
+            }
+            requireBackend(backend);
+            inputs.acquire(required);
         }
     }
 
     private void requireSourceOperationEnvelope(Reader reader, Mutation mutation) {
-        final var actual=sourceOperationInputs;
-        if(actual==null)return; // Unconfigured bootstrap/maintenance is not an exposed Source runtime.
-        if(!sourceOperationEnvelopeReady())throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
-                "Source Native operation family has not completed its actual Root service gate");
+        final var actual = sourceOperationInputs;
+        if (actual == null) {
+            return;
+        } // Unconfigured bootstrap/maintenance is not an exposed Source runtime.
+        if (!sourceOperationEnvelopeReady()) {
+            throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                    "Source Native operation family has not completed its actual Root service gate");
+        }
         actual.requireStore(store);
-        actual.sourceFrameContract().requireService(reader,actual.operationBounds());
-        for(final var edit:mutation.business()) {
-            if(edit.family()!=ColumnFamily.META||edit.key.length<2
-                    ||edit.key[0]!=TargetKeyCodec.PROTOCOL_ACTIVATION_TAG||edit.before!=null||edit.after==null)continue;
-            final var applied=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(edit.key,
-                    TargetValueEnvelope.decode(edit.after,com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE).payload(),scope,lineage);
-            final com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required;
-            try{required=com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.activating(reader,applied.readers().descriptor(),actual.operationBounds());}
-            catch(com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable unavailable){
-                throw new IllegalStateException("prospective Source protocol family lacks its original service capability",unavailable);
+        actual.sourceFrameContract().requireService(reader, actual.operationBounds());
+        for (final var edit : mutation.business()) {
+            if (edit.family() != ColumnFamily.META
+                    || edit.key.length < 2
+                    || edit.key[0] != TargetKeyCodec.PROTOCOL_ACTIVATION_TAG
+                    || edit.before != null
+                    || edit.after == null) {
+                continue;
             }
-            actual.sourceFrameContract().requireService(reader,required);
-            if(!actual.includes(required))throw new SourceOperationEnvelopeRequired(this,actual,required);
+            final var applied = com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(
+                    edit.key,
+                    TargetValueEnvelope.decode(
+                                    edit.after,
+                                    com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE)
+                            .payload(),
+                    scope,
+                    lineage);
+            final com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.Bounds required;
+            try {
+                required = com.nereusstream.delay.runtime.TargetSourceOperationEnvelope.activating(
+                        reader, applied.readers().descriptor(), actual.operationBounds());
+            } catch (com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable unavailable) {
+                throw new IllegalStateException(
+                        "prospective Source protocol family lacks its original service capability", unavailable);
+            }
+            actual.sourceFrameContract().requireService(reader, required);
+            if (!actual.includes(required)) {
+                throw new SourceOperationEnvelopeRequired(this, actual, required);
+            }
         }
     }
 
     /** One actual Source action can expose only its privately prepared exact tail to newly opened Readers. */
-    public <T> T withArchiveTail(final com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail proof,
+    public <T> T withArchiveTail(
+            final com.nereusstream.delay.runtime.TargetMigrationArchivePreparation.PreparedTail proof,
             final java.util.function.Supplier<T> action) {
         final var previous = archiveTailContext.get();
-        if (previous != null && previous != proof) throw new IllegalStateException("another actual Source tail already owns this action");
-        if (proof != null) proof.requireCurrent();
-        if (proof == null) archiveTailContext.remove(); else archiveTailContext.set(proof);
-        try { return Objects.requireNonNull(action, "actual Source action").get(); }
-        finally { if (previous == null) archiveTailContext.remove(); else archiveTailContext.set(previous); }
+        if (previous != null && previous != proof) {
+            throw new IllegalStateException("another actual Source tail already owns this action");
+        }
+        if (proof != null) {
+            proof.requireCurrent();
+        }
+        if (proof == null) {
+            archiveTailContext.remove();
+        } else {
+            archiveTailContext.set(proof);
+        }
+        try {
+            return Objects.requireNonNull(action, "actual Source action").get();
+        } finally {
+            if (previous == null) {
+                archiveTailContext.remove();
+            } else {
+                archiveTailContext.set(previous);
+            }
+        }
     }
 
     /** Installs the one original protected writer kernel for this actual Store; never grants a prefix by itself. */
     public void installWriterOrigin(final com.nereusstream.delay.runtime.TargetSloWriterOrigin original) {
         Objects.requireNonNull(original, "original writer origin").requireStore(store);
         synchronized (store) {
-            if (writerOrigin != null && writerOrigin != original)
+            if (writerOrigin != null && writerOrigin != original) {
                 throw new IllegalStateException("actual backend already has its original writer origin");
+            }
             writerOrigin = original;
         }
     }
@@ -854,8 +989,8 @@ public final class TargetStoreBackend {
      * Original Store/retention/Pin protection remains held until release; a longer-lived consumer needs its
      * own retained original loan rather than relying on this completed projection's immutable bytes.
      */
-    public interface CheckpointReadHold extends AutoCloseable,
-            com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
+    public interface CheckpointReadHold
+            extends AutoCloseable, com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         /** Complete original Owner/session/acquisition and retention validation; called outside the Store monitor. */
         void requireExternalCurrent();
 
@@ -939,7 +1074,8 @@ public final class TargetStoreBackend {
 
     /** Checkpoint projection with external validation outside the Store and only the same hold's local token inside. */
     public <T> T checkpointRead(
-            final BoundedReadBudget budget, final Function<Reader, T> planner,
+            final BoundedReadBudget budget,
+            final Function<Reader, T> planner,
             final CheckpointReadAuthority authority) {
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(planner, "planner");
@@ -950,7 +1086,7 @@ public final class TargetStoreBackend {
         T value = null;
         Throwable failure = null;
         try {
-            for (;;) {
+            for (; ; ) {
                 requireCheckpointTime(budget);
                 hold.requireExternalCurrent();
                 requireCheckpointTime(budget);
@@ -981,23 +1117,33 @@ public final class TargetStoreBackend {
         try {
             hold.close();
         } catch (RuntimeException | Error releaseFailure) {
-            if (failure != null && releaseFailure != failure) releaseFailure.addSuppressed(failure);
+            if (failure != null && releaseFailure != failure) {
+                releaseFailure.addSuppressed(failure);
+            }
             failure = releaseFailure;
         }
         if (!hold.cleanupComplete()
                 || failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
                         && !cleanup.cleanupComplete()
-                || readFailure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup readCleanupState
+                || readFailure
+                                instanceof
+                                com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup readCleanupState
                         && !readCleanupState.cleanupComplete()) {
             throw new CheckpointReadCleanup(hold, failure, readFailure);
         }
-        if (failure instanceof RuntimeException rejected) throw rejected;
-        if (failure instanceof Error rejected) throw rejected;
+        if (failure instanceof RuntimeException rejected) {
+            throw rejected;
+        }
+        if (failure instanceof Error rejected) {
+            throw rejected;
+        }
         return Objects.requireNonNull(value, "completed checkpoint projection");
     }
 
     private static void requireCheckpointTime(final BoundedReadBudget budget) {
-        if (!budget.beforeTimedWork()) throw budget.incomplete();
+        if (!budget.beforeTimedWork()) {
+            throw budget.incomplete();
+        }
     }
 
     /** Keeps the original release/failure handles visible to the caller's OwnedCheckpointIo/PreparationIo. */
@@ -1008,22 +1154,29 @@ public final class TargetStoreBackend {
         private final transient com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup failureCleanup;
         private final transient com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup readCleanup;
 
-        private CheckpointReadCleanup(final CheckpointReadHold hold, final Throwable failure, final Throwable readFailure) {
+        private CheckpointReadCleanup(
+                final CheckpointReadHold hold, final Throwable failure, final Throwable readFailure) {
             super("original checkpoint read hold has not completed actual cleanup", failure);
             this.hold = hold;
             failureCleanup = failure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
-                    ? cleanup : null;
+                    ? cleanup
+                    : null;
             readCleanup = readFailure != failure
-                    && readFailure instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
-                    ? cleanup : null;
+                            && readFailure
+                                    instanceof com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup cleanup
+                    ? cleanup
+                    : null;
         }
 
-        @Override public boolean cleanupComplete() {
-            return hold.cleanupComplete() && (failureCleanup == null || failureCleanup.cleanupComplete())
+        @Override
+        public boolean cleanupComplete() {
+            return hold.cleanupComplete()
+                    && (failureCleanup == null || failureCleanup.cleanupComplete())
                     && (readCleanup == null || readCleanup.cleanupComplete());
         }
 
-        @Override public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
             final var original = retry(hold);
             final var failed = retry(failureCleanup);
             final var read = retry(readCleanup);
@@ -1063,91 +1216,120 @@ public final class TargetStoreBackend {
         return prepareWithRetirementProof(budget, null, planner);
     }
 
-    public Prepared prepareRetirement(final BoundedReadBudget budget,
+    public Prepared prepareRetirement(
+            final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof proof,
             final Function<Reader, Mutation> planner) {
-        return prepareWithRetirementProof(budget, Objects.requireNonNull(proof, "complete original retirement proof"), planner);
+        return prepareWithRetirementProof(
+                budget, Objects.requireNonNull(proof, "complete original retirement proof"), planner);
     }
 
-    private Prepared prepareWithRetirementProof(final BoundedReadBudget budget,
+    private Prepared prepareWithRetirementProof(
+            final BoundedReadBudget budget,
             final com.nereusstream.delay.runtime.TargetRetirementPreparation.Proof proof,
             final Function<Reader, Mutation> planner) {
         Objects.requireNonNull(planner, "planner");
         final long beforeRows = budget.actualRecords(), beforeBytes = budget.actualBytes();
         try {
-        final var read = store.readWithBudget(budget, () -> {
-            final var reader = new Reader(budget, proof);
-            final Mutation mutation;
-            try {
-                if (proof != null) proof.requireReader(reader, this);
-                mutation = Objects.requireNonNull(planner.apply(reader), "mutation");
-                requireSourceOperationEnvelope(reader,mutation);
-                com.nereusstream.delay.runtime.TargetMigrationRetirementStore.requireEdits(reader, mutation.business(),
-                        mutation.quota().counters().mutation());
-                com.nereusstream.delay.runtime.TargetMigrationArchiveStore.requireEdits(reader, mutation.business(),
-                        mutation.quota().counters().mutation());
-                if (!scope.equals(mutation.quota().shardScope())) {
-                    throw new IllegalArgumentException("Target mutation belongs to another scope");
-                }
-                mutation.quota()
-                        .requireCurrent(
-                                reader.aggregate(),
-                                reader.sourceSequence(),
-                                reader.source(),
-                                reader::counter,
-                                reader::total);
-                for (var edit : mutation.business()) {
-                    if (!Arrays.equals(edit.before, reader.get(edit.family, edit.key))) {
-                        throw new IllegalStateException("Target business read set changed");
+            final var read = store.readWithBudget(budget, () -> {
+                final var reader = new Reader(budget, proof);
+                final Mutation mutation;
+                try {
+                    if (proof != null) {
+                        proof.requireReader(reader, this);
                     }
+                    mutation = Objects.requireNonNull(planner.apply(reader), "mutation");
+                    requireSourceOperationEnvelope(reader, mutation);
+                    com.nereusstream.delay.runtime.TargetMigrationRetirementStore.requireEdits(
+                            reader,
+                            mutation.business(),
+                            mutation.quota().counters().mutation());
+                    com.nereusstream.delay.runtime.TargetMigrationArchiveStore.requireEdits(
+                            reader,
+                            mutation.business(),
+                            mutation.quota().counters().mutation());
+                    if (!scope.equals(mutation.quota().shardScope())) {
+                        throw new IllegalArgumentException("Target mutation belongs to another scope");
+                    }
+                    mutation.quota()
+                            .requireCurrent(
+                                    reader.aggregate(),
+                                    reader.sourceSequence(),
+                                    reader.source(),
+                                    reader::counter,
+                                    reader::total);
+                    for (var edit : mutation.business()) {
+                        if (!Arrays.equals(edit.before, reader.get(edit.family, edit.key))) {
+                            throw new IllegalStateException("Target business read set changed");
+                        }
+                    }
+                    if (mutation.ingressFence() != null
+                            && !Arrays.equals(
+                                    mutation.ingressFence().before(),
+                                    reader.get(ColumnFamily.META, KeyCodec.metaFixed(4)))) {
+                        throw new IllegalStateException("Target ingress fence read set changed");
+                    }
+                    if (mutation.evidenceCursors() != null
+                            && !Arrays.equals(
+                                    mutation.evidenceCursors().before(),
+                                    reader.get(ColumnFamily.META, KeyCodec.metaFixed(6)))) {
+                        throw new IllegalStateException("Target cursor seed read set changed");
+                    }
+                    return measure(mutation, reader.writerOriginContext());
+                } finally {
+                    reader.active = false;
                 }
-                if (mutation.ingressFence() != null
-                        && !Arrays.equals(
-                                mutation.ingressFence().before(),
-                                reader.get(ColumnFamily.META, KeyCodec.metaFixed(4)))) {
-                    throw new IllegalStateException("Target ingress fence read set changed");
-                }
-                if (mutation.evidenceCursors() != null
-                        && !Arrays.equals(mutation.evidenceCursors().before(),
-                                reader.get(ColumnFamily.META, KeyCodec.metaFixed(6)))) {
-                    throw new IllegalStateException("Target cursor seed read set changed");
-                }
-                return measure(mutation, reader.writerOriginContext());
-            } finally {
-                reader.active = false;
-            }
-        });
-        return new Prepared(this, read.view(), read.value().mutation, read.value().records, read.value().bytes,
-                read.value().writerContext);
+            });
+            return new Prepared(
+                    this,
+                    read.view(),
+                    read.value().mutation,
+                    read.value().records,
+                    read.value().bytes,
+                    read.value().writerContext);
         } finally {
-            if (proof != null) proof.debitReads(Math.subtractExact(budget.actualRecords(), beforeRows),
-                    Math.subtractExact(budget.actualBytes(), beforeBytes));
+            if (proof != null) {
+                proof.debitReads(
+                        Math.subtractExact(budget.actualRecords(), beforeRows),
+                        Math.subtractExact(budget.actualBytes(), beforeBytes));
+            }
         }
     }
 
-    private record Measured(Mutation mutation, int records, long bytes,
+    private record Measured(
+            Mutation mutation,
+            int records,
+            long bytes,
             com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerContext) {}
 
-    private Measured measure(final Mutation mutation,
-            final com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerContext) {
+    private Measured measure(
+            final Mutation mutation, final com.nereusstream.delay.runtime.TargetSloWriterOrigin.Context writerContext) {
         final var keys = new HashSet<String>();
         long bytes = 0;
         for (var edit : mutation.business()) {
-            if (edit.family == ColumnFamily.META && edit.key.length > 2
+            if (edit.family == ColumnFamily.META
+                    && edit.key.length > 2
                     && edit.key[0] == TargetKeyCodec.MIGRATION_ACTIVATION_ATTEMPT_TAG
-                    && (edit.before != null || edit.after == null || migrationCandidate == null
-                        || !mutation.quota().counters().mutation().migrationPreparation()))
-                throw new IllegalArgumentException("durable migration append intent requires its original typed maintenance purpose");
-            if (edit.family == ColumnFamily.META && edit.key.length > 2
+                    && (edit.before != null
+                            || edit.after == null
+                            || migrationCandidate == null
+                            || !mutation.quota().counters().mutation().migrationPreparation())) {
+                throw new IllegalArgumentException(
+                        "durable migration append intent requires its original typed maintenance purpose");
+            }
+            if (edit.family == ColumnFamily.META
+                    && edit.key.length > 2
                     && (edit.key[0] == TargetKeyCodec.MIGRATION_CUSTODY_GUARD_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_ORIGIN_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_PREFIX_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_ROOT_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_ACTIVATION_ATTEMPT_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_RETIREMENT_TAG
-                        || edit.key[0] == TargetKeyCodec.MIGRATION_ARCHIVE_TAG)
-                    && edit.after == null)
-                throw new IllegalArgumentException("normal Native/GC cannot delete migration root, origin, custody or prefix");
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_ORIGIN_TAG
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_PREFIX_TAG
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_ROOT_TAG
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_ACTIVATION_ATTEMPT_TAG
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_RETIREMENT_TAG
+                            || edit.key[0] == TargetKeyCodec.MIGRATION_ARCHIVE_TAG)
+                    && edit.after == null) {
+                throw new IllegalArgumentException(
+                        "normal Native/GC cannot delete migration root, origin, custody or prefix");
+            }
             if (edit.family == ColumnFamily.META && Arrays.equals(edit.key, KeyCodec.metaFixed(10))) {
                 final var stamp = mutation.quota().counters().mutation();
                 if (edit.before != null || edit.after == null || stamp.isLocalMutation() || stamp.sequence() != 1) {
@@ -1168,8 +1350,11 @@ public final class TargetStoreBackend {
         }
         int records = mutation.business().size();
         if (mutation.evidenceCursors() != null) {
-            bytes = Math.addExact(bytes, Math.addExact((long) KeyCodec.metaFixed(6).length,
-                    mutation.evidenceCursors().encodedAfter().length));
+            bytes = Math.addExact(
+                    bytes,
+                    Math.addExact(
+                            (long) KeyCodec.metaFixed(6).length,
+                            mutation.evidenceCursors().encodedAfter().length));
             records = Math.incrementExact(records);
         }
         if (mutation.ingressFence() != null) {
@@ -1236,65 +1421,76 @@ public final class TargetStoreBackend {
                 Objects.requireNonNull(authority.acquire(store.metadata(), scope, prepared.mutation), "guard")) {
             store.withReadView(prepared.view, () -> {
                 guard.requireCurrent();
-                store.write(batch -> {
-                    batch.requireReadView(prepared.view);
-                    guard.requireCurrent();
-                    for (var edit : prepared.mutation.business()) {
-                        if (edit.after == null) {
-                            batch.delete(edit.family, edit.key);
-                        } else {
-                            batch.put(edit.family, edit.key, edit.after);
-                        }
-                    }
-                    if (prepared.mutation.ingressFence() != null) {
-                        batch.putTargetIngressFence(
-                                prepared.mutation.ingressFence().after());
-                    }
-                    if (prepared.mutation.evidenceCursors() != null) {
-                        batch.putTargetEvidenceCursors(prepared.mutation.evidenceCursors().after());
-                    }
-                    final var quota = prepared.mutation.quota();
-                    for (var change : quota.counters().changes()) {
-                        batch.put(
-                                ColumnFamily.META,
-                                change.next().identity().key(),
-                                TargetValueEnvelope.encode(
-                                        TargetQuotaCounter.VALUE_TYPE,
-                                        change.next().canonicalBytes()));
-                    }
-                    for (var change : quota.changes()) {
-                        batch.put(
-                                ColumnFamily.META,
-                                change.next().key(),
-                                TargetValueEnvelope.encode(
-                                        TargetQuotaTotal.VALUE_TYPE,
-                                        change.next().canonicalBytes()));
-                    }
-                    final var aggregate = quota.counters().nextAggregate();
-                    batch.put(
-                            ColumnFamily.META,
-                            aggregate.key(),
-                            TargetValueEnvelope.encode(TargetQuotaAggregate.VALUE_TYPE, aggregate.canonicalBytes()));
-                    final var stamp = quota.counters().mutation();
-                    if (!stamp.isLocalMutation()) {
-                        batch.putValue(
-                                ColumnFamily.META,
-                                1,
-                                KeyCodec.metaFixed(3),
-                                stamp.source().canonicalBytes());
-                        batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
-                    }
-                }, nativeWrite);
+                store.write(
+                        batch -> {
+                            batch.requireReadView(prepared.view);
+                            guard.requireCurrent();
+                            for (var edit : prepared.mutation.business()) {
+                                if (edit.after == null) {
+                                    batch.delete(edit.family, edit.key);
+                                } else {
+                                    batch.put(edit.family, edit.key, edit.after);
+                                }
+                            }
+                            if (prepared.mutation.ingressFence() != null) {
+                                batch.putTargetIngressFence(
+                                        prepared.mutation.ingressFence().after());
+                            }
+                            if (prepared.mutation.evidenceCursors() != null) {
+                                batch.putTargetEvidenceCursors(
+                                        prepared.mutation.evidenceCursors().after());
+                            }
+                            final var quota = prepared.mutation.quota();
+                            for (var change : quota.counters().changes()) {
+                                batch.put(
+                                        ColumnFamily.META,
+                                        change.next().identity().key(),
+                                        TargetValueEnvelope.encode(
+                                                TargetQuotaCounter.VALUE_TYPE,
+                                                change.next().canonicalBytes()));
+                            }
+                            for (var change : quota.changes()) {
+                                batch.put(
+                                        ColumnFamily.META,
+                                        change.next().key(),
+                                        TargetValueEnvelope.encode(
+                                                TargetQuotaTotal.VALUE_TYPE,
+                                                change.next().canonicalBytes()));
+                            }
+                            final var aggregate = quota.counters().nextAggregate();
+                            batch.put(
+                                    ColumnFamily.META,
+                                    aggregate.key(),
+                                    TargetValueEnvelope.encode(
+                                            TargetQuotaAggregate.VALUE_TYPE, aggregate.canonicalBytes()));
+                            final var stamp = quota.counters().mutation();
+                            if (!stamp.isLocalMutation()) {
+                                batch.putValue(
+                                        ColumnFamily.META,
+                                        1,
+                                        KeyCodec.metaFixed(3),
+                                        stamp.source().canonicalBytes());
+                                batch.putValue(
+                                        ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(stamp.sequence()));
+                            }
+                        },
+                        nativeWrite);
                 writeCompleted.set(true);
                 if (origin != null) {
-                    try { origin.committed(prepared.mutation.business(), prepared.writerContext); }
-                    catch (RuntimeException | Error failure) { origin.invalidate(); throw failure; }
+                    try {
+                        origin.committed(prepared.mutation.business(), prepared.writerContext);
+                    } catch (RuntimeException | Error failure) {
+                        origin.invalidate();
+                        throw failure;
+                    }
                 }
                 invalidateChangedQueueHeads(changedQueueTargets);
                 return null;
             });
         } catch (RuntimeException | Error failure) {
-            if (!writeCompleted.get() && origin != null) origin.invalidate();
+            if (!writeCompleted.get() && origin != null) {
+                origin.invalidate();
+            }
             throw failure;
         } finally {
             if (writeCompleted.get() && hasBusinessChanges) {
@@ -1394,7 +1590,8 @@ public final class TargetStoreBackend {
                         return new TargetResultLedgerAudit.Stored(key, value.valueType(), value.payload());
                     },
                     authority,
-                    com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(store.get(ColumnFamily.META,
+                    com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(store.get(
+                            ColumnFamily.META,
                             com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard()))));
         });
         return new AuditedResults(this, read);
@@ -1477,7 +1674,9 @@ public final class TargetStoreBackend {
         if (key.length < 3 || key[1] != 1) {
             throw new IllegalArgumentException("invalid Target business key");
         }
-        if (family == ColumnFamily.META && Arrays.equals(key, KeyCodec.metaFixed(10))) { return 1; }
+        if (family == ColumnFamily.META && Arrays.equals(key, KeyCodec.metaFixed(10))) {
+            return 1;
+        }
         final int tag = Byte.toUnsignedInt(key[0]);
         final int type =
                 switch (family) {

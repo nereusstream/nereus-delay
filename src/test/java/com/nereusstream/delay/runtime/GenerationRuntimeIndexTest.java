@@ -234,8 +234,7 @@ class GenerationRuntimeIndexTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> GenerationRuntimeIndex.none(
-                        GenerationAggregateState.UNCERTAIN, obligations, 1, 1, false, 9));
+                () -> GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, obligations, 1, 1, false, 9));
     }
 
     @Test
@@ -248,13 +247,12 @@ class GenerationRuntimeIndexTest {
                     id, 0, AttemptLedgerState.UNCERTAIN, KeyCodec.inflight((byte) 3, sequence, id)));
         }
 
-        final GenerationRuntimeIndex bounded = GenerationRuntimeIndex.none(
-                GenerationAggregateState.UNCERTAIN, obligations, 2, 1, false, 9);
+        final GenerationRuntimeIndex bounded =
+                GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, obligations, 2, 1, false, 9);
         assertEquals(bounded, GenerationRuntimeIndex.decode(bounded.canonicalBytes()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> GenerationRuntimeIndex.none(
-                        GenerationAggregateState.UNCERTAIN, obligations, 2, 0, false, 9));
+                () -> GenerationRuntimeIndex.none(GenerationAggregateState.UNCERTAIN, obligations, 2, 0, false, 9));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> GenerationRuntimeIndex.none(

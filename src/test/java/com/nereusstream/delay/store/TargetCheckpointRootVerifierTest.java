@@ -95,9 +95,7 @@ class TargetCheckpointRootVerifierTest {
 
                 @Override
                 public byte[] projected(
-                        final ColumnFamily family,
-                        final byte[] key,
-                        final List<TargetStoreBackend.Edit> overlay) {
+                        final ColumnFamily family, final byte[] key, final List<TargetStoreBackend.Edit> overlay) {
                     if (!overlay.isEmpty()) {
                         throw new IllegalArgumentException("test audit cannot use an overlay");
                     }
@@ -105,89 +103,175 @@ class TargetCheckpointRootVerifierTest {
                 }
             };
             store.write(batch -> {
-                batch.put(ColumnFamily.META, state.encodedKey(),
+                batch.put(
+                        ColumnFamily.META,
+                        state.encodedKey(),
                         TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, state.canonicalBytes()));
-                batch.put(ColumnFamily.ID, message.encodedKey(),
+                batch.put(
+                        ColumnFamily.ID,
+                        message.encodedKey(),
                         TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, message.canonicalBytes()));
-                batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+                batch.put(
+                        ColumnFamily.TIMELINE,
+                        state.serviceableHead().key(),
                         TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes()));
             });
             TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view);
 
-            store.write(batch -> batch.delete(ColumnFamily.TIMELINE, state.serviceableHead().key()));
-            assertTrue(assertThrows(IllegalStateException.class,
-                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view))
-                    .getMessage().contains("lacks its serviceable head"));
-            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+            store.write(batch ->
+                    batch.delete(ColumnFamily.TIMELINE, state.serviceableHead().key()));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view))
+                    .getMessage()
+                    .contains("lacks its serviceable head"));
+            store.write(batch -> batch.put(
+                    ColumnFamily.TIMELINE,
+                    state.serviceableHead().key(),
                     TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes())));
             TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view);
-            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
-                    TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE,
+            store.write(batch -> batch.put(
+                    ColumnFamily.TIMELINE,
+                    state.serviceableHead().key(),
+                    TargetValueEnvelope.encode(
+                            TargetTimelineWorkRef.VALUE_TYPE,
                             work.withRuntimeRevision(work.runtimeRevision() + 1).canonicalBytes())));
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(
+                    IllegalArgumentException.class,
                     () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(state, view));
-            store.write(batch -> batch.put(ColumnFamily.TIMELINE, state.serviceableHead().key(),
+            store.write(batch -> batch.put(
+                    ColumnFamily.TIMELINE,
+                    state.serviceableHead().key(),
                     TargetValueEnvelope.encode(TargetTimelineWorkRef.VALUE_TYPE, work.canonicalBytes())));
 
             store.write(batch -> {
-                batch.put(ColumnFamily.META, barrier.encodedKey(),
+                batch.put(
+                        ColumnFamily.META,
+                        barrier.encodedKey(),
                         TargetValueEnvelope.encode(TargetOrderState.VALUE_TYPE, barrier.canonicalBytes()));
-                batch.put(ColumnFamily.ID, claimed.encodedKey(),
+                batch.put(
+                        ColumnFamily.ID,
+                        claimed.encodedKey(),
                         TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, claimed.canonicalBytes()));
             });
             TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view);
-            store.write(batch -> batch.put(ColumnFamily.ID, claimed.encodedKey(),
+            store.write(batch -> batch.put(
+                    ColumnFamily.ID,
+                    claimed.encodedKey(),
                     TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, message.canonicalBytes())));
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(
+                    IllegalArgumentException.class,
                     () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view));
-            store.write(batch -> batch.put(ColumnFamily.ID, claimed.encodedKey(),
+            store.write(batch -> batch.put(
+                    ColumnFamily.ID,
+                    claimed.encodedKey(),
                     TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, claimed.canonicalBytes())));
             store.write(batch -> batch.delete(ColumnFamily.ID, claimed.encodedKey()));
-            assertTrue(assertThrows(IllegalStateException.class,
-                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view))
-                    .getMessage().contains("lacks its referenced Message"));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(barrier, view))
+                    .getMessage()
+                    .contains("lacks its referenced Message"));
             final var terminalMessage = TargetMessageRecord.decode(vector("order.message.terminal"));
             final var terminalState = TargetOrderState.decode(vector("order.terminal"));
             final var old = terminalMessage.locator();
-            final var nextLocator = new TargetMessageLocator(old.messageId(), old.generation() + 1,
-                    old.target(), old.domain(), old.accountingIncarnation(), old.orderingMode(),
-                    old.orderingDomain(), old.scheduleBindingDigest());
-            final var nextWork = new TargetTimelineWorkRef(nextLocator, TimelineWorkKind.INITIAL_SCHEDULE,
-                    message.deliverAtEpochMs(), message.deliverAtEpochMs(), message.scheduleSource().sourceOrderToken(),
-                    1, 1, UncertainRetryAuthority.NONE, null, null, false);
-            final var nextMessage = new TargetMessageRecord(nextLocator, terminalMessage.stateVersion() + 1,
-                    message.deliverAtEpochMs(), message.expireAtEpochMs(), message.retryEligibilityAtEpochMs(),
-                    message.nativeDeliveryPolicy(), message.scheduleSource(), message.inlinePayload(),
-                    message.payloadReference(), new TargetGenerationRuntimeIndex(nextLocator.generation(),
-                            GenerationAggregateState.SCHEDULED, CurrentSendWorkKind.TIMELINE, nextWork,
-                            null, null, List.of(), 0, 0, false, 1));
-            final var terminal = new TargetTerminalGenerationRecord(old, terminalMessage.stateVersion(),
-                    StableCode.ALREADY_EXPIRED, terminalMessage.runtime(),
-                    new TargetQuotaMutation(1, message.scheduleSource(), terminalMessage.runtime().runtimeDigest()),
+            final var nextLocator = new TargetMessageLocator(
+                    old.messageId(),
+                    old.generation() + 1,
+                    old.target(),
+                    old.domain(),
+                    old.accountingIncarnation(),
+                    old.orderingMode(),
+                    old.orderingDomain(),
+                    old.scheduleBindingDigest());
+            final var nextWork = new TargetTimelineWorkRef(
+                    nextLocator,
+                    TimelineWorkKind.INITIAL_SCHEDULE,
+                    message.deliverAtEpochMs(),
+                    message.deliverAtEpochMs(),
+                    message.scheduleSource().sourceOrderToken(),
+                    1,
+                    1,
+                    UncertainRetryAuthority.NONE,
+                    null,
+                    null,
+                    false);
+            final var nextMessage = new TargetMessageRecord(
+                    nextLocator,
+                    terminalMessage.stateVersion() + 1,
+                    message.deliverAtEpochMs(),
+                    message.expireAtEpochMs(),
+                    message.retryEligibilityAtEpochMs(),
+                    message.nativeDeliveryPolicy(),
+                    message.scheduleSource(),
+                    message.inlinePayload(),
+                    message.payloadReference(),
+                    new TargetGenerationRuntimeIndex(
+                            nextLocator.generation(),
+                            GenerationAggregateState.SCHEDULED,
+                            CurrentSendWorkKind.TIMELINE,
+                            nextWork,
+                            null,
+                            null,
+                            List.of(),
+                            0,
+                            0,
+                            false,
+                            1));
+            final var terminal = new TargetTerminalGenerationRecord(
+                    old,
+                    terminalMessage.stateVersion(),
+                    StableCode.ALREADY_EXPIRED,
+                    terminalMessage.runtime(),
+                    new TargetQuotaMutation(
+                            1,
+                            message.scheduleSource(),
+                            terminalMessage.runtime().runtimeDigest()),
                     HexFormat.of().parseHex("01".repeat(16)));
             store.write(batch -> {
-                batch.put(ColumnFamily.ID, nextMessage.encodedKey(),
+                batch.put(
+                        ColumnFamily.ID,
+                        nextMessage.encodedKey(),
                         TargetValueEnvelope.encode(TargetMessageRecord.VALUE_TYPE, nextMessage.canonicalBytes()));
-                batch.put(ColumnFamily.TERMINAL, terminal.key(),
+                batch.put(
+                        ColumnFamily.TERMINAL,
+                        terminal.key(),
                         TargetValueEnvelope.encode(
                                 TargetTerminalGenerationRecord.VALUE_TYPE, terminal.canonicalBytes()));
             });
             TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view);
             store.write(batch -> batch.delete(ColumnFamily.TERMINAL, terminal.key()));
-            assertTrue(assertThrows(IllegalStateException.class,
-                    () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view))
-                    .getMessage().contains("historical barrier lacks its terminal summary"));
+            assertTrue(assertThrows(
+                            IllegalStateException.class,
+                            () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view))
+                    .getMessage()
+                    .contains("historical barrier lacks its terminal summary"));
             final var oldRuntime = terminal.runtime();
-            final var wrongRuntime = new TargetGenerationRuntimeIndex(oldRuntime.generation(),
-                    oldRuntime.aggregateState(), oldRuntime.currentWorkKind(), null, null, null,
-                    oldRuntime.attemptObligations(), oldRuntime.admissionsUsed(),
+            final var wrongRuntime = new TargetGenerationRuntimeIndex(
+                    oldRuntime.generation(),
+                    oldRuntime.aggregateState(),
+                    oldRuntime.currentWorkKind(),
+                    null,
+                    null,
+                    null,
+                    oldRuntime.attemptObligations(),
+                    oldRuntime.admissionsUsed(),
                     oldRuntime.uncertainRetryAdmissionsUsed(),
-                    oldRuntime.possibleDestinationDuplicate(), oldRuntime.runtimeRevision() + 1);
-            final var wrong = new TargetTerminalGenerationRecord(old, terminal.stateVersion(), terminal.terminalCode(),
-                    wrongRuntime, terminal.mutation(), terminal.recoveryLineage());
-            store.write(batch -> batch.put(ColumnFamily.TERMINAL, wrong.key(),
+                    oldRuntime.possibleDestinationDuplicate(),
+                    oldRuntime.runtimeRevision() + 1);
+            final var wrong = new TargetTerminalGenerationRecord(
+                    old,
+                    terminal.stateVersion(),
+                    terminal.terminalCode(),
+                    wrongRuntime,
+                    terminal.mutation(),
+                    terminal.recoveryLineage());
+            store.write(batch -> batch.put(
+                    ColumnFamily.TERMINAL,
+                    wrong.key(),
                     TargetValueEnvelope.encode(TargetTerminalGenerationRecord.VALUE_TYPE, wrong.canonicalBytes())));
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(
+                    IllegalArgumentException.class,
                     () -> TargetCheckpointLedgerAudit.auditOrderStateDependencies(terminalState, view));
         }
     }
@@ -203,10 +287,10 @@ class TargetCheckpointRootVerifierTest {
 
         assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
                 List.of(admitted), List.of(publishing, publishing)));
-        assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
-                List.of(unknown), List.of(uncertain)));
-        assertDoesNotThrow(() -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(
-                List.of(resolved), List.of()));
+        assertDoesNotThrow(
+                () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(List.of(unknown), List.of(uncertain)));
+        assertDoesNotThrow(
+                () -> TargetCheckpointLedgerAudit.auditAttemptBudgetReferences(List.of(resolved), List.of()));
 
         assertTrue(assertThrows(
                         IllegalStateException.class,
@@ -247,7 +331,8 @@ class TargetCheckpointRootVerifierTest {
             final TargetQuotaAttemptBudget budget, final AttemptLedgerState state, final long runtimeRevision) {
         final byte[] attemptId = budget.publishAttemptId();
         final byte[] key = KeyCodec.inflight((byte) (state == AttemptLedgerState.PUBLISHING ? 2 : 3), 1, attemptId);
-        final var reference = new AttemptObligationRef(attemptId, budget.locator().generation(), state, key);
+        final var reference =
+                new AttemptObligationRef(attemptId, budget.locator().generation(), state, key);
         final boolean publishing = state == AttemptLedgerState.PUBLISHING;
         final var runtime = new TargetGenerationRuntimeIndex(
                 budget.locator().generation(),
@@ -266,8 +351,8 @@ class TargetCheckpointRootVerifierTest {
 
     private static byte[] vector(final String key) throws Exception {
         final var properties = new Properties();
-        final var resource = TargetCheckpointRootVerifierTest.class
-                .getResourceAsStream("/ndip3/target-identity-vectors.properties");
+        final var resource =
+                TargetCheckpointRootVerifierTest.class.getResourceAsStream("/ndip3/target-identity-vectors.properties");
         try (var stream = Objects.requireNonNull(resource)) {
             properties.load(stream);
         }
@@ -276,8 +361,8 @@ class TargetCheckpointRootVerifierTest {
 
     private static byte[] quotaVector(final String key) throws Exception {
         final var properties = new Properties();
-        final var resource = TargetCheckpointRootVerifierTest.class
-                .getResourceAsStream("/ndip3/target-quota-accounting-vectors.properties");
+        final var resource = TargetCheckpointRootVerifierTest.class.getResourceAsStream(
+                "/ndip3/target-quota-accounting-vectors.properties");
         try (var stream = Objects.requireNonNull(resource)) {
             properties.load(stream);
         }

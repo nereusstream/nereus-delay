@@ -17,10 +17,8 @@ import java.util.List;
 public final class AttemptObligationRef {
     public static final int HASH_LENGTH = 32;
     private static final int INFLIGHT_KEY_LENGTH = 2 + 8 + 4 + HASH_LENGTH;
-    static final int MAX_CANONICAL_BYTES = 3 * (1 + 1 + HASH_LENGTH)
-            + (1 + 5)
-            + (1 + 1)
-            + (1 + 1 + INFLIGHT_KEY_LENGTH);
+    static final int MAX_CANONICAL_BYTES =
+            3 * (1 + 1 + HASH_LENGTH) + (1 + 5) + (1 + 1) + (1 + 1 + INFLIGHT_KEY_LENGTH);
 
     private final byte[] publishAttemptId;
     private final int generation;

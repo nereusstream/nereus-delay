@@ -180,8 +180,8 @@ class TargetSourceAccountingTest {
         final TargetQuotaAttemptBudget attemptBudget;
         try (var resources = new SharedRocksDbResources(config);
                 var store = ShardStore.openTarget(config, scope.shard(), resources)) {
-            final var mutation = new TargetQuotaMutation(
-                    store.shardMutationSequence() + 1, budgetSource, admissionDigest);
+            final var mutation =
+                    new TargetQuotaMutation(store.shardMutationSequence() + 1, budgetSource, admissionDigest);
             final var locator = new TargetMessageLocator(
                     new DelayMessageId(SelfRoutingId.fromLogicalUuid(
                                     scope.shard(), UUID.fromString("00000000-0064-7000-8000-000000000099"))
@@ -212,14 +212,8 @@ class TargetSourceAccountingTest {
                     shard.identity().accountingIncarnation(),
                     shard.recoveryLineage(),
                     new TargetStoreBackend.WriteLimits(64, 1 << 20));
-            final var next = new TargetSourceAccounting(
-                    scope,
-                    shard.recoveryLineage(),
-                    budgetSource,
-                    admissionDigest,
-                    16,
-                    4,
-                    1);
+            final var next =
+                    new TargetSourceAccounting(scope, shard.recoveryLineage(), budgetSource, admissionDigest, 16, 4, 1);
             backend.commit(
                     backend.prepare(
                             budget(),

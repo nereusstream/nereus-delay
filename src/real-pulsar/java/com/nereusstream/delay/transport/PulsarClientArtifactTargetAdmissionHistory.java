@@ -32,136 +32,248 @@ import org.apache.pulsar.client.impl.MessageIdImpl;
 /** P1 exact history read on an owned non-durable cursor; active Worker subscriptions and ACK state are untouched. */
 public final class PulsarClientArtifactTargetAdmissionHistory {
     public static final int MAX_FRAME_BYTES = 2 * TargetPublishAdmissionBody.MAX_MATERIALIZED_BYTES + 2048;
-    public static final int MAX_CONTROL_FRAME_BYTES = 1024 + Math.max(
-            Math.max(TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES, TargetMembershipControlBody.MAX_CANONICAL_BYTES),
-            Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
+    public static final int MAX_CONTROL_FRAME_BYTES = 1024
+            + Math.max(
+                    Math.max(
+                            TargetQuotaGrantControlBody.MAX_CANONICAL_BYTES,
+                            TargetMembershipControlBody.MAX_CANONICAL_BYTES),
+                    Math.max(TargetNativePolicyControlBody.MAX_CANONICAL_BYTES, TargetCloseBody.MAX_CANONICAL_BYTES));
 
     private PulsarClientArtifactTargetAdmissionHistory() {}
 
-    public static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+    public static SystemMutation readVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_FRAME_BYTES, reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                MAX_FRAME_BYTES,
+                reference::requireImage);
     }
-    public static SystemMutation readControlVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readControlVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetCheckpointDependencies.ControlReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_CONTROL_FRAME_BYTES, reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                MAX_CONTROL_FRAME_BYTES,
+                reference::requireImage);
     }
-    public static SystemMutation readOutcomeVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readOutcomeVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetCheckpointDependencies.OutcomeReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time, MAX_FRAME_BYTES, reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                MAX_FRAME_BYTES,
+                reference::requireImage);
     }
 
     /** Uses the actual Worker's frame contract, including Control kinds larger than the historical default. */
-    public static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetPublishRecoveryDiscovery.Reference reference, Duration timeout, Runnable historyGuard,
+    public static SystemMutation readVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             int maximumSourceFrameBytes) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
-                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
-    public static SystemMutation readControlVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetCheckpointDependencies.ControlReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readControlVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetCheckpointDependencies.ControlReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             int maximumSourceFrameBytes) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
-                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
-    public static SystemMutation readOutcomeVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            TargetCheckpointDependencies.OutcomeReference reference, Duration timeout, Runnable historyGuard,
+
+    public static SystemMutation readOutcomeVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            TargetCheckpointDependencies.OutcomeReference reference,
+            Duration timeout,
+            Runnable historyGuard,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
             java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
             int maximumSourceFrameBytes) {
-        return readVerified(group, resource, reference.source(), timeout, historyGuard, credential, time,
-                requireFrameBound(maximumSourceFrameBytes), reference::requireImage);
+        return readVerified(
+                group,
+                resource,
+                reference.source(),
+                timeout,
+                historyGuard,
+                credential,
+                time,
+                requireFrameBound(maximumSourceFrameBytes),
+                reference::requireImage);
     }
+
     private static int requireFrameBound(int frameBytes) {
-        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE)
+        if (frameBytes <= 0 || frameBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("history requires the finite declared Source frame bound");
+        }
         return frameBytes;
     }
-    private static SystemMutation readVerified(PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
-            SourcePosition source, Duration timeout, Runnable originalProtection,
+
+    private static SystemMutation readVerified(
+            PulsarClientArtifactOwnedBackendGroup group,
+            TopicResourceGuard resource,
+            SourcePosition source,
+            Duration timeout,
+            Runnable originalProtection,
             com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
-            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time, int frameBytes,
-            java.util.function.BiFunction<SystemMutation,SourcePosition,SystemMutation> image) {
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            int frameBytes,
+            java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> image) {
         group.requireSourceReadResource(credential, resource);
         final var role = com.nereusstream.delay.ownership.SourceTransportCredentialAuthorization.Operation.HISTORY;
         final String name = credential.authorization().newReaderName(role);
-        final var guard = credential.guardRead(role, source, credential.authorization().physicalTopic(), name, time, originalProtection);
+        final var guard = credential.guardRead(
+                role, source, credential.authorization().physicalTopic(), name, time, originalProtection);
         return read(group.nativeClientForFactory(), resource, source, timeout, guard, frameBytes, image, name);
     }
 
     /** History retention, credential and Owner authority remain mandatory; this reader grants no SEND or GC. */
     public static SystemMutation read(
-            final PulsarClient client, final TopicResourceGuard resource,
-            final TargetPublishRecoveryDiscovery.Reference reference, final Duration timeout,
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetPublishRecoveryDiscovery.Reference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
         return read(client, resource, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
     }
 
     /** Exact original Control history on an owned cursor; this does not authenticate the Control issuer. */
-    public static SystemMutation readControl(final PulsarClient client, final TopicResourceGuard resource,
-            final TargetCheckpointDependencies.ControlReference reference, final Duration timeout,
+    public static SystemMutation readControl(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.ControlReference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
         return read(client, resource, ref.source(), timeout, historyGuard, MAX_CONTROL_FRAME_BYTES, ref::requireImage);
     }
 
     /** Caller owns a bounded executor and operation/pin obligations; cancellation is not native-cursor cleanup. */
-    public static java.util.concurrent.CompletableFuture<SystemMutation> readControlAsync(final PulsarClient client,
-            final TopicResourceGuard resource, final TargetCheckpointDependencies.ControlReference reference,
-            final Duration timeout, final Runnable historyGuard,
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readControlAsync(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.ControlReference reference,
+            final Duration timeout,
+            final Runnable historyGuard,
             final java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(client, "client");
         Objects.requireNonNull(resource, "resource");
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) ->
-                readControl(client, resource, ref, remaining, active));
+        return readAsync(
+                timeout, guard, executor, (remaining, active) -> readControl(client, resource, ref, remaining, active));
     }
 
     /** Exact original Outcome history, including rejected first results, on an independent no-ACK cursor. */
-    public static SystemMutation readOutcome(final PulsarClient client, final TopicResourceGuard resource,
-            final TargetCheckpointDependencies.OutcomeReference reference, final Duration timeout,
+    public static SystemMutation readOutcome(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.OutcomeReference reference,
+            final Duration timeout,
             final Runnable historyGuard) {
         final var ref = Objects.requireNonNull(reference, "reference");
         return read(client, resource, ref.source(), timeout, historyGuard, MAX_FRAME_BYTES, ref::requireImage);
     }
 
     /** Caller owns a bounded executor and operation/pin obligations; cancellation is not native-cursor cleanup. */
-    public static java.util.concurrent.CompletableFuture<SystemMutation> readOutcomeAsync(final PulsarClient client,
-            final TopicResourceGuard resource, final TargetCheckpointDependencies.OutcomeReference reference,
-            final Duration timeout, final Runnable historyGuard,
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readOutcomeAsync(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final TargetCheckpointDependencies.OutcomeReference reference,
+            final Duration timeout,
+            final Runnable historyGuard,
             final java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(client, "client");
         Objects.requireNonNull(resource, "resource");
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) ->
-                readOutcome(client, resource, ref, remaining, active));
+        return readAsync(
+                timeout, guard, executor, (remaining, active) -> readOutcome(client, resource, ref, remaining, active));
     }
 
     /** Bounded original Admission read; caller owns the executor and all history/cleanup obligations. */
-    public static java.util.concurrent.CompletableFuture<SystemMutation> readAdmissionAsync(PulsarClient client,
-            TopicResourceGuard resource, TargetPublishRecoveryDiscovery.Reference reference, Duration timeout,
-            Runnable historyGuard, java.util.concurrent.ThreadPoolExecutor executor) {
+    public static java.util.concurrent.CompletableFuture<SystemMutation> readAdmissionAsync(
+            PulsarClient client,
+            TopicResourceGuard resource,
+            TargetPublishRecoveryDiscovery.Reference reference,
+            Duration timeout,
+            Runnable historyGuard,
+            java.util.concurrent.ThreadPoolExecutor executor) {
         Objects.requireNonNull(client, "client");
         Objects.requireNonNull(resource, "resource");
         final var ref = Objects.requireNonNull(reference, "reference");
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
-        return readAsync(timeout, guard, executor, (remaining, active) -> read(client, resource, ref, remaining, active));
+        return readAsync(
+                timeout, guard, executor, (remaining, active) -> read(client, resource, ref, remaining, active));
     }
 
-    private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(Duration timeout, Runnable guard,
+    private static java.util.concurrent.CompletableFuture<SystemMutation> readAsync(
+            Duration timeout,
+            Runnable guard,
             java.util.concurrent.ThreadPoolExecutor executor,
             java.util.function.BiFunction<Duration, Runnable, SystemMutation> operation) {
         final var pool = Objects.requireNonNull(executor, "executor");
@@ -182,22 +294,43 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             guard.run();
             remainingMs(started, timeoutNanos);
         };
-        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(active -> {
-            final long remaining = timeoutNanos - (System.nanoTime() - started);
-            return operation.apply(Duration.ofNanos(remaining), active);
-        }, boundedGuard, pool).receipt();
+        return com.nereusstream.delay.ownership.OwnedCheckpointIo.submit(
+                        active -> {
+                            final long remaining = timeoutNanos - (System.nanoTime() - started);
+                            return operation.apply(Duration.ofNanos(remaining), active);
+                        },
+                        boundedGuard,
+                        pool)
+                .receipt();
     }
 
-    private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
-            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
+    private static SystemMutation read(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final SourcePosition expectedSource,
+            final Duration timeout,
+            final Runnable historyGuard,
             final int maximumFrameBytes,
             final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage) {
-        return read(client, resource, expectedSource, timeout, historyGuard, maximumFrameBytes, requireImage,
+        return read(
+                client,
+                resource,
+                expectedSource,
+                timeout,
+                historyGuard,
+                maximumFrameBytes,
+                requireImage,
                 "nereus-target-admission-history-" + UUID.randomUUID());
     }
-    private static SystemMutation read(final PulsarClient client, final TopicResourceGuard resource,
-            final SourcePosition expectedSource, final Duration timeout, final Runnable historyGuard,
-            final int maximumFrameBytes, final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage,
+
+    private static SystemMutation read(
+            final PulsarClient client,
+            final TopicResourceGuard resource,
+            final SourcePosition expectedSource,
+            final Duration timeout,
+            final Runnable historyGuard,
+            final int maximumFrameBytes,
+            final java.util.function.BiFunction<SystemMutation, SourcePosition, SystemMutation> requireImage,
             final String subscription) {
         final var guard = Objects.requireNonNull(historyGuard, "historyGuard");
         if (!(expectedSource instanceof PulsarSourcePosition expected)
@@ -211,7 +344,8 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         final long timeoutNanos = Math.multiplyExact(timeoutMs, 1_000_000L);
         final long started = System.nanoTime();
         guard.run();
-        final var builder = Objects.requireNonNull(client, "client").newConsumer(Schema.BYTES)
+        final var builder = Objects.requireNonNull(client, "client")
+                .newConsumer(Schema.BYTES)
                 .topic(expected.physicalTopic())
                 .subscriptionName(subscription)
                 .subscriptionType(SubscriptionType.Exclusive)
@@ -224,20 +358,31 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         final var backend = PulsarClientArtifactOwnedBackendGroup.find(client);
         final var opening = new java.util.concurrent.CompletableFuture<Consumer<byte[]>>();
         final var reading = new java.util.concurrent.atomic.AtomicBoolean(true);
-        final var cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(opening,
-                PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
-        if (backend != null) { backend.registerCleanup(cleanup, () -> !reading.get() && cleanup.operationExited(), cleanup::cleanupComplete, proof -> {
-            proof.requireClient(client); cleanup.requestClose(); cleanup.backendShutdownCompleted(backend);
-        }); }
+        final var cleanup = new com.nereusstream.delay.ownership.OwnedSourceCursor<>(
+                opening, PulsarClientArtifactOwnedBackendGroup::closeConsumer, backend);
+        if (backend != null) {
+            backend.registerCleanup(
+                    cleanup, () -> !reading.get() && cleanup.operationExited(), cleanup::cleanupComplete, proof -> {
+                        proof.requireClient(client);
+                        cleanup.requestClose();
+                        cleanup.backendShutdownCompleted(backend);
+                    });
+        }
         Consumer<byte[]> nativeConsumer = null;
         Throwable failure = null;
         try {
             try {
                 PulsarClientArtifactOwnedBackendGroup.subscribe(client, builder).whenComplete((value, failed) -> {
-                    if (failed == null) { opening.complete(value); }
-                    else { opening.completeExceptionally(failed); }
+                    if (failed == null) {
+                        opening.complete(value);
+                    } else {
+                        opening.completeExceptionally(failed);
+                    }
                 });
-            } catch (RuntimeException | Error failed) { opening.completeExceptionally(failed); throw failed; }
+            } catch (RuntimeException | Error failed) {
+                opening.completeExceptionally(failed);
+                throw failed;
+            }
             nativeConsumer = opening.get(remainingMs(started, timeoutNanos), TimeUnit.MILLISECONDS);
             if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
                 throw new IllegalStateException("P1 history requires the guarded source proof API");
@@ -246,24 +391,34 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             final GuardedConsumer<byte[]> consumer = (GuardedConsumer<byte[]>) nativeConsumer;
             guard.run();
             consumer.seekAsync(messageId(expected)).get(remainingMs(started, timeoutNanos), TimeUnit.MILLISECONDS);
-            final var before = PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(consumer,
-                    resource, expected.physicalTopic(), expected.shardId().partition(),
+            final var before = PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
+                    consumer,
+                    resource,
+                    expected.physicalTopic(),
+                    expected.shardId().partition(),
                     Duration.ofMillis(remainingMs(started, timeoutNanos)));
             guard.run();
-            final var message = consumer.receive(Math.toIntExact(remainingMs(started, timeoutNanos)),
-                    TimeUnit.MILLISECONDS);
+            final var message =
+                    consumer.receive(Math.toIntExact(remainingMs(started, timeoutNanos)), TimeUnit.MILLISECONDS);
             if (message == null || message.getData() == null || message.getData().length > maximumFrameBytes) {
                 throw new IllegalStateException("P1 history lacks the exact bounded retained Source record");
             }
-            final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(consumer,
-                    resource, expected.physicalTopic(), expected.shardId().partition());
+            final var after = PulsarClientArtifactRecoverySourcePositioner.requireCurrentProof(
+                    consumer,
+                    resource,
+                    expected.physicalTopic(),
+                    expected.shardId().partition());
             if (before.connectionGeneration() != after.connectionGeneration()
                     || !Bytes.constantTimeEquals(before.attestationDigest(), after.attestationDigest())) {
                 throw new IllegalStateException("P1 history guard proof changed during receive");
             }
-            final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(message,
-                    expected.shardId(), expected.physicalTopic(), after.attestation(),
-                    after.connectionGeneration(), after.attestationDigest());
+            final var decoded = PulsarClientArtifactSourceRecordConsumer.decodeTargetReplayRecord(
+                    message,
+                    expected.shardId(),
+                    expected.physicalTopic(),
+                    after.attestation(),
+                    after.connectionGeneration(),
+                    after.attestationDigest());
             if (!(decoded instanceof SourceReplayMutation mutation)) {
                 throw new IllegalStateException("P1 Target Source history returned a Command");
             }
@@ -282,14 +437,19 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
             throw fatal;
         } finally {
             reading.set(false);
-            if (backend != null) { backend.cleanupProgress(); }
+            if (backend != null) {
+                backend.cleanupProgress();
+            }
             try {
                 cleanup.requestClose().get(timeoutMs, TimeUnit.MILLISECONDS);
             } catch (Exception unconfirmed) {
-                if (unconfirmed instanceof InterruptedException) { Thread.currentThread().interrupt(); }
-                final var retained = new CleanupFailure(cleanup, client,
-                        failure == null ? unconfirmed : failure);
-                if (failure != null && unconfirmed != failure) { retained.addSuppressed(unconfirmed); }
+                if (unconfirmed instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                final var retained = new CleanupFailure(cleanup, client, failure == null ? unconfirmed : failure);
+                if (failure != null && unconfirmed != failure) {
+                    retained.addSuppressed(unconfirmed);
+                }
                 throw retained;
             }
         }
@@ -302,19 +462,29 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
         private final transient com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup;
         private final transient PulsarClient client;
 
-        private CleanupFailure(com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup,
-                PulsarClient client, Throwable failure) {
+        private CleanupFailure(
+                com.nereusstream.delay.ownership.OwnedSourceCursor<?> cleanup, PulsarClient client, Throwable failure) {
             super("P1 Source history cleanup is not confirmed", failure);
             this.cleanup = cleanup;
             this.client = client;
         }
 
-        public boolean cleanupComplete() { return cleanup.cleanupComplete(); }
-        public Throwable cleanupFailure() { return cleanup.cleanupFailure(); }
-        public java.util.concurrent.CompletableFuture<Void> retryClose() { return cleanup.retryClose(); }
+        public boolean cleanupComplete() {
+            return cleanup.cleanupComplete();
+        }
+
+        public Throwable cleanupFailure() {
+            return cleanup.cleanupFailure();
+        }
+
+        public java.util.concurrent.CompletableFuture<Void> retryClose() {
+            return cleanup.retryClose();
+        }
 
         @Override
-        public java.util.concurrent.CompletableFuture<Void> retryCleanup() { return retryClose(); }
+        public java.util.concurrent.CompletableFuture<Void> retryCleanup() {
+            return retryClose();
+        }
 
         /** Explicit original-client backend-owner shutdown only; never automatic shared-client timeout cleanup. */
         public java.util.concurrent.CompletableFuture<Void> closeClientBackendAfterFailedOpen() {
@@ -322,8 +492,10 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
                 throw new IllegalStateException("history operation has no failed-open backend shutdown obligation");
             }
             final var owner = PulsarClientArtifactOwnedBackendGroup.find(client);
-            if (owner == null) { return java.util.concurrent.CompletableFuture.failedFuture(
-                    new IllegalStateException("P1 history client is borrowed")); }
+            if (owner == null) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                        new IllegalStateException("P1 history client is borrowed"));
+            }
             return owner.requestHostQuarantine();
         }
     }
@@ -338,10 +510,9 @@ public final class PulsarClientArtifactTargetAdmissionHistory {
 
     private static MessageId messageId(PulsarSourcePosition source) {
         if (source.entryKind() == PulsarSourcePosition.EntryKind.BATCH) {
-            return new BatchMessageIdImpl(source.ledgerId(), source.entryId(), -1,
-                    source.normalizedBatchIndex(), source.batchSize(), null);
+            return new BatchMessageIdImpl(
+                    source.ledgerId(), source.entryId(), -1, source.normalizedBatchIndex(), source.batchSize(), null);
         }
         return new MessageIdImpl(source.ledgerId(), source.entryId(), -1);
     }
-
 }

@@ -39,11 +39,15 @@ public final class TargetPublishAdmissionVerifier {
     @FunctionalInterface
     public interface MaterializationAuthority {
         void requireAuthorized(TargetPublishAdmissionBody body, SourcePosition source);
+
         default void requirePrepared(SystemMutation image) {
             throw new IllegalStateException("K2 Admission lacks its original durable prepared publication binding");
         }
-        default TargetKafkaReceiptExternalEvidence externalEvidence(TargetPublishAdmissionBody body, SourcePosition source) {
-            throw new IllegalStateException("K2 Admission has no authenticated durable external evidence materialization");
+
+        default TargetKafkaReceiptExternalEvidence externalEvidence(
+                TargetPublishAdmissionBody body, SourcePosition source) {
+            throw new IllegalStateException(
+                    "K2 Admission has no authenticated durable external evidence materialization");
         }
     }
 
@@ -57,12 +61,24 @@ public final class TargetPublishAdmissionVerifier {
             MaterializationAuthority materialization,
             com.nereusstream.delay.semantic.TargetNativePolicyAuthority nativePolicies) {
         public Authorization(
-                PublicKey writerKey, ProtocolTuple activatedTuple, long maximumDecisionWidthMs,
-                long maximumBrokerTimestampDivergenceMs, long maximumMutationEnqueueAgeMs,
-                DecisionTimeAuthority decisionTime, MaterializationAuthority materialization) {
-            this(writerKey, activatedTuple, maximumDecisionWidthMs, maximumBrokerTimestampDivergenceMs,
-                    maximumMutationEnqueueAgeMs, decisionTime, materialization, null);
+                PublicKey writerKey,
+                ProtocolTuple activatedTuple,
+                long maximumDecisionWidthMs,
+                long maximumBrokerTimestampDivergenceMs,
+                long maximumMutationEnqueueAgeMs,
+                DecisionTimeAuthority decisionTime,
+                MaterializationAuthority materialization) {
+            this(
+                    writerKey,
+                    activatedTuple,
+                    maximumDecisionWidthMs,
+                    maximumBrokerTimestampDivergenceMs,
+                    maximumMutationEnqueueAgeMs,
+                    decisionTime,
+                    materialization,
+                    null);
         }
+
         public Authorization(
                 PublicKey writerKey,
                 ProtocolTuple activatedTuple,
@@ -70,8 +86,14 @@ public final class TargetPublishAdmissionVerifier {
                 long maximumBrokerTimestampDivergenceMs,
                 long maximumMutationEnqueueAgeMs,
                 DecisionTimeAuthority decisionTime) {
-            this(writerKey, activatedTuple, maximumDecisionWidthMs, maximumBrokerTimestampDivergenceMs,
-                    maximumMutationEnqueueAgeMs, decisionTime, null);
+            this(
+                    writerKey,
+                    activatedTuple,
+                    maximumDecisionWidthMs,
+                    maximumBrokerTimestampDivergenceMs,
+                    maximumMutationEnqueueAgeMs,
+                    decisionTime,
+                    null);
         }
 
         public Authorization {
@@ -86,8 +108,7 @@ public final class TargetPublishAdmissionVerifier {
         }
     }
 
-    public record Decision(
-            TargetPublishAdmissionBody body, StableCode rejection, Authorization authorization) {
+    public record Decision(TargetPublishAdmissionBody body, StableCode rejection, Authorization authorization) {
         public Decision {
             if ((body == null) == (rejection == null)) {
                 throw new IllegalArgumentException("Target Admission decision must accept or reject exactly once");
@@ -136,10 +157,13 @@ public final class TargetPublishAdmissionVerifier {
         }
         final Authorization authorized = authority.resolve(shardScope, author, mutation, source);
         if (authorized == null
-                || !(body.kafkaReceipt() != null ? ProtocolTuple.targetKafkaReceiptPublishAdmission()
-                        : body.nativePublication() != null ? ProtocolTuple.targetNativeMaterializedPublishAdmission()
-                        : body.materialized() ? ProtocolTuple.targetMaterializedPublishAdmission()
-                                : ProtocolTuple.targetPublishAdmission())
+                || !(body.kafkaReceipt() != null
+                                ? ProtocolTuple.targetKafkaReceiptPublishAdmission()
+                                : body.nativePublication() != null
+                                        ? ProtocolTuple.targetNativeMaterializedPublishAdmission()
+                                        : body.materialized()
+                                                ? ProtocolTuple.targetMaterializedPublishAdmission()
+                                                : ProtocolTuple.targetPublishAdmission())
                         .equals(authorized.activatedTuple())
                 || !mutation.verifySignature(authorized.writerKey())) {
             return rejected(StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
@@ -166,7 +190,9 @@ public final class TargetPublishAdmissionVerifier {
                 throw new IllegalStateException("Target materialization authority is unavailable");
             }
             authorized.materialization().requireAuthorized(body, source);
-            if (body.kafkaReceipt() != null) { authorized.materialization().requirePrepared(mutation); }
+            if (body.kafkaReceipt() != null) {
+                authorized.materialization().requirePrepared(mutation);
+            }
             if (body.nativePublication() != null && authorized.nativePolicies() == null) {
                 throw new IllegalStateException("Target Native current-head authority is unavailable");
             }

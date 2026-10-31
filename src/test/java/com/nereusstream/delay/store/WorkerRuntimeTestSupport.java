@@ -10,8 +10,14 @@ public final class WorkerRuntimeTestSupport {
     public static SharedRocksDbResources openWithSyntheticObservation(final ShardStoreConfig config) {
         final var envelope = envelope(config);
         final var observation = new WorkerRuntimeResourceObservation(
-                256 * MIB, 128 * MIB, 256 * MIB, envelope.effectiveCgroupMemoryLimitBytes(),
-                envelope.maxProcessOpenFiles(), 1, envelope.maxFilesystemBytes(), 12 * GIB);
+                256 * MIB,
+                128 * MIB,
+                256 * MIB,
+                envelope.effectiveCgroupMemoryLimitBytes(),
+                envelope.maxProcessOpenFiles(),
+                1,
+                envelope.maxFilesystemBytes(),
+                12 * GIB);
         return new SharedRocksDbResources(config, envelope, observation);
     }
 

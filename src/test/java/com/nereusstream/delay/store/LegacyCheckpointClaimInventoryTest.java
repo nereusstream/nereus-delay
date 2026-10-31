@@ -45,8 +45,7 @@ class LegacyCheckpointClaimInventoryTest {
                 DestinationLaneId.derive(Bytes.utf8("claim-audit-stale-obligation"));
         final DestinationLaneId stalePreconditionVersionLane =
                 DestinationLaneId.derive(Bytes.utf8("claim-audit-stale-precondition-version"));
-        final DestinationLaneId laneIdentityLane =
-                DestinationLaneId.derive(Bytes.utf8("claim-audit-lane-identity"));
+        final DestinationLaneId laneIdentityLane = DestinationLaneId.derive(Bytes.utf8("claim-audit-lane-identity"));
         final DestinationLaneId laneStateLane = DestinationLaneId.derive(Bytes.utf8("claim-audit-lane-state"));
         final DestinationLaneId sourceTimelineLane =
                 DestinationLaneId.derive(Bytes.utf8("claim-audit-source-timeline"));
@@ -54,8 +53,7 @@ class LegacyCheckpointClaimInventoryTest {
                 DestinationLaneId.derive(Bytes.utf8("claim-audit-mismatched-lane-key"));
         final PreparedCommand validSchedule = PreparedCommand.schedule(
                 shard,
-                new ScheduleIntent(
-                        validLane, 2_000, 8_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-audit-valid")),
+                new ScheduleIntent(validLane, 2_000, 8_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-audit-valid")),
                 9_000);
         final PreparedCommand missingSchedule = PreparedCommand.schedule(
                 shard,
@@ -69,8 +67,7 @@ class LegacyCheckpointClaimInventoryTest {
                 9_000);
         final PreparedCommand staleSchedule = PreparedCommand.schedule(
                 shard,
-                new ScheduleIntent(
-                        staleLane, 2_300, 8_300, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-audit-stale")),
+                new ScheduleIntent(staleLane, 2_300, 8_300, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-audit-stale")),
                 9_000);
         final PreparedCommand staleObligationSchedule = PreparedCommand.schedule(
                 shard,
@@ -102,11 +99,7 @@ class LegacyCheckpointClaimInventoryTest {
         final PreparedCommand laneStateSchedule = PreparedCommand.schedule(
                 shard,
                 new ScheduleIntent(
-                        laneStateLane,
-                        2_700,
-                        8_700,
-                        OrderingMode.BEST_EFFORT,
-                        Bytes.utf8("claim-audit-lane-state")),
+                        laneStateLane, 2_700, 8_700, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-audit-lane-state")),
                 9_000);
         final PreparedCommand sourceTimelineSchedule = PreparedCommand.schedule(
                 shard,
@@ -117,24 +110,24 @@ class LegacyCheckpointClaimInventoryTest {
                         OrderingMode.BEST_EFFORT,
                         Bytes.utf8("claim-audit-source-timeline")),
                 9_000);
-        final KafkaSourcePosition validSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 40, null, 4_000);
-        final KafkaSourcePosition missingSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 41, null, 4_001);
-        final KafkaSourcePosition orphanSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 42, null, 4_002);
-        final KafkaSourcePosition staleSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 43, null, 4_003);
-        final KafkaSourcePosition staleObligationSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 44, null, 4_004);
-        final KafkaSourcePosition stalePreconditionVersionSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 45, null, 4_005);
-        final KafkaSourcePosition laneIdentitySource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 46, null, 4_006);
-        final KafkaSourcePosition laneStateSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 47, null, 4_007);
-        final KafkaSourcePosition sourceTimelineSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", validSource.nativeTopicUuid(), 48, null, 4_008);
+        final KafkaSourcePosition validSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 40, null, 4_000);
+        final KafkaSourcePosition missingSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 41, null, 4_001);
+        final KafkaSourcePosition orphanSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 42, null, 4_002);
+        final KafkaSourcePosition staleSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 43, null, 4_003);
+        final KafkaSourcePosition staleObligationSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 44, null, 4_004);
+        final KafkaSourcePosition stalePreconditionVersionSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 45, null, 4_005);
+        final KafkaSourcePosition laneIdentitySource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 46, null, 4_006);
+        final KafkaSourcePosition laneStateSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 47, null, 4_007);
+        final KafkaSourcePosition sourceTimelineSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", validSource.nativeTopicUuid(), 48, null, 4_008);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-audit-deployment"),
                 Bytes.utf8("claim-audit-worker"),
@@ -222,8 +215,7 @@ class LegacyCheckpointClaimInventoryTest {
             wrongSourceOrderToken[wrongSourceOrderToken.length - 1] ^= 1;
             final byte[] wrongSourceTimelineKey = KeyCodec.timelineDue(
                     sourceTimelineLane,
-                    Math.max(
-                            sourceTimelineWork.actionAtEpochMs(), sourceTimelineWork.retryEligibilityAtEpochMs()),
+                    Math.max(sourceTimelineWork.actionAtEpochMs(), sourceTimelineWork.retryEligibilityAtEpochMs()),
                     wrongSourceOrderToken,
                     sourceTimelineSourceClaim.delayMessageId(),
                     sourceTimelineSourceClaim.generation());
@@ -239,12 +231,10 @@ class LegacyCheckpointClaimInventoryTest {
                     sourceTimelineWork.uncertainRetryControl(),
                     sourceTimelineWork.uncertainRetryControlPosition());
             mismatchedSourceTimelineClaim = withSourceTimeline(
-                    sourceTimelineSourceClaim,
-                    wrongSourceTimelineKey,
-                    wrongSourceTimelineWork.canonicalBytes());
-            final LaneRecordEnvelope currentLaneEnvelope = LaneRecordEnvelope.decode(store.getValue(
-                            ColumnFamily.META, KeyCodec.metaLane(laneStateLane), 2)
-                    .payload());
+                    sourceTimelineSourceClaim, wrongSourceTimelineKey, wrongSourceTimelineWork.canonicalBytes());
+            final LaneRecordEnvelope currentLaneEnvelope =
+                    LaneRecordEnvelope.decode(store.getValue(ColumnFamily.META, KeyCodec.metaLane(laneStateLane), 2)
+                            .payload());
             final LaneRecord currentLane = LaneRecord.decode(currentLaneEnvelope.activeStateBytes());
             mismatchedLaneState = new LaneRecord(
                     currentLane.laneId(),
@@ -255,9 +245,9 @@ class LegacyCheckpointClaimInventoryTest {
                     currentLane.runtimeReadiness(),
                     currentLane.weight(),
                     currentLane.nextEligibleAtEpochMs());
-            final MessageRecord currentStaleMessage = MessageRecord.decode(store.getValue(
-                            ColumnFamily.ID, KeyCodec.idMessage(staleSchedule.delayMessageId()), 1)
-                    .payload());
+            final MessageRecord currentStaleMessage = MessageRecord.decode(
+                    store.getValue(ColumnFamily.ID, KeyCodec.idMessage(staleSchedule.delayMessageId()), 1)
+                            .payload());
             final long staleStateVersion = Math.addExact(currentStaleMessage.stateVersion(), 1);
             final GenerationRuntimeIndex staleRuntime = GenerationRuntimeIndex.claimed(
                     staleClaim.claimId(),
@@ -324,15 +314,9 @@ class LegacyCheckpointClaimInventoryTest {
                         KeyCodec.metaLane(mismatchedLaneKey),
                         LaneRecordEnvelope.active(mismatchedLaneState.encode()).canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.ID,
-                        1,
-                        KeyCodec.idMessage(staleSchedule.delayMessageId()),
-                        staleMessage.encode());
+                        ColumnFamily.ID, 1, KeyCodec.idMessage(staleSchedule.delayMessageId()), staleMessage.encode());
                 batch.putValue(
-                        ColumnFamily.INFLIGHT,
-                        ClaimRecord.VALUE_TYPE,
-                        mismatchedOrphanClaimKey,
-                        orphanClaim.encode());
+                        ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE, mismatchedOrphanClaimKey, orphanClaim.encode());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, sourceTimelineSource);
@@ -346,11 +330,10 @@ class LegacyCheckpointClaimInventoryTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         final LegacyCheckpointStateInventory.Conflict missingRecord = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
-                        Bytes.sha256(KeyCodec.idMessage(missingSchedule.delayMessageId())),
-                        conflict.oldKeyDigest()))
+                        Bytes.sha256(KeyCodec.idMessage(missingSchedule.delayMessageId())), conflict.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
         assertEquals("MESSAGE", missingRecord.recordKind());
@@ -367,8 +350,8 @@ class LegacyCheckpointClaimInventoryTest {
         assertEquals("CLAIM", stalePreconditionConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(validSource.canonicalBytes(), stalePreconditionConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict stalePreconditionMessageMissing = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(KeyCodec.idMessage(validSchedule.delayMessageId())), conflict.oldKeyDigest()))
                 .findFirst()
@@ -387,8 +370,8 @@ class LegacyCheckpointClaimInventoryTest {
         assertTrue(Bytes.constantTimeEquals(
                 staleObligationSource.canonicalBytes(), staleObligationConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict staleObligationMessageMissing = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(KeyCodec.idMessage(staleObligationSchedule.delayMessageId())),
                         conflict.oldKeyDigest()))
@@ -397,22 +380,20 @@ class LegacyCheckpointClaimInventoryTest {
         assertEquals("MESSAGE", staleObligationMessageMissing.recordKind());
         assertTrue(Bytes.constantTimeEquals(
                 staleObligationSource.canonicalBytes(), staleObligationMessageMissing.sourcePosition()));
-        final LegacyCheckpointStateInventory.Conflict stalePreconditionVersionConflict =
-                inventory.conflicts().stream()
-                        .filter(conflict -> conflict.reason()
-                                == LegacyCheckpointStateInventory.ConflictReason
-                                        .CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
-                        .filter(conflict -> Bytes.constantTimeEquals(
-                                Bytes.sha256(stalePreconditionVersionClaim.encodedKey()), conflict.oldKeyDigest()))
-                        .findFirst()
-                        .orElseThrow();
+        final LegacyCheckpointStateInventory.Conflict stalePreconditionVersionConflict = inventory.conflicts().stream()
+                .filter(conflict -> conflict.reason()
+                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
+                .filter(conflict -> Bytes.constantTimeEquals(
+                        Bytes.sha256(stalePreconditionVersionClaim.encodedKey()), conflict.oldKeyDigest()))
+                .findFirst()
+                .orElseThrow();
         assertEquals("CLAIM", stalePreconditionVersionConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(
                 stalePreconditionVersionSource.canonicalBytes(), stalePreconditionVersionConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict stalePreconditionVersionMessageMissing =
                 inventory.conflicts().stream()
-                        .filter(conflict -> conflict.reason()
-                                == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                        .filter(conflict ->
+                                conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                         .filter(conflict -> Bytes.constantTimeEquals(
                                 Bytes.sha256(KeyCodec.idMessage(stalePreconditionVersionSchedule.delayMessageId())),
                                 conflict.oldKeyDigest()))
@@ -430,11 +411,11 @@ class LegacyCheckpointClaimInventoryTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", mismatchedLaneConflict.recordKind());
-        assertTrue(Bytes.constantTimeEquals(
-                laneIdentitySource.canonicalBytes(), mismatchedLaneConflict.sourcePosition()));
+        assertTrue(
+                Bytes.constantTimeEquals(laneIdentitySource.canonicalBytes(), mismatchedLaneConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict mismatchedLaneMessageMissing = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(KeyCodec.idMessage(laneIdentitySchedule.delayMessageId())),
                         conflict.oldKeyDigest()))
@@ -444,8 +425,8 @@ class LegacyCheckpointClaimInventoryTest {
         assertTrue(Bytes.constantTimeEquals(
                 laneIdentitySource.canonicalBytes(), mismatchedLaneMessageMissing.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict staleLaneStateConflict = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_LANE_STATE_MISMATCH)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_LANE_STATE_MISMATCH)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(staleLaneStateClaim.encodedKey()), conflict.oldKeyDigest()))
                 .findFirst()
@@ -453,8 +434,8 @@ class LegacyCheckpointClaimInventoryTest {
         assertEquals("CLAIM", staleLaneStateConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(laneStateSource.canonicalBytes(), staleLaneStateConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict staleLaneStateMessageMissing = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(KeyCodec.idMessage(laneStateSchedule.delayMessageId())), conflict.oldKeyDigest()))
                 .findFirst()
@@ -480,15 +461,15 @@ class LegacyCheckpointClaimInventoryTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("LANE", laneKeyValueConflict.recordKind());
-        assertTrue(Bytes.constantTimeEquals(
-                sourceTimelineSource.canonicalBytes(), laneKeyValueConflict.sourcePosition()));
+        assertTrue(
+                Bytes.constantTimeEquals(sourceTimelineSource.canonicalBytes(), laneKeyValueConflict.sourcePosition()));
         final byte[] mismatchedOrphanClaimKey =
                 KeyCodec.inflight((byte) 1, orphanClaim.ownerEpoch(), bytes(ClaimRecord.HASH_LENGTH, 93));
         final LegacyCheckpointStateInventory.Conflict orphanRecord = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
-                .filter(conflict -> Bytes.constantTimeEquals(
-                        Bytes.sha256(mismatchedOrphanClaimKey), conflict.oldKeyDigest()))
+                .filter(conflict ->
+                        Bytes.constantTimeEquals(Bytes.sha256(mismatchedOrphanClaimKey), conflict.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", orphanRecord.recordKind());
@@ -497,15 +478,15 @@ class LegacyCheckpointClaimInventoryTest {
         final LegacyCheckpointStateInventory.Conflict staleClaimConflict = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.CLAIM_NOT_REPRESENTED_BY_CURRENT_MESSAGE)
-                .filter(conflict -> Bytes.constantTimeEquals(
-                        Bytes.sha256(staleClaim.encodedKey()), conflict.oldKeyDigest()))
+                .filter(conflict ->
+                        Bytes.constantTimeEquals(Bytes.sha256(staleClaim.encodedKey()), conflict.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", staleClaimConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(staleSource.canonicalBytes(), staleClaimConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict staleMessageClaimMissing = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_RECORD_MISSING)
                 .filter(conflict -> Bytes.constantTimeEquals(
                         Bytes.sha256(KeyCodec.idMessage(staleSchedule.delayMessageId())), conflict.oldKeyDigest()))
                 .findFirst()
@@ -518,8 +499,7 @@ class LegacyCheckpointClaimInventoryTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", keyValueMismatch.recordKind());
-        assertTrue(Bytes.constantTimeEquals(
-                Bytes.sha256(mismatchedOrphanClaimKey), keyValueMismatch.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(Bytes.sha256(mismatchedOrphanClaimKey), keyValueMismatch.oldKeyDigest()));
     }
 
     @Test
@@ -533,8 +513,8 @@ class LegacyCheckpointClaimInventoryTest {
                 shard,
                 new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-lane-version")),
                 10_000);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 51, null, 4_100);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 51, null, 4_100);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-lane-version-deployment"),
                 Bytes.utf8("claim-lane-version-worker"),
@@ -544,8 +524,8 @@ class LegacyCheckpointClaimInventoryTest {
         final ClaimRecord futureLaneVersionClaim;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final ClaimRecord claim = ClaimRecordTestSupport.claimScheduled(
-                    store, schedule, source, lane, owner, 4_000, chargeVector());
+            final ClaimRecord claim =
+                    ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
             final long futureLaneVersion = Math.addExact(claim.runtimeLaneVersion(), 2);
             final ClaimResultBody.ClaimPrecondition precondition =
                     ClaimResultBody.decodePrecondition(claim.preconditionBytes());
@@ -602,8 +582,8 @@ class LegacyCheckpointClaimInventoryTest {
                 shard,
                 new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-deadline")),
                 10_000);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 52, null, 4_100);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 52, null, 4_100);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-deadline-deployment"),
                 Bytes.utf8("claim-deadline-worker"),
@@ -613,13 +593,11 @@ class LegacyCheckpointClaimInventoryTest {
         final ClaimRecord lateDeadlineClaim;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final ClaimRecord claim = ClaimRecordTestSupport.claimScheduled(
-                    store, schedule, source, lane, owner, 4_000, chargeVector());
+            final ClaimRecord claim =
+                    ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
             final ClaimResultBody.ClaimPrecondition precondition =
                     ClaimResultBody.decodePrecondition(claim.preconditionBytes());
-            lateDeadlineClaim = withPrecondition(
-                    claim,
-                    preconditionWithClaimDeadline(precondition, 9_001));
+            lateDeadlineClaim = withPrecondition(claim, preconditionWithClaimDeadline(precondition, 9_001));
             store.write(batch -> batch.putValue(
                     ColumnFamily.INFLIGHT,
                     ClaimRecord.VALUE_TYPE,
@@ -638,8 +616,8 @@ class LegacyCheckpointClaimInventoryTest {
         final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
                 .filter(item -> item.reason()
                         == LegacyCheckpointStateInventory.ConflictReason.CLAIM_DEADLINE_AFTER_MESSAGE_EXPIRY)
-                .filter(item -> Bytes.constantTimeEquals(
-                        Bytes.sha256(lateDeadlineClaim.encodedKey()), item.oldKeyDigest()))
+                .filter(item ->
+                        Bytes.constantTimeEquals(Bytes.sha256(lateDeadlineClaim.encodedKey()), item.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", conflict.recordKind());
@@ -657,8 +635,8 @@ class LegacyCheckpointClaimInventoryTest {
                 shard,
                 new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-id")),
                 10_000);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 53, null, 4_100);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 53, null, 4_100);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-id-deployment"),
                 Bytes.utf8("claim-id-worker"),
@@ -668,8 +646,8 @@ class LegacyCheckpointClaimInventoryTest {
         final ClaimRecord mismatchedClaim;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final ClaimRecord claim = ClaimRecordTestSupport.claimScheduled(
-                    store, schedule, source, lane, owner, 4_000, chargeVector());
+            final ClaimRecord claim =
+                    ClaimRecordTestSupport.claimScheduled(store, schedule, source, lane, owner, 4_000, chargeVector());
             final byte[] mismatchedClaimId = Bytes.sha256(Bytes.utf8("forged-claim-id"), claim.claimId());
             final ClaimResultBody.ClaimPrecondition precondition =
                     ClaimResultBody.decodePrecondition(claim.preconditionBytes());
@@ -689,9 +667,9 @@ class LegacyCheckpointClaimInventoryTest {
                     claim.timelineKey(),
                     claim.runtimeRevision(),
                     claim.sourceTimelineWork());
-            final MessageRecord currentMessage = MessageRecord.decode(store.getValue(
-                            ColumnFamily.ID, KeyCodec.idMessage(claim.delayMessageId()), 1)
-                    .payload());
+            final MessageRecord currentMessage =
+                    MessageRecord.decode(store.getValue(ColumnFamily.ID, KeyCodec.idMessage(claim.delayMessageId()), 1)
+                            .payload());
             final GenerationRuntimeIndex mismatchedClaimRuntime = GenerationRuntimeIndex.claimed(
                     mismatchedClaimId,
                     currentMessage.runtimeIndex().attemptObligations(),
@@ -723,10 +701,10 @@ class LegacyCheckpointClaimInventoryTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
-                .filter(item -> item.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.CLAIM_ID_DERIVATION_MISMATCH)
-                .filter(item -> Bytes.constantTimeEquals(
-                        Bytes.sha256(mismatchedClaim.encodedKey()), item.oldKeyDigest()))
+                .filter(item ->
+                        item.reason() == LegacyCheckpointStateInventory.ConflictReason.CLAIM_ID_DERIVATION_MISMATCH)
+                .filter(item ->
+                        Bytes.constantTimeEquals(Bytes.sha256(mismatchedClaim.encodedKey()), item.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
         assertEquals("CLAIM", conflict.recordKind());
@@ -742,11 +720,10 @@ class LegacyCheckpointClaimInventoryTest {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("claim-sequence"));
         final PreparedCommand schedule = PreparedCommand.schedule(
                 shard,
-                new ScheduleIntent(
-                        lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-sequence")),
+                new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("claim-sequence")),
                 10_000);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 54, null, 4_100);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 54, null, 4_100);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("claim-sequence-deployment"),
                 Bytes.utf8("claim-sequence-worker"),
@@ -792,11 +769,10 @@ class LegacyCheckpointClaimInventoryTest {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("unknown-inflight"));
         final PreparedCommand schedule = PreparedCommand.schedule(
                 shard,
-                new ScheduleIntent(
-                        lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("unknown-inflight")),
+                new ScheduleIntent(lane, 3_000, 9_000, OrderingMode.BEST_EFFORT, Bytes.utf8("unknown-inflight")),
                 10_000);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 55, null, 4_100);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 55, null, 4_100);
         final AuthorIdentity owner = AuthorIdentity.owner(
                 Bytes.utf8("unknown-inflight-deployment"),
                 Bytes.utf8("unknown-inflight-worker"),
@@ -833,8 +809,8 @@ class LegacyCheckpointClaimInventoryTest {
                 finiteLimits(),
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
-                .filter(item -> item.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED)
+                .filter(item ->
+                        item.reason() == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_UNRECOGNIZED)
                 .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(unknownKey), item.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
@@ -843,8 +819,8 @@ class LegacyCheckpointClaimInventoryTest {
 
         for (byte[] malformedKey : new byte[][] {malformedClaimKey, malformedAttemptKey}) {
             final LegacyCheckpointStateInventory.Conflict malformedConflict = inventory.conflicts().stream()
-                    .filter(item -> item.reason()
-                            == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_MALFORMED)
+                    .filter(item ->
+                            item.reason() == LegacyCheckpointStateInventory.ConflictReason.INFLIGHT_KEY_KIND_MALFORMED)
                     .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
                     .findFirst()
                     .orElseThrow();
@@ -853,9 +829,8 @@ class LegacyCheckpointClaimInventoryTest {
         }
 
         for (byte[] malformedValueKey : new byte[][] {malformedClaimValueKey, malformedAttemptValueKey}) {
-            final String expectedKind = Bytes.constantTimeEquals(malformedValueKey, malformedClaimValueKey)
-                    ? "CLAIM"
-                    : "ATTEMPT";
+            final String expectedKind =
+                    Bytes.constantTimeEquals(malformedValueKey, malformedClaimValueKey) ? "CLAIM" : "ATTEMPT";
             final LegacyCheckpointStateInventory.Conflict malformedConflict = inventory.conflicts().stream()
                     .filter(item -> item.reason()
                             == (expectedKind.equals("CLAIM")

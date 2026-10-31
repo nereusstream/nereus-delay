@@ -35,8 +35,11 @@ public final class TargetClaimStore {
             this(owner, batch, claim, claim.storeIncarnation());
         }
 
-        private Prepared(final TargetClaimStore owner, final TargetStoreBackend.Prepared batch,
-                final TargetClaimRecord claim, final byte[] commitStore) {
+        private Prepared(
+                final TargetClaimStore owner,
+                final TargetStoreBackend.Prepared batch,
+                final TargetClaimRecord claim,
+                final byte[] commitStore) {
             this.owner = owner;
             this.batch = batch;
             this.claim = claim;
@@ -82,13 +85,18 @@ public final class TargetClaimStore {
             final long deadlineEpochMs,
             final long executionBytes,
             final byte[] operationDigest) {
-        return prepareClaim(budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes,
-                operationDigest, null);
+        return prepareClaim(
+                budget, selected, owner, nowEpochMs, deadlineEpochMs, executionBytes, operationDigest, null);
     }
 
     public Prepared prepareClaim(
-            final BoundedReadBudget budget, final TargetHeadRef selected, final OwnerIdentity owner,
-            final long nowEpochMs, final long deadlineEpochMs, final long executionBytes, final byte[] operationDigest,
+            final BoundedReadBudget budget,
+            final TargetHeadRef selected,
+            final OwnerIdentity owner,
+            final long nowEpochMs,
+            final long deadlineEpochMs,
+            final long executionBytes,
+            final byte[] operationDigest,
             final com.nereusstream.delay.protocol.HandoffPolicyHeadRef policyHead) {
         Objects.requireNonNull(selected, "selected");
         if (selected.nativeCandidate() != (policyHead != null)) {
@@ -100,15 +108,21 @@ public final class TargetClaimStore {
                 || deadlineEpochMs <= nowEpochMs) {
             throw new IllegalArgumentException("Target Claim is not eligible or has an expired deadline");
         }
-        final byte[] exactDigest = policyHead == null ? operationDigest : Bytes.sha256(
-                Bytes.utf8("nereus-delay-target-native-claim-operation\0"), operationDigest,
-                policyHead.canonicalBytes());
+        final byte[] exactDigest = policyHead == null
+                ? operationDigest
+                : Bytes.sha256(
+                        Bytes.utf8("nereus-delay-target-native-claim-operation\0"),
+                        operationDigest,
+                        policyHead.canonicalBytes());
         final var result = new TargetClaimRecord[1];
         final var prepared = messages.prepareAccounted(
                 budget,
                 reader -> {
                     final var message = message(reader, selected);
-                    TargetMigrationStore.requireSendAllowed(reader, message.locator().messageId(), message.locator().generation());
+                    TargetMigrationStore.requireSendAllowed(
+                            reader,
+                            message.locator().messageId(),
+                            message.locator().generation());
                     if (message.runtime().currentWorkKind() != CurrentSendWorkKind.TIMELINE
                             || nowEpochMs >= message.expireAtEpochMs()
                             || (selected.nativeCandidate() && nowEpochMs >= message.deliverAtEpochMs())) {
@@ -137,7 +151,8 @@ public final class TargetClaimStore {
                                     selected.nativeCandidate() ? domain.nativeHead() : domain.ordinaryHead())) {
                         throw new IllegalStateException("Target Claim selected head/control/domain changed");
                     }
-                    if (policyHead != null && !Arrays.equals(policyHead.scopeDigest(), binding.nativePolicyScopeRef())) {
+                    if (policyHead != null
+                            && !Arrays.equals(policyHead.scopeDigest(), binding.nativePolicyScopeRef())) {
                         throw new IllegalStateException("Native Claim head changes its applied Target scope/domain");
                     }
                     final var operation = localOperation(reader, exactDigest);
@@ -152,7 +167,8 @@ public final class TargetClaimStore {
                             deadlineEpochMs,
                             executionBytes,
                             queue.controlVersion(),
-                            operation, policyHead);
+                            operation,
+                            policyHead);
                     final var locator = message.locator();
                     final var identity = new TargetQuotaIdentity(
                             TargetQuotaIdentity.Kind.TARGET,
@@ -240,37 +256,48 @@ public final class TargetClaimStore {
         return claim;
     }
 
-    public boolean isCurrent(final BoundedReadBudget budget, final TargetClaimRecord expected,
+    public boolean isCurrent(
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
             final TargetStoreBackend.ReadAuthority authority) {
-        return backend.guardedRead(budget, reader -> {
-            final byte[] raw = reader.get(ColumnFamily.INFLIGHT, expected.key());
-            if (raw == null) {
-                if (reader.get(ColumnFamily.META, expected.chargeKey()) != null) {
-                    throw new IllegalStateException("removed Claim retains its execution charge");
-                }
-                final byte[] messageKey = TargetKeyCodec.message(expected.work().locator().messageId());
-                final byte[] messageRaw = reader.get(ColumnFamily.ID, messageKey);
-                if (messageRaw != null) {
-                    final var message = TargetMessageRecord.decodeForStore(messageKey,
-                            TargetValueEnvelope.decode(messageRaw, TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
-                    if (message.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
-                            && Arrays.equals(message.runtime().claimId(), expected.claimId())) {
-                        throw new IllegalStateException("current Message references a missing Claim");
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final byte[] raw = reader.get(ColumnFamily.INFLIGHT, expected.key());
+                    if (raw == null) {
+                        if (reader.get(ColumnFamily.META, expected.chargeKey()) != null) {
+                            throw new IllegalStateException("removed Claim retains its execution charge");
+                        }
+                        final byte[] messageKey =
+                                TargetKeyCodec.message(expected.work().locator().messageId());
+                        final byte[] messageRaw = reader.get(ColumnFamily.ID, messageKey);
+                        if (messageRaw != null) {
+                            final var message = TargetMessageRecord.decodeForStore(
+                                    messageKey,
+                                    TargetValueEnvelope.decode(messageRaw, TargetMessageRecord.VALUE_TYPE)
+                                            .payload(),
+                                    scope.shard());
+                            if (message.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                                    && Arrays.equals(message.runtime().claimId(), expected.claimId())) {
+                                throw new IllegalStateException("current Message references a missing Claim");
+                            }
+                        }
+                        reader.requireWithinElapsedBudget();
+                        return Boolean.FALSE;
                     }
-                }
-                reader.requireWithinElapsedBudget();
-                return Boolean.FALSE;
-            }
-            final var stored = TargetClaimRecord.decode(TargetValueEnvelope.decode(raw, TargetClaimRecord.VALUE_TYPE).payload());
-            if (!Arrays.equals(stored.canonicalBytes(), expected.canonicalBytes())) {
-                throw new IllegalStateException("Claim identity has conflicting stored bytes");
-            }
-            final var message = message(reader, expected.selected());
-            expected.requireCurrent(message);
-            current(reader, message);
-            reader.requireWithinElapsedBudget();
-            return Boolean.TRUE;
-        }, authority);
+                    final var stored =
+                            TargetClaimRecord.decode(TargetValueEnvelope.decode(raw, TargetClaimRecord.VALUE_TYPE)
+                                    .payload());
+                    if (!Arrays.equals(stored.canonicalBytes(), expected.canonicalBytes())) {
+                        throw new IllegalStateException("Claim identity has conflicting stored bytes");
+                    }
+                    final var message = message(reader, expected.selected());
+                    expected.requireCurrent(message);
+                    current(reader, message);
+                    reader.requireWithinElapsedBudget();
+                    return Boolean.TRUE;
+                },
+                authority);
     }
 
     /** Revoke restores only the same semantic work and increments its instance revision; no Admission is spent. */
@@ -317,93 +344,158 @@ public final class TargetClaimStore {
     /** Supplied only by the protected startup recovery flow; callback must recheck held rights without external I/O. */
     @FunctionalInterface
     public interface TakeoverAuthority {
-        void requireAuthorized(TargetStoreBackend.Reader reader, TargetClaimRecord claim,
-                TargetQuotaClaimCharge charge, TargetMessageRecord message, TargetQuotaMutation operation);
+        void requireAuthorized(
+                TargetStoreBackend.Reader reader,
+                TargetClaimRecord claim,
+                TargetQuotaClaimCharge charge,
+                TargetMessageRecord message,
+                TargetQuotaMutation operation);
     }
 
     /** Independent takeover path. Ordinary same-Owner/Store revoke retains its original checks. */
-    public Prepared prepareTakeoverRevoke(final BoundedReadBudget budget, final TargetClaimRecord expected,
-            final OwnerIdentity recoveryOwner, final byte[] operationDigest, final TakeoverAuthority authority) {
+    public Prepared prepareTakeoverRevoke(
+            final BoundedReadBudget budget,
+            final TargetClaimRecord expected,
+            final OwnerIdentity recoveryOwner,
+            final byte[] operationDigest,
+            final TakeoverAuthority authority) {
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(recoveryOwner, "recoveryOwner");
         Objects.requireNonNull(authority, "recoveryAuthority");
         final byte[][] currentStore = new byte[1][];
-        final var prepared = messages.prepareAccounted(budget, reader -> {
-            final var claim = TargetClaimRecord.decode(
-                    payload(reader, ColumnFamily.INFLIGHT, expected.key(), TargetClaimRecord.VALUE_TYPE));
-            claim.requireStored(expected.key());
-            if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
-                    || Long.compareUnsigned(recoveryOwner.ownerEpoch(), claim.owner().ownerEpoch()) <= 0) {
-                throw new IllegalStateException("takeover revoke requires exact older Claim bytes and a newer Owner");
-            }
-            final var charge = TargetQuotaClaimCharge.decode(
-                    payload(reader, ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
-            claim.requireCharge(charge);
-            if (!Arrays.equals(charge.recoveryLineage(), lineage)) {
-                throw new IllegalStateException("takeover Claim charge belongs to another authenticated recovery lineage");
-            }
-            final var message = message(reader, claim.selected());
-            claim.requireCurrent(message);
-            current(reader, message);
-            final byte[] attempt = com.nereusstream.delay.protocol.SystemMutation.computePublishAttemptLogicalIdentity(
-                    claim.claimId(), message.locator().messageId(), Integer.toUnsignedLong(message.locator().generation()),
-                    Integer.toUnsignedLong(claim.work().candidateAttemptNo()));
-            final byte[] budgetKey = Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG,
-                    TargetKeyCodec.KEY_FORMAT}, attempt);
-            if (reader.get(ColumnFamily.META, budgetKey) != null
-                    || message.runtime().attemptObligations().stream()
-                            .anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), attempt))) {
-                throw new IllegalStateException("takeover Claim contradicts a retained Admission/Attempt obligation");
-            }
-            final var operation = localOperation(reader, operationDigest);
-            operation.requireStoreSuccessorOf(claim.creation());
-            authority.requireAuthorized(reader, claim, charge, message, operation);
-            final var next = claim.revoked(message);
-            currentStore[0] = reader.metadata().storeIncarnation();
-            return new TargetMessageStore.Input(List.of(new TargetMessageStore.Transition(message, next)),
-                    order(reader, message, next, false), List.of(
-                            reader.replace(ColumnFamily.INFLIGHT, claim.key(), TargetClaimRecord.VALUE_TYPE, null),
-                            reader.replace(ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE, null)));
-        }, accounting(operationDigest, TargetQuotaDelta.LocalClaimKind.REVOKE));
+        final var prepared = messages.prepareAccounted(
+                budget,
+                reader -> {
+                    final var claim = TargetClaimRecord.decode(
+                            payload(reader, ColumnFamily.INFLIGHT, expected.key(), TargetClaimRecord.VALUE_TYPE));
+                    claim.requireStored(expected.key());
+                    if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
+                            || Long.compareUnsigned(
+                                            recoveryOwner.ownerEpoch(),
+                                            claim.owner().ownerEpoch())
+                                    <= 0) {
+                        throw new IllegalStateException(
+                                "takeover revoke requires exact older Claim bytes and a newer Owner");
+                    }
+                    final var charge = TargetQuotaClaimCharge.decode(
+                            payload(reader, ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
+                    claim.requireCharge(charge);
+                    if (!Arrays.equals(charge.recoveryLineage(), lineage)) {
+                        throw new IllegalStateException(
+                                "takeover Claim charge belongs to another authenticated recovery lineage");
+                    }
+                    final var message = message(reader, claim.selected());
+                    claim.requireCurrent(message);
+                    current(reader, message);
+                    final byte[] attempt =
+                            com.nereusstream.delay.protocol.SystemMutation.computePublishAttemptLogicalIdentity(
+                                    claim.claimId(),
+                                    message.locator().messageId(),
+                                    Integer.toUnsignedLong(message.locator().generation()),
+                                    Integer.toUnsignedLong(claim.work().candidateAttemptNo()));
+                    final byte[] budgetKey = Bytes.concat(
+                            new byte[] {TargetKeyCodec.QUOTA_ATTEMPT_BUDGET_TAG, TargetKeyCodec.KEY_FORMAT}, attempt);
+                    if (reader.get(ColumnFamily.META, budgetKey) != null
+                            || message.runtime().attemptObligations().stream()
+                                    .anyMatch(ref -> Arrays.equals(ref.publishAttemptId(), attempt))) {
+                        throw new IllegalStateException(
+                                "takeover Claim contradicts a retained Admission/Attempt obligation");
+                    }
+                    final var operation = localOperation(reader, operationDigest);
+                    operation.requireStoreSuccessorOf(claim.creation());
+                    authority.requireAuthorized(reader, claim, charge, message, operation);
+                    final var next = claim.revoked(message);
+                    currentStore[0] = reader.metadata().storeIncarnation();
+                    return new TargetMessageStore.Input(
+                            List.of(new TargetMessageStore.Transition(message, next)),
+                            order(reader, message, next, false),
+                            List.of(
+                                    reader.replace(
+                                            ColumnFamily.INFLIGHT, claim.key(), TargetClaimRecord.VALUE_TYPE, null),
+                                    reader.replace(
+                                            ColumnFamily.META,
+                                            claim.chargeKey(),
+                                            TargetQuotaClaimCharge.VALUE_TYPE,
+                                            null)));
+                },
+                accounting(operationDigest, TargetQuotaDelta.LocalClaimKind.REVOKE));
         return new Prepared(this, prepared, expected, Objects.requireNonNull(currentStore[0], "recovery Store"));
     }
 
-    public record TakeoverCandidate(TargetClaimRecord claim, TargetQuotaClaimCharge charge,
-            TargetMessageRecord message, com.nereusstream.delay.protocol.CanonicalTargetPartition physical,
-            byte[] storeIncarnation, long nativeSequence) {
-        public TakeoverCandidate { storeIncarnation = Bytes.copy(storeIncarnation); }
-        @Override public byte[] storeIncarnation() { return Bytes.copy(storeIncarnation); }
+    public record TakeoverCandidate(
+            TargetClaimRecord claim,
+            TargetQuotaClaimCharge charge,
+            TargetMessageRecord message,
+            com.nereusstream.delay.protocol.CanonicalTargetPartition physical,
+            byte[] storeIncarnation,
+            long nativeSequence) {
+        public TakeoverCandidate {
+            storeIncarnation = Bytes.copy(storeIncarnation);
+        }
+
+        @Override
+        public byte[] storeIncarnation() {
+            return Bytes.copy(storeIncarnation);
+        }
+
         public byte[] recoveryDigest(OwnerIdentity owner, byte[] lineage, byte[] context) {
-            return Bytes.sha256(Bytes.utf8("nereus-delay-target-claim-takeover-revoke\0"), claim.canonicalBytes(),
-                    charge.canonicalBytes(), message.canonicalBytes(), claim.revoked(message).canonicalBytes(),
-                    physical.canonicalBytes(), storeIncarnation, Bytes.u64beBits(nativeSequence),
-                    owner.canonicalBytes(), lineage, context);
+            return Bytes.sha256(
+                    Bytes.utf8("nereus-delay-target-claim-takeover-revoke\0"),
+                    claim.canonicalBytes(),
+                    charge.canonicalBytes(),
+                    message.canonicalBytes(),
+                    claim.revoked(message).canonicalBytes(),
+                    physical.canonicalBytes(),
+                    storeIncarnation,
+                    Bytes.u64beBits(nativeSequence),
+                    owner.canonicalBytes(),
+                    lineage,
+                    context);
         }
     }
 
-    public java.util.Optional<TakeoverCandidate> nextTakeoverCandidate(final BoundedReadBudget budget,
-            final byte[] after, final TargetStoreBackend.ReadAuthority authority) {
-        return backend.guardedRead(budget, reader -> {
-            final byte[] lower = after == null ? new byte[] {TargetKeyCodec.CLAIM_TAG, TargetKeyCodec.KEY_FORMAT}
-                    : Bytes.concat(after, new byte[] {0});
-            final var row = reader.first(ColumnFamily.INFLIGHT, lower,
-                    new byte[] {TargetKeyCodec.CLAIM_TAG + 1}, List.of());
-            if (row == null) { reader.requireWithinElapsedBudget(); return java.util.Optional.empty(); }
-            final var claim = TargetClaimRecord.decode(TargetValueEnvelope.decode(row.value(), TargetClaimRecord.VALUE_TYPE).payload());
-            claim.requireStored(row.key());
-            final var message = message(reader, claim.selected());
-            current(reader, message);
-            final var charge = TargetQuotaClaimCharge.decode(payload(reader, ColumnFamily.META,
-                    claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
-            claim.requireCharge(charge);
-            final byte[] physicalKey = TargetKeyCodec.identity(message.locator().target());
-            final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(physicalKey,
-                    payload(reader, ColumnFamily.META, physicalKey,
-                            com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE));
-            reader.requireWithinElapsedBudget();
-            return java.util.Optional.of(new TakeoverCandidate(claim, charge, message, physical,
-                    reader.metadata().storeIncarnation(), reader.nativeSequence()));
-        }, authority);
+    public java.util.Optional<TakeoverCandidate> nextTakeoverCandidate(
+            final BoundedReadBudget budget, final byte[] after, final TargetStoreBackend.ReadAuthority authority) {
+        return backend.guardedRead(
+                budget,
+                reader -> {
+                    final byte[] lower = after == null
+                            ? new byte[] {TargetKeyCodec.CLAIM_TAG, TargetKeyCodec.KEY_FORMAT}
+                            : Bytes.concat(after, new byte[] {0});
+                    final var row = reader.first(
+                            ColumnFamily.INFLIGHT, lower, new byte[] {TargetKeyCodec.CLAIM_TAG + 1}, List.of());
+                    if (row == null) {
+                        reader.requireWithinElapsedBudget();
+                        return java.util.Optional.empty();
+                    }
+                    final var claim = TargetClaimRecord.decode(
+                            TargetValueEnvelope.decode(row.value(), TargetClaimRecord.VALUE_TYPE)
+                                    .payload());
+                    claim.requireStored(row.key());
+                    final var message = message(reader, claim.selected());
+                    current(reader, message);
+                    final var charge = TargetQuotaClaimCharge.decode(
+                            payload(reader, ColumnFamily.META, claim.chargeKey(), TargetQuotaClaimCharge.VALUE_TYPE));
+                    claim.requireCharge(charge);
+                    final byte[] physicalKey =
+                            TargetKeyCodec.identity(message.locator().target());
+                    final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(
+                            physicalKey,
+                            payload(
+                                    reader,
+                                    ColumnFamily.META,
+                                    physicalKey,
+                                    com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE));
+                    reader.requireWithinElapsedBudget();
+                    return java.util.Optional.of(new TakeoverCandidate(
+                            claim,
+                            charge,
+                            message,
+                            physical,
+                            reader.metadata().storeIncarnation(),
+                            reader.nativeSequence()));
+                },
+                authority);
     }
 
     /** The supplied guard must retain actual Owner/lease/clock/policy/permit/grant authority through native commit. */

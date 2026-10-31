@@ -17,9 +17,15 @@ import java.util.function.Supplier;
 public final class SystemWriterAppendBudget {
     public record Limits(int records, long bytes, long maximumFrameBytes, int writers) {
         public Limits {
-            if (records <= 0 || records == Integer.MAX_VALUE || bytes <= 0 || bytes == Long.MAX_VALUE
-                    || maximumFrameBytes <= 0 || maximumFrameBytes > bytes || maximumFrameBytes == Long.MAX_VALUE
-                    || writers <= 0 || writers == Integer.MAX_VALUE) {
+            if (records <= 0
+                    || records == Integer.MAX_VALUE
+                    || bytes <= 0
+                    || bytes == Long.MAX_VALUE
+                    || maximumFrameBytes <= 0
+                    || maximumFrameBytes > bytes
+                    || maximumFrameBytes == Long.MAX_VALUE
+                    || writers <= 0
+                    || writers == Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("system writer append limits must be finite and serve one frame");
             }
         }
@@ -34,8 +40,8 @@ public final class SystemWriterAppendBudget {
     private int records;
     private long bytes;
 
-    public SystemWriterAppendBudget(final Limits limits, final WorkClassExecutionRegistry classes,
-            final SharedRocksDbResources resources) {
+    public SystemWriterAppendBudget(
+            final Limits limits, final WorkClassExecutionRegistry classes, final SharedRocksDbResources resources) {
         this.limits = Objects.requireNonNull(limits, "limits");
         final var exactClasses = Objects.requireNonNull(classes, "classes");
         final var exactResources = Objects.requireNonNull(resources, "resources");
@@ -73,7 +79,8 @@ public final class SystemWriterAppendBudget {
         public void bindProducer(final Object producer) {
             synchronized (SystemWriterAppendBudget.this) {
                 final var selected = Objects.requireNonNull(producer, "producer");
-                if (closing || (producerIdentity != null && producerIdentity != selected)
+                if (closing
+                        || (producerIdentity != null && producerIdentity != selected)
                         || writers.stream().anyMatch(other -> other != this && other.producerIdentity == selected)) {
                     throw new IllegalArgumentException("system writer must bind one exact owned producer generation");
                 }
@@ -84,8 +91,12 @@ public final class SystemWriterAppendBudget {
         /** Opening rejected before any SDK producer exists; no pending/native obligation may be discarded. */
         public void abandonUnstarted() {
             synchronized (SystemWriterAppendBudget.this) {
-                if (producerIdentity != null || !pending.isEmpty()) throw new IllegalStateException("system writer has an original producer obligation");
-                closing = true; producerClosed = true; writers.remove(this);
+                if (producerIdentity != null || !pending.isEmpty()) {
+                    throw new IllegalStateException("system writer has an original producer obligation");
+                }
+                closing = true;
+                producerClosed = true;
+                writers.remove(this);
             }
         }
 
@@ -121,8 +132,11 @@ public final class SystemWriterAppendBudget {
             synchronized (handoffLock) {
                 synchronized (SystemWriterAppendBudget.this) {
                     if (Objects.requireNonNull(reservation, "reservation").writer != this
-                            || reservation.released || reservation.sdkCompleted || reservation.callerReturned
-                            || reservation.sdkStarted || producerIdentity == null) {
+                            || reservation.released
+                            || reservation.sdkCompleted
+                            || reservation.callerReturned
+                            || reservation.sdkStarted
+                            || producerIdentity == null) {
                         throw new IllegalStateException("system append SDK reservation is not available");
                     }
                     reservation.sdkStarted = true;
@@ -198,7 +212,9 @@ public final class SystemWriterAppendBudget {
         public void callerReturned() {
             synchronized (SystemWriterAppendBudget.this) {
                 callerReturned = true;
-                if (!sdkStarted) { sdkCompleted = true; }
+                if (!sdkStarted) {
+                    sdkCompleted = true;
+                }
                 releaseIfComplete();
             }
         }

@@ -164,9 +164,7 @@ public record WorkerResourceEnvelope(
     /** Minimum free space shared with Worker physical-usage limits. */
     long minimumRuntimeUsableFilesystemBytes() {
         // validate(config) proves this sum fits within maxFilesystemBytes.
-        return physicalDiskSafetyWatermarkBytes
-                + checkpointRestoreTempHeadroomBytes
-                + compactionTempHeadroomBytes;
+        return physicalDiskSafetyWatermarkBytes + checkpointRestoreTempHeadroomBytes + compactionTempHeadroomBytes;
     }
 
     void validateCapacityHardCaps(final CapacityVector workerHardCaps) {

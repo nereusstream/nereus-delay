@@ -104,8 +104,8 @@ class TargetSourceBacklogCacheTest {
     void executorCannotRunSdkInlineOrAcceptUnboundedQueue() {
         try (var executor = executor()) {
             executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-            assertThrows(IllegalArgumentException.class,
-                    () -> new TargetSourceBacklogCache(1, 1000, executor, () -> 0));
+            assertThrows(
+                    IllegalArgumentException.class, () -> new TargetSourceBacklogCache(1, 1000, executor, () -> 0));
         }
     }
 
@@ -143,8 +143,11 @@ class TargetSourceBacklogCacheTest {
         try (var executor = executor()) {
             executor.execute(() -> {
                 entered.countDown();
-                try { release.await(); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                try {
+                    release.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
             });
             assertTrue(entered.await(5, TimeUnit.SECONDS));
             final var cache = new TargetSourceBacklogCache(1, 1000, executor, () -> 0);
@@ -152,8 +155,14 @@ class TargetSourceBacklogCacheTest {
             cache.bindHost(host);
             cache.bindHost(host);
             assertThrows(IllegalArgumentException.class, () -> cache.bindHost(new Object()));
-            cache.refresh(shard, () -> { throw new AssertionError("stopped queued work captured a cut"); },
-                    ignored -> { throw new AssertionError("stopped queued work opened an SDK cursor"); });
+            cache.refresh(
+                    shard,
+                    () -> {
+                        throw new AssertionError("stopped queued work captured a cut");
+                    },
+                    ignored -> {
+                        throw new AssertionError("stopped queued work opened an SDK cursor");
+                    });
             cache.stop();
             assertFalse(cache.cleanupComplete());
             release.countDown();
@@ -171,16 +180,19 @@ class TargetSourceBacklogCacheTest {
         final var blocked = new CountDownLatch(1);
         final var release = new CountDownLatch(1);
         final var queuedJob = new CountDownLatch(1);
-        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
-                new ThreadPoolExecutor.AbortPolicy())) {
+        try (var executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1), new ThreadPoolExecutor.AbortPolicy())) {
             final var cache = new TargetSourceBacklogCache(1, 1000, executor, () -> 0);
             try {
                 cache.refresh(shard, () -> cut, ignored -> operation);
                 assertTrue(operation.readEntered.await(5, TimeUnit.SECONDS));
                 executor.execute(() -> {
                     blocked.countDown();
-                    try { release.await(); }
-                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                    try {
+                        release.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 });
                 assertTrue(blocked.await(5, TimeUnit.SECONDS));
                 executor.execute(queuedJob::countDown);
@@ -203,26 +215,30 @@ class TargetSourceBacklogCacheTest {
 
     private TargetSourceBacklog.Cut cut(AtomicBoolean active) {
         return new TargetSourceBacklog.Cut(source, () -> {
-            if (!active.get()) { throw new IllegalStateException("Source cut changed"); }
+            if (!active.get()) {
+                throw new IllegalStateException("Source cut changed");
+            }
         });
     }
 
     private TargetSourceBacklog.Snapshot snapshot(TargetSourceBacklog.Cut cut) {
-        final var collector = new TargetSourceBacklog.Collector(cut,
-                new TargetSourceBacklog.Limits(8, 1024, 128, 1000), () -> 0, () -> {});
+        final var collector = new TargetSourceBacklog.Collector(
+                cut, new TargetSourceBacklog.Limits(8, 1024, 128, 1000), () -> 0, () -> {});
         collector.add(source, 8);
         return collector.finish(source);
     }
 
     private static ThreadPoolExecutor executor() {
-        return new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8),
-                new ThreadPoolExecutor.AbortPolicy());
+        return new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8), new ThreadPoolExecutor.AbortPolicy());
     }
 
     private static void await(java.util.function.BooleanSupplier ready) throws Exception {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (!ready.getAsBoolean()) {
-            if (System.nanoTime() >= deadline) { throw new IllegalStateException("observer state did not settle"); }
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException("observer state did not settle");
+            }
             Thread.sleep(1);
         }
     }
@@ -235,25 +251,37 @@ class TargetSourceBacklogCacheTest {
         private final AtomicInteger retries = new AtomicInteger();
         private volatile Throwable failure;
 
-        private Operation(TargetSourceBacklog.Snapshot snapshot) { this.snapshot = snapshot; }
+        private Operation(TargetSourceBacklog.Snapshot snapshot) {
+            this.snapshot = snapshot;
+        }
 
         @Override
         public TargetSourceBacklog.Snapshot read() {
-            reads.incrementAndGet(); readEntered.countDown(); return snapshot;
+            reads.incrementAndGet();
+            readEntered.countDown();
+            return snapshot;
         }
 
         @Override
-        public CompletableFuture<Void> requestClose() { return cleanup.copy(); }
+        public CompletableFuture<Void> requestClose() {
+            return cleanup.copy();
+        }
 
         @Override
         public CompletableFuture<Void> retryClose() {
-            retries.incrementAndGet(); failure = null; return cleanup.copy();
+            retries.incrementAndGet();
+            failure = null;
+            return cleanup.copy();
         }
 
         @Override
-        public boolean cleanupComplete() { return cleanup.isDone() && !cleanup.isCompletedExceptionally(); }
+        public boolean cleanupComplete() {
+            return cleanup.isDone() && !cleanup.isCompletedExceptionally();
+        }
 
         @Override
-        public Throwable cleanupFailure() { return failure; }
+        public Throwable cleanupFailure() {
+            return failure;
+        }
     }
 }

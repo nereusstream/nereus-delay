@@ -113,8 +113,11 @@ public final class DestinationPhysicalAdmission {
     /** A closed generation remains registered until every physical/zombie charge has actually ended. */
     public synchronized void unregisterTargetChannel(final TargetChannelIdentity channel) {
         final var state = targetChannel(channel);
-        if (state.ready || state.activeRequests != 0 || state.activeBytes != 0
-                || state.zombieRequests != 0 || state.zombieBytes != 0) {
+        if (state.ready
+                || state.activeRequests != 0
+                || state.activeBytes != 0
+                || state.zombieRequests != 0
+                || state.zombieBytes != 0) {
             throw new IllegalStateException("Target channel is READY or has outstanding physical charges");
         }
         targetChannels.remove(targetKey(channel));
@@ -123,7 +126,8 @@ public final class DestinationPhysicalAdmission {
     public synchronized AdmissionDecision tryAcquireTarget(
             final TargetChannelIdentity channel, final long physicalBytes) {
         final var state = targetChannels.get(targetKey(channel));
-        return state == null ? AdmissionDecision.rejected(Rejection.TARGET_CHANNEL_NOT_REGISTERED)
+        return state == null
+                ? AdmissionDecision.rejected(Rejection.TARGET_CHANNEL_NOT_REGISTERED)
                 : tryAcquire(state, physicalBytes);
     }
 
@@ -137,8 +141,14 @@ public final class DestinationPhysicalAdmission {
 
     public synchronized TargetChannelSnapshot targetChannelSnapshot(final TargetChannelIdentity channel) {
         final var state = targetChannel(channel);
-        return new TargetChannelSnapshot(channel, state.ready, state.blocked,
-                state.activeRequests, state.activeBytes, state.zombieRequests, state.zombieBytes);
+        return new TargetChannelSnapshot(
+                channel,
+                state.ready,
+                state.blocked,
+                state.activeRequests,
+                state.activeBytes,
+                state.zombieRequests,
+                state.zombieBytes);
     }
 
     private ChannelState targetChannel(final TargetChannelIdentity channel) {
@@ -214,8 +224,8 @@ public final class DestinationPhysicalAdmission {
             throw new IllegalArgumentException("physical byte charge must be non-negative");
         }
         if (!lane.ready) {
-            return AdmissionDecision.rejected(lane.targetChannel == null
-                    ? Rejection.LANE_NOT_READY : Rejection.TARGET_CHANNEL_NOT_READY);
+            return AdmissionDecision.rejected(
+                    lane.targetChannel == null ? Rejection.LANE_NOT_READY : Rejection.TARGET_CHANNEL_NOT_READY);
         }
         if (lane.blocked || lane.zombieRequests >= lane.maxZombieRequests || lane.zombieBytes >= lane.maxZombieBytes) {
             lane.blocked = true;
@@ -232,8 +242,8 @@ public final class DestinationPhysicalAdmission {
             return AdmissionDecision.rejected(Rejection.ZOMBIE_CAPACITY);
         }
         if (lane.activeRequests >= lane.maxRequests || physicalBytes > lane.maxBytes - lane.activeBytes) {
-            return AdmissionDecision.rejected(lane.targetChannel == null
-                    ? Rejection.LANE_CAPACITY : Rejection.TARGET_CHANNEL_CAPACITY);
+            return AdmissionDecision.rejected(
+                    lane.targetChannel == null ? Rejection.LANE_CAPACITY : Rejection.TARGET_CHANNEL_CAPACITY);
         }
 
         final long otherReadyRequests = readyMinimumRequests(lane, false);
@@ -252,8 +262,7 @@ public final class DestinationPhysicalAdmission {
 
         final long reservationId = nextReservationId;
         nextReservationId = Math.addExact(nextReservationId, 1);
-        final Reservation reservation = new Reservation(
-                this, reservationId, lane, physicalBytes);
+        final Reservation reservation = new Reservation(this, reservationId, lane, physicalBytes);
         lane.activeRequests = Math.addExact(lane.activeRequests, 1);
         lane.activeBytes = Math.addExact(lane.activeBytes, physicalBytes);
         cluster.activeRequests = Math.addExact(cluster.activeRequests, 1);
@@ -503,8 +512,12 @@ public final class DestinationPhysicalAdmission {
 
     /** Finite per-generation limits; callers must also enforce activated Target/domain/slot/resource counts. */
     public record TargetChannelSpec(
-            TargetChannelIdentity channel, CanonicalTargetPartition physical,
-            long maxRequests, long maxBytes, long maxZombieRequests, long maxZombieBytes) {
+            TargetChannelIdentity channel,
+            CanonicalTargetPartition physical,
+            long maxRequests,
+            long maxBytes,
+            long maxZombieRequests,
+            long maxZombieBytes) {
         public TargetChannelSpec {
             Objects.requireNonNull(channel, "channel");
             Objects.requireNonNull(physical, "physical");
@@ -513,8 +526,12 @@ public final class DestinationPhysicalAdmission {
                             && physical.resource().kind() != BrokerResourceIdentity.Kind.KAFKA
                     || channel.context().kind() == ChannelKind.PULSAR_DEDUP_PRODUCER
                             && physical.resource().kind() != BrokerResourceIdentity.Kind.PULSAR
-                    || maxRequests <= 0 || maxBytes <= 0 || maxZombieRequests <= 0 || maxZombieBytes <= 0
-                    || maxZombieRequests > maxRequests || maxZombieBytes > maxBytes) {
+                    || maxRequests <= 0
+                    || maxBytes <= 0
+                    || maxZombieRequests <= 0
+                    || maxZombieBytes <= 0
+                    || maxZombieRequests > maxRequests
+                    || maxZombieBytes > maxBytes) {
                 throw new IllegalArgumentException("invalid Target channel physical identity/limits");
             }
         }
@@ -527,8 +544,13 @@ public final class DestinationPhysicalAdmission {
     }
 
     public record TargetChannelSnapshot(
-            TargetChannelIdentity channel, boolean ready, boolean blocked,
-            long activeRequests, long activeBytes, long zombieRequests, long zombieBytes) {}
+            TargetChannelIdentity channel,
+            boolean ready,
+            boolean blocked,
+            long activeRequests,
+            long activeBytes,
+            long zombieRequests,
+            long zombieBytes) {}
 
     public record LaneSpec(
             DestinationLaneId laneId,

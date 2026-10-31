@@ -69,14 +69,11 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("store"));
         final Path image = tempDir.resolve("legacy-checkpoint");
         final byte[] checkpointId = bytes(16, 1);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final DelayMessageId retiredMessageId = DelayMessageId.random(shard);
         final RetiredMessageIdentityRecord retired = new RetiredMessageIdentityRecord(
-                retiredMessageId,
-                retiredMessageId.routingId().logicalTimestampEpochMs(),
-                17,
-                source.canonicalBytes());
+                retiredMessageId, retiredMessageId.routingId().logicalTimestampEpochMs(), 17, source.canonicalBytes());
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -98,14 +95,16 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
-                batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
-                batch.putValue(
-                        ColumnFamily.ID,
+                        ColumnFamily.TIMELINE,
                         1,
-                        KeyCodec.idMessage(retiredMessageId),
-                        retired.encode());
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(retiredMessageId), retired.encode());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -122,7 +121,9 @@ class LegacyCheckpointImageInspectorTest {
         assertEquals(17, proof.mutationSequence());
         assertEquals(source, proof.appliedSourcePosition());
         assertTrue(Bytes.constantTimeEquals(checkpointId, proof.checkpointId()));
-        assertEquals(proof.physicalBytes(), before.stream().mapToLong(CheckpointFileInventory::length).sum());
+        assertEquals(
+                proof.physicalBytes(),
+                before.stream().mapToLong(CheckpointFileInventory::length).sum());
         assertFileInventoriesEqual(before, after);
 
         final LegacyCheckpointStateInventory.Inventory state = LegacyCheckpointStateInventory.inspect(
@@ -136,12 +137,14 @@ class LegacyCheckpointImageInspectorTest {
         assertEquals(1, state.retiredMessageIdentities());
         assertEquals(
                 1,
-                state.messageDispositions().get(
-                        LegacyCheckpointStateInventory.MessageDisposition.CANDIDATE_PENDING_FULL_AUDIT));
+                state.messageDispositions()
+                        .get(LegacyCheckpointStateInventory.MessageDisposition.CANDIDATE_PENDING_FULL_AUDIT));
         assertTrue(state.recordsByFamily().get(ColumnFamily.ID) > 0);
         assertEquals(
                 state.scannedRecords(),
-                state.recordsByFamily().values().stream().mapToLong(Long::longValue).sum());
+                state.recordsByFamily().values().stream()
+                        .mapToLong(Long::longValue)
+                        .sum());
         assertTrue(state.scannedBytes() > 0);
         assertTrue(state.chargedBytes() >= state.scannedBytes());
         assertThrows(
@@ -160,8 +163,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("replay-copy-store"));
         final Path image = tempDir.resolve("replay-copy-checkpoint");
         final byte[] checkpointId = bytes(16, 16);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final CheckpointManifest manifest;
         final Path activePointer = config.rootPath()
                 .resolve("shards")
@@ -195,7 +198,8 @@ class LegacyCheckpointImageInspectorTest {
                 workspace = copy.dbPath().getParent();
                 assertEquals(shard, copy.shardId());
                 assertArrayEquals(store.metadata().dbIdentity(), copy.metadata().dbIdentity());
-                assertEquals(store.metadata().storeIncarnationUuid(), copy.metadata().storeIncarnationUuid());
+                assertEquals(
+                        store.metadata().storeIncarnationUuid(), copy.metadata().storeIncarnationUuid());
                 assertEquals(manifest.sourceStoreIncarnation(), copy.metadata().storeIncarnationUuid());
                 assertEquals(source, copy.appliedShardLogPosition());
                 assertFalse(Files.exists(workspace.resolve("ACTIVE")));
@@ -207,7 +211,9 @@ class LegacyCheckpointImageInspectorTest {
                 final byte[] scratchKey = KeyCodec.idMessage(DelayMessageId.random(shard));
                 final byte[] scratchPayload = Bytes.utf8("private replay mutation");
                 copy.write(batch -> batch.putValue(ColumnFamily.ID, 1, scratchKey, scratchPayload));
-                assertArrayEquals(scratchPayload, copy.getValue(ColumnFamily.ID, scratchKey, 1).payload());
+                assertArrayEquals(
+                        scratchPayload,
+                        copy.getValue(ColumnFamily.ID, scratchKey, 1).payload());
                 assertArrayEquals(activeBefore, Files.readAllBytes(activePointer));
             }
             assertFalse(Files.exists(workspace));
@@ -238,10 +244,7 @@ class LegacyCheckpointImageInspectorTest {
                 .resolve(Integer.toUnsignedString(shard.partition()))
                 .resolve("ACTIVE");
         final SourceAssignment assignment = new SourceAssignment(
-                shard,
-                bytes(32, 61),
-                1,
-                new KafkaActivationBarrier(shard, "legacy-tail-cluster", topicId, 0));
+                shard, bytes(32, 61), 1, new KafkaActivationBarrier(shard, "legacy-tail-cluster", topicId, 0));
         final SourceRecordConsumer.CheckpointCut protectedCut = new SourceRecordConsumer.CheckpointCut() {
             @Override
             public com.nereusstream.delay.protocol.SourcePosition position() {
@@ -254,12 +257,15 @@ class LegacyCheckpointImageInspectorTest {
             }
         };
         final List<SourceReplayEntry> sourceEntries = List.of(
-                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
-                        firstTail, null, null),
-                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
-                        cutPosition, null, null),
-                new SourceReplayRecord(PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
-                        afterCut, null, null));
+                new SourceReplayRecord(
+                        PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000), firstTail, null, null),
+                new SourceReplayRecord(
+                        PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000),
+                        cutPosition,
+                        null,
+                        null),
+                new SourceReplayRecord(
+                        PreparedCommand.cancel(shard, DelayMessageId.random(shard), 0, 10_000), afterCut, null, null));
         final var verificationKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final List<CheckpointFileInventory> filesBefore;
         final byte[] activeBefore;
@@ -308,8 +314,7 @@ class LegacyCheckpointImageInspectorTest {
             }
 
             final AtomicInteger boundedIteratorReads = new AtomicInteger();
-            final Iterator<SourceReplayEntry> boundedCursor =
-                    trackedCursor(sourceEntries, boundedIteratorReads);
+            final Iterator<SourceReplayEntry> boundedCursor = trackedCursor(sourceEntries, boundedIteratorReads);
             try (ShardStore.LegacyCheckpointReplayCopy replayCopy = ShardStore.openLegacyCheckpointReplayCopy(
                     config, shard, resources, image, manifest, finiteLimits())) {
                 final LegacyCheckpointTailReplayer.Result result = LegacyCheckpointTailReplayer.replay(
@@ -323,8 +328,7 @@ class LegacyCheckpointImageInspectorTest {
                         () -> 5_000,
                         new ReplayTurnBudget(1, 1 << 20, 60_000_000_000L));
                 assertEquals(LegacyCheckpointTailReplayer.Status.BLOCKED, result.status());
-                assertEquals(
-                        LegacyCheckpointTailReplayer.BlockReason.REPLAY_BUDGET_EXHAUSTED, result.blockReason());
+                assertEquals(LegacyCheckpointTailReplayer.BlockReason.REPLAY_BUDGET_EXHAUSTED, result.blockReason());
                 assertEquals(1, result.recordsApplied());
                 assertEquals(firstTail, result.appliedThrough());
                 assertTrue(boundedIteratorReads.get() <= 2);
@@ -361,8 +365,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("changed-store"));
         final Path image = tempDir.resolve("changed-checkpoint");
         final byte[] checkpointId = bytes(16, 2);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -388,8 +392,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-store"));
         final Path image = tempDir.resolve("malformed-checkpoint");
         final byte[] checkpointId = bytes(16, 3);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -434,8 +438,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("missing-index-store"));
         final Path image = tempDir.resolve("missing-index-checkpoint");
         final byte[] checkpointId = bytes(16, 4);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "missing-index-lane");
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -457,7 +461,10 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -487,8 +494,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-terminal-key-store"));
         final Path image = tempDir.resolve("malformed-terminal-key-checkpoint");
         final byte[] checkpointId = bytes(16, 24);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-terminal-key-lane");
         final byte[] malformedKey = new byte[] {1, 1, 1};
         final CheckpointManifest manifest;
@@ -511,9 +518,15 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
                 batch.put(ColumnFamily.TERMINAL, malformedKey, Bytes.utf8("malformed terminal key"));
             });
             store.createCheckpoint(image, checkpointId);
@@ -533,8 +546,7 @@ class LegacyCheckpointImageInspectorTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED,
-                conflict.reason());
+                LegacyCheckpointStateInventory.ConflictReason.TERMINAL_GENERATION_KEY_MALFORMED, conflict.reason());
         assertEquals("TERMINAL", conflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(Bytes.sha256(malformedKey), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
@@ -546,8 +558,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-message-key-store"));
         final Path image = tempDir.resolve("malformed-message-key-checkpoint");
         final byte[] checkpointId = bytes(16, 25);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-message-key-lane");
         final byte[] malformedLengthKey = new byte[] {1, 1, 1};
         final byte[] malformedIdentityKey = new byte[2 + DelayMessageId.LENGTH];
@@ -573,9 +585,15 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
                 batch.put(ColumnFamily.ID, malformedLengthKey, Bytes.utf8("malformed message key length"));
                 batch.put(ColumnFamily.ID, malformedIdentityKey, Bytes.utf8("malformed message identity"));
             });
@@ -596,9 +614,7 @@ class LegacyCheckpointImageInspectorTest {
                     .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
                     .findFirst()
                     .orElseThrow();
-            assertEquals(
-                    LegacyCheckpointStateInventory.ConflictReason.MESSAGE_KEY_MALFORMED,
-                    conflict.reason());
+            assertEquals(LegacyCheckpointStateInventory.ConflictReason.MESSAGE_KEY_MALFORMED, conflict.reason());
             assertEquals("MESSAGE", conflict.recordKind());
             assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
         }
@@ -610,8 +626,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-lane-store"));
         final Path image = tempDir.resolve("malformed-lane-checkpoint");
         final byte[] checkpointId = bytes(16, 26);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-lane-value");
         final byte[] malformedKey = new byte[] {2, 1, 1};
         final byte[] malformedRecordKey = KeyCodec.metaLane(scheduled.message().laneId());
@@ -635,9 +651,15 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
                 batch.put(ColumnFamily.META, malformedKey, Bytes.utf8("malformed Lane key"));
                 batch.put(ColumnFamily.META, malformedRecordKey, Bytes.utf8("malformed Lane envelope"));
             });
@@ -657,9 +679,7 @@ class LegacyCheckpointImageInspectorTest {
                 .filter(item -> Bytes.constantTimeEquals(Bytes.sha256(malformedKey), item.oldKeyDigest()))
                 .findFirst()
                 .orElseThrow();
-        assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.LANE_KEY_MALFORMED,
-                malformedKeyConflict.reason());
+        assertEquals(LegacyCheckpointStateInventory.ConflictReason.LANE_KEY_MALFORMED, malformedKeyConflict.reason());
         assertEquals("LANE", malformedKeyConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedKeyConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict malformedRecordConflict = inventory.conflicts().stream()
@@ -667,8 +687,7 @@ class LegacyCheckpointImageInspectorTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.LANE_RECORD_MALFORMED,
-                malformedRecordConflict.reason());
+                LegacyCheckpointStateInventory.ConflictReason.LANE_RECORD_MALFORMED, malformedRecordConflict.reason());
         assertEquals("LANE", malformedRecordConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedRecordConflict.sourcePosition()));
     }
@@ -682,8 +701,8 @@ class LegacyCheckpointImageInspectorTest {
         final byte[] checkpointId = bytes(16, 28);
         final byte[] secondCheckpointId = bytes(16, 29);
         final byte[] claimSequenceKey = KeyCodec.metaFixed(ShardStore.META_CLAIM_SEQUENCE);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-claim-sequence-lane");
         final CheckpointManifest malformedEnvelopeManifest;
         final CheckpointManifest malformedPayloadManifest;
@@ -706,14 +725,19 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
                 batch.put(ColumnFamily.META, claimSequenceKey, Bytes.utf8("malformed sequence envelope"));
             });
             store.createCheckpoint(malformedEnvelopeImage, checkpointId);
-            malformedEnvelopeManifest =
-                    manifestFor(malformedEnvelopeImage, shard, store, checkpointId, source);
+            malformedEnvelopeManifest = manifestFor(malformedEnvelopeImage, shard, store, checkpointId, source);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, claimSequenceKey, Bytes.u32be(7));
                 batch.putValue(
@@ -723,8 +747,7 @@ class LegacyCheckpointImageInspectorTest {
                         Bytes.u64beBits(2));
             });
             store.createCheckpoint(malformedPayloadImage, secondCheckpointId);
-            malformedPayloadManifest =
-                    manifestFor(malformedPayloadImage, shard, store, secondCheckpointId, source);
+            malformedPayloadManifest = manifestFor(malformedPayloadImage, shard, store, secondCheckpointId, source);
         }
 
         for (ExpectedCheckpoint checkpoint : List.of(
@@ -747,10 +770,13 @@ class LegacyCheckpointImageInspectorTest {
                     LegacyCheckpointStateInventory.ConflictReason.CLAIM_SEQUENCE_METADATA_MALFORMED,
                     malformedSequence.reason());
             assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), malformedSequence.sourcePosition()));
-            assertTrue(inventory.conflicts().stream().anyMatch(item -> item.reason()
-                    == LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED));
-            assertFalse(inventory.conflicts().stream().anyMatch(item -> item.reason()
-                    == LegacyCheckpointStateInventory.ConflictReason.CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER));
+            assertTrue(inventory.conflicts().stream()
+                    .anyMatch(item ->
+                            item.reason() == LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED));
+            assertFalse(inventory.conflicts().stream()
+                    .anyMatch(item -> item.reason()
+                            == LegacyCheckpointStateInventory.ConflictReason
+                                    .CLAIM_SEQUENCE_AFTER_CHECKPOINT_HIGH_WATER));
         }
     }
 
@@ -760,12 +786,13 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("unaudited-namespace-store"));
         final Path image = tempDir.resolve("unaudited-namespace-checkpoint");
         final byte[] checkpointId = bytes(16, 27);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "unaudited-namespace-lane");
         final byte[] reservationKey = KeyCodec.idReservation(bytes(32, 31));
         final byte[] bindingKey = KeyCodec.idScheduleBinding(scheduled.messageId());
-        final byte[] readyKey = KeyCodec.timelineReady(5_000, scheduled.message().laneId(), 1);
+        final byte[] readyKey =
+                KeyCodec.timelineReady(5_000, scheduled.message().laneId(), 1);
         final byte[] dedupeKey = KeyCodec.dedupeSystemMutation(bytes(32, 32));
         final byte[] unknownDedupeKey = new byte[] {(byte) 0x7f, 1};
         final byte[] dlqExportKey = KeyCodec.terminalDlqExport(bytes(32, 33));
@@ -793,9 +820,15 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.idMessage(scheduled.messageId()),
                         scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
                 batch.put(ColumnFamily.ID, reservationKey, Bytes.utf8("opaque reservation"));
                 batch.put(ColumnFamily.ID, bindingKey, Bytes.utf8("opaque binding"));
                 batch.put(ColumnFamily.TIMELINE, readyKey, Bytes.utf8("opaque READY projection"));
@@ -890,8 +923,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("malformed-runtime-inventory"));
         final Path image = tempDir.resolve("malformed-runtime-inventory-checkpoint");
         final byte[] checkpointId = bytes(16, 41);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "malformed-runtime-inventory-lane");
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -908,11 +941,20 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
                         Bytes.u64beBits(1));
                 batch.putValue(
-                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), scheduled.message().encode());
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
                 batch.putValue(
-                        ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
             });
             store.createCheckpoint(image, checkpointId);
             overwriteCheckpointMetadata(
@@ -942,7 +984,8 @@ class LegacyCheckpointImageInspectorTest {
             assertEquals(
                     LegacyCheckpointStateInventory.ConflictReason.RUNTIME_METADATA_MALFORMED,
                     matching.get(0).reason());
-            assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), matching.get(0).sourcePosition()));
+            assertTrue(Bytes.constantTimeEquals(
+                    source.canonicalBytes(), matching.get(0).sourcePosition()));
         }
     }
 
@@ -952,11 +995,11 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("legacy-timeline-store"));
         final Path image = tempDir.resolve("legacy-timeline-checkpoint");
         final byte[] checkpointId = bytes(16, 6);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "legacy-timeline-lane");
-        final byte[] legacyPointer = new TimelineEntry(scheduled.messageId(), scheduled.message().generation())
-                .encode();
+        final byte[] legacyPointer =
+                new TimelineEntry(scheduled.messageId(), scheduled.message().generation()).encode();
         final CheckpointManifest manifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -999,8 +1042,8 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("orphan-timeline-store"));
         final Path image = tempDir.resolve("orphan-timeline-checkpoint");
         final byte[] checkpointId = bytes(16, 21);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
         final ScheduledFixture scheduled = scheduledFixture(shard, source, "orphan-timeline-lane");
         final byte[] orphanKey = KeyCodec.timelineDue(
                 scheduled.message().laneId(),
@@ -1023,10 +1066,22 @@ class LegacyCheckpointImageInspectorTest {
                         KeyCodec.metaFixed(ShardStore.META_MUTATION_SEQUENCE),
                         Bytes.u64beBits(1));
                 batch.putValue(
-                        ColumnFamily.ID, 1, KeyCodec.idMessage(scheduled.messageId()), scheduled.message().encode());
-                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.timelineKey(), scheduled.work().canonicalBytes());
-                batch.putValue(ColumnFamily.TIMELINE, 1, scheduled.expiryKey(), scheduled.work().canonicalBytes());
-                batch.putValue(ColumnFamily.TIMELINE, 1, orphanKey, scheduled.work().canonicalBytes());
+                        ColumnFamily.ID,
+                        1,
+                        KeyCodec.idMessage(scheduled.messageId()),
+                        scheduled.message().encode());
+                batch.putValue(
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.timelineKey(),
+                        scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE,
+                        1,
+                        scheduled.expiryKey(),
+                        scheduled.work().canonicalBytes());
+                batch.putValue(
+                        ColumnFamily.TIMELINE, 1, orphanKey, scheduled.work().canonicalBytes());
             });
             store.createCheckpoint(image, checkpointId);
             manifest = manifestFor(image, shard, store, checkpointId, source);
@@ -1040,13 +1095,11 @@ class LegacyCheckpointImageInspectorTest {
                 new LegacyCheckpointStateInventory.ReadLimits(1_000, 1 << 20, 60_000_000_000L));
         assertConflictCountExcludingRuntimeMetadata(inventory, 2);
         final LegacyCheckpointStateInventory.Conflict conflict = inventory.conflicts().stream()
-                .filter(item -> item.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE)
+                .filter(item ->
+                        item.reason() == LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE)
                 .findFirst()
                 .orElseThrow();
-        assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE,
-                conflict.reason());
+        assertEquals(LegacyCheckpointStateInventory.ConflictReason.TIMELINE_INDEX_ORPHANED_OR_STALE, conflict.reason());
         assertEquals("TIMELINE", conflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(Bytes.sha256(orphanKey), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
@@ -1058,33 +1111,26 @@ class LegacyCheckpointImageInspectorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("uncertain-retry-store"));
         final Path image = tempDir.resolve("uncertain-retry-checkpoint");
         final byte[] checkpointId = bytes(16, 5);
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
-        final UncertainRetryFixture present = uncertainRetryFixture(
-                shard, source, "uncertain-retry-present", 40);
-        final KafkaSourcePosition missingSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 32, null, 4_001);
-        final UncertainRetryFixture missing = uncertainRetryFixture(
-                shard, missingSource, "uncertain-retry-missing", 60);
-        final KafkaSourcePosition terminalSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 33, null, 4_002);
-        final UncertainRetryFixture terminal = uncertainRetryFixture(
-                shard, terminalSource, "uncertain-retry-terminal", 80);
-        final KafkaSourcePosition orphanSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 37, null, 4_006);
-        final UncertainRetryFixture orphan = uncertainRetryFixture(
-                shard, orphanSource, "uncertain-retry-orphan", 100);
-        final KafkaSourcePosition missingTerminalSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 35, null, 4_004);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", UUID.randomUUID(), 31, null, 4_000);
+        final UncertainRetryFixture present = uncertainRetryFixture(shard, source, "uncertain-retry-present", 40);
+        final KafkaSourcePosition missingSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", source.nativeTopicUuid(), 32, null, 4_001);
+        final UncertainRetryFixture missing =
+                uncertainRetryFixture(shard, missingSource, "uncertain-retry-missing", 60);
+        final KafkaSourcePosition terminalSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", source.nativeTopicUuid(), 33, null, 4_002);
+        final UncertainRetryFixture terminal =
+                uncertainRetryFixture(shard, terminalSource, "uncertain-retry-terminal", 80);
+        final KafkaSourcePosition orphanSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", source.nativeTopicUuid(), 37, null, 4_006);
+        final UncertainRetryFixture orphan = uncertainRetryFixture(shard, orphanSource, "uncertain-retry-orphan", 100);
+        final KafkaSourcePosition missingTerminalSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", source.nativeTopicUuid(), 35, null, 4_004);
         final ScheduledFixture missingTerminal =
                 scheduledFixture(shard, missingTerminalSource, "terminal-without-summary");
         final GenerationRuntimeIndex publishedRuntime = GenerationRuntimeIndex.none(
-                GenerationAggregateState.PUBLISHED,
-                List.of(terminal.attempt().obligationRef()),
-                1,
-                0,
-                false,
-                2);
+                GenerationAggregateState.PUBLISHED, List.of(terminal.attempt().obligationRef()), 1, 0, false, 2);
         final MessageRecord terminalMessage = MessageRecord.current(
                 MessageStatus.PUBLISHED,
                 1,
@@ -1100,8 +1146,8 @@ class LegacyCheckpointImageInspectorTest {
                 null,
                 terminal.scheduled().message().earliestNativeCandidateAtEpochMs(),
                 publishedRuntime);
-        final GenerationRuntimeIndex canceledRuntime = GenerationRuntimeIndex.none(
-                GenerationAggregateState.CANCELED, List.of(), 1, 0, false, 2);
+        final GenerationRuntimeIndex canceledRuntime =
+                GenerationRuntimeIndex.none(GenerationAggregateState.CANCELED, List.of(), 1, 0, false, 2);
         final MessageRecord canceledWithoutSummary = MessageRecord.current(
                 MessageStatus.CANCELED,
                 1,
@@ -1117,8 +1163,8 @@ class LegacyCheckpointImageInspectorTest {
                 null,
                 missingTerminal.message().earliestNativeCandidateAtEpochMs(),
                 canceledRuntime);
-        final KafkaSourcePosition mismatchedTerminalSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", source.nativeTopicUuid(), 36, null, 4_005);
+        final KafkaSourcePosition mismatchedTerminalSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", source.nativeTopicUuid(), 36, null, 4_005);
         final KafkaSourcePosition futureRetiredSource = orphanSource;
         final DelayMessageId futureRetiredMessageId = DelayMessageId.random(shard);
         final RetiredMessageIdentityRecord futureRetired = new RetiredMessageIdentityRecord(
@@ -1138,8 +1184,8 @@ class LegacyCheckpointImageInspectorTest {
                 List.of());
         final ScheduledFixture mismatchedTerminal =
                 scheduledFixture(shard, mismatchedTerminalSource, "terminal-summary-mismatch");
-        final GenerationRuntimeIndex mismatchedPublishedRuntime = GenerationRuntimeIndex.none(
-                GenerationAggregateState.PUBLISHED, List.of(), 1, 0, false, 2);
+        final GenerationRuntimeIndex mismatchedPublishedRuntime =
+                GenerationRuntimeIndex.none(GenerationAggregateState.PUBLISHED, List.of(), 1, 0, false, 2);
         final MessageRecord mismatchedPublishedMessage = MessageRecord.current(
                 MessageStatus.PUBLISHED,
                 1,
@@ -1204,11 +1250,7 @@ class LegacyCheckpointImageInspectorTest {
                         1,
                         KeyCodec.idMessage(mismatchedTerminal.messageId()),
                         mismatchedPublishedMessage.encode());
-                batch.putValue(
-                        ColumnFamily.ID,
-                        1,
-                        KeyCodec.idMessage(futureRetiredMessageId),
-                        futureRetired.encode());
+                batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(futureRetiredMessageId), futureRetired.encode());
                 batch.putValue(
                         ColumnFamily.TERMINAL,
                         1,
@@ -1253,8 +1295,9 @@ class LegacyCheckpointImageInspectorTest {
 
         assertEquals(
                 2,
-                inventory.messageDispositions().get(
-                        LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_OLD_SEND_RECOVERY));
+                inventory
+                        .messageDispositions()
+                        .get(LegacyCheckpointStateInventory.MessageDisposition.BLOCKED_PENDING_OLD_SEND_RECOVERY));
         assertEquals(
                 2,
                 inventory.conflicts().stream()
@@ -1262,8 +1305,8 @@ class LegacyCheckpointImageInspectorTest {
                                 == LegacyCheckpointStateInventory.ConflictReason.SCHEDULED_REQUIRES_OLD_SEND_RECOVERY)
                         .count());
         final LegacyCheckpointStateInventory.Conflict missingLedger = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_OBLIGATION_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_OBLIGATION_MISSING)
                 .findFirst()
                 .orElseThrow();
         assertTrue(Bytes.constantTimeEquals(
@@ -1271,13 +1314,12 @@ class LegacyCheckpointImageInspectorTest {
         assertEquals("MESSAGE", missingLedger.recordKind());
         assertTrue(Bytes.constantTimeEquals(missingSource.canonicalBytes(), missingLedger.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict orphanLedger = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_LEDGER_UNREFERENCED)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.ATTEMPT_LEDGER_UNREFERENCED)
                 .findFirst()
                 .orElseThrow();
         assertEquals("ATTEMPT", orphanLedger.recordKind());
-        assertTrue(Bytes.constantTimeEquals(
-                Bytes.sha256(orphan.attempt().encodedKey()), orphanLedger.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(Bytes.sha256(orphan.attempt().encodedKey()), orphanLedger.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), orphanLedger.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict futureAttemptConflict = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
@@ -1289,14 +1331,13 @@ class LegacyCheckpointImageInspectorTest {
                 Bytes.sha256(orphan.attempt().encodedKey()), futureAttemptConflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(orphanSource.canonicalBytes(), futureAttemptConflict.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict missingTerminalSummary = inventory.conflicts().stream()
-                .filter(conflict -> conflict.reason()
-                        == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SUMMARY_MISSING)
+                .filter(conflict ->
+                        conflict.reason() == LegacyCheckpointStateInventory.ConflictReason.TERMINAL_SUMMARY_MISSING)
                 .findFirst()
                 .orElseThrow();
         assertEquals("MESSAGE", missingTerminalSummary.recordKind());
         assertTrue(Bytes.constantTimeEquals(
-                Bytes.sha256(KeyCodec.idMessage(missingTerminal.messageId())),
-                missingTerminalSummary.oldKeyDigest()));
+                Bytes.sha256(KeyCodec.idMessage(missingTerminal.messageId())), missingTerminalSummary.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(
                 missingTerminalSource.canonicalBytes(), missingTerminalSummary.sourcePosition()));
         final LegacyCheckpointStateInventory.Conflict terminalMismatch = inventory.conflicts().stream()
@@ -1308,8 +1349,8 @@ class LegacyCheckpointImageInspectorTest {
         assertTrue(Bytes.constantTimeEquals(
                 Bytes.sha256(KeyCodec.terminalGeneration(mismatchedTerminal.messageId(), 1)),
                 terminalMismatch.oldKeyDigest()));
-        assertTrue(Bytes.constantTimeEquals(
-                mismatchedTerminalSource.canonicalBytes(), terminalMismatch.sourcePosition()));
+        assertTrue(
+                Bytes.constantTimeEquals(mismatchedTerminalSource.canonicalBytes(), terminalMismatch.sourcePosition()));
         assertEquals(1, inventory.retiredMessageIdentities());
         final LegacyCheckpointStateInventory.Conflict futureRetiredSourceConflict = inventory.conflicts().stream()
                 .filter(conflict -> conflict.reason()
@@ -1323,8 +1364,7 @@ class LegacyCheckpointImageInspectorTest {
                 .orElseThrow();
         assertEquals("MESSAGE", futureRetiredSourceConflict.recordKind());
         assertTrue(Bytes.constantTimeEquals(
-                Bytes.sha256(KeyCodec.idMessage(futureRetiredMessageId)),
-                futureRetiredSourceConflict.oldKeyDigest()));
+                Bytes.sha256(KeyCodec.idMessage(futureRetiredMessageId)), futureRetiredSourceConflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(
                 futureRetiredSource.canonicalBytes(), futureRetiredSourceConflict.sourcePosition()));
         assertEquals("MESSAGE", futureRetiredSequenceConflict.recordKind());
@@ -1372,14 +1412,14 @@ class LegacyCheckpointImageInspectorTest {
         final byte[] matchingCheckpointId = bytes(16, 6);
         final byte[] mismatchedCheckpointId = bytes(16, 7);
         final UUID sourceTopic = UUID.randomUUID();
-        final KafkaSourcePosition source = new KafkaSourcePosition(
-                shard, "legacy-cluster", sourceTopic, 41, null, 4_010);
-        final KafkaSourcePosition malformedSource = new KafkaSourcePosition(
-                shard, "legacy-cluster", sourceTopic, 42, null, 4_011);
-        final UncertainRetryFixture matching = canonicalUncertainRetryFixture(
-                shard, source, "canonical-admission-join", 120);
-        final UncertainRetryFixture opaqueMalformedBase = uncertainRetryFixture(
-                shard, malformedSource, "malformed-admission-join", 124);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "legacy-cluster", sourceTopic, 41, null, 4_010);
+        final KafkaSourcePosition malformedSource =
+                new KafkaSourcePosition(shard, "legacy-cluster", sourceTopic, 42, null, 4_011);
+        final UncertainRetryFixture matching =
+                canonicalUncertainRetryFixture(shard, source, "canonical-admission-join", 120);
+        final UncertainRetryFixture opaqueMalformedBase =
+                uncertainRetryFixture(shard, malformedSource, "malformed-admission-join", 124);
         final PublishAttemptLedger malformedAttempt = PublishAttemptLedger.publishing(
                         opaqueMalformedBase.attempt().delayMessageId(),
                         opaqueMalformedBase.attempt().generation(),
@@ -1399,7 +1439,9 @@ class LegacyCheckpointImageInspectorTest {
                         opaqueMalformedBase.attempt().evidenceBytes(),
                         opaqueMalformedBase.attempt().sourcePosition());
         final UncertainRetryFixture malformed = new UncertainRetryFixture(
-                opaqueMalformedBase.scheduled(), opaqueMalformedBase.message(), opaqueMalformedBase.work(),
+                opaqueMalformedBase.scheduled(),
+                opaqueMalformedBase.message(),
+                opaqueMalformedBase.work(),
                 malformedAttempt);
         final PublishAttemptLedger original = matching.attempt();
         final PublishAttemptLedger mismatchedAttempt = PublishAttemptLedger.publishing(
@@ -1418,9 +1460,10 @@ class LegacyCheckpointImageInspectorTest {
                         original.sourcePosition())
                 .withUnknownOutcome(original.outcomeBytes(), original.evidenceBytes(), original.sourcePosition());
         assertTrue(Bytes.constantTimeEquals(
-                original.obligationRef().canonicalBytes(), mismatchedAttempt.obligationRef().canonicalBytes()));
-        final UncertainRetryFixture mismatched = new UncertainRetryFixture(
-                matching.scheduled(), matching.message(), matching.work(), mismatchedAttempt);
+                original.obligationRef().canonicalBytes(),
+                mismatchedAttempt.obligationRef().canonicalBytes()));
+        final UncertainRetryFixture mismatched =
+                new UncertainRetryFixture(matching.scheduled(), matching.message(), matching.work(), mismatchedAttempt);
         final CheckpointManifest matchingManifest;
         final CheckpointManifest mismatchedManifest;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -1499,8 +1542,7 @@ class LegacyCheckpointImageInspectorTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("ATTEMPT", mismatch.recordKind());
-        assertTrue(Bytes.constantTimeEquals(
-                Bytes.sha256(mismatchedAttempt.encodedKey()), mismatch.oldKeyDigest()));
+        assertTrue(Bytes.constantTimeEquals(Bytes.sha256(mismatchedAttempt.encodedKey()), mismatch.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), mismatch.sourcePosition()));
         assertEquals(
                 0,
@@ -1568,9 +1610,8 @@ class LegacyCheckpointImageInspectorTest {
         try (Options listOptions = new Options()) {
             names = RocksDB.listColumnFamilies(listOptions, image.toString());
         }
-        final List<ColumnFamilyOptions> columnFamilyOptions = names.stream()
-                .map(ignored -> new ColumnFamilyOptions())
-                .toList();
+        final List<ColumnFamilyOptions> columnFamilyOptions =
+                names.stream().map(ignored -> new ColumnFamilyOptions()).toList();
         final List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
         for (int index = 0; index < names.size(); index++) {
             descriptors.add(new ColumnFamilyDescriptor(names.get(index), columnFamilyOptions.get(index)));
@@ -1607,17 +1648,13 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     private static ScheduledFixture scheduledFixture(
-            final ShardId shard,
-            final KafkaSourcePosition source,
-            final String laneTuple,
-            final int generation) {
+            final ShardId shard, final KafkaSourcePosition source, final String laneTuple, final int generation) {
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8(laneTuple));
-        final byte[] timelineKey = KeyCodec.timelineDue(
-                lane, 5_000, source.sourceOrderToken(), messageId, generation);
+        final byte[] timelineKey = KeyCodec.timelineDue(lane, 5_000, source.sourceOrderToken(), messageId, generation);
         final TimelineWorkRef work = TimelineWorkRef.initial(timelineKey, 5_000, 1);
-        final GenerationRuntimeIndex runtime = GenerationRuntimeIndex.timeline(
-                GenerationAggregateState.SCHEDULED, work, 1);
+        final GenerationRuntimeIndex runtime =
+                GenerationRuntimeIndex.timeline(GenerationAggregateState.SCHEDULED, work, 1);
         final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 generation,
@@ -1638,10 +1675,7 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     private static UncertainRetryFixture uncertainRetryFixture(
-            final ShardId shard,
-            final KafkaSourcePosition source,
-            final String laneTuple,
-            final int attemptSeed) {
+            final ShardId shard, final KafkaSourcePosition source, final String laneTuple, final int attemptSeed) {
         final ScheduledFixture scheduled = scheduledFixture(shard, source, laneTuple);
         final byte[] attemptId = bytes(32, attemptSeed);
         final PublishAttemptLedger attempt = PublishAttemptLedger.publishing(
@@ -1663,10 +1697,7 @@ class LegacyCheckpointImageInspectorTest {
     }
 
     private static UncertainRetryFixture canonicalUncertainRetryFixture(
-            final ShardId shard,
-            final KafkaSourcePosition source,
-            final String laneTuple,
-            final int attemptSeed) {
+            final ShardId shard, final KafkaSourcePosition source, final String laneTuple, final int attemptSeed) {
         final ScheduledFixture scheduled = scheduledFixture(shard, source, laneTuple, 0);
         final byte[] laneIncarnation = bytes(16, attemptSeed + 2);
         final PublishAdmissionBodyTest.Fixture bodyFixture = PublishAdmissionBodyTest.Fixture.createForSourceWithLane(
@@ -1696,16 +1727,12 @@ class LegacyCheckpointImageInspectorTest {
                         bodyFixture.body(),
                         source.canonicalBytes())
                 .withUnknownOutcome(
-                        Bytes.utf8("canonical-unknown"),
-                        Bytes.utf8("canonical-evidence"),
-                        source.canonicalBytes());
+                        Bytes.utf8("canonical-unknown"), Bytes.utf8("canonical-evidence"), source.canonicalBytes());
         return uncertainRetryFixture(scheduled, attempt, source);
     }
 
     private static UncertainRetryFixture uncertainRetryFixture(
-            final ScheduledFixture scheduled,
-            final PublishAttemptLedger attempt,
-            final KafkaSourcePosition source) {
+            final ScheduledFixture scheduled, final PublishAttemptLedger attempt, final KafkaSourcePosition source) {
         final TimelineWorkRef retryWork = new TimelineWorkRef(
                 TimelineWorkKind.UNCERTAIN_RETRY,
                 scheduled.timelineKey(),
@@ -1735,8 +1762,8 @@ class LegacyCheckpointImageInspectorTest {
         return new UncertainRetryFixture(scheduled, message, retryWork, attempt);
     }
 
-    private static void putUncertainRetry(
-            final ShardStore.Batch batch, final UncertainRetryFixture fixture) throws RocksDBException {
+    private static void putUncertainRetry(final ShardStore.Batch batch, final UncertainRetryFixture fixture)
+            throws RocksDBException {
         batch.putValue(
                 ColumnFamily.ID,
                 1,
@@ -1775,7 +1802,8 @@ class LegacyCheckpointImageInspectorTest {
         for (int index = 0; index < expected.size(); index++) {
             assertEquals(expected.get(index).name(), actual.get(index).name());
             assertEquals(expected.get(index).length(), actual.get(index).length());
-            assertTrue(Bytes.constantTimeEquals(expected.get(index).checksum(), actual.get(index).checksum()));
+            assertTrue(Bytes.constantTimeEquals(
+                    expected.get(index).checksum(), actual.get(index).checksum()));
         }
     }
 
@@ -1787,8 +1815,7 @@ class LegacyCheckpointImageInspectorTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("RECOVERY_METADATA", conflict.recordKind());
-        assertEquals(
-                LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED, conflict.reason());
+        assertEquals(LegacyCheckpointStateInventory.ConflictReason.LEGACY_NAMESPACE_UNAUDITED, conflict.reason());
         assertTrue(Bytes.constantTimeEquals(Bytes.sha256(KeyCodec.metaRecovery(4)), conflict.oldKeyDigest()));
         assertTrue(Bytes.constantTimeEquals(source.canonicalBytes(), conflict.sourcePosition()));
     }

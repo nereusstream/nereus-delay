@@ -24,10 +24,14 @@ public final class TargetScheduleBinding {
             + 6 * 34
             + 35;
     public static final int MAX_CANONICAL_BYTES = LEGACY_MAX_CANONICAL_BYTES
-            + TargetMigrationRecordReference.MAX_CANONICAL_BYTES + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES + 82;
+            + TargetMigrationRecordReference.MAX_CANONICAL_BYTES
+            + TargetQuotaMutation.MAX_SOURCE_CANONICAL_BYTES
+            + 82;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-schedule-binding\0");
-    private static final byte[] IMPORT_DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-migration-schedule-binding-v2\0");
-    private static final byte[] PREFIX_DIGEST_DOMAIN = Bytes.utf8("nereus-delay-target-migration-prefix-schedule-binding-v3\0");
+    private static final byte[] IMPORT_DIGEST_DOMAIN =
+            Bytes.utf8("nereus-delay-target-migration-schedule-binding-v2\0");
+    private static final byte[] PREFIX_DIGEST_DOMAIN =
+            Bytes.utf8("nereus-delay-target-migration-prefix-schedule-binding-v3\0");
     private final DelayMessageId messageId;
     private final CommandType commandType;
     private final byte[] canonicalBody;
@@ -61,17 +65,41 @@ public final class TargetScheduleBinding {
             final byte[] membershipGrantRef,
             final byte[] nativePolicyScopeRef,
             final byte[] orderingDomain) {
-        this(messageId, commandType, canonicalBody, bindingSource, target, domain, accountingIncarnation,
-                requiredDispatchRef, offeredDispatchRef, controlScopeRef, membershipGrantRef, nativePolicyScopeRef,
-                orderingDomain, null, null, null);
+        this(
+                messageId,
+                commandType,
+                canonicalBody,
+                bindingSource,
+                target,
+                domain,
+                accountingIncarnation,
+                requiredDispatchRef,
+                offeredDispatchRef,
+                controlScopeRef,
+                membershipGrantRef,
+                nativePolicyScopeRef,
+                orderingDomain,
+                null,
+                null,
+                null);
     }
 
     private TargetScheduleBinding(
-            final DelayMessageId messageId, final CommandType commandType, final byte[] canonicalBody,
-            final SourcePosition bindingSource, final TargetPartitionId target, final TargetKeyCodec.Domain domain,
-            final byte[] accountingIncarnation, final byte[] requiredDispatchRef, final byte[] offeredDispatchRef,
-            final byte[] controlScopeRef, final byte[] membershipGrantRef, final byte[] nativePolicyScopeRef,
-            final byte[] orderingDomain, final byte[] migrationPlanDigest, final TargetMigrationRecordReference migrationRecord,
+            final DelayMessageId messageId,
+            final CommandType commandType,
+            final byte[] canonicalBody,
+            final SourcePosition bindingSource,
+            final TargetPartitionId target,
+            final TargetKeyCodec.Domain domain,
+            final byte[] accountingIncarnation,
+            final byte[] requiredDispatchRef,
+            final byte[] offeredDispatchRef,
+            final byte[] controlScopeRef,
+            final byte[] membershipGrantRef,
+            final byte[] nativePolicyScopeRef,
+            final byte[] orderingDomain,
+            final byte[] migrationPlanDigest,
+            final TargetMigrationRecordReference migrationRecord,
             final TargetQuotaMutation migrationSource) {
         this.messageId = Objects.requireNonNull(messageId, "messageId");
         this.commandType = Objects.requireNonNull(commandType, "commandType");
@@ -95,18 +123,22 @@ public final class TargetScheduleBinding {
         this.controlScopeRef = TargetCompatibilityCodec.assigned(controlScopeRef, 32, "controlScopeRef");
         if ((migrationPlanDigest == null) != (migrationRecord == null)
                 || (migrationPlanDigest == null) != (membershipGrantRef != null)) {
-            throw new IllegalArgumentException("binding requires exactly ordinary membership or explicit complete migration origin");
+            throw new IllegalArgumentException(
+                    "binding requires exactly ordinary membership or explicit complete migration origin");
         }
-        this.membershipGrantRef = membershipGrantRef == null ? null
+        this.membershipGrantRef = membershipGrantRef == null
+                ? null
                 : TargetCompatibilityCodec.assigned(membershipGrantRef, 32, "membershipGrantRef");
-        this.migrationPlanDigest = migrationPlanDigest == null ? null
+        this.migrationPlanDigest = migrationPlanDigest == null
+                ? null
                 : TargetCompatibilityCodec.assigned(migrationPlanDigest, 32, "original imported binding plan");
         this.migrationRecord = migrationRecord;
         this.migrationSource = migrationSource;
         if (migrationSource != null) {
             migrationSource.requireSourceApplied();
             if (migrationPlanDigest == null || bindingSource.compareTo(migrationSource.source()) > 0) {
-                throw new IllegalArgumentException("migration prefix binding changed actual original Source/authorization order");
+                throw new IllegalArgumentException(
+                        "migration prefix binding changed actual original Source/authorization order");
             }
         }
         if (nativePolicyScopeRef != null && intent.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID) {
@@ -120,40 +152,112 @@ public final class TargetScheduleBinding {
         }
         this.orderingDomain =
                 orderingDomain == null ? null : TargetCompatibilityCodec.assigned(orderingDomain, 32, "orderingDomain");
-        digest = Bytes.sha256(schemaVersion() == 3 ? PREFIX_DIGEST_DOMAIN : imported() ? IMPORT_DIGEST_DOMAIN : DIGEST_DOMAIN, fields());
+        digest = Bytes.sha256(
+                schemaVersion() == 3 ? PREFIX_DIGEST_DOMAIN : imported() ? IMPORT_DIGEST_DOMAIN : DIGEST_DOMAIN,
+                fields());
     }
 
     /** Caller authenticates the frozen mapping and full old intent; this factory does not grant membership. */
-    public static TargetScheduleBinding imported(TargetMigrationPlan plan, TargetMigrationRecordReference originalRecord,
-            DelayMessageId messageId, CommandType commandType, byte[] originalBody, SourcePosition originalBindingSource,
-            TargetPartitionId target, TargetKeyCodec.Domain domain, byte[] accountingIncarnation,
-            byte[] requiredDispatchRef, byte[] offeredDispatchRef, byte[] controlScopeRef,
-            byte[] nativePolicyScopeRef, byte[] orderingDomain) {
-        Objects.requireNonNull(plan); Objects.requireNonNull(originalRecord);
+    public static TargetScheduleBinding imported(
+            TargetMigrationPlan plan,
+            TargetMigrationRecordReference originalRecord,
+            DelayMessageId messageId,
+            CommandType commandType,
+            byte[] originalBody,
+            SourcePosition originalBindingSource,
+            TargetPartitionId target,
+            TargetKeyCodec.Domain domain,
+            byte[] accountingIncarnation,
+            byte[] requiredDispatchRef,
+            byte[] offeredDispatchRef,
+            byte[] controlScopeRef,
+            byte[] nativePolicyScopeRef,
+            byte[] orderingDomain) {
+        Objects.requireNonNull(plan);
+        Objects.requireNonNull(originalRecord);
         if (!plan.scope().shard().equals(messageId.routingId().shardId())
                 || originalBindingSource.compareTo(plan.baseline().source()) > 0) {
             throw new IllegalArgumentException("imported binding is outside original complete migration Source cut");
         }
-        return new TargetScheduleBinding(messageId, commandType, originalBody, originalBindingSource, target, domain,
-                accountingIncarnation, requiredDispatchRef, offeredDispatchRef, controlScopeRef, null, nativePolicyScopeRef,
-                orderingDomain, plan.digest(), originalRecord, null);
+        return new TargetScheduleBinding(
+                messageId,
+                commandType,
+                originalBody,
+                originalBindingSource,
+                target,
+                domain,
+                accountingIncarnation,
+                requiredDispatchRef,
+                offeredDispatchRef,
+                controlScopeRef,
+                null,
+                nativePolicyScopeRef,
+                orderingDomain,
+                plan.digest(),
+                originalRecord,
+                null);
     }
     /** Actual legacy prefix Source S after C, with the unchanged original raw frame/closure independently retained. */
-    public static TargetScheduleBinding importedPrefix(TargetMigrationPlan plan, TargetMigrationRecordReference originalRecord,
-            TargetQuotaMutation actualSource, DelayMessageId messageId, CommandType commandType, byte[] originalBody,
-            SourcePosition originalBindingSource, TargetPartitionId target, TargetKeyCodec.Domain domain, byte[] accountingIncarnation,
-            byte[] requiredDispatchRef, byte[] offeredDispatchRef, byte[] controlScopeRef, byte[] nativePolicyScopeRef, byte[] orderingDomain) {
-        Objects.requireNonNull(plan); Objects.requireNonNull(originalRecord); Objects.requireNonNull(actualSource).requireAfter(plan.baseline());
-        if (!plan.scope().shard().equals(messageId.routingId().shardId())) throw new IllegalArgumentException("prefix binding changed original Source Shard");
-        return new TargetScheduleBinding(messageId, commandType, originalBody, originalBindingSource, target, domain,
-                accountingIncarnation, requiredDispatchRef, offeredDispatchRef, controlScopeRef, null, nativePolicyScopeRef,
-                orderingDomain, plan.digest(), originalRecord, actualSource);
+    public static TargetScheduleBinding importedPrefix(
+            TargetMigrationPlan plan,
+            TargetMigrationRecordReference originalRecord,
+            TargetQuotaMutation actualSource,
+            DelayMessageId messageId,
+            CommandType commandType,
+            byte[] originalBody,
+            SourcePosition originalBindingSource,
+            TargetPartitionId target,
+            TargetKeyCodec.Domain domain,
+            byte[] accountingIncarnation,
+            byte[] requiredDispatchRef,
+            byte[] offeredDispatchRef,
+            byte[] controlScopeRef,
+            byte[] nativePolicyScopeRef,
+            byte[] orderingDomain) {
+        Objects.requireNonNull(plan);
+        Objects.requireNonNull(originalRecord);
+        Objects.requireNonNull(actualSource).requireAfter(plan.baseline());
+        if (!plan.scope().shard().equals(messageId.routingId().shardId())) {
+            throw new IllegalArgumentException("prefix binding changed original Source Shard");
+        }
+        return new TargetScheduleBinding(
+                messageId,
+                commandType,
+                originalBody,
+                originalBindingSource,
+                target,
+                domain,
+                accountingIncarnation,
+                requiredDispatchRef,
+                offeredDispatchRef,
+                controlScopeRef,
+                null,
+                nativePolicyScopeRef,
+                orderingDomain,
+                plan.digest(),
+                originalRecord,
+                actualSource);
     }
-    public boolean imported() { return migrationPlanDigest != null; }
-    public int schemaVersion() { return migrationSource != null ? 3 : imported() ? 2 : 1; }
-    public byte[] migrationPlanDigest() { return migrationPlanDigest == null ? null : Bytes.copy(migrationPlanDigest); }
-    public TargetMigrationRecordReference migrationRecord() { return migrationRecord; }
-    public TargetQuotaMutation migrationSource() { return migrationSource; }
+
+    public boolean imported() {
+        return migrationPlanDigest != null;
+    }
+
+    public int schemaVersion() {
+        return migrationSource != null ? 3 : imported() ? 2 : 1;
+    }
+
+    public byte[] migrationPlanDigest() {
+        return migrationPlanDigest == null ? null : Bytes.copy(migrationPlanDigest);
+    }
+
+    public TargetMigrationRecordReference migrationRecord() {
+        return migrationRecord;
+    }
+
+    public TargetQuotaMutation migrationSource() {
+        return migrationSource;
+    }
 
     public DelayMessageId messageId() {
         return messageId;
@@ -233,7 +337,9 @@ public final class TargetScheduleBinding {
             CanonicalProtobuf.bytes(out, 10, requiredDispatchRef);
             CanonicalProtobuf.bytes(out, 11, offeredDispatchRef);
             CanonicalProtobuf.bytes(out, 12, controlScopeRef);
-            if (membershipGrantRef != null) CanonicalProtobuf.bytes(out, 13, membershipGrantRef);
+            if (membershipGrantRef != null) {
+                CanonicalProtobuf.bytes(out, 13, membershipGrantRef);
+            }
             if (nativePolicyScopeRef != null) {
                 CanonicalProtobuf.bytes(out, 14, nativePolicyScopeRef);
             }
@@ -244,7 +350,9 @@ public final class TargetScheduleBinding {
                 CanonicalProtobuf.bytes(out, 17, migrationPlanDigest);
                 CanonicalProtobuf.bytes(out, 18, migrationRecord.canonicalBytes());
             }
-            if (migrationSource != null) CanonicalProtobuf.bytes(out, 20, migrationSource.canonicalBytes());
+            if (migrationSource != null) {
+                CanonicalProtobuf.bytes(out, 20, migrationSource.canonicalBytes());
+            }
         });
     }
 
@@ -280,11 +388,15 @@ public final class TargetScheduleBinding {
         TargetMigrationRecordReference originalRecord = null;
         TargetQuotaMutation migrationSource = null;
         if (schema >= 2) {
-            if (at + 2 >= fields.size()) throw new IllegalArgumentException("imported binding lacks complete raw origin");
+            if (at + 2 >= fields.size()) {
+                throw new IllegalArgumentException("imported binding lacks complete raw origin");
+            }
             migration = QueryCodecSupport.fixed(fields.get(at++), 17, 32);
             originalRecord = TargetMigrationRecordReference.decode(QueryCodecSupport.bytes(fields.get(at++), 18));
         }
-        if (schema == 3) migrationSource = TargetQuotaMutation.decode(QueryCodecSupport.bytes(fields.get(at++), 20));
+        if (schema == 3) {
+            migrationSource = TargetQuotaMutation.decode(QueryCodecSupport.bytes(fields.get(at++), 20));
+        }
         final int digestField = schema == 1 ? 16 : schema == 2 ? 19 : 21;
         if (at != fields.size() - 1 || fields.get(at).number() != digestField) {
             throw new IllegalArgumentException("unexpected Target binding fields");
@@ -307,7 +419,10 @@ public final class TargetScheduleBinding {
                 QueryCodecSupport.fixed(fields.get(11), 12, 32),
                 schema == 1 ? QueryCodecSupport.fixed(fields.get(12), 13, 32) : null,
                 nativeScope,
-                ordered, migration, originalRecord, migrationSource);
+                ordered,
+                migration,
+                originalRecord,
+                migrationSource);
         if (!Bytes.constantTimeEquals(result.digest, QueryCodecSupport.fixed(fields.get(at), digestField, 32))) {
             throw new IllegalArgumentException("Target binding digest mismatch");
         }

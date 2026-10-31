@@ -132,76 +132,132 @@ public final class ProtocolActivationAuthorityCoordinator {
 
     /** Caller supplies and protects the authority's complete eligible membership, as for existing activation. */
     public com.nereusstream.delay.protocol.TargetProtocolReaderSet requireTargetEligibleReaders(
-            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,List<String> eligibleWorkerIds){
+            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,
+            List<String> eligibleWorkerIds) {
         Objects.requireNonNull(descriptor);
-        if(eligibleWorkerIds.size()>com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_READERS)
+        if (eligibleWorkerIds.size() > com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_READERS) {
             throw new IllegalArgumentException("Target eligible reader membership exceeds finite bound");
-        final var workerIds=sortedWorkerIds(eligibleWorkerIds);long bytes=128;
-        final var readers=new ArrayList<com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader>();
-        for(var workerId:workerIds){
-            final var publication=authority.current(workerId).orElseThrow(()->new IllegalStateException("eligible Worker has no actual protocol capability"));
-            final var declaration=publication.declaration();
-            if(!workerId.equals(declaration.workerId())||!declaration.isCurrentGeneration()||!declaration.supports(descriptor.base())
-                    ||!declaration.supports(descriptor.tuple())||!declaration.supports(descriptor))
-                throw new IllegalStateException("eligible Worker lacks exact Target descriptor/base/tuple declaration");
-            bytes=Math.addExact(bytes,declaration.canonicalBytes().length+32L);
-            if(bytes>com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_BYTES)
-                throw new IllegalArgumentException("complete Target reader evidence exceeds finite byte bound");
-            readers.add(new com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader(publication.revision(),publication.declaration()));
         }
-        final var evidence=new com.nereusstream.delay.protocol.TargetProtocolReaderSet(descriptor,readers);
-        evidence.requireMembership(workerIds);evidence.canonicalBytes();return evidence;
+        final var workerIds = sortedWorkerIds(eligibleWorkerIds);
+        long bytes = 128;
+        final var readers = new ArrayList<com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader>();
+        for (var workerId : workerIds) {
+            final var publication = authority
+                    .current(workerId)
+                    .orElseThrow(() -> new IllegalStateException("eligible Worker has no actual protocol capability"));
+            final var declaration = publication.declaration();
+            if (!workerId.equals(declaration.workerId())
+                    || !declaration.isCurrentGeneration()
+                    || !declaration.supports(descriptor.base())
+                    || !declaration.supports(descriptor.tuple())
+                    || !declaration.supports(descriptor)) {
+                throw new IllegalStateException("eligible Worker lacks exact Target descriptor/base/tuple declaration");
+            }
+            bytes = Math.addExact(bytes, declaration.canonicalBytes().length + 32L);
+            if (bytes > com.nereusstream.delay.protocol.TargetProtocolReaderSet.MAX_BYTES) {
+                throw new IllegalArgumentException("complete Target reader evidence exceeds finite byte bound");
+            }
+            readers.add(new com.nereusstream.delay.protocol.TargetProtocolReaderSet.Reader(
+                    publication.revision(), publication.declaration()));
+        }
+        final var evidence = new com.nereusstream.delay.protocol.TargetProtocolReaderSet(descriptor, readers);
+        evidence.requireMembership(workerIds);
+        evidence.canonicalBytes();
+        return evidence;
     }
 
     /** Pre-A data-reader proof. Declaration of summary schema2 is not a Target Source activation34. */
     public com.nereusstream.delay.protocol.TargetProtocolReaderSet requireMigrationA2EligibleReaders(
-            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor importReader,List<String> completeEligibleWorkers){
-        if(!importReader.supportsPayloadObligationSummary())throw new IllegalArgumentException("A2 import needs the explicit Native32v2 reader matrix");
-        final var evidence=requireTargetEligibleReaders(importReader,completeEligibleWorkers);
-        for(var reader:evidence.readers())if(!reader.declaration().supports(ProtocolTuple.targetMigrationActivateRootIssuer()))throw new IllegalStateException("eligible A2 reader lacks tuple35");
+            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor importReader,
+            List<String> completeEligibleWorkers) {
+        if (!importReader.supportsPayloadObligationSummary()) {
+            throw new IllegalArgumentException("A2 import needs the explicit Native32v2 reader matrix");
+        }
+        final var evidence = requireTargetEligibleReaders(importReader, completeEligibleWorkers);
+        for (var reader : evidence.readers()) {
+            if (!reader.declaration().supports(ProtocolTuple.targetMigrationActivateRootIssuer())) {
+                throw new IllegalStateException("eligible A2 reader lacks tuple35");
+            }
+        }
         return evidence;
     }
 
     public com.nereusstream.delay.protocol.TargetProtocolReaderSet authorize(
-            com.nereusstream.delay.protocol.TargetProtocolActivatePayload payload,List<String> eligibleWorkerIds){
-        final var evidence=requireTargetEligibleReaders(payload.descriptor(),eligibleWorkerIds);
-        if(!Bytes.constantTimeEquals(payload.readerEvidenceHash(),evidence.digest()))
+            com.nereusstream.delay.protocol.TargetProtocolActivatePayload payload, List<String> eligibleWorkerIds) {
+        final var evidence = requireTargetEligibleReaders(payload.descriptor(), eligibleWorkerIds);
+        if (!Bytes.constantTimeEquals(payload.readerEvidenceHash(), evidence.digest())) {
             throw new IllegalStateException("Target activation payload reader evidence is stale or mismatched");
+        }
         return evidence;
     }
 
     /** Actual eligible-reader snapshot plus one original Root-issuer signature, for the existing Control registration path. */
     public com.nereusstream.delay.protocol.TargetProtocolActivatePayload authorizeTargetRootTuple(
             com.nereusstream.delay.protocol.TargetInitialControlSnapshot originalRoot,
-            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,List<String> completeEligibleWorkers,java.security.PrivateKey originalSnapshotIssuer){
-        final var readers=requireTargetEligibleReaders(descriptor,completeEligibleWorkers);
-        return com.nereusstream.delay.protocol.TargetProtocolActivatePayload.forRoot(originalRoot,descriptor,readers.digest(),originalSnapshotIssuer);
+            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,
+            List<String> completeEligibleWorkers,
+            java.security.PrivateKey originalSnapshotIssuer) {
+        final var readers = requireTargetEligibleReaders(descriptor, completeEligibleWorkers);
+        return com.nereusstream.delay.protocol.TargetProtocolActivatePayload.forRoot(
+                originalRoot, descriptor, readers.digest(), originalSnapshotIssuer);
     }
 
     public com.nereusstream.delay.protocol.TargetProtocolActivatePayload authorizeMigrationRootTuple(
-            com.nereusstream.delay.protocol.TargetMigrationRoot originalRoot,com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,
-            List<String> completeEligibleWorkers,int originalManagementIssuerVersion,java.security.PrivateKey originalManagementIssuer){
-        final var readers=requireTargetEligibleReaders(descriptor,completeEligibleWorkers);
-        return com.nereusstream.delay.protocol.TargetProtocolActivatePayload.forMigrationRoot(originalRoot,descriptor,readers.digest(),originalManagementIssuerVersion,originalManagementIssuer);
+            com.nereusstream.delay.protocol.TargetMigrationRoot originalRoot,
+            com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,
+            List<String> completeEligibleWorkers,
+            int originalManagementIssuerVersion,
+            java.security.PrivateKey originalManagementIssuer) {
+        final var readers = requireTargetEligibleReaders(descriptor, completeEligibleWorkers);
+        return com.nereusstream.delay.protocol.TargetProtocolActivatePayload.forMigrationRoot(
+                originalRoot, descriptor, readers.digest(), originalManagementIssuerVersion, originalManagementIssuer);
     }
 
     /** Reuses the actual initial snapshot issuer purpose, exact original Prepared/frame and its held history. */
     public static com.nereusstream.delay.runtime.TargetProtocolActivationStore.RootIssuerAuthority originalRootIssuer(
             com.nereusstream.delay.runtime.TargetStoreBootstrap.InitialControlAuthority originalIssuer,
-            com.nereusstream.delay.protocol.PreparedControlOperation originalPrepared,com.nereusstream.delay.protocol.SystemMutation originalFrame,Runnable originalProtection){
-        Objects.requireNonNull(originalIssuer);Objects.requireNonNull(originalPrepared);Objects.requireNonNull(originalFrame);Objects.requireNonNull(originalProtection);
-        return (evidence,authorization,activationSource)->{
-            originalProtection.run();if(evidence.migrated())throw new IllegalArgumentException("ordinary initial issuer cannot authorize a migration Root");
-            final var initial=evidence.initial();if(!authorization.root().equals(initial.root())||!Arrays.equals(authorization.initialSnapshotDigest(),initial.snapshotDigest()))throw new IllegalStateException("tuple issuer changed original immutable Root");
-            final var body=com.nereusstream.delay.protocol.TargetQuotaGrantControlBody.decode(originalFrame.canonicalBody());
-            if(!Arrays.equals(initial.mutation().mutationDigest(),Bytes.sha256(originalFrame.canonicalEnvelope()))
-                    ||!Arrays.equals(initial.initialGrant().systemMutationId(),originalFrame.systemMutationId())
-                    ||!Arrays.equals(initial.initialGrant().request().canonicalBytes(),body.request().canonicalBytes())||!initial.initialGrant().controlRef().equals(body.controlRef())
-                    ||!Arrays.equals(initial.authorIdentity(),originalFrame.authorIdentity())||initial.mutation().source().compareTo(activationSource)>=0)
-                throw new IllegalStateException("tuple issuer history changed original accepted initial grant/Source/frame");
-            com.nereusstream.delay.protocol.ControlTargetMutationBinding.validate(originalPrepared,originalPrepared.targets().getFirst(),originalFrame);
-            final var key=originalIssuer.authenticate(initial.input(),originalPrepared,originalFrame,initial.mutation().source());originalProtection.run();
-            if(key==null||!initial.input().verifySignature(key)||!authorization.verifySignature(key))throw new IllegalStateException("tuple authorization lacks actual original snapshot issuer pin");return key;
+            com.nereusstream.delay.protocol.PreparedControlOperation originalPrepared,
+            com.nereusstream.delay.protocol.SystemMutation originalFrame,
+            Runnable originalProtection) {
+        Objects.requireNonNull(originalIssuer);
+        Objects.requireNonNull(originalPrepared);
+        Objects.requireNonNull(originalFrame);
+        Objects.requireNonNull(originalProtection);
+        return (evidence, authorization, activationSource) -> {
+            originalProtection.run();
+            if (evidence.migrated()) {
+                throw new IllegalArgumentException("ordinary initial issuer cannot authorize a migration Root");
+            }
+            final var initial = evidence.initial();
+            if (!authorization.root().equals(initial.root())
+                    || !Arrays.equals(authorization.initialSnapshotDigest(), initial.snapshotDigest())) {
+                throw new IllegalStateException("tuple issuer changed original immutable Root");
+            }
+            final var body =
+                    com.nereusstream.delay.protocol.TargetQuotaGrantControlBody.decode(originalFrame.canonicalBody());
+            if (!Arrays.equals(initial.mutation().mutationDigest(), Bytes.sha256(originalFrame.canonicalEnvelope()))
+                    || !Arrays.equals(initial.initialGrant().systemMutationId(), originalFrame.systemMutationId())
+                    || !Arrays.equals(
+                            initial.initialGrant().request().canonicalBytes(),
+                            body.request().canonicalBytes())
+                    || !initial.initialGrant().controlRef().equals(body.controlRef())
+                    || !Arrays.equals(initial.authorIdentity(), originalFrame.authorIdentity())
+                    || initial.mutation().source().compareTo(activationSource) >= 0) {
+                throw new IllegalStateException(
+                        "tuple issuer history changed original accepted initial grant/Source/frame");
+            }
+            com.nereusstream.delay.protocol.ControlTargetMutationBinding.validate(
+                    originalPrepared, originalPrepared.targets().getFirst(), originalFrame);
+            final var key = originalIssuer.authenticate(
+                    initial.input(),
+                    originalPrepared,
+                    originalFrame,
+                    initial.mutation().source());
+            originalProtection.run();
+            if (key == null || !initial.input().verifySignature(key) || !authorization.verifySignature(key)) {
+                throw new IllegalStateException("tuple authorization lacks actual original snapshot issuer pin");
+            }
+            return key;
         };
     }
 

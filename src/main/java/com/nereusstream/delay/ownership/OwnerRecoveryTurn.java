@@ -13,11 +13,16 @@ public record OwnerRecoveryTurn(
         WorkClassTask pendingTask,
         com.nereusstream.delay.store.BoundedReadBudget.Exhaustion readIncompleteReason,
         TargetWorkerSourceStartup.FrameCapacityUnavailable capacityFailure) {
-    public OwnerRecoveryTurn(final List<SourceReplayOutcome> outcomes, final boolean complete,
-            final int turnNumber, final boolean waitingForWorkClass, final WorkClassTask pendingTask,
+    public OwnerRecoveryTurn(
+            final List<SourceReplayOutcome> outcomes,
+            final boolean complete,
+            final int turnNumber,
+            final boolean waitingForWorkClass,
+            final WorkClassTask pendingTask,
             final com.nereusstream.delay.store.BoundedReadBudget.Exhaustion readIncompleteReason) {
         this(outcomes, complete, turnNumber, waitingForWorkClass, pendingTask, readIncompleteReason, null);
     }
+
     public OwnerRecoveryTurn(
             final List<SourceReplayOutcome> outcomes,
             final boolean complete,
@@ -40,8 +45,9 @@ public record OwnerRecoveryTurn(
         if (readIncompleteReason != null && (complete || waitingForWorkClass)) {
             throw new IllegalArgumentException("an incomplete read cannot be complete or waiting on a queued task");
         }
-        if(capacityFailure!=null&&(complete||waitingForWorkClass||readIncompleteReason!=null))
+        if (capacityFailure != null && (complete || waitingForWorkClass || readIncompleteReason != null)) {
             throw new IllegalArgumentException("a Source capacity wait cannot complete or carry another wait cause");
+        }
         if ((waitingForWorkClass && complete)
                 || (waitingForWorkClass && pendingTask == null)
                 || (!waitingForWorkClass && pendingTask != null)) {

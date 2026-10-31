@@ -64,12 +64,14 @@ class OxiaRealTargetNativePolicySmokeTest {
                 var publisher = connect(endpoint, namespace, prefix, "publisher")) {
             final Closeable subscription = subscribe(subscriber, changed);
             try {
-                final var publication = publisher.authority().publish(
-                        permission, actor, at(10), 0, snapshot(1, HandoffPolicyMode.ENABLED));
+                final var publication = publisher
+                        .authority()
+                        .publish(permission, actor, at(10), 0, snapshot(1, HandoffPolicyMode.ENABLED));
                 assertTrue(
-                        changed.await(15, TimeUnit.SECONDS),
-                        "real Oxia current-head notification was not delivered");
-                assertEquals(publication, subscriber.authority().current(scope.digest()).orElseThrow());
+                        changed.await(15, TimeUnit.SECONDS), "real Oxia current-head notification was not delivered");
+                assertEquals(
+                        publication,
+                        subscriber.authority().current(scope.digest()).orElseThrow());
             } finally {
                 subscription.close();
             }
@@ -79,8 +81,7 @@ class OxiaRealTargetNativePolicySmokeTest {
     @Test
     void currentHeadReadRecoversAfterRealOxiaRestartNotificationGap() throws Exception {
         final String gateValue = System.getenv("NEREUS_DELAY_OXIA_ROUTE_RESTART_GATE");
-        Assumptions.assumeTrue(
-                gateValue != null && !gateValue.isBlank(), "Oxia restart gate is not configured");
+        Assumptions.assumeTrue(gateValue != null && !gateValue.isBlank(), "Oxia restart gate is not configured");
         final String endpoint = endpoint();
         final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
         final String prefix = "nereus-delay-real-native-policy-restart/" + UUID.randomUUID();
@@ -90,20 +91,24 @@ class OxiaRealTargetNativePolicySmokeTest {
             try {
                 final com.nereusstream.delay.semantic.TargetNativePolicyAuthority.Publication first;
                 try (var publisher = connect(endpoint, namespace, prefix, "first-publisher")) {
-                    first = publisher.authority().publish(
-                            permission, actor, at(10), 0, snapshot(1, HandoffPolicyMode.ENABLED));
+                    first = publisher
+                            .authority()
+                            .publish(permission, actor, at(10), 0, snapshot(1, HandoffPolicyMode.ENABLED));
                 }
                 assertTrue(firstChange.await(15, TimeUnit.SECONDS), "pre-restart Oxia notification was not delivered");
-                assertEquals(first, subscriber.authority().current(scope.digest()).orElseThrow());
+                assertEquals(
+                        first, subscriber.authority().current(scope.digest()).orElseThrow());
                 writeReadyMarker();
                 awaitGate(Path.of(gateValue));
 
                 final com.nereusstream.delay.semantic.TargetNativePolicyAuthority.Publication second;
                 try (var publisher = connect(endpoint, namespace, prefix, "replacement-publisher")) {
-                    second = publisher.authority().publish(
-                            permission, actor, at(11), 1, snapshot(2, HandoffPolicyMode.ENABLED));
+                    second = publisher
+                            .authority()
+                            .publish(permission, actor, at(11), 1, snapshot(2, HandoffPolicyMode.ENABLED));
                 }
-                assertEquals(second, subscriber.authority().current(scope.digest()).orElseThrow());
+                assertEquals(
+                        second, subscriber.authority().current(scope.digest()).orElseThrow());
                 System.out.println("Oxia Target Native current-head reread recovered revision " + second.revision());
             } finally {
                 subscription.close();
@@ -134,7 +139,7 @@ class OxiaRealTargetNativePolicySmokeTest {
             public Optional<PublisherPermission> publisher(
                     final byte[] scopeDigest, final int keyGeneration, final SourcePosition at) {
                 return java.util.Arrays.equals(scope.digest(), scopeDigest)
-                        && keyGeneration == permission.keyGeneration()
+                                && keyGeneration == permission.keyGeneration()
                         ? Optional.of(permission)
                         : Optional.empty();
             }
@@ -198,10 +203,9 @@ class OxiaRealTargetNativePolicySmokeTest {
             return new KeyPair(
                     factory.generatePublic(new X509EncodedKeySpec(Bytes.concat(
                             HexFormat.of().parseHex("302a300506032b6570032100"), hex(vectors, "issuer.public")))),
-                    factory.generatePrivate(new PKCS8EncodedKeySpec(
-                            Bytes.concat(
-                                    HexFormat.of().parseHex("302e020100300506032b657004220420"),
-                                    hex(vectors, "issuer.seed")))));
+                    factory.generatePrivate(new PKCS8EncodedKeySpec(Bytes.concat(
+                            HexFormat.of().parseHex("302e020100300506032b657004220420"),
+                            hex(vectors, "issuer.seed")))));
         } catch (Exception failure) {
             throw new AssertionError(failure);
         }

@@ -35,14 +35,30 @@ class RecoveryCatalogTest {
     void authenticatedInitializationSurvivesCodecWithoutGrantingRecoveryAndRejectsInvalidShapes() {
         final var shard = new ShardId(RouteIncarnation.random(), 0);
         final var source = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 1, null, 1001);
-        final var pending = new CheckpointUploadIntent(new ShardSubject(shard), id16(1), id16(2),
-                new OwnerIdentity(id32(3), id32(4), 1, id32(5)), id16(6), id32(7), 1, null, null,
-                new ProfileRef(Bytes.utf8("init-object"), 1, id32(8), ProfileKind.OBJECT_STORE), evidence(1000),
-                2000, CheckpointUploadState.PENDING_UPLOAD, 1, null, null);
+        final var pending = new CheckpointUploadIntent(
+                new ShardSubject(shard),
+                id16(1),
+                id16(2),
+                new OwnerIdentity(id32(3), id32(4), 1, id32(5)),
+                id16(6),
+                id32(7),
+                1,
+                null,
+                null,
+                new ProfileRef(Bytes.utf8("init-object"), 1, id32(8), ProfileKind.OBJECT_STORE),
+                evidence(1000),
+                2000,
+                CheckpointUploadState.PENDING_UPLOAD,
+                1,
+                null,
+                null);
         final var marker = new CatalogInitialization(pending, id32(9), id32(10), source, 1);
         final var catalog = new RecoveryCatalog();
-        assertThrows(IllegalStateException.class,
-                () -> catalog.initializeAuthenticated(marker, () -> { throw new IllegalStateException("lost"); }));
+        assertThrows(
+                IllegalStateException.class,
+                () -> catalog.initializeAuthenticated(marker, () -> {
+                    throw new IllegalStateException("lost");
+                }));
         assertEquals(0, catalog.catalogGeneration());
         assertEquals(1, catalog.initializeAuthenticated(marker, () -> {}).catalogGeneration());
         assertEquals(1, catalog.initializeAuthenticated(marker, () -> {}).catalogGeneration());
@@ -50,23 +66,30 @@ class RecoveryCatalogTest {
         assertTrue(catalog.currentFloor().isEmpty());
         assertTrue(catalog.activeRecoveryPin().isEmpty());
         final byte[] bytes = OxiaSyncRecoveryCatalogBackend.encodeSnapshot(catalog.snapshot());
-        final var restored = RecoveryCatalog.fromSnapshot(OxiaSyncRecoveryCatalogBackend.decodeSnapshot(
-                bytes, CheckpointManifestLimits.unbounded()));
+        final var restored = RecoveryCatalog.fromSnapshot(
+                OxiaSyncRecoveryCatalogBackend.decodeSnapshot(bytes, CheckpointManifestLimits.unbounded()));
         assertEquals(marker, restored.currentInitialization().orElseThrow());
         assertEquals(1, restored.catalogGeneration());
         assertTrue(restored.manifest(pending.checkpointId()).isEmpty());
         final var damaged = marker.canonicalBytes();
         damaged[damaged.length - 1] ^= 1;
         assertThrows(IllegalArgumentException.class, () -> CatalogInitialization.decode(damaged));
-        assertThrows(IllegalArgumentException.class, () -> RecoveryCatalog.fromSnapshot(new RecoveryCatalog.Snapshot(
-                0, shard, List.of(), Map.of(), null, null, null, marker)));
-        assertThrows(IllegalArgumentException.class, () -> RecoveryCatalog.fromSnapshot(new RecoveryCatalog.Snapshot(
-                2, shard, List.of(), Map.of(), null, null, null, marker)));
-        assertThrows(IllegalArgumentException.class, () -> RecoveryCatalog.fromSnapshot(new RecoveryCatalog.Snapshot(
-                1, shard, List.of(), Map.of(), null, null, null)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RecoveryCatalog.fromSnapshot(
+                        new RecoveryCatalog.Snapshot(0, shard, List.of(), Map.of(), null, null, null, marker)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RecoveryCatalog.fromSnapshot(
+                        new RecoveryCatalog.Snapshot(2, shard, List.of(), Map.of(), null, null, null, marker)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RecoveryCatalog.fromSnapshot(
+                        new RecoveryCatalog.Snapshot(1, shard, List.of(), Map.of(), null, null, null)));
         final var changed = new CatalogInitialization(pending, id32(9), id32(11), source, 1);
         assertThrows(IllegalStateException.class, () -> restored.initializeAuthenticated(changed, () -> {}));
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> restored.publish(manifest(shard, UUID.randomUUID(), id16(1), id16(12), 0, 2, 2, null), 1));
     }
 

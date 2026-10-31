@@ -6,6 +6,9 @@ public sealed interface TargetMigrationAppendPermit
     default void beforeSdk(TargetMigrationControlWriter writer, TargetMigrationControlMutationFactory.Prepared exact) {
         beforeSdk(writer, exact, writer.copyContract());
     }
-    void beforeSdk(TargetMigrationControlWriter writer, TargetMigrationControlMutationFactory.Prepared exact,
+
+    void beforeSdk(
+            TargetMigrationControlWriter writer,
+            TargetMigrationControlMutationFactory.Prepared exact,
             TargetScopeExposureSource.CopyContract actualCopies);
 }

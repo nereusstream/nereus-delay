@@ -37,16 +37,20 @@ public final class ControlSystemMutationFactory {
                 switch (type) {
                     case APPLY_SHARD_CONTROL -> {
                         if (prepared.request().branch() instanceof TargetPayloadSummaryInitializationRequest) {
-                            yield TargetPayloadSummaryInitializationBody.decode(canonicalBody).logicalIdentity();
+                            yield TargetPayloadSummaryInitializationBody.decode(canonicalBody)
+                                    .logicalIdentity();
                         }
                         if (prepared.request().branch() instanceof TargetMigrationRequest) {
-                            yield TargetMigrationControlBody.decode(canonicalBody).logicalIdentity();
+                            yield TargetMigrationControlBody.decode(canonicalBody)
+                                    .logicalIdentity();
                         }
                         if (prepared.request().branch() instanceof TargetSloObservationControlRequest) {
-                            yield TargetSloObservationControlBody.decode(canonicalBody).logicalIdentity();
+                            yield TargetSloObservationControlBody.decode(canonicalBody)
+                                    .logicalIdentity();
                         }
-                        if(prepared.request().branch() instanceof TargetProtocolActivatePayload){
-                            yield TargetProtocolActivationBody.decode(canonicalBody).logicalIdentity();
+                        if (prepared.request().branch() instanceof TargetProtocolActivatePayload) {
+                            yield TargetProtocolActivationBody.decode(canonicalBody)
+                                    .logicalIdentity();
                         }
                         if (prepared.request().branch() instanceof TargetQuotaGrantControlRequest) {
                             yield TargetQuotaGrantControlBody.decode(canonicalBody)

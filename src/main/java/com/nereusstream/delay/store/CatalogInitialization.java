@@ -13,14 +13,19 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /** Durable authenticated Catalog genesis facts; neither a published Manifest nor recovery/Floor authority. */
-public record CatalogInitialization(CheckpointUploadIntent pending, byte[] dbIdentity, byte[] manifestSha256,
-        SourcePosition source, long mutationSequence) {
+public record CatalogInitialization(
+        CheckpointUploadIntent pending,
+        byte[] dbIdentity,
+        byte[] manifestSha256,
+        SourcePosition source,
+        long mutationSequence) {
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-catalog-initialization\0");
     private static final int MAX_BYTES = 1 << 20;
 
     public CatalogInitialization {
         Objects.requireNonNull(pending, "pending");
-        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD || pending.baseCatalogGeneration() != 1
+        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD
+                || pending.baseCatalogGeneration() != 1
                 || pending.parentCheckpointId() != null) {
             throw new IllegalArgumentException("Catalog initialization requires a generation-1 genesis pending intent");
         }
@@ -36,33 +41,54 @@ public record CatalogInitialization(CheckpointUploadIntent pending, byte[] dbIde
     }
 
     @Override
-    public byte[] dbIdentity() { return Bytes.copy(dbIdentity); }
+    public byte[] dbIdentity() {
+        return Bytes.copy(dbIdentity);
+    }
 
     @Override
-    public byte[] manifestSha256() { return Bytes.copy(manifestSha256); }
+    public byte[] manifestSha256() {
+        return Bytes.copy(manifestSha256);
+    }
 
     static CatalogInitialization from(CheckpointUploadIntent pending, CheckpointManifest manifest) {
         final var at = manifest.createdAt();
-        final var time = new TrustedUtcIntervalEvidence(at.earliestEpochMs(), at.latestEpochMs(),
-                TrustedUtcIntervalEvidence.Source.valueOf(at.source()), at.sourceId(), at.sourceConfigGeneration(),
-                at.sampleSequence(), at.monotonicAnchorNs(), at.sourceEvidenceSha256(), at.sourceKeyVersion(),
+        final var time = new TrustedUtcIntervalEvidence(
+                at.earliestEpochMs(),
+                at.latestEpochMs(),
+                TrustedUtcIntervalEvidence.Source.valueOf(at.source()),
+                at.sourceId(),
+                at.sourceConfigGeneration(),
+                at.sampleSequence(),
+                at.monotonicAnchorNs(),
+                at.sourceEvidenceSha256(),
+                at.sourceKeyVersion(),
                 at.sourceSignature());
-        if (!time.equals(pending.checkpointCreatedAt()) || manifest.storeFormatVersion() != 2
+        if (!time.equals(pending.checkpointCreatedAt())
+                || manifest.storeFormatVersion() != 2
                 || manifest.lineageGeneration() != 0
                 || manifest.parentCheckpoint() != null
                 || !pending.shard().shardId().equals(manifest.shardId())
                 || !Arrays.equals(pending.recoveryLineageId(), manifest.recoveryLineageId())
                 || !Arrays.equals(pending.checkpointId(), manifest.checkpointId())
-                || !Arrays.equals(pending.owner().deploymentId(), manifest.createdBy().deploymentId())
-                || !Arrays.equals(pending.owner().workerRunId(), manifest.createdBy().workerRunId())
+                || !Arrays.equals(
+                        pending.owner().deploymentId(), manifest.createdBy().deploymentId())
+                || !Arrays.equals(
+                        pending.owner().workerRunId(), manifest.createdBy().workerRunId())
                 || pending.owner().ownerEpoch() != manifest.createdBy().ownerEpoch()
-                || !Arrays.equals(pending.sourceStoreIncarnation(), java.nio.ByteBuffer.allocate(16)
-                        .putLong(manifest.sourceStoreIncarnation().getMostSignificantBits())
-                        .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits()).array())) {
+                || !Arrays.equals(
+                        pending.sourceStoreIncarnation(),
+                        java.nio.ByteBuffer.allocate(16)
+                                .putLong(manifest.sourceStoreIncarnation().getMostSignificantBits())
+                                .putLong(manifest.sourceStoreIncarnation().getLeastSignificantBits())
+                                .array())) {
             throw new IllegalArgumentException("Catalog initialization intent differs from its authenticated image");
         }
-        return new CatalogInitialization(pending, manifest.dbIdentity(), manifest.manifestSha256(),
-                manifest.appliedShardLogPosition(), manifest.shardMutationSequence());
+        return new CatalogInitialization(
+                pending,
+                manifest.dbIdentity(),
+                manifest.manifestSha256(),
+                manifest.appliedShardLogPosition(),
+                manifest.shardMutationSequence());
     }
 
     void requireFirstManifest(CheckpointManifest manifest) {
@@ -99,7 +125,8 @@ public record CatalogInitialization(CheckpointUploadIntent pending, byte[] dbIde
         }
         final var result = new CatalogInitialization(
                 CheckpointUploadIntent.decode(QueryCodecSupport.bytes(fields.get(1), 2)),
-                QueryCodecSupport.fixed(fields.get(2), 3, 32), QueryCodecSupport.fixed(fields.get(3), 4, 32),
+                QueryCodecSupport.fixed(fields.get(2), 3, 32),
+                QueryCodecSupport.fixed(fields.get(3), 4, 32),
                 SourcePositionCodec.decode(QueryCodecSupport.bytes(fields.get(4), 5)),
                 QueryCodecSupport.uint(fields.get(5), 6));
         if (!Arrays.equals(encoded, result.canonicalBytes())) {
@@ -115,7 +142,9 @@ public record CatalogInitialization(CheckpointUploadIntent pending, byte[] dbIde
     }
 
     @Override
-    public int hashCode() { return Arrays.hashCode(canonicalBytes()); }
+    public int hashCode() {
+        return Arrays.hashCode(canonicalBytes());
+    }
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {

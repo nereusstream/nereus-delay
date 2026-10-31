@@ -60,44 +60,69 @@ public final class TargetQuotaDelta {
     }
 
     /** Source-preserving, separately typed before-SDK migration intent; only its original sealed hold can call it. */
-    public static TargetQuotaDelta prepareMigrationPreparation(TargetQuotaAggregate aggregate, long sequence,
-            SourcePosition source, byte[] digest, List<Update> updates,
+    public static TargetQuotaDelta prepareMigrationPreparation(
+            TargetQuotaAggregate aggregate,
+            long sequence,
+            SourcePosition source,
+            byte[] digest,
+            List<Update> updates,
             Function<TargetQuotaIdentity, TargetQuotaCounter> lookup,
             TargetMigrationImporter.PreparedCandidate candidate) {
-        Objects.requireNonNull(candidate); Objects.requireNonNull(lookup);
+        Objects.requireNonNull(candidate);
+        Objects.requireNonNull(lookup);
         requireStoreStamp(aggregate, sequence, source);
-        if (!candidate.plan().scope().shard().equals(aggregate.shard()) || updates.size() != 2
-                || !Arrays.equals(candidate.root().identity().accountingIncarnation(), aggregate.accountingIncarnation()))
+        if (!candidate.plan().scope().shard().equals(aggregate.shard())
+                || updates.size() != 2
+                || !Arrays.equals(
+                        candidate.root().identity().accountingIncarnation(), aggregate.accountingIncarnation())) {
             throw new IllegalArgumentException("migration preparation requires its exact original root pair");
-        final long ordinal = aggregate.mutation() != null && aggregate.mutation().sequence() == sequence
-                ? TargetQuotaMutation.increment(aggregate.mutation().localOrdinal()) : 1;
+        }
+        final long ordinal =
+                aggregate.mutation() != null && aggregate.mutation().sequence() == sequence
+                        ? TargetQuotaMutation.increment(aggregate.mutation().localOrdinal())
+                        : 1;
         final var stamp = new TargetQuotaMutation(sequence, source, digest, ordinal, false, false, false, true);
         final var changes = new ArrayList<Change>();
-        final var root = candidate.root(); final var seen = new HashSet<TargetQuotaIdentity>();
+        final var root = candidate.root();
+        final var seen = new HashSet<TargetQuotaIdentity>();
         Long deltaBytes = null;
         for (var update : updates) {
-            if (!seen.add(update.identity()) || !List.of(root.identity(), root.tenantIdentity()).contains(update.identity()))
+            if (!seen.add(update.identity())
+                    || !List.of(root.identity(), root.tenantIdentity()).contains(update.identity())) {
                 throw new IllegalArgumentException("migration preparation crossed original root/tenant");
-            final var prior = Objects.requireNonNull(lookup.apply(update.identity()), "original funded migration counter");
+            }
+            final var prior =
+                    Objects.requireNonNull(lookup.apply(update.identity()), "original funded migration counter");
             aggregate.requireCounter(prior);
-            final var before = prior.usage(); final var after = update.nextUsage();
-            if (before.targets() != after.targets() || before.executionDomains() != after.executionDomains()
+            final var before = prior.usage();
+            final var after = update.nextUsage();
+            if (before.targets() != after.targets()
+                    || before.executionDomains() != after.executionDomains()
                     || before.strictOrderDomains() != after.strictOrderDomains()
-                    || before.accountingIncarnations() != after.accountingIncarnations())
+                    || before.accountingIncarnations() != after.accountingIncarnations()) {
                 throw new IllegalArgumentException("migration attempt cannot allocate business cardinality");
+            }
             for (var dimension : CapacityDimension.values()) {
-                final long delta = Math.subtractExact(after.resources().amount(dimension), before.resources().amount(dimension));
+                final long delta = Math.subtractExact(
+                        after.resources().amount(dimension), before.resources().amount(dimension));
                 if (dimension == CapacityDimension.LOGICAL_STATE_BYTES) {
-                    if (delta <= 0 || deltaBytes != null && deltaBytes.longValue() != delta)
-                        throw new IllegalArgumentException("migration intent needs positive matched actual STATE funding");
+                    if (delta <= 0 || deltaBytes != null && deltaBytes.longValue() != delta) {
+                        throw new IllegalArgumentException(
+                                "migration intent needs positive matched actual STATE funding");
+                    }
                     deltaBytes = delta;
-                } else if (delta != 0) throw new IllegalArgumentException("migration intent cannot move old payload/reserves/fees");
+                } else if (delta != 0) {
+                    throw new IllegalArgumentException("migration intent cannot move old payload/reserves/fees");
+                }
             }
             changes.add(new Change(prior, prior.advance(after, stamp)));
         }
         var sum = aggregate.usage();
-        for (var change : changes) if (!change.next().identity().kind().isMirror())
-            sum = sum.subtract(change.prior().usage()).add(change.next().usage());
+        for (var change : changes) {
+            if (!change.next().identity().kind().isMirror()) {
+                sum = sum.subtract(change.prior().usage()).add(change.next().usage());
+            }
+        }
         return new TargetQuotaDelta(aggregate, aggregate.advance(sum, stamp), sequence, source, stamp, changes);
     }
 

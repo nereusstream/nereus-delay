@@ -27,8 +27,10 @@ public final class SystemMutationIdentity {
         return switch (mutationType) {
             case APPLY_SHARD_CONTROL -> {
                 final ApplyShardControlBody control = ApplyShardControlBody.decode(body);
-                if(control.controlKind()==TargetProtocolActivatePayload.CONTROL_KIND&&TargetProtocolActivationBody.hasTargetPayload(body))
+                if (control.controlKind() == TargetProtocolActivatePayload.CONTROL_KIND
+                        && TargetProtocolActivationBody.hasTargetPayload(body)) {
                     throw new IllegalArgumentException("Target activation requires the explicit Target Source reader");
+                }
                 yield control.controlRef().logicalOperationIdentity(control.controlKind());
             }
             case REPLAY_DEAD_LETTER ->
@@ -37,9 +39,12 @@ public final class SystemMutationIdentity {
                 ResolveUncertainBody.decode(body).controlRef().logicalOperationIdentity(mutationType);
             case TIME_FENCE -> fixed(field(fields, 12), 12, SystemMutation.HASH_LENGTH);
             case PUBLISH_ADMISSION -> PublishAdmissionBody.decode(body).publishAttemptId();
-            case TARGET_PUBLISH_ADMISSION -> TargetPublishAdmissionBody.decode(body).publishAttemptId();
-            case TARGET_RESOURCE_RECLAIM -> TargetResourceReclaimBody.decode(body).logicalOperationIdentity();
-            case TARGET_SLO_OBSERVATION -> TargetSloObservationEventBody.decode(body).logicalIdentity();
+            case TARGET_PUBLISH_ADMISSION ->
+                TargetPublishAdmissionBody.decode(body).publishAttemptId();
+            case TARGET_RESOURCE_RECLAIM ->
+                TargetResourceReclaimBody.decode(body).logicalOperationIdentity();
+            case TARGET_SLO_OBSERVATION ->
+                TargetSloObservationEventBody.decode(body).logicalIdentity();
             case PUBLISH_OUTCOME -> PublishOutcomeBody.decode(body).initialLogicalOperationIdentity();
             case EXPIRE_GENERATION -> {
                 final DelayMessageId messageId =
@@ -50,14 +55,17 @@ public final class SystemMutationIdentity {
             case EVIDENCE_RESOLUTION ->
                 PublishOutcomeBody.decodeEvidenceResolution(body).evidenceResolutionLogicalOperationIdentity();
             case RESOURCE_RETIRE_INTENT -> {
-                if (fields.get(3).number() == 9) yield TargetEvidenceRetireIntentBody.decode(body).logicalOperationIdentity();
+                if (fields.get(3).number() == 9) {
+                    yield TargetEvidenceRetireIntentBody.decode(body).logicalOperationIdentity();
+                }
                 final ResourceRetireIntentBody retire = ResourceRetireIntentBody.decode(body);
                 yield SystemMutation.computeResourceRetireLogicalIdentity(
                         retire.resourceKind(), retire.resource().identityHash(), retire.expectedResourceStateVersion());
             }
-            case RESOURCE_DELETE_CONFIRMED -> fields.get(3).number() == 9
-                    ? TargetEvidenceDeleteConfirmedBody.decode(body).logicalOperationIdentity()
-                    : ResourceDeleteConfirmedBody.decode(body).intent().mutationId();
+            case RESOURCE_DELETE_CONFIRMED ->
+                fields.get(3).number() == 9
+                        ? TargetEvidenceDeleteConfirmedBody.decode(body).logicalOperationIdentity()
+                        : ResourceDeleteConfirmedBody.decode(body).intent().mutationId();
             case CLAIM_RESULT -> ClaimResultBody.decode(body).claimId();
             case DLQ_EXPORT_RESULT -> DlqExportResultBody.decode(body).logicalOperationIdentity();
         };

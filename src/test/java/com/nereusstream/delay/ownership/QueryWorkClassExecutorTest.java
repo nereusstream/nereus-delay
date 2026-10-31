@@ -133,8 +133,8 @@ class QueryWorkClassExecutorTest {
                         assignment, "query-owner", Bytes.sha256(Bytes.utf8("query-session-" + name)), 100, 100)
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final OwnedDelayShard owned = new OwnedDelayShard(
-                BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
+        final OwnedDelayShard owned =
+                new OwnedDelayShard(BoundedHeadReadDelayShard.create(store, DelayShardConfig.defaults()), lease);
         owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
         owned.recordCatchup(new KafkaSourcePosition(shard, "query-cluster", topic, 0, null, 1_000));
         owned.activateForCommands(authority, 101);

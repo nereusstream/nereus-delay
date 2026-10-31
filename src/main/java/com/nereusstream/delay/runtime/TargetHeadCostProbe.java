@@ -119,10 +119,10 @@ public final class TargetHeadCostProbe {
                     final byte[] selectedWork = TargetValueEnvelope.decode(
                                     selectedWorkValue, TargetTimelineWorkRef.VALUE_TYPE)
                             .payload();
-                    final TargetTimelineWorkRef selectedTimelineWork = message.locator().orderingMode()
-                                    != OrderingMode.DELIVERY_TIME_FIFO
-                            ? message.requireTimelineProjection(selected.key(), selectedWork)
-                            : null;
+                    final TargetTimelineWorkRef selectedTimelineWork =
+                            message.locator().orderingMode() != OrderingMode.DELIVERY_TIME_FIFO
+                                    ? message.requireTimelineProjection(selected.key(), selectedWork)
+                                    : null;
                     final byte[] queueKey = TargetKeyCodec.state(selected.target());
                     final byte[] identityKey = TargetKeyCodec.identity(selected.target());
                     final var physical = CanonicalTargetPartition.decodeForStore(
@@ -224,11 +224,7 @@ public final class TargetHeadCostProbe {
                         final byte[] dispatchKey = TargetKeyCodec.dispatchCompatibility(scope.dispatchRef());
                         final var dispatch = TargetDispatchCompatibility.decodeForStore(
                                 dispatchKey,
-                                payload(
-                                        reader,
-                                        ColumnFamily.META,
-                                        dispatchKey,
-                                        TargetDispatchCompatibility.VALUE_TYPE),
+                                payload(reader, ColumnFamily.META, dispatchKey, TargetDispatchCompatibility.VALUE_TYPE),
                                 physical);
                         final byte[] controlKey = TargetKeyCodec.controlScope(scope.controlRef());
                         final var controls = TargetControlScope.decodeForStore(

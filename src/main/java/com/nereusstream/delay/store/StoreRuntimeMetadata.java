@@ -108,7 +108,8 @@ public record StoreRuntimeMetadata(
     static void requireEvidenceCursorScope(
             final List<EvidenceCursor> cursors, final int storeFormat, final ShardId shard) {
         for (final var cursor : Objects.requireNonNull(cursors, "cursors")) {
-            if (cursor.isTarget() && (storeFormat != 2 || !cursor.targetScope().sourceShard().equals(shard))) {
+            if (cursor.isTarget()
+                    && (storeFormat != 2 || !cursor.targetScope().sourceShard().equals(shard))) {
                 throw new IllegalArgumentException("Target evidence cursor requires its exact format-two Shard");
             }
         }

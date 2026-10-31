@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Signature;
@@ -30,10 +29,10 @@ class TargetParentControlCreditActivationContractTest {
         assertFalse(parent.supportsMigrationLogicalFirstArchive());
         assertFalse(parent.supportsMigrationFullSourceArchive());
         assertEquals(0, parent.maximumMigrationArchiveSourceFrameBytes());
-        final var fields = TargetCompatibilityCodec.read(parent.canonicalBytes(),
-                TargetProtocolActivationDescriptor.MAX_BYTES, 12, false, "descriptor");
-        final var matrix = TargetCompatibilityCodec.read(QueryCodecSupport.bytes(fields.get(6), 7),
-                1024, 64, false, "Parent matrix");
+        final var fields = TargetCompatibilityCodec.read(
+                parent.canonicalBytes(), TargetProtocolActivationDescriptor.MAX_BYTES, 12, false, "descriptor");
+        final var matrix = TargetCompatibilityCodec.read(
+                QueryCodecSupport.bytes(fields.get(6), 7), 1024, 64, false, "Parent matrix");
         assertFalse(matrix.stream().anyMatch(field -> field.number() >= 44 && field.number() <= 50));
         assertEquals(parent, TargetProtocolActivationDescriptor.decode(parent.canonicalBytes()));
         final byte[] future = parent.canonicalBytes();
@@ -46,12 +45,18 @@ class TargetParentControlCreditActivationContractTest {
         final var parent = descriptor(22);
         final var tuples = List.of(parent.tuple());
         final var bases = List.of(parent.base());
-        assertThrows(IllegalArgumentException.class, () -> new ProtocolCapabilityDeclaration(
-                "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolCapabilityDeclaration.extendedTarget(
-                "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolCapabilityDeclaration.fullSourceArchiveTarget(
-                "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ProtocolCapabilityDeclaration(
+                        "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolCapabilityDeclaration.extendedTarget(
+                        "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolCapabilityDeclaration.fullSourceArchiveTarget(
+                        "worker", bytes(32, 1), tuples, bases, List.of(parent), 1, bytes(32, 2)));
         final var declaration = capability(List.of(parent));
         final var decoded = ProtocolCapabilityDeclaration.decode(declaration.canonicalBytes());
         assertEquals(6, decoded.version());
@@ -62,21 +67,32 @@ class TargetParentControlCreditActivationContractTest {
         final var archiveOnly = capability(List.of(descriptor(21)));
         assertFalse(archiveOnly.supports(parent));
         assertFalse(archiveOnly.supports(parent.tuple()));
-        final var twelve = new ArrayList<>(IntStream.rangeClosed(1, 4).mapToObj(
-                TargetParentControlCreditActivationContractTest::descriptor).toList());
-        twelve.addAll(IntStream.rangeClosed(15, 22).mapToObj(
-                TargetParentControlCreditActivationContractTest::descriptor).toList());
-        assertEquals(12, ProtocolCapabilityDeclaration.decode(capability(twelve).canonicalBytes())
-                .targetDescriptors().size());
+        final var twelve = new ArrayList<>(IntStream.rangeClosed(1, 4)
+                .mapToObj(TargetParentControlCreditActivationContractTest::descriptor)
+                .toList());
+        twelve.addAll(IntStream.rangeClosed(15, 22)
+                .mapToObj(TargetParentControlCreditActivationContractTest::descriptor)
+                .toList());
+        assertEquals(
+                12,
+                ProtocolCapabilityDeclaration.decode(capability(twelve).canonicalBytes())
+                        .targetDescriptors()
+                        .size());
         final var fiveOriginal = new ArrayList<>(twelve);
         fiveOriginal.remove(descriptor(15));
         fiveOriginal.add(descriptor(5));
         assertThrows(IllegalArgumentException.class, () -> capability(fiveOriginal));
         final var nineExtended = new ArrayList<>(twelve);
         nineExtended.remove(descriptor(1));
-        nineExtended.add(new TargetProtocolActivationDescriptor(parent.base(), parent.baseResetManifest(),
-                bytes(32, 99), parent.workerSourceCommit(), parent.kafkaSourceCommit(),
-                parent.kafkaSdkJar(), parent.pulsarSdkJar(), 22));
+        nineExtended.add(new TargetProtocolActivationDescriptor(
+                parent.base(),
+                parent.baseResetManifest(),
+                bytes(32, 99),
+                parent.workerSourceCommit(),
+                parent.kafkaSourceCommit(),
+                parent.kafkaSdkJar(),
+                parent.pulsarSdkJar(),
+                22));
         assertThrows(IllegalArgumentException.class, () -> capability(nineExtended));
     }
 
@@ -85,11 +101,13 @@ class TargetParentControlCreditActivationContractTest {
         final var keys = keyPair();
         final var initial = initial(keys);
         final var parent = descriptor(22);
-        final var readers = new TargetProtocolReaderSet(parent,
-                List.of(new TargetProtocolReaderSet.Reader(1, capability(List.of(parent)))));
+        final var readers = new TargetProtocolReaderSet(
+                parent, List.of(new TargetProtocolReaderSet.Reader(1, capability(List.of(parent)))));
         assertFalse(initial.input().protocolTuples().contains(parent.tuple()));
-        assertThrows(IllegalArgumentException.class, () -> new TargetProtocolActivatePayload(
-                initial.input().scope(), initial.input().lineage(), parent, readers.digest()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetProtocolActivatePayload(
+                        initial.input().scope(), initial.input().lineage(), parent, readers.digest()));
         final var payload = TargetProtocolActivatePayload.forRoot(initial, parent, readers.digest(), keys.getPrivate());
         final var decoded = TargetProtocolActivatePayload.decode(payload.canonicalBytes());
         assertEquals(payload, decoded);
@@ -97,23 +115,39 @@ class TargetParentControlCreditActivationContractTest {
         assertTrue(decoded.rootAuthorization().verifySignature(keys.getPublic()));
         assertFalse(decoded.rootAuthorization().verifySignature(keyPair().getPublic()));
         new TargetProtocolRootIssuerEvidence(initial, keys.getPublic().getEncoded()).require(decoded);
-        assertThrows(IllegalArgumentException.class, () -> new TargetProtocolActivatePayload(
-                initial.input().scope(), initial.input().lineage(), descriptor(21), readers.digest(),
-                decoded.rootAuthorization()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TargetProtocolActivatePayload(
+                        initial.input().scope(),
+                        initial.input().lineage(),
+                        descriptor(21),
+                        readers.digest(),
+                        decoded.rootAuthorization()));
     }
 
     @Test
     void everyPreviousDescriptorRetainsItsFrozenCanonicalBytes() {
         for (int version = 1; version <= LEGACY_DESCRIPTOR_SHA256.length; version++) {
             final var descriptor = descriptor(version);
-            assertEquals(LEGACY_DESCRIPTOR_SHA256[version - 1], Bytes.hex(Bytes.sha256(descriptor.canonicalBytes())),
+            assertEquals(
+                    LEGACY_DESCRIPTOR_SHA256[version - 1],
+                    Bytes.hex(Bytes.sha256(descriptor.canonicalBytes())),
                     "descriptor" + version);
             assertEquals(descriptor, TargetProtocolActivationDescriptor.decode(descriptor.canonicalBytes()));
             assertFalse(descriptor.supportsParentControlCredit());
         }
         assertEquals(56, descriptor(14).nativeMaximum());
-        assertEquals(5, new TargetProtocolActivationDescriptor(descriptor(5).base(), bytes(32, 5), bytes(32, 6),
-                "1".repeat(40), "2".repeat(40), bytes(32, 7), bytes(32, 8)).schemaVersion());
+        assertEquals(
+                5,
+                new TargetProtocolActivationDescriptor(
+                                descriptor(5).base(),
+                                bytes(32, 5),
+                                bytes(32, 6),
+                                "1".repeat(40),
+                                "2".repeat(40),
+                                bytes(32, 7),
+                                bytes(32, 8))
+                        .schemaVersion());
     }
 
     @Test
@@ -141,57 +175,107 @@ class TargetParentControlCreditActivationContractTest {
     void migrationPolicyTwoHasAnExplicitGrantAndItsOwnSignaturePurpose() throws Exception {
         final var keys = keyPair();
         final var plan = plan(initial(keys));
-        final var old = TargetMigrationRootIssuerAuthorization.signed(plan, bytes(32, 20), bytes(32, 21), 1,
-                List.of(ProtocolTuple.targetObjectPayloadReclaim()), bytes(64, 22), keys.getPrivate());
+        final var old = TargetMigrationRootIssuerAuthorization.signed(
+                plan,
+                bytes(32, 20),
+                bytes(32, 21),
+                1,
+                List.of(ProtocolTuple.targetObjectPayloadReclaim()),
+                bytes(64, 22),
+                keys.getPrivate());
         assertEquals(1, old.schemaVersion());
         assertTrue(old.verifySignature(keys.getPublic()));
         assertEquals(old, TargetMigrationRootIssuerAuthorization.decode(old.canonicalBytes()));
-        assertThrows(IllegalArgumentException.class, () -> TargetMigrationRootIssuerAuthorization.signed(
-                plan, bytes(32, 20), bytes(32, 21), 1, List.of(ProtocolTuple.targetParentControlCredit()),
-                bytes(64, 22), keys.getPrivate()));
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetMigrationRootIssuerAuthorization.signed(
+                        plan,
+                        bytes(32, 20),
+                        bytes(32, 21),
+                        1,
+                        List.of(ProtocolTuple.targetParentControlCredit()),
+                        bytes(64, 22),
+                        keys.getPrivate()));
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> TargetMigrationRootIssuerAuthorization.signedParentControlCredit(
-                plan, bytes(32, 20), bytes(32, 21), 1, List.of(ProtocolTuple.targetObjectPayloadReclaim()),
-                bytes(64, 22), keys.getPrivate()));
-        final var parent = TargetMigrationRootIssuerAuthorization.signedParentControlCredit(plan,
-                bytes(32, 20), bytes(32, 21), 1, List.of(ProtocolTuple.targetParentControlCredit()),
-                bytes(64, 22), keys.getPrivate());
+                        plan,
+                        bytes(32, 20),
+                        bytes(32, 21),
+                        1,
+                        List.of(ProtocolTuple.targetObjectPayloadReclaim()),
+                        bytes(64, 22),
+                        keys.getPrivate()));
+        final var parent = TargetMigrationRootIssuerAuthorization.signedParentControlCredit(
+                plan,
+                bytes(32, 20),
+                bytes(32, 21),
+                1,
+                List.of(ProtocolTuple.targetParentControlCredit()),
+                bytes(64, 22),
+                keys.getPrivate());
         assertEquals(2, parent.schemaVersion());
         assertEquals(List.of(ProtocolTuple.targetParentControlCredit()), parent.allowedTuples());
         assertTrue(parent.verifySignature(keys.getPublic()));
         parent.requirePlan(plan);
         assertEquals(parent, TargetMigrationRootIssuerAuthorization.decode(parent.canonicalBytes()));
-        final var originalPurposes = List.of(ProtocolTuple.targetObjectPayloadReclaim(),
-                ProtocolTuple.targetUncommittedObjectReclaim(), ProtocolTuple.targetMigrationObjectPayloadReclaim(),
-                ProtocolTuple.targetMigrationUncommittedObjectReclaim(), ProtocolTuple.targetMigrationRetireIntent(),
-                ProtocolTuple.targetMigrationRetireConfirm(), ProtocolTuple.targetPayloadObligationSummary(),
-                ProtocolTuple.targetMigrationLogicalFirstArchive(), ProtocolTuple.targetMigrationFullSourceArchive());
-        final var allOriginal = TargetMigrationRootIssuerAuthorization.signed(plan, bytes(32, 20), bytes(32, 21), 1,
-                originalPurposes, bytes(64, 22), keys.getPrivate());
-        assertEquals(9, TargetMigrationRootIssuerAuthorization.decode(allOriginal.canonicalBytes())
-                .allowedTuples().size());
-        assertEquals(25, TargetCompatibilityCodec.read(allOriginal.canonicalBytes(),
-                TargetMigrationRootIssuerAuthorization.MAX_BYTES, 25, true, "old policy").size());
+        final var originalPurposes = List.of(
+                ProtocolTuple.targetObjectPayloadReclaim(),
+                ProtocolTuple.targetUncommittedObjectReclaim(),
+                ProtocolTuple.targetMigrationObjectPayloadReclaim(),
+                ProtocolTuple.targetMigrationUncommittedObjectReclaim(),
+                ProtocolTuple.targetMigrationRetireIntent(),
+                ProtocolTuple.targetMigrationRetireConfirm(),
+                ProtocolTuple.targetPayloadObligationSummary(),
+                ProtocolTuple.targetMigrationLogicalFirstArchive(),
+                ProtocolTuple.targetMigrationFullSourceArchive());
+        final var allOriginal = TargetMigrationRootIssuerAuthorization.signed(
+                plan, bytes(32, 20), bytes(32, 21), 1, originalPurposes, bytes(64, 22), keys.getPrivate());
+        assertEquals(
+                9,
+                TargetMigrationRootIssuerAuthorization.decode(allOriginal.canonicalBytes())
+                        .allowedTuples()
+                        .size());
+        assertEquals(
+                25,
+                TargetCompatibilityCodec.read(
+                                allOriginal.canonicalBytes(),
+                                TargetMigrationRootIssuerAuthorization.MAX_BYTES,
+                                25,
+                                true,
+                                "old policy")
+                        .size());
         final var ten = new ArrayList<>(originalPurposes);
         ten.add(ProtocolTuple.targetParentControlCredit());
-        final var full = TargetMigrationRootIssuerAuthorization.signedParentControlCredit(plan,
-                bytes(32, 20), bytes(32, 21), 1, ten, bytes(64, 22), keys.getPrivate());
-        assertEquals(10, TargetMigrationRootIssuerAuthorization.decode(full.canonicalBytes()).allowedTuples().size());
-        assertEquals(26, TargetCompatibilityCodec.read(full.canonicalBytes(),
-                TargetMigrationRootIssuerAuthorization.MAX_BYTES, 26, true, "policy2").size());
+        final var full = TargetMigrationRootIssuerAuthorization.signedParentControlCredit(
+                plan, bytes(32, 20), bytes(32, 21), 1, ten, bytes(64, 22), keys.getPrivate());
+        assertEquals(
+                10,
+                TargetMigrationRootIssuerAuthorization.decode(full.canonicalBytes())
+                        .allowedTuples()
+                        .size());
+        assertEquals(
+                26,
+                TargetCompatibilityCodec.read(
+                                full.canonicalBytes(),
+                                TargetMigrationRootIssuerAuthorization.MAX_BYTES,
+                                26,
+                                true,
+                                "policy2")
+                        .size());
         ten.add(ProtocolTuple.targetScopeControlObligation());
-        assertThrows(IllegalArgumentException.class,
-                () -> TargetMigrationRootIssuerAuthorization.signedParentControlCredit(plan,
-                        bytes(32, 20), bytes(32, 21), 1, ten, bytes(64, 22), keys.getPrivate()));
-        final var parsed = TargetCompatibilityCodec.read(parent.canonicalBytes(),
-                TargetMigrationRootIssuerAuthorization.MAX_BYTES, 26, true, "policy2");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TargetMigrationRootIssuerAuthorization.signedParentControlCredit(
+                        plan, bytes(32, 20), bytes(32, 21), 1, ten, bytes(64, 22), keys.getPrivate()));
+        final var parsed = TargetCompatibilityCodec.read(
+                parent.canonicalBytes(), TargetMigrationRootIssuerAuthorization.MAX_BYTES, 26, true, "policy2");
         assertEquals(2, QueryCodecSupport.uint32(parsed.get(12), 13));
-        final byte[] fields = Arrays.copyOf(parent.canonicalBytes(),
-                parent.canonicalBytes().length - 35 - 67);
+        final byte[] fields = Arrays.copyOf(parent.canonicalBytes(), parent.canonicalBytes().length - 35 - 67);
         final var signer = Signature.getInstance("Ed25519");
         signer.initSign(keys.getPrivate());
-        signer.update(Bytes.concat(Bytes.utf8("nereus-delay-migration-root-issuer-authorization-signature-v1\0"),
-                parent.digest()));
+        signer.update(Bytes.concat(
+                Bytes.utf8("nereus-delay-migration-root-issuer-authorization-signature-v1\0"), parent.digest()));
         final byte[] wrongSignature = signer.sign();
         final byte[] wrongDomain = Bytes.concat(fields, CanonicalProtobuf.message(out -> {
             CanonicalProtobuf.bytes(out, 16, parent.digest());
@@ -203,12 +287,17 @@ class TargetParentControlCreditActivationContractTest {
             changed[1] = (byte) version;
             assertThrows(IllegalArgumentException.class, () -> TargetMigrationRootIssuerAuthorization.decode(changed));
         }
-        final byte[] oldPurpose = Bytes.concat(fields,
+        final byte[] oldPurpose = Bytes.concat(
+                fields,
                 CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 16, parent.digest())),
                 CanonicalProtobuf.message(out -> CanonicalProtobuf.bytes(out, 17, parent.signature())));
         // Field13's one-byte purpose is immediately before the first repeated tuple tag.
-        final int purposeOffset = fields.length - parent.originalAuthorityHistory().length - 2
-                - parent.allowedTuples().getFirst().canonicalBytes().length - 2 - 1;
+        final int purposeOffset = fields.length
+                - parent.originalAuthorityHistory().length
+                - 2
+                - parent.allowedTuples().getFirst().canonicalBytes().length
+                - 2
+                - 1;
         oldPurpose[purposeOffset] = 1;
         assertThrows(IllegalArgumentException.class, () -> TargetMigrationRootIssuerAuthorization.decode(oldPurpose));
     }
@@ -217,76 +306,145 @@ class TargetParentControlCreditActivationContractTest {
     void preAMigrationReaderProofNeedsBothParentPolicyAndActualMigrationDataMatrices() {
         final var parent = descriptor(22);
         final var migration = descriptor(15);
-        final var parentOnly = new TargetProtocolReaderSet(parent, List.of(new TargetProtocolReaderSet.Reader(1,
-                migrationCapability(List.of(parent)))));
+        final var parentOnly = new TargetProtocolReaderSet(
+                parent, List.of(new TargetProtocolReaderSet.Reader(1, migrationCapability(List.of(parent)))));
         assertThrows(IllegalStateException.class, parentOnly::requireMigrationRootIssuerReaders);
-        final var both = new TargetProtocolReaderSet(parent, List.of(new TargetProtocolReaderSet.Reader(1,
-                migrationCapability(List.of(parent, migration)))));
+        final var both = new TargetProtocolReaderSet(
+                parent,
+                List.of(new TargetProtocolReaderSet.Reader(1, migrationCapability(List.of(parent, migration)))));
         both.requireMigrationRootIssuerReaders();
-        final var otherBinary = new TargetProtocolActivationDescriptor(migration.base(), migration.baseResetManifest(),
-                migration.targetSchemaHash(), "3".repeat(40), migration.kafkaSourceCommit(),
-                migration.kafkaSdkJar(), migration.pulsarSdkJar(), 15);
-        final var wrongBinary = new TargetProtocolReaderSet(parent, List.of(new TargetProtocolReaderSet.Reader(1,
-                migrationCapability(List.of(parent, otherBinary)))));
+        final var otherBinary = new TargetProtocolActivationDescriptor(
+                migration.base(),
+                migration.baseResetManifest(),
+                migration.targetSchemaHash(),
+                "3".repeat(40),
+                migration.kafkaSourceCommit(),
+                migration.kafkaSdkJar(),
+                migration.pulsarSdkJar(),
+                15);
+        final var wrongBinary = new TargetProtocolReaderSet(
+                parent,
+                List.of(new TargetProtocolReaderSet.Reader(1, migrationCapability(List.of(parent, otherBinary)))));
         assertThrows(IllegalStateException.class, wrongBinary::requireMigrationRootIssuerReaders);
     }
 
     @Test
     void legacyMigrationPolicyKeepsItsBytesAndOriginalSignatureDomain() throws Exception {
         final var unsigned = legacyPolicy(null);
-        assertEquals("63fc31e377a6e9e10e10140e2bc396ea75d0a76de71030375b7d002258a98f03",
-                Bytes.hex(unsigned.digest()));
+        assertEquals("63fc31e377a6e9e10e10140e2bc396ea75d0a76de71030375b7d002258a98f03", Bytes.hex(unsigned.digest()));
         final var encoded = legacyPolicy(bytes(64, 13));
-        assertEquals("9d5dfad98e4d12ac673c8645bd5870cafdcabfa68f72e4d27ce7c390d0fd4467",
+        assertEquals(
+                "9d5dfad98e4d12ac673c8645bd5870cafdcabfa68f72e4d27ce7c390d0fd4467",
                 Bytes.hex(Bytes.sha256(encoded.canonicalBytes())));
         assertEquals(encoded, TargetMigrationRootIssuerAuthorization.decode(encoded.canonicalBytes()));
         final var keys = keyPair();
         final var signer = Signature.getInstance("Ed25519");
         signer.initSign(keys.getPrivate());
-        signer.update(Bytes.concat(Bytes.utf8("nereus-delay-migration-root-issuer-authorization-signature-v1\0"),
-                unsigned.digest()));
+        signer.update(Bytes.concat(
+                Bytes.utf8("nereus-delay-migration-root-issuer-authorization-signature-v1\0"), unsigned.digest()));
         assertTrue(legacyPolicy(signer.sign()).verifySignature(keys.getPublic()));
     }
 
     private static TargetMigrationRootIssuerAuthorization legacyPolicy(byte[] signature) {
         final var shard = new ShardId(new RouteIncarnation(bytes(16, 1)), 0);
         final var scope = new TargetQuotaScope(shard, bytes(32, 2), null);
-        final var source = new PulsarSourcePosition(shard, bytes(32, 3), "persistent://test/default/source",
-                1, 0, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 1);
-        return new TargetMigrationRootIssuerAuthorization(bytes(32, 4), bytes(32, 5), bytes(32, 6), bytes(32, 7),
-                scope, source, bytes(16, 8), bytes(32, 9), bytes(16, 10), bytes(32, 11), 1,
-                List.of(ProtocolTuple.targetObjectPayloadReclaim()), bytes(64, 12), signature);
+        final var source = new PulsarSourcePosition(
+                shard,
+                bytes(32, 3),
+                "persistent://test/default/source",
+                1,
+                0,
+                0,
+                1,
+                PulsarSourcePosition.EntryKind.NON_BATCH,
+                1);
+        return new TargetMigrationRootIssuerAuthorization(
+                bytes(32, 4),
+                bytes(32, 5),
+                bytes(32, 6),
+                bytes(32, 7),
+                scope,
+                source,
+                bytes(16, 8),
+                bytes(32, 9),
+                bytes(16, 10),
+                bytes(32, 11),
+                1,
+                List.of(ProtocolTuple.targetObjectPayloadReclaim()),
+                bytes(64, 12),
+                signature);
     }
 
     private static ProtocolCapabilityDeclaration migrationCapability(
             List<TargetProtocolActivationDescriptor> descriptors) {
-        final var tuples = new ArrayList<>(descriptors.stream().map(
-                TargetProtocolActivationDescriptor::tuple).toList());
+        final var tuples = new ArrayList<>(descriptors.stream()
+                .map(TargetProtocolActivationDescriptor::tuple)
+                .toList());
         tuples.add(ProtocolTuple.targetMigrationActivateRootIssuer());
-        return ProtocolCapabilityDeclaration.parentControlCreditTarget("worker", bytes(32, 1), tuples,
-                List.of(descriptors.getFirst().base()), descriptors, 1, bytes(32, 2));
+        return ProtocolCapabilityDeclaration.parentControlCreditTarget(
+                "worker", bytes(32, 1), tuples, List.of(descriptors.getFirst().base()), descriptors, 1, bytes(32, 2));
     }
 
     private static TargetMigrationPlan plan(TargetInitialControlSnapshot initial) {
-        final var object = new TargetMigrationObjectReference(new CheckpointResource(bytes(16, 4), bytes(16, 1),
+        final var object = new TargetMigrationObjectReference(new CheckpointResource(
+                bytes(16, 4),
+                bytes(16, 1),
                 new ProfileRef(Bytes.utf8("migration"), 1, bytes(32, 3), ProfileKind.OBJECT_STORE),
-                Bytes.utf8("bucket"), Bytes.utf8("key"), Bytes.utf8("version"), 2, bytes(32, 4)));
-        return new TargetMigrationPlan(initial.input().scope(), bytes(32, 8), 1, null,
-                bytes(16, 2), bytes(32, 2), 1, bytes(16, 4), initial.mutation(), object,
-                bytes(16, 3), bytes(32, 3), 2, bytes(16, 5), object, object, object, object, bytes(32, 9), object);
+                Bytes.utf8("bucket"),
+                Bytes.utf8("key"),
+                Bytes.utf8("version"),
+                2,
+                bytes(32, 4)));
+        return new TargetMigrationPlan(
+                initial.input().scope(),
+                bytes(32, 8),
+                1,
+                null,
+                bytes(16, 2),
+                bytes(32, 2),
+                1,
+                bytes(16, 4),
+                initial.mutation(),
+                object,
+                bytes(16, 3),
+                bytes(32, 3),
+                2,
+                bytes(16, 5),
+                object,
+                object,
+                object,
+                object,
+                bytes(32, 9),
+                object);
     }
 
     private static ProtocolCapabilityDeclaration capability(List<TargetProtocolActivationDescriptor> descriptors) {
-        return ProtocolCapabilityDeclaration.parentControlCreditTarget("worker", bytes(32, 1),
-                descriptors.stream().map(TargetProtocolActivationDescriptor::tuple).distinct().toList(),
-                descriptors.stream().map(TargetProtocolActivationDescriptor::base).distinct().toList(),
-                descriptors, 1, bytes(32, 2));
+        return ProtocolCapabilityDeclaration.parentControlCreditTarget(
+                "worker",
+                bytes(32, 1),
+                descriptors.stream()
+                        .map(TargetProtocolActivationDescriptor::tuple)
+                        .distinct()
+                        .toList(),
+                descriptors.stream()
+                        .map(TargetProtocolActivationDescriptor::base)
+                        .distinct()
+                        .toList(),
+                descriptors,
+                1,
+                bytes(32, 2));
     }
 
     private static TargetProtocolActivationDescriptor descriptor(int version) {
         return new TargetProtocolActivationDescriptor(
                 ArtifactGenerationSet.current(1, PulsarSourceLock.digest(), bytes(32, 4)),
-                bytes(32, 5), bytes(32, 6), "1".repeat(40), "2".repeat(40), bytes(32, 7), bytes(32, 8), version);
+                bytes(32, 5),
+                bytes(32, 6),
+                "1".repeat(40),
+                "2".repeat(40),
+                bytes(32, 7),
+                bytes(32, 8),
+                version);
     }
 
     private static TargetInitialControlSnapshot initial(KeyPair keys) {
@@ -294,32 +452,74 @@ class TargetParentControlCreditActivationContractTest {
         try (var input = TargetParentControlCreditActivationContractTest.class.getResourceAsStream(
                 "/ndip3/target-quota-grant-vectors.properties")) {
             vectors.load(input);
-        } catch (Exception failure) { throw new AssertionError(failure); }
-        final var template = TargetQuotaGrantActivation.decode(HexFormat.of().parseHex(
-                vectors.getProperty("target.initial.activation"))).grant();
+        } catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
+        final var template = TargetQuotaGrantActivation.decode(
+                        HexFormat.of().parseHex(vectors.getProperty("target.initial.activation")))
+                .grant();
         final var scope = template.scope().shardScope();
-        final var grant = new TargetQuotaGrant(scope, template.grantId(), 1, template.accounting(), template.limit(),
-                template.tenantPolicyVersion(), template.tenantPolicyHash());
-        final var source = new PulsarSourcePosition(scope.shard(), bytes(32, 15),
-                "persistent://test/default/source", 1, 0, 0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 1);
+        final var grant = new TargetQuotaGrant(
+                scope,
+                template.grantId(),
+                1,
+                template.accounting(),
+                template.limit(),
+                template.tenantPolicyVersion(),
+                template.tenantPolicyHash());
+        final var source = new PulsarSourcePosition(
+                scope.shard(),
+                bytes(32, 15),
+                "persistent://test/default/source",
+                1,
+                0,
+                0,
+                1,
+                PulsarSourcePosition.EntryKind.NON_BATCH,
+                1);
         final var at = new TargetQuotaMutation(1, source, bytes(32, 6));
         final var request = new TargetQuotaGrantControlRequest(grant, null, null);
-        final var ref = new ControlRef(bytes(32, 5),
-                PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()), 0);
+        final var ref = new ControlRef(
+                bytes(32, 5),
+                PreparedControlOperation.requestHash(request.operationKind(), request.operationRequest()),
+                0);
         final byte[] hash = bytes(32, 7);
-        final var accepted = new TargetQuotaGrantActivation(request, ref, at,
-                SystemMutation.computeSystemMutationId(scope.shard(), SystemMutationType.APPLY_SHARD_CONTROL,
-                        ref.logicalOperationIdentity(TargetQuotaGrantControlRequest.CONTROL_KIND), hash), hash, null);
-        final var signed = TargetControlSnapshotInput.signed(scope, bytes(16, 8), grant.digest(), source,
-                at.mutationDigest(), List.of(ProtocolTuple.currentSystemMutation()), List.of(), 1, keys.getPrivate());
-        return new TargetInitialControlSnapshot(signed,
+        final var accepted = new TargetQuotaGrantActivation(
+                request,
+                ref,
+                at,
+                SystemMutation.computeSystemMutationId(
+                        scope.shard(),
+                        SystemMutationType.APPLY_SHARD_CONTROL,
+                        ref.logicalOperationIdentity(TargetQuotaGrantControlRequest.CONTROL_KIND),
+                        hash),
+                hash,
+                null);
+        final var signed = TargetControlSnapshotInput.signed(
+                scope,
+                bytes(16, 8),
+                grant.digest(),
+                source,
+                at.mutationDigest(),
+                List.of(ProtocolTuple.currentSystemMutation()),
+                List.of(),
+                1,
+                keys.getPrivate());
+        return new TargetInitialControlSnapshot(
+                signed,
                 new TargetQuotaIdentity(TargetQuotaIdentity.Kind.SHARD, scope.shard(), bytes(16, 9), null, null),
-                at, accepted, AuthorIdentity.control(bytes(32, 10), bytes(32, 11), bytes(32, 12)).canonicalBytes());
+                at,
+                accepted,
+                AuthorIdentity.control(bytes(32, 10), bytes(32, 11), bytes(32, 12))
+                        .canonicalBytes());
     }
 
     private static KeyPair keyPair() {
-        try { return KeyPairGenerator.getInstance("Ed25519").generateKeyPair(); }
-        catch (Exception failure) { throw new AssertionError(failure); }
+        try {
+            return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        } catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static byte[] bytes(int count, int value) {

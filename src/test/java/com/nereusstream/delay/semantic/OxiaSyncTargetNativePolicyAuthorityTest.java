@@ -108,9 +108,9 @@ class OxiaSyncTargetNativePolicyAuthorityTest {
         final FakeRecords records = new FakeRecords();
         final var authority = authority(records);
         final var first = authority.publish(permission, actor, at(10), 0, snapshot(1, HandoffPolicyMode.ENABLED));
-        final var competing = TargetNativePolicyHead.next(
-                first.head(), snapshot(2, HandoffPolicyMode.DISABLED));
-        final String key = "/delay/policy/target-native-policy/head/" + HexFormat.of().formatHex(scope.digest());
+        final var competing = TargetNativePolicyHead.next(first.head(), snapshot(2, HandoffPolicyMode.DISABLED));
+        final String key =
+                "/delay/policy/target-native-policy/head/" + HexFormat.of().formatHex(scope.digest());
         records.beforeNextPut = () -> records.values.put(
                 key,
                 new GetResult(
@@ -151,8 +151,7 @@ class OxiaSyncTargetNativePolicyAuthorityTest {
         final AtomicInteger wakeups = new AtomicInteger();
         final Closeable subscription = authority.readAuthority().subscribeCurrentHeadChanges(wakeups::incrementAndGet);
         assertThrows(
-                IllegalStateException.class,
-                () -> authority.readAuthority().subscribeCurrentHeadChanges(() -> {}));
+                IllegalStateException.class, () -> authority.readAuthority().subscribeCurrentHeadChanges(() -> {}));
 
         final Consumer<Notification> emit = notificationConsumer.get();
         assertNotNull(emit);
@@ -172,8 +171,8 @@ class OxiaSyncTargetNativePolicyAuthorityTest {
         assertEquals(4, wakeups.get());
 
         final AtomicInteger resumedWakeups = new AtomicInteger();
-        final Closeable resumed = authority.readAuthority()
-                .subscribeCurrentHeadChanges(resumedWakeups::incrementAndGet);
+        final Closeable resumed =
+                authority.readAuthority().subscribeCurrentHeadChanges(resumedWakeups::incrementAndGet);
         emit.accept(new Notification.KeyModified(exactHeadKey, 7));
         assertEquals(1, resumedWakeups.get());
         assertEquals(1, registrations.get());

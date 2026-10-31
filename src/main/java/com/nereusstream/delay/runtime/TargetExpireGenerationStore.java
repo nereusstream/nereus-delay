@@ -116,13 +116,15 @@ public final class TargetExpireGenerationStore {
         final var result = new SystemMutationResult[1];
         final var terminalized = new boolean[1];
         final var digest = Bytes.sha256(mutation.canonicalEnvelope());
-        final var plainAccounting = new TargetSourceAccounting(
-                scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
+        final var plainAccounting =
+                new TargetSourceAccounting(scope, lineage, source, digest, maximumCounters, 1, maximumDomains);
         final var accounting = legacyPrefix == null ? plainAccounting : plainAccounting.withLegacyPrefix(legacyPrefix);
         final var batch = messages.prepareAccounted(
                 budget,
                 reader -> {
-                    if (legacyPrefix != null) legacyPrefix.requireCurrent(reader, mutation, source);
+                    if (legacyPrefix != null) {
+                        legacyPrefix.requireCurrent(reader, mutation, source);
+                    }
                     if (reader.source() == null || source.compareTo(reader.source()) <= 0) {
                         throw new IllegalStateException(
                                 "first Target expiry needs an established strictly earlier source frontier");
@@ -148,10 +150,7 @@ public final class TargetExpireGenerationStore {
                     final var edits = new ArrayList<TargetStoreBackend.Edit>();
                     if (decision.rejection() != null) {
                         outcome = SystemMutationResult.from(
-                                mutation,
-                                ApplyStatus.REJECTED,
-                                decision.rejection(),
-                                source.canonicalBytes());
+                                mutation, ApplyStatus.REJECTED, decision.rejection(), source.canonicalBytes());
                         messageTransitions = List.of();
                         orderTransitions = List.of();
                     } else {
@@ -182,8 +181,7 @@ public final class TargetExpireGenerationStore {
                                 || !Arrays.equals(prior.canonicalBytes(), first.canonicalBytes())
                                 || !record.mutation().equals(stamp)
                                 || !Arrays.equals(record.key(), sourceKey)) {
-                            throw new IllegalStateException(
-                                    "Target expiry physical result differs from first result");
+                            throw new IllegalStateException("Target expiry physical result differs from first result");
                         }
                         record.requireFirst(first);
                         requireAbsent(reader, record.key());
@@ -208,8 +206,7 @@ public final class TargetExpireGenerationStore {
         return new Prepared(this, batch, result[0]);
     }
 
-    public SystemMutationResult commit(
-            final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
+    public SystemMutationResult commit(final Prepared prepared, final TargetStoreBackend.CommitAuthority authority) {
         Objects.requireNonNull(prepared, "prepared");
         if (prepared.owner != this) {
             throw new IllegalArgumentException("foreign Target expiry plan");
@@ -234,17 +231,16 @@ public final class TargetExpireGenerationStore {
                 scope.shard());
         final int generationOrder = Integer.compareUnsigned(before.locator().generation(), body.generation());
         if (generationOrder != 0) {
-            return unchanged(generationOrder > 0
-                    ? StableCode.GENERATION_SUPERSEDED
-                    : StableCode.STALE_SYSTEM_MUTATION);
+            return unchanged(generationOrder > 0 ? StableCode.GENERATION_SUPERSEDED : StableCode.STALE_SYSTEM_MUTATION);
         }
         if (before.expireAtEpochMs() != body.expireAt()) {
             return unchanged(StableCode.STALE_SYSTEM_MUTATION);
         }
         if (before.runtime().terminal()) {
-            return unchanged(before.aggregateState() == GenerationAggregateState.EXPIRED
-                    ? StableCode.ALREADY_EXPIRED
-                    : StableCode.TOO_LATE);
+            return unchanged(
+                    before.aggregateState() == GenerationAggregateState.EXPIRED
+                            ? StableCode.ALREADY_EXPIRED
+                            : StableCode.TOO_LATE);
         }
         final byte[] payloadKey = Bytes.concat(
                 new byte[] {TargetKeyCodec.QUOTA_PAYLOAD_OWNER_TAG, TargetKeyCodec.KEY_FORMAT},
@@ -252,8 +248,7 @@ public final class TargetExpireGenerationStore {
         final var payloadOwner = TargetQuotaPayloadOwner.decodeForStore(
                 payloadKey,
                 TargetValueEnvelope.decode(
-                                required(reader, ColumnFamily.META, payloadKey),
-                                TargetQuotaPayloadOwner.VALUE_TYPE)
+                                required(reader, ColumnFamily.META, payloadKey), TargetQuotaPayloadOwner.VALUE_TYPE)
                         .payload(),
                 scope.shard(),
                 scope.tenantScope());
@@ -261,12 +256,12 @@ public final class TargetExpireGenerationStore {
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
         owner.requirePayloadOwner(payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
-        final byte[] bindingKey = TargetKeyCodec.scheduleBinding(before.locator().scheduleBindingDigest());
+        final byte[] bindingKey =
+                TargetKeyCodec.scheduleBinding(before.locator().scheduleBindingDigest());
         final var binding = TargetScheduleBinding.decodeForStore(
                 bindingKey,
                 TargetValueEnvelope.decode(
-                                required(reader, ColumnFamily.ID, bindingKey),
-                                TargetScheduleBinding.VALUE_TYPE)
+                                required(reader, ColumnFamily.ID, bindingKey), TargetScheduleBinding.VALUE_TYPE)
                         .payload(),
                 scope.shard());
         payloadOwner.requireInitialBinding(binding);
@@ -325,21 +320,27 @@ public final class TargetExpireGenerationStore {
         }
         final boolean retainPayload = payloadOwner.summaryQualified()
                 ? TargetPayloadObligationSource.canRetain(reader, after, payloadOwner, payloadOwner.unresolvedCount())
-                : legacyPrefix != null && legacyPrefix.noUnresolvedAfter(reader, payloadOwner, List.of())
-                    && legacyPrefix.noLegacyCustodyAfter(reader, payloadOwner, List.of());
-        final var retained = !retainPayload ? payloadOwner : payloadOwner.retain(stamp, (prior, next, floor) -> {
-            if (floor != null
-                    || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
-                    || !next.mutation().equals(stamp)
-                    || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
-                    || !after.runtime().attemptObligations().isEmpty()) {
-                throw new IllegalStateException("expiry retention changed payload ownership or terminal transition");
-            }
-            next.requireMessagePayload(after);
-        });
+                : legacyPrefix != null
+                        && legacyPrefix.noUnresolvedAfter(reader, payloadOwner, List.of())
+                        && legacyPrefix.noLegacyCustodyAfter(reader, payloadOwner, List.of());
+        final var retained = !retainPayload
+                ? payloadOwner
+                : payloadOwner.retain(stamp, (prior, next, floor) -> {
+                    if (floor != null
+                            || !Arrays.equals(prior.canonicalBytes(), payloadOwner.canonicalBytes())
+                            || !next.mutation().equals(stamp)
+                            || next.phase() != TargetQuotaPayloadOwner.Phase.RETAINED
+                            || !after.runtime().attemptObligations().isEmpty()) {
+                        throw new IllegalStateException(
+                                "expiry retention changed payload ownership or terminal transition");
+                    }
+                    next.requireMessagePayload(after);
+                });
         final var edits = new ArrayList<TargetStoreBackend.Edit>();
-        if (retained != payloadOwner) edits.add(reader.replace(
-                ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        if (retained != payloadOwner) {
+            edits.add(reader.replace(
+                    ColumnFamily.META, retained.key(), TargetQuotaPayloadOwner.VALUE_TYPE, retained.canonicalBytes()));
+        }
         edits.add(reader.replace(
                 ColumnFamily.TERMINAL,
                 terminal.key(),
@@ -361,16 +362,19 @@ public final class TargetExpireGenerationStore {
         }
         final byte[] key = TargetKeyCodec.orderState(
                 before.locator().target(), before.locator().orderingDomain());
-        final var old = TargetOrderState.decode(TargetValueEnvelope.decode(
-                        required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE)
-                .payload());
+        final var old = TargetOrderState.decode(
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.META, key), TargetOrderState.VALUE_TYPE)
+                        .payload());
         final TargetOrderBarrier barrier;
         if (before.runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED) {
             old.requireBarrierProjection(before);
             barrier = null;
         } else {
             if (old.barrier() != null
-                    && old.barrier().locator().messageId().equals(before.locator().messageId())) {
+                    && old.barrier()
+                            .locator()
+                            .messageId()
+                            .equals(before.locator().messageId())) {
                 throw new IllegalStateException("timeline Message unexpectedly owns the strict barrier");
             }
             barrier = old.barrier();
@@ -391,8 +395,7 @@ public final class TargetExpireGenerationStore {
         return List.of(new TargetMessageStore.OrderTransition(old, next));
     }
 
-    private TargetQuotaIncarnation root(
-            final TargetStoreBackend.Reader reader, final TargetQuotaMutation operation) {
+    private TargetQuotaIncarnation root(final TargetStoreBackend.Reader reader, final TargetQuotaMutation operation) {
         final var identity = new TargetQuotaIdentity(
                 TargetQuotaIdentity.Kind.SHARD,
                 scope.shard(),
@@ -415,9 +418,7 @@ public final class TargetExpireGenerationStore {
         key[0] = TargetKeyCodec.QUOTA_INCARNATION_TAG;
         final var descriptor = TargetQuotaIncarnation.decodeForStore(
                 key,
-                TargetValueEnvelope.decode(
-                                required(reader, ColumnFamily.META, key),
-                                TargetQuotaIncarnation.VALUE_TYPE)
+                TargetValueEnvelope.decode(required(reader, ColumnFamily.META, key), TargetQuotaIncarnation.VALUE_TYPE)
                         .payload(),
                 scope.shard(),
                 scope.tenantScope());
@@ -428,8 +429,7 @@ public final class TargetExpireGenerationStore {
     }
 
     private static byte[] systemKey(final byte[] logicalId) {
-        return Bytes.concat(
-                new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, logicalId);
+        return Bytes.concat(new byte[] {TargetKeyCodec.RESULT_SYSTEM_TAG, TargetKeyCodec.KEY_FORMAT}, logicalId);
     }
 
     private static byte[] positionKey(final com.nereusstream.delay.protocol.SourcePosition source) {

@@ -25,9 +25,14 @@ import java.util.function.LongSupplier;
 public final class TargetSourceBacklogAdmission implements ManagedSourceIngressAdmission {
     public record Limits(long records, long bytes, long maximumAgeMillis, long maximumObservationAgeNanos) {
         public Limits {
-            if (records <= 0 || records == Long.MAX_VALUE || bytes <= 0 || bytes == Long.MAX_VALUE
-                    || maximumAgeMillis <= 0 || maximumAgeMillis == Long.MAX_VALUE
-                    || maximumObservationAgeNanos <= 0 || maximumObservationAgeNanos == Long.MAX_VALUE) {
+            if (records <= 0
+                    || records == Long.MAX_VALUE
+                    || bytes <= 0
+                    || bytes == Long.MAX_VALUE
+                    || maximumAgeMillis <= 0
+                    || maximumAgeMillis == Long.MAX_VALUE
+                    || maximumObservationAgeNanos <= 0
+                    || maximumObservationAgeNanos == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("Source backlog growth limits must be explicit and finite");
             }
         }
@@ -39,9 +44,12 @@ public final class TargetSourceBacklogAdmission implements ManagedSourceIngressA
     private final LongSupplier monotonicClock;
     private final BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection;
 
-    public TargetSourceBacklogAdmission(final Limits limits,
-            final Function<ShardId, TargetSourceBacklog.Snapshot> snapshots, final TrustedClock trustedClock,
-            final LongSupplier monotonicClock, final BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {
+    public TargetSourceBacklogAdmission(
+            final Limits limits,
+            final Function<ShardId, TargetSourceBacklog.Snapshot> snapshots,
+            final TrustedClock trustedClock,
+            final LongSupplier monotonicClock,
+            final BiConsumer<TargetSourceBacklog.Snapshot, Integer> protection) {
         this.limits = Objects.requireNonNull(limits, "limits");
         this.snapshots = Objects.requireNonNull(snapshots, "snapshots");
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
@@ -54,7 +62,9 @@ public final class TargetSourceBacklogAdmission implements ManagedSourceIngressA
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(route, "route");
         // Cancel retains the existing bounded control admission and the same Source log; it never bypasses apply order.
-        if (command.type() == CommandType.CANCEL) { return; }
+        if (command.type() == CommandType.CANCEL) {
+            return;
+        }
         try {
             final var snapshot = Objects.requireNonNull(snapshots.apply(command.shardId()), "Source backlog snapshot");
             snapshot.cut().requireCurrent();
@@ -62,8 +72,11 @@ public final class TargetSourceBacklogAdmission implements ManagedSourceIngressA
             protection.accept(snapshot, frameBytes);
             snapshot.cut().requireCurrent();
             final long age = monotonicClock.getAsLong() - snapshot.observedAtNanos();
-            if (age < 0 || age >= limits.maximumObservationAgeNanos() || frameBytes <= 0
-                    || snapshot.records() >= limits.records() || frameBytes > limits.bytes()
+            if (age < 0
+                    || age >= limits.maximumObservationAgeNanos()
+                    || frameBytes <= 0
+                    || snapshot.records() >= limits.records()
+                    || frameBytes > limits.bytes()
                     || snapshot.bytes() > limits.bytes() - frameBytes) {
                 throw new IllegalStateException("Source backlog growth/freshness boundary reached");
             }
@@ -80,8 +93,8 @@ public final class TargetSourceBacklogAdmission implements ManagedSourceIngressA
         }
     }
 
-    private static void requireRoute(final PreparedCommand command, final RouteSnapshot route,
-            final TargetSourceBacklog.Snapshot snapshot) {
+    private static void requireRoute(
+            final PreparedCommand command, final RouteSnapshot route, final TargetSourceBacklog.Snapshot snapshot) {
         final var applied = snapshot.cut().applied();
         boolean same = command.shardId().equals(applied.shardId());
         if (applied instanceof KafkaSourcePosition kafka
@@ -96,6 +109,8 @@ public final class TargetSourceBacklogAdmission implements ManagedSourceIngressA
         } else {
             same = false;
         }
-        if (!same) { throw new IllegalStateException("Source backlog snapshot belongs to another resolved resource"); }
+        if (!same) {
+            throw new IllegalStateException("Source backlog snapshot belongs to another resolved resource");
+        }
     }
 }

@@ -67,7 +67,8 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
         }
         final var cut = consumer.checkpointCut(Objects.requireNonNull(expectedPosition, "expectedPosition"));
         if (!Bytes.constantTimeEquals(
-                Objects.requireNonNull(cut.position(), "checkpoint cut position").canonicalBytes(),
+                Objects.requireNonNull(cut.position(), "checkpoint cut position")
+                        .canonicalBytes(),
                 expectedPosition.canonicalBytes())) {
             throw new IllegalStateException("native checkpoint cut differs from the applied Store position");
         }

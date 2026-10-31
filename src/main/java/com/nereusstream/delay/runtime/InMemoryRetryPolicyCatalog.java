@@ -25,10 +25,12 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         publish(semantic, null, visibleAt);
     }
 
-    public synchronized void publish(final RetryPolicySemantic semantic, final TerminalPolicySemantic terminal,
-            final SourcePosition visibleAt) {
+    public synchronized void publish(
+            final RetryPolicySemantic semantic, final TerminalPolicySemantic terminal, final SourcePosition visibleAt) {
         Objects.requireNonNull(semantic, "semantic");
-        if (terminal != null) { terminal.requireBinding(semantic); }
+        if (terminal != null) {
+            terminal.requireBinding(semantic);
+        }
         Objects.requireNonNull(visibleAt, "visibleAt");
         bindSource(visibleAt);
         for (Publication publication : publications) {
@@ -47,7 +49,8 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
             if (publication.semantic().version() == semantic.version()
                     && java.util.Arrays.equals(publication.semantic().policyId(), semantic.policyId())) {
                 if (!publication.semantic().equals(semantic) || !Objects.equals(publication.terminal(), terminal)) {
-                    throw new IllegalStateException("retry policy reference changed original semantic or terminal content");
+                    throw new IllegalStateException(
+                            "retry policy reference changed original semantic or terminal content");
                 }
                 return;
             }
@@ -115,7 +118,8 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         return order;
     }
 
-    private record Publication(RetryPolicySemantic semantic, TerminalPolicySemantic terminal, SourcePosition visibleAt) {
+    private record Publication(
+            RetryPolicySemantic semantic, TerminalPolicySemantic terminal, SourcePosition visibleAt) {
         private Publication {
             Objects.requireNonNull(semantic, "semantic");
             Objects.requireNonNull(visibleAt, "visibleAt");

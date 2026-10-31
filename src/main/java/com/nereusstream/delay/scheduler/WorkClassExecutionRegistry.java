@@ -125,10 +125,16 @@ public final class WorkClassExecutionRegistry {
     public synchronized boolean withdrawQueued(final WorkClassTask task) {
         final var requested = Objects.requireNonNull(task);
         final var registration = actions.get(TaskKey.from(requested));
-        if (registration == null) return false;
+        if (registration == null) {
+            return false;
+        }
         requireSameTask(requested, registration);
-        if (registration.state != ExecutionState.QUEUED || !dispatcher.withdrawQueued(requested)) return false;
-        if (!actions.remove(TaskKey.from(requested), registration)) throw new IllegalStateException("queued action registration changed during withdrawal");
+        if (registration.state != ExecutionState.QUEUED || !dispatcher.withdrawQueued(requested)) {
+            return false;
+        }
+        if (!actions.remove(TaskKey.from(requested), registration)) {
+            throw new IllegalStateException("queued action registration changed during withdrawal");
+        }
         return true;
     }
 
@@ -136,9 +142,13 @@ public final class WorkClassExecutionRegistry {
     public synchronized boolean discardFailed(final WorkClassTask task) {
         final var requested = Objects.requireNonNull(task);
         final var registration = actions.get(TaskKey.from(requested));
-        if (registration == null) return false;
+        if (registration == null) {
+            return false;
+        }
         requireSameTask(requested, registration);
-        if (registration.state != ExecutionState.FAILED || dispatcher.hasActiveTask(requested)) return false;
+        if (registration.state != ExecutionState.FAILED || dispatcher.hasActiveTask(requested)) {
+            return false;
+        }
         return actions.remove(TaskKey.from(requested), registration);
     }
 

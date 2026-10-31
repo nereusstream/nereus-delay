@@ -41,7 +41,8 @@ public final class ResourceRetireIntentBody {
                 SystemMutationBodyCodec.fields(SystemMutationType.RESOURCE_RETIRE_INTENT, canonicalBody);
         final ResourceKind kind = ResourceKind.fromWire(unsigned(field(fields, 10), 10));
         if (kind == ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT) {
-            throw new IllegalArgumentException("Target external evidence lifecycle requires its independently activated body/reader generation");
+            throw new IllegalArgumentException(
+                    "Target external evidence lifecycle requires its independently activated body/reader generation");
         }
         final ExactResourceIdentity resource = decodeResourceIdentity(kind, nested(field(fields, 11), 11));
         final long expectedVersion = rawUnsigned(field(fields, 12), 12);
@@ -116,8 +117,9 @@ public final class ResourceRetireIntentBody {
             final byte[] observedImmutableVersion,
             final byte[] observedEtag,
             final ResourceDeleteConfirmedBody.DeleteOutcome outcome) {
-        if(outcome==ResourceDeleteConfirmedBody.DeleteOutcome.PAYLOAD_RETIRED_MARKER_RETAINED)
+        if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.PAYLOAD_RETIRED_MARKER_RETAINED) {
             throw new IllegalArgumentException("retained marker is not external delete/absence evidence");
+        }
         final ExactResourceIdentity identity = decodeResourceIdentity(kind, encoded);
         Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
         Objects.requireNonNull(observedEtag, "observedEtag");
@@ -126,12 +128,15 @@ public final class ResourceRetireIntentBody {
         if (kind == ResourceKind.TARGET_EXTERNAL_EVIDENCE_OBJECT) {
             final var resource = TargetExternalEvidenceObjectResource.decode(branchField.rawValue());
             final byte[] exactVersion = resource.immutableVersion();
-            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED && exactVersion.length != 0
+            if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.DELETED
+                    && exactVersion.length != 0
                     && observedImmutableVersion.length == 0) {
-                throw new IllegalArgumentException("DELETED Target catalog object requires its pinned immutable version");
+                throw new IllegalArgumentException(
+                        "DELETED Target catalog object requires its pinned immutable version");
             }
             if (observedImmutableVersion.length != 0 && !Arrays.equals(exactVersion, observedImmutableVersion)) {
-                throw new IllegalArgumentException("delete evidence version differs from the exact Target catalog object");
+                throw new IllegalArgumentException(
+                        "delete evidence version differs from the exact Target catalog object");
             }
             return;
         }
@@ -294,26 +299,43 @@ public final class ResourceRetireIntentBody {
 
     /** Canonical ProtectionSet projection. */
     public record ProtectionSet(List<ProtectionRef> references, byte[] canonicalBytes, byte[] digest) {
-        private static final class CanonicalProtection{
+        private static final class CanonicalProtection {
             private final ProtectionRef value;
             private byte[] key;
-            private CanonicalProtection(ProtectionRef value){this.value=value;}
-            private byte[] key(){if(key==null)key=value.canonicalBytes();return key;}
+
+            private CanonicalProtection(ProtectionRef value) {
+                this.value = value;
+            }
+
+            private byte[] key() {
+                if (key == null) {
+                    key = value.canonicalBytes();
+                }
+                return key;
+            }
         }
-        private static List<CanonicalProtection> protectionOrder(List<ProtectionRef> references){
-            final var result=new ArrayList<CanonicalProtection>(references.size());
-            for(var reference:references)result.add(new CanonicalProtection(reference));return result;
+
+        private static List<CanonicalProtection> protectionOrder(List<ProtectionRef> references) {
+            final var result = new ArrayList<CanonicalProtection>(references.size());
+            for (var reference : references) {
+                result.add(new CanonicalProtection(reference));
+            }
+            return result;
         }
         /** Length without making an encoded copy; bounded Root callers must preflight before encoding. */
-        public int canonicalByteLength() { return canonicalBytes.length; }
+        public int canonicalByteLength() {
+            return canonicalBytes.length;
+        }
+
         public ProtectionSet {
             Objects.requireNonNull(references, "references");
             Objects.requireNonNull(canonicalBytes, "canonicalBytes");
             Bytes.requireLength(digest, HASH_LENGTH, "protection set digest");
             references = List.copyOf(references);
-            final var ordered=protectionOrder(references);
+            final var ordered = protectionOrder(references);
             for (int index = 1; index < references.size(); index++) {
-                final int order = Arrays.compareUnsigned(ordered.get(index-1).key(),ordered.get(index).key());
+                final int order = Arrays.compareUnsigned(
+                        ordered.get(index - 1).key(), ordered.get(index).key());
                 if (order > 0) {
                     throw new IllegalArgumentException("ProtectionSet references are not canonical-byte sorted");
                 }
@@ -367,10 +389,11 @@ public final class ResourceRetireIntentBody {
             if (!Bytes.constantTimeEquals(digest, expected)) {
                 throw new IllegalArgumentException("ProtectionSet digest mismatch");
             }
-            final var ordered=protectionOrder(refs);
-            final var sortedKeys=new ArrayList<>(ordered);
-            sortedKeys.sort((a,b)->Arrays.compareUnsigned(a.key(),b.key()));
-            final List<ProtectionRef> sorted=sortedKeys.stream().map(value->value.value).toList();
+            final var ordered = protectionOrder(refs);
+            final var sortedKeys = new ArrayList<>(ordered);
+            sortedKeys.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+            final List<ProtectionRef> sorted =
+                    sortedKeys.stream().map(value -> value.value).toList();
             if (!refs.equals(sorted)) {
                 throw new IllegalArgumentException("ProtectionSet references are not canonical-byte sorted");
             }

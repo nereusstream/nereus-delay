@@ -32,7 +32,8 @@ public final class TargetOutcomeWorkClassExecutor {
         final var image = Objects.requireNonNull(mutation, "mutation");
         final var clock = Objects.requireNonNull(ownerClock, "ownerClock");
         if (pending != null) {
-            final var applied = worker.outcomeMutationResult(pending.mutation, clock).orElse(null);
+            final var applied =
+                    worker.outcomeMutationResult(pending.mutation, clock).orElse(null);
             if (applied != null) {
                 if (applied.applyStatus() != ApplyStatus.APPLIED) {
                     throw new IllegalStateException("Target pending Outcome has a rejected Source first result");
@@ -55,8 +56,8 @@ public final class TargetOutcomeWorkClassExecutor {
             }
         }
         final byte[] frame = image.encodeFrame();
-        final var task = new WorkClassTask(WorkClass.OUTCOME_AND_CONTROL,
-                "target-outcome/" + Bytes.hex(Bytes.sha256(frame)), frame.length);
+        final var task = new WorkClassTask(
+                WorkClass.OUTCOME_AND_CONTROL, "target-outcome/" + Bytes.hex(Bytes.sha256(frame)), frame.length);
         final var submission = new Submission(image, task);
         pending = submission;
         try {
@@ -99,13 +100,19 @@ public final class TargetOutcomeWorkClassExecutor {
         return worker.outcomeMutationResult(mutation, ownerClock);
     }
     /** Only an actual immutable Native terminal first can release this exact queued image, including a rejection. */
-    synchronized void releaseTerminal(SystemMutation image,LongSupplier clock){
-        final var actual=worker.outcomeMutationResult(image,clock).orElseThrow(()->new IllegalStateException("Source terminal first is unavailable"));
-        if(actual.mutationType()!=image.type()||!Arrays.equals(actual.mutationId(),image.systemMutationId())||!Arrays.equals(actual.mutationHash(),image.mutationHash()))
+    synchronized void releaseTerminal(SystemMutation image, LongSupplier clock) {
+        final var actual = worker.outcomeMutationResult(image, clock)
+                .orElseThrow(() -> new IllegalStateException("Source terminal first is unavailable"));
+        if (actual.mutationType() != image.type()
+                || !Arrays.equals(actual.mutationId(), image.systemMutationId())
+                || !Arrays.equals(actual.mutationHash(), image.mutationHash())) {
             throw new IllegalStateException("Source terminal first changed its exact mutation");
-        if(pending!=null){
-            if(!Arrays.equals(pending.mutation.encodeFrame(),image.encodeFrame()))throw new IllegalStateException("Source completion selects another pending image");
-            pending=null;
+        }
+        if (pending != null) {
+            if (!Arrays.equals(pending.mutation.encodeFrame(), image.encodeFrame())) {
+                throw new IllegalStateException("Source completion selects another pending image");
+            }
+            pending = null;
         }
     }
 
@@ -120,8 +127,16 @@ public final class TargetOutcomeWorkClassExecutor {
             this.task = task;
         }
 
-        public SystemMutation mutation() { return mutation; }
-        public Optional<ShardLogMutationAppender.AppendOutcome> append() { return Optional.ofNullable(append); }
-        public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+        public SystemMutation mutation() {
+            return mutation;
+        }
+
+        public Optional<ShardLogMutationAppender.AppendOutcome> append() {
+            return Optional.ofNullable(append);
+        }
+
+        public Optional<Throwable> failure() {
+            return Optional.ofNullable(failure);
+        }
     }
 }

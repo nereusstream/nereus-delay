@@ -24,7 +24,9 @@ public final class OwnedSourceCursor<T> {
         this(opening, closer, null);
     }
 
-    public OwnedSourceCursor(final CompletableFuture<T> opening, final Function<T, CompletableFuture<Void>> closer,
+    public OwnedSourceCursor(
+            final CompletableFuture<T> opening,
+            final Function<T, CompletableFuture<Void>> closer,
             final TargetOwnedBackendGroup backend) {
         this.backend = backend;
         this.opening = Objects.requireNonNull(opening, "opening");
@@ -32,7 +34,8 @@ public final class OwnedSourceCursor<T> {
         opening.whenComplete((opened, failure) -> {
             synchronized (this) {
                 if (failure != null || opened == null) {
-                    openFailure = failure == null ? new IllegalStateException("Source cursor opening returned null")
+                    openFailure = failure == null
+                            ? new IllegalStateException("Source cursor opening returned null")
                             : failure;
                     // A failed open can precede SDK cleanup. Only backend-owner shutdown can settle this case.
                 } else {
@@ -46,9 +49,13 @@ public final class OwnedSourceCursor<T> {
     public <R> R read(final long timeoutMs, final Function<T, R> action)
             throws InterruptedException, ExecutionException, TimeoutException {
         Objects.requireNonNull(action, "action");
-        if (timeoutMs <= 0) { throw new IllegalArgumentException("Source cursor wait must be finite and positive"); }
+        if (timeoutMs <= 0) {
+            throw new IllegalArgumentException("Source cursor wait must be finite and positive");
+        }
         synchronized (this) {
-            if (closing || reading) { throw new IllegalStateException("Source cursor is closing or already in use"); }
+            if (closing || reading) {
+                throw new IllegalStateException("Source cursor is closing or already in use");
+            }
             reading = true;
         }
         try {
@@ -61,7 +68,9 @@ public final class OwnedSourceCursor<T> {
     /** Always call after beginRead, including after its timeout/failure; close never races an active SDK read. */
     private void endRead() {
         synchronized (this) {
-            if (!reading) { throw new IllegalStateException("Source cursor has no active read"); }
+            if (!reading) {
+                throw new IllegalStateException("Source cursor has no active read");
+            }
             reading = false;
         }
         tryClose();
@@ -69,7 +78,9 @@ public final class OwnedSourceCursor<T> {
 
     /** Returns a detached future; caller cancellation/completion cannot alter the owned cleanup authority. */
     public CompletableFuture<Void> requestClose() {
-        synchronized (this) { closing = true; }
+        synchronized (this) {
+            closing = true;
+        }
         tryClose();
         return cleanup.copy();
     }
@@ -78,17 +89,29 @@ public final class OwnedSourceCursor<T> {
     public CompletableFuture<Void> retryClose() {
         synchronized (this) {
             closing = true;
-            if (!closeInFlight) { closeFailure = null; }
+            if (!closeInFlight) {
+                closeFailure = null;
+            }
         }
         tryClose();
         return cleanup.copy();
     }
 
-    public synchronized boolean cleanupComplete() { return cleanup.isDone() && !cleanup.isCompletedExceptionally(); }
-    public synchronized boolean readActive() { return reading; }
-    public synchronized boolean operationExited() { return !reading && opening.isDone(); }
+    public synchronized boolean cleanupComplete() {
+        return cleanup.isDone() && !cleanup.isCompletedExceptionally();
+    }
 
-    public synchronized Throwable cleanupFailure() { return closeFailure == null ? openFailure : closeFailure; }
+    public synchronized boolean readActive() {
+        return reading;
+    }
+
+    public synchronized boolean operationExited() {
+        return !reading && opening.isDone();
+    }
+
+    public synchronized Throwable cleanupFailure() {
+        return closeFailure == null ? openFailure : closeFailure;
+    }
 
     public synchronized boolean failedOpenNeedsBackendShutdown() {
         return closing && !reading && opening.isDone() && openFailure != null && !cleanup.isDone();
@@ -121,7 +144,10 @@ public final class OwnedSourceCursor<T> {
 
     /** Only the original registered owner can supply the actual native termination fact, after its Host permit. */
     public void backendShutdownCompleted(TargetOwnedBackendGroup original) {
-        if (backend == null || backend != original || !backend.nativeResourcesTerminated() || backend.applicationReady()) {
+        if (backend == null
+                || backend != original
+                || !backend.nativeResourcesTerminated()
+                || backend.applicationReady()) {
             throw new IllegalStateException("Source cursor has no original terminated backend owner");
         }
         synchronized (this) {

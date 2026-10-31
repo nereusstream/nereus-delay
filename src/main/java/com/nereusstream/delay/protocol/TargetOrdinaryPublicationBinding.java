@@ -66,8 +66,9 @@ public record TargetOrdinaryPublicationBinding(
                 || capabilityProfile.profileKind() != ProfileKind.DELIVERY_CAPABILITY
                 || adapterMetadata.canonicalBytes().length > TargetScheduleBinding.MAX_BODY_BYTES
                 || (adapterMetadata.kind() == AdapterMetadata.Kind.KAFKA
-                        ? adapterMetadata.kafka().headers().size()
-                        : adapterMetadata.pulsar().properties().size()) > TargetScheduleBinding.MAX_METADATA_ENTRIES
+                                ? adapterMetadata.kafka().headers().size()
+                                : adapterMetadata.pulsar().properties().size())
+                        > TargetScheduleBinding.MAX_METADATA_ENTRIES
                 || !locator.target().equals(physical.id())
                 || !shard.equals(context.sourceShard())
                 || !locator.target().equals(context.target())
@@ -101,32 +102,54 @@ public record TargetOrdinaryPublicationBinding(
         binding.requireMessageSource(message.scheduleSource());
         if (claim.selected().nativeCandidate()
                 || message.runtime().currentWorkKind() != CurrentSendWorkKind.CLAIMED
-                || !Arrays.equals(binding.offeredDispatchRef(), channel.context().dispatchCompatibilityRef())
+                || !Arrays.equals(
+                        binding.offeredDispatchRef(), channel.context().dispatchCompatibilityRef())
                 || !Arrays.equals(binding.controlScopeRef(), channel.context().controlScopeRef())) {
             throw new IllegalArgumentException("ordinary publication requires its exact non-Native Claim/channel refs");
         }
         final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(
-                claim.claimId(), message.locator().messageId(), Integer.toUnsignedLong(message.locator().generation()),
+                claim.claimId(),
+                message.locator().messageId(),
+                Integer.toUnsignedLong(message.locator().generation()),
                 Integer.toUnsignedLong(claim.work().candidateAttemptNo()));
         final var destination = binding.intent().profile();
         final var shard = message.locator().messageId().routingId().shardId();
         final var reserved = new ReservedPublishMetadata(
-                shard.routeIncarnation(), Integer.toUnsignedLong(shard.partition()), message.locator().messageId(),
-                Integer.toUnsignedLong(message.locator().generation()), attempt,
-                destination.semanticHash(), capabilityProfile.semanticHash(), message.deliverAtEpochMs(),
+                shard.routeIncarnation(),
+                Integer.toUnsignedLong(shard.partition()),
+                message.locator().messageId(),
+                Integer.toUnsignedLong(message.locator().generation()),
+                attempt,
+                destination.semanticHash(),
+                capabilityProfile.semanticHash(),
+                message.deliverAtEpochMs(),
                 binding.intent().deliveryMode());
         return new TargetOrdinaryPublicationBinding(
-                message.locator(), physical, channel, attempt, claim.work().candidateAttemptNo(),
-                claim.digest(), message.digest(), message.stateVersion(), destination, capabilityProfile,
-                message.payloadLength(), payloadHash(message), binding.intent().adapterMetadata(), reserved,
-                message.deliverAtEpochMs(), message.expireAtEpochMs(), message.retryEligibilityAtEpochMs(),
-                binding.intent().eventTimeEpochMs(), artifactGenerationSetDigest);
+                message.locator(),
+                physical,
+                channel,
+                attempt,
+                claim.work().candidateAttemptNo(),
+                claim.digest(),
+                message.digest(),
+                message.stateVersion(),
+                destination,
+                capabilityProfile,
+                message.payloadLength(),
+                payloadHash(message),
+                binding.intent().adapterMetadata(),
+                reserved,
+                message.deliverAtEpochMs(),
+                message.expireAtEpochMs(),
+                message.retryEligibilityAtEpochMs(),
+                binding.intent().eventTimeEpochMs(),
+                artifactGenerationSetDigest);
     }
 
     public void requireClaim(
             final TargetClaimRecord claim, final TargetMessageRecord message, final TargetScheduleBinding binding) {
-        final var expected = fromClaim(
-                claim, message, binding, physical, channel, capabilityProfile, artifactGenerationSetDigest);
+        final var expected =
+                fromClaim(claim, message, binding, physical, channel, capabilityProfile, artifactGenerationSetDigest);
         if (!Arrays.equals(preparedPublishHash(), expected.preparedPublishHash())) {
             throw new IllegalArgumentException(
                     "Target frozen publication differs from the actual Claim/Message/binding");
@@ -143,25 +166,33 @@ public record TargetOrdinaryPublicationBinding(
 
     private static byte[] payloadHash(final TargetMessageRecord message) {
         final byte[] inline = message.inlinePayload();
-        return inline == null
-                ? message.payloadReference().payloadSha256()
-                : Bytes.sha256(inline);
+        return inline == null ? message.payloadReference().payloadSha256() : Bytes.sha256(inline);
     }
 
     @Override
-    public byte[] publishAttemptId() { return Bytes.copy(publishAttemptId); }
+    public byte[] publishAttemptId() {
+        return Bytes.copy(publishAttemptId);
+    }
 
     @Override
-    public byte[] claimDigest() { return Bytes.copy(claimDigest); }
+    public byte[] claimDigest() {
+        return Bytes.copy(claimDigest);
+    }
 
     @Override
-    public byte[] claimedMessageDigest() { return Bytes.copy(claimedMessageDigest); }
+    public byte[] claimedMessageDigest() {
+        return Bytes.copy(claimedMessageDigest);
+    }
 
     @Override
-    public byte[] payloadSha256() { return Bytes.copy(payloadSha256); }
+    public byte[] payloadSha256() {
+        return Bytes.copy(payloadSha256);
+    }
 
     @Override
-    public byte[] artifactGenerationSetDigest() { return Bytes.copy(artifactGenerationSetDigest); }
+    public byte[] artifactGenerationSetDigest() {
+        return Bytes.copy(artifactGenerationSetDigest);
+    }
 
     private byte[] fields() {
         return CanonicalProtobuf.message(out -> {
@@ -190,7 +221,9 @@ public record TargetOrdinaryPublicationBinding(
         });
     }
 
-    public byte[] preparedPublishHash() { return Bytes.sha256(HASH_DOMAIN, fields()); }
+    public byte[] preparedPublishHash() {
+        return Bytes.sha256(HASH_DOMAIN, fields());
+    }
 
     @Override
     public boolean equals(final Object other) {
@@ -199,7 +232,9 @@ public record TargetOrdinaryPublicationBinding(
     }
 
     @Override
-    public int hashCode() { return Arrays.hashCode(preparedPublishHash()); }
+    public int hashCode() {
+        return Arrays.hashCode(preparedPublishHash());
+    }
 
     public byte[] canonicalBytes() {
         return CanonicalProtobuf.message(out -> {
@@ -211,9 +246,11 @@ public record TargetOrdinaryPublicationBinding(
     public static TargetOrdinaryPublicationBinding decode(final byte[] encoded) {
         final var f = TargetCompatibilityCodec.read(encoded, MAX_CANONICAL_BYTES, 21, false, "Target publication");
         final boolean event = f.size() == 21;
-        QueryCodecSupport.requireNumbers(f, event
-                ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22}
-                : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22},
+        QueryCodecSupport.requireNumbers(
+                f,
+                event
+                        ? new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22}
+                        : new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22},
                 "Target ordinary publication");
         if (QueryCodecSupport.uint32(f.get(0), 1) != VERSION) {
             throw new IllegalArgumentException("unsupported Target ordinary publication version");
@@ -222,16 +259,21 @@ public record TargetOrdinaryPublicationBinding(
                 TargetMessageLocator.decode(QueryCodecSupport.bytes(f.get(1), 2)),
                 CanonicalTargetPartition.decode(QueryCodecSupport.bytes(f.get(2), 3)),
                 TargetChannelIdentity.decode(QueryCodecSupport.bytes(f.get(3), 4)),
-                QueryCodecSupport.fixed(f.get(4), 5, 32), QueryCodecSupport.uint32Bits(f.get(5), 6),
-                QueryCodecSupport.fixed(f.get(6), 7, 32), QueryCodecSupport.fixed(f.get(7), 8, 32),
+                QueryCodecSupport.fixed(f.get(4), 5, 32),
+                QueryCodecSupport.uint32Bits(f.get(5), 6),
+                QueryCodecSupport.fixed(f.get(6), 7, 32),
+                QueryCodecSupport.fixed(f.get(7), 8, 32),
                 QueryCodecSupport.uint64Bits(f.get(8), 9),
                 ProfileRef.decode(QueryCodecSupport.bytes(f.get(9), 10)),
                 ProfileRef.decode(QueryCodecSupport.bytes(f.get(10), 11)),
-                QueryCodecSupport.uint(f.get(11), 12), QueryCodecSupport.fixed(f.get(12), 13, 32),
+                QueryCodecSupport.uint(f.get(11), 12),
+                QueryCodecSupport.fixed(f.get(12), 13, 32),
                 AdapterMetadata.decode(QueryCodecSupport.bytes(f.get(13), 14)),
                 ReservedPublishMetadata.decode(QueryCodecSupport.bytes(f.get(14), 15)),
-                QueryCodecSupport.uint(f.get(15), 16), QueryCodecSupport.uint(f.get(16), 17),
-                QueryCodecSupport.uint(f.get(17), 18), event ? QueryCodecSupport.uint(f.get(18), 20) : null,
+                QueryCodecSupport.uint(f.get(15), 16),
+                QueryCodecSupport.uint(f.get(16), 17),
+                QueryCodecSupport.uint(f.get(17), 18),
+                event ? QueryCodecSupport.uint(f.get(18), 20) : null,
                 QueryCodecSupport.fixed(f.get(event ? 19 : 18), 21, 32));
         if (!Arrays.equals(result.preparedPublishHash(), QueryCodecSupport.fixed(f.getLast(), 22, 32))) {
             throw new IllegalArgumentException("Target publication prepared hash mismatch");

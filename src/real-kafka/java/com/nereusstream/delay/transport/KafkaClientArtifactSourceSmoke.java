@@ -126,7 +126,8 @@ public final class KafkaClientArtifactSourceSmoke {
                             .acknowledge(replayed.record().entry(), null),
                     "first source record");
             requireCommittedOffset(admin, groupId, topic, 0, firstOffset + 1);
-            final SourceRecordConsumer.CheckpointCut firstCut = replayed.consumer().checkpointCut(replayedPosition);
+            final SourceRecordConsumer.CheckpointCut firstCut =
+                    replayed.consumer().checkpointCut(replayedPosition);
             firstCut.requireCurrent();
 
             final PolledSource secondObserved =
