@@ -101,6 +101,15 @@ public final class TargetCheckpointRootVerifier {
         return validateImage(image, expectedShard, limits, null, null, null, null).root();
     }
 
+    /** Explicit offline C image audit; this proof cannot be passed as a normal READY/restore Manifest. */
+    public static LedgerProof auditMigrationPreparedImage(final Path image,
+            final com.nereusstream.delay.protocol.TargetMigrationPlan plan,
+            final CheckpointManifestLimits physicalLimits, final QuotaAuditLimits quotaLimits,
+            final LedgerAuditLimits ledgerLimits) {
+        return inspectImage(image, plan.scope().shard(), physicalLimits, null,
+                Objects.requireNonNull(quotaLimits), Objects.requireNonNull(ledgerLimits), null, false, plan).ledger();
+    }
+
     /** Audits the bounded quota projection graph; independent work ledgers still require a separate fold. */
     public static RootProof auditQuotaProjections(
             final Path image,
@@ -1199,6 +1208,14 @@ public final class TargetCheckpointRootVerifier {
     private static ImageInspection inspectImage(Path image, ShardId expectedShard, CheckpointManifestLimits limits,
             CheckpointManifest manifest, QuotaAuditLimits quotaLimits, LedgerAuditLimits ledgerLimits,
             CandidateIdentity candidate, boolean requireManifestFields) {
+        return inspectImage(image, expectedShard, limits, manifest, quotaLimits, ledgerLimits, candidate,
+                requireManifestFields, null);
+    }
+
+    private static ImageInspection inspectImage(Path image, ShardId expectedShard, CheckpointManifestLimits limits,
+            CheckpointManifest manifest, QuotaAuditLimits quotaLimits, LedgerAuditLimits ledgerLimits,
+            CandidateIdentity candidate, boolean requireManifestFields,
+            com.nereusstream.delay.protocol.TargetMigrationPlan preparedPlan) {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(expectedShard, "expectedShard");
         requireFinitePhysicalLimits(limits);
@@ -1255,7 +1272,7 @@ public final class TargetCheckpointRootVerifier {
                     RocksDB db = RocksDB.openReadOnly(dbOptions, image.toString(), descriptors, handles)) {
                 final int metaIndex = familyNames.indexOf(ColumnFamily.META.rocksName());
                 final ColumnFamilyHandle meta = handles.get(metaIndex);
-                final RootProof proof = readRoot(db, meta, expectedShard);
+                final RootProof proof = readRoot(db, meta, expectedShard, preparedPlan);
                 if (manifest != null) {
                     requireManifestImageIdentity(db, meta, proof, manifest);
                 }
@@ -1466,6 +1483,11 @@ public final class TargetCheckpointRootVerifier {
     }
 
     private static RootProof readRoot(final RocksDB db, final ColumnFamilyHandle meta, final ShardId shard) {
+        return readRoot(db, meta, shard, null);
+    }
+
+    private static RootProof readRoot(final RocksDB db, final ColumnFamilyHandle meta, final ShardId shard,
+            final com.nereusstream.delay.protocol.TargetMigrationPlan preparedPlan) {
         try {
             final byte[] format = requiredFixed(db, meta, 1, "store format");
             if (format.length != Integer.BYTES || Bytes.readU32be(format, 0) != 2) {
@@ -1475,12 +1497,24 @@ public final class TargetCheckpointRootVerifier {
             if (metadata.storeFormatVersion() != 2 || !metadata.shardId().equals(shard)) {
                 throw new IllegalArgumentException("Target checkpoint identity belongs to another Shard or format");
             }
+            final var migration = com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(db.get(meta,
+                    com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(shard)));
+            if (preparedPlan != null) {
+                com.nereusstream.delay.runtime.TargetMigrationStore.requireIdentity(metadata, preparedPlan);
+                if (migration == null || migration.activated() || !migration.plan().equals(preparedPlan))
+                    throw new IllegalArgumentException("offline image lost same MIGRATION_PREPARED plan");
+            } else if (migration != null && !migration.activated()) {
+                throw new IllegalArgumentException("MIGRATION_PREPARED image is not a normal restore/READY candidate");
+            }
             final SourcePosition source = SourcePositionCodec.decode(requiredFixed(db, meta, 3, "source position"));
             final byte[] sequenceBytes = requiredFixed(db, meta, 5, "mutation sequence");
             if (sequenceBytes.length != Long.BYTES) {
                 throw new IllegalArgumentException("Target checkpoint mutation sequence has another width");
             }
             final long sequence = Bytes.readU64be(sequenceBytes, 0);
+            if (preparedPlan != null && (sequence != preparedPlan.baseline().sequence()
+                    || !Arrays.equals(source.canonicalBytes(), preparedPlan.baseline().source().canonicalBytes())))
+                throw new IllegalArgumentException("offline candidate is not its exact baseline C image");
             if (sequence == 0 || !source.shardId().equals(shard)) {
                 throw new IllegalArgumentException("Target checkpoint source frontier belongs to another Shard");
             }

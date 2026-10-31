@@ -215,6 +215,12 @@ public final class ShardStore implements AutoCloseable {
         return openTargetFormat(config, shardId, resources, false);
     }
 
+    /** Opens only a separately protected migration candidate; normal Worker/recovery open rejects PREPARED. */
+    public static ShardStore openMigrationTarget(final ShardStoreConfig config, final ShardId shardId,
+            final SharedRocksDbResources resources) {
+        return openTargetFormat(config, shardId, resources, false, true);
+    }
+
     /** Explicit fresh initialization; existing or unfinished Target state requires its protected recovery path. */
     public static ShardStore createTarget(
             final ShardStoreConfig config, final ShardId shardId, final SharedRocksDbResources resources) {
@@ -223,6 +229,11 @@ public final class ShardStore implements AutoCloseable {
 
     private static ShardStore openTargetFormat(ShardStoreConfig config, ShardId shardId,
             SharedRocksDbResources resources, boolean fresh) {
+        return openTargetFormat(config, shardId, resources, fresh, false);
+    }
+
+    private static ShardStore openTargetFormat(ShardStoreConfig config, ShardId shardId,
+            SharedRocksDbResources resources, boolean fresh, boolean migration) {
         resources.requireConfig(config);
         TargetShardInstall exclusion = null;
         ShardStore opened = null;
@@ -254,6 +265,7 @@ public final class ShardStore implements AutoCloseable {
                 throw new IOException("Target ACTIVE publication still requires protected install completion");
             }
             opened = openAtPath(config, shardId, db, resources, null, true, true, 2);
+            if (!migration) com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(opened);
             if (fresh) {
                 forceIncarnationBeforeActivePointer(db);
                 if (Files.exists(root.resolve("ACTIVE"), LinkOption.NOFOLLOW_LINKS)) throw new IOException("another Target ACTIVE appeared");
@@ -320,7 +332,7 @@ public final class ShardStore implements AutoCloseable {
                     LegacyCheckpointImageInspector.inspect(replayDb, shardId, exactManifest, exactLimits);
             requireSameLegacyCheckpointProof(sourceProof, replayProof);
 
-            opened = openAtPath(config, shardId, replayDb, resources, null, false, false, 1, false);
+            opened = openAtPath(config, shardId, replayDb, resources, null, false, false, 1, true);
             if (!opened.shardId().equals(shardId)
                     || !java.util.Arrays.equals(opened.metadata().dbIdentity(), sourceProof.metadata().dbIdentity())
                     || !opened.metadata().storeIncarnationUuid().equals(sourceProof.metadata().storeIncarnationUuid())
@@ -2263,6 +2275,9 @@ public final class ShardStore implements AutoCloseable {
                     || Bytes.readU32be(format, 0) != expectedFormat) {
                 throw new IllegalStateException("Store format does not match the explicitly selected reader");
             }
+            if (expectedFormat == 1 && publishOpenMarkers && db.get(handles.get(ColumnFamily.META),
+                    com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(shardId)) != null)
+                throw new IllegalStateException("migration shadow cannot reopen as an ordinary legacy writer");
             if (restoreStoreIncarnation != null && identityBytes != null) {
                 final byte[] storeIncarnation = uuidBytes(restoreStoreIncarnation);
                 final StoreMetadata restored = new StoreMetadata(
@@ -2336,7 +2351,9 @@ public final class ShardStore implements AutoCloseable {
             result.inspectionOnly = inspectionOnly;
             if (inspectionOnly) result.cleanCloseAttempted = true;
             if (registerPhysicalUsage) {
-                resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
+                if (expectedFormat == 1 && !publishOpenMarkers)
+                    resources.registerPrivateCopyPhysicalUsage(shardId, result.physicalUsageSource);
+                else resources.registerPhysicalUsage(shardId, result.physicalUsageSource);
             }
             keepOpen = true;
             return result;
@@ -3088,6 +3105,11 @@ public final class ShardStore implements AutoCloseable {
     public record ReadPlan<T>(T value, ReadView view) {}
 
     /** Only exact identity and empty open markers may precede bootstrap. No legacy or recovery history. */
+    /** Exact same empty-Store proof; this entry grants only offline migration staging, never normal bootstrap. */
+    public synchronized void requireMigrationUninitialized(final BoundedReadBudget budget) {
+        requireUninitializedTarget(budget);
+    }
+
     synchronized void requireUninitializedTarget(final BoundedReadBudget budget) {
         ensureOpen();
         if (metadata.storeFormatVersion() != 2 || activeReadBudget != budget || budget == null) {
@@ -3160,6 +3182,16 @@ public final class ShardStore implements AutoCloseable {
     public synchronized ReadView captureReadView() {
         ensureOpen();
         return new ReadView(this, successfulWriteCalls, db.getLatestSequenceNumber(), runtimeMetadata);
+    }
+
+    /** Local comparison for the original opaque maintenance flight, also valid inside its bounded read plan. */
+    public synchronized void requireMigrationReadView(final ReadView view,
+            final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate candidate) {
+        ensureOpen(); Objects.requireNonNull(candidate).requireStore(this); Objects.requireNonNull(view);
+        if (view.store != this) throw new IllegalArgumentException("migration view belongs to another Native Store");
+        if (view.successfulWrites != successfulWriteCalls || view.sequenceNumber != db.getLatestSequenceNumber()
+                || view.runtimeMetadata != runtimeMetadata)
+            throw new com.nereusstream.delay.runtime.TargetMigrationImporter.ViewChanged(null);
     }
 
     /** Publishes a completed read plan under the same Store monitor used by its commit fence. */
@@ -3623,6 +3655,33 @@ public final class ShardStore implements AutoCloseable {
         return createCheckpoint(checkpointPath, randomCheckpointId());
     }
 
+    /** Immutable offline candidate; does not write a normal checkpoint marker or publish READY/Catalog state. */
+    public synchronized Path createMigrationPreparedCheckpoint(final Path checkpointPath,
+            final ReadView cut, final com.nereusstream.delay.protocol.TargetMigrationPlan plan,
+            final CheckpointManifestLimits physicalLimits,
+            final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
+            final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits, final Runnable localProtection) {
+        ensureOpen(); requireReadView(cut); Objects.requireNonNull(localProtection).run();
+        com.nereusstream.delay.runtime.TargetMigrationStore.requirePrepared(this, plan);
+        if (Files.exists(checkpointPath, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(checkpointPath))
+            throw new IllegalArgumentException("migration candidate target already exists");
+        boolean acquired = false;
+        try {
+            resources.acquireCheckpointCreateSlot(); acquired = true;
+            final Path parent = checkpointPath.toAbsolutePath().getParent();
+            if (parent == null) throw new IOException("migration candidate has no parent");
+            ensureRealDirectoryPath(parent); localProtection.run();
+            try (Checkpoint checkpoint = Checkpoint.create(db)) { checkpoint.createCheckpoint(checkpointPath.toString()); }
+            TargetCheckpointRootVerifier.auditMigrationPreparedImage(checkpointPath, plan, physicalLimits, quotaLimits, ledgerLimits);
+            localProtection.run(); requireReadView(cut); forceDirectory(checkpointPath); forceDirectory(parent);
+            return checkpointPath;
+        } catch (IOException | RocksDBException failure) {
+            throw new IllegalStateException("cannot create bounded migration-prepared image", failure);
+        } finally {
+            if (acquired) resources.releaseCheckpointCreateSlot();
+        }
+    }
+
     /**
      * Creates a physical checkpoint whose local runtime metadata carries the
      * exact 16-byte checkpoint identity inside the copied DB image.
@@ -3682,7 +3741,7 @@ public final class ShardStore implements AutoCloseable {
         return checkpointPath;
     }
 
-    synchronized Path createTargetSemanticCheckpointCandidate(final Path checkpointPath,
+    public synchronized Path createTargetSemanticCheckpointCandidate(final Path checkpointPath,
             final byte[] checkpointId, final byte[] expectedLineage, final CheckpointManifestLimits physicalLimits,
             final TargetCheckpointRootVerifier.QuotaAuditLimits quotaLimits,
             final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits,
@@ -3906,13 +3965,6 @@ public final class ShardStore implements AutoCloseable {
         // when an earlier JNI close reports a runtime failure. Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
-        if (registersPhysicalUsage) {
-            try {
-                resources.unregisterPhysicalUsage(shardId, physicalUsageSource);
-            } catch (RuntimeException | Error failure) {
-                closeFailure = appendCloseFailure(closeFailure, failure);
-            }
-        }
         if (!defaultColumnFamilyClosed) {
             try {
                 defaultColumnFamilyHandle.close();
@@ -3964,6 +4016,10 @@ public final class ShardStore implements AutoCloseable {
         // shared-resource close could pass its in-flight check and destroy
         // the cache/rate limiter while this Store still owns a native handle.
         if (nativeTeardownComplete()) {
+            if (registersPhysicalUsage) {
+                try { resources.unregisterPhysicalUsage(shardId, physicalUsageSource); }
+                catch (RuntimeException | Error failure) { closeFailure = appendCloseFailure(closeFailure, failure); }
+            }
             if (!dbSlotReleased) {
                 try {
                     resources.releaseDbSlot();
@@ -4232,6 +4288,26 @@ public final class ShardStore implements AutoCloseable {
             batch.put(
                     handle(ColumnFamily.META),
                     KeyCodec.metaFixed(META_CONTROL_SNAPSHOT),
+                    ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
+            controlSnapshot = next;
+        }
+
+        /** One narrow shadow decoder declaration, authorized only by the actual Target first/POS proof. */
+        public void putMigrationShadowControlSnapshot(final CompatibleControlSnapshot next,
+                final com.nereusstream.delay.runtime.TargetMigrationTargetApplied proof) throws RocksDBException {
+            Objects.requireNonNull(proof, "actual Target-applied shadow proof").requireStore(owner);
+            Objects.requireNonNull(next, "shadow control snapshot");
+            if (owner.metadata.storeFormatVersion() != 1 || currentControlSnapshot == null || controlSnapshot != null
+                    || !currentControlSnapshot.shard().equals(next.shard())
+                    || !currentControlSnapshot.profiles().equals(next.profiles())
+                    || !currentControlSnapshot.initialQuotaGrant().equals(next.initialQuotaGrant()))
+                throw new IllegalStateException("shadow declaration cannot change original Shard/Profile/grant authority");
+            final var expected = new java.util.HashSet<>(currentControlSnapshot.protocolTuples());
+            expected.add(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress());
+            if (!expected.equals(new java.util.HashSet<>(next.protocolTuples()))
+                    || next.protocolTuples().size() != expected.size())
+                throw new IllegalStateException("shadow declaration permits only the explicit original migration-progress tuple");
+            batch.put(handle(ColumnFamily.META), KeyCodec.metaFixed(META_CONTROL_SNAPSHOT),
                     ValueEnvelope.encode(META_FIXED_VALUE_TYPE, next.canonicalBytes()));
             controlSnapshot = next;
         }

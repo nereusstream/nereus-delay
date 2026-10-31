@@ -25,25 +25,43 @@ public interface WorkerAssignmentAuthority {
     /** Removes only the exact assignment publication that the caller owns. */
     boolean withdraw(Publication expected);
 
-    record Publication(long revision, WorkerAssignment assignment, PulsarSourceReactivationReceipt reactivation) {
-        public Publication(long revision, WorkerAssignment assignment) { this(revision, assignment, null); }
+    record Publication(long revision, WorkerAssignment assignment, PulsarSourceReactivationReceipt reactivation,
+            TargetMigrationAssignmentReceipt migration) {
+        public Publication(long revision, WorkerAssignment assignment) { this(revision, assignment, null, null); }
+        public Publication(long revision, WorkerAssignment assignment, PulsarSourceReactivationReceipt reactivation) {
+            this(revision, assignment, reactivation, null);
+        }
 
         public Publication {
             if (revision <= 0) {
                 throw new IllegalArgumentException("assignment publication revision must be positive");
             }
             Objects.requireNonNull(assignment, "assignment");
-            if (reactivation != null) reactivation.requireSuccessor(revision, assignment);
+            if (migration != null) migration.requirePublication(revision, assignment);
+            if (reactivation != null) {
+                if (migration == null) reactivation.requireSuccessor(revision, assignment);
+                else reactivation.requireCarriedSuccessor(revision, assignment);
+            }
         }
 
         public byte[] digest() {
-            return Bytes.sha256(Bytes.utf8("nereus-delay-worker-assignment-publication\0"), Bytes.u64beBits(revision),
+            final byte[] original = Bytes.sha256(Bytes.utf8("nereus-delay-worker-assignment-publication\0"), Bytes.u64beBits(revision),
                     Bytes.lp32(assignment.canonicalBytes()), Bytes.lp32(reactivation == null ? new byte[0] : reactivation.canonicalBytes()));
+            return migration == null ? original : Bytes.sha256(Bytes.utf8("nereus-delay-worker-assignment-migration\0"),
+                    original, Bytes.lp32(migration.canonicalBytes()));
         }
 
         public boolean sameIdentity(Publication other) {
             return other != null && revision == other.revision() && assignment.sameIdentity(other.assignment())
                     && Bytes.constantTimeEquals(digest(), other.digest());
+        }
+
+        /** Native reopen must bind both sides: metadata with no receipt cannot serve a migrated Store. */
+        public void requireMigration(com.nereusstream.delay.store.StoreMetadata metadata,
+                com.nereusstream.delay.protocol.TargetMigrationRoot root) {
+            if (migration == null) {
+                if (root != null) throw new IllegalStateException("migration Native Root has no adopted assignment metadata");
+            } else migration.requireNative(metadata, root);
         }
 
         /** Only the actual authority publication may select the explicit renewal branch. */

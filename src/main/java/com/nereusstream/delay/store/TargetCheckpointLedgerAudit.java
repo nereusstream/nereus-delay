@@ -320,6 +320,16 @@ final class TargetCheckpointLedgerAudit {
                     } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetProtocolActivationRecord.VALUE_TYPE) {
                         final var record=com.nereusstream.delay.protocol.TargetProtocolActivationRecord.decodeForStore(key,payload,proof.root().scope(),proof.root().recoveryLineage());
                         record.appliedAt().requireAtOrBefore(proof.aggregate().mutation());dependencies.protocolActivation(record);
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE) {
+                        dependencies.migrationRoot(com.nereusstream.delay.protocol.TargetMigrationRoot.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationOrigin.VALUE_TYPE) {
+                        dependencies.migrationOrigin(com.nereusstream.delay.protocol.TargetMigrationOrigin.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.VALUE_TYPE) {
+                        dependencies.migrationGuard(com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.VALUE_TYPE) {
+                        dependencies.migrationPrefix(com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.decode(payload));
+                    } else if (family == ColumnFamily.META && type == com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.VALUE_TYPE) {
+                        dependencies.migrationAttempt(com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.decode(payload));
                     } else if (family == ColumnFamily.META && type == TargetQuotaAttemptBudget.VALUE_TYPE) {
                         attemptBudgets.add(TargetQuotaAttemptBudget.decodeForStore(
                                 key, payload, proof.metadata().shardId()));
@@ -386,7 +396,8 @@ final class TargetCheckpointLedgerAudit {
                     }
                     final var value = TargetValueEnvelope.decodeAny(raw);
                     return new TargetResultLedgerAudit.Stored(key, value.valueType(), value.payload());
-                });
+                }, com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(view.projected(ColumnFamily.META,
+                        com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(proof.metadata().shardId()), List.of())));
         if (resultSummary.resultRecords() != resultRows.size()
                 || !resultSummary.contributions().equals(resultContributions)) {
             throw new IllegalStateException("Target checkpoint result ledger differs from actual DEDUPE accounting");

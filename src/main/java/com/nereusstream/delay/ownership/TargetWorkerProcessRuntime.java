@@ -183,6 +183,10 @@ public final class TargetWorkerProcessRuntime {
     private long reclaimInputBytes;
     private final java.util.Map<TargetWorkerSourceStartup, ScopeInputs> scopeInputs = new java.util.IdentityHashMap<>();
     private long scopeInputBytes;
+    private final java.util.Map<ShardId, TargetMigrationProcessDriver> migrations = new java.util.LinkedHashMap<>();
+    private final java.util.Set<TargetMigrationProcessDriver> migrationReservations =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private long migrationInputBytes;
     private TargetWorkerOxiaRuntime oxia;
     private TargetWorkerHostRuntime host;
     private TargetWorkerHostRuntime.PreparationAttempt hostPreparation;
@@ -336,6 +340,7 @@ public final class TargetWorkerProcessRuntime {
         final TargetWorkerSourceStartup startup;
         synchronized (this) {
             requireAssemblyAdmission(); oxia.providers();
+            requireMigrationAdopted(initial.scope().shard());
             if (sources.containsKey(initial.scope().shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()
                     || initial.entry().mutation().canonicalEnvelope().length > configuration.worker().maximumSourceFrameBytes()) {
                 throw new IllegalStateException("Source bootstrap exceeds its original process Shard/frame envelope");
@@ -355,6 +360,7 @@ public final class TargetWorkerProcessRuntime {
         final TargetWorkerSourceStartup startup;
         synchronized (this) {
             requireAssemblyAdmission(); oxia.providers();
+            requireMigrationAdopted(scope.shard());
             if (sources.containsKey(scope.shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()) {
                 throw new IllegalStateException("Source reopen exceeds its original process Shard envelope");
             }
@@ -373,6 +379,7 @@ public final class TargetWorkerProcessRuntime {
         final TargetWorkerSourceStartup startup;
         synchronized (this) {
             requireAssemblyAdmission(); oxia.providers();
+            requireMigrationAdopted(scope.shard());
             if (sources.containsKey(scope.shard()) || sources.size() >= configuration.worker().store().maxOwnedShards()) {
                 throw new IllegalStateException("checkpoint Source exceeds its original process Shard envelope");
             }
@@ -451,15 +458,102 @@ public final class TargetWorkerProcessRuntime {
 
     /** The original metric queue/context charge shares the existing process input heap envelope. */
     private long maximumInputHeapBytes() {
-        return Math.subtractExact(configuration.worker().resources().certifiedJvmHeapBytes(),
-                configuration.maximumMetricRetainedHeapBytes());
+        return Math.subtractExact(Math.subtractExact(configuration.worker().resources().certifiedJvmHeapBytes(),
+                configuration.maximumMetricRetainedHeapBytes()), migrationInputBytes);
+    }
+
+    /** Maintenance runs before the normal Source constructor on this same bounded Process graph. */
+    public synchronized TargetMigrationProcessDriver beginMigration(TargetMigrationConfiguration request,
+            TargetWorkerSourceStartup.Owner owner, TargetMigrationInputs.Provider provider,
+            TargetDestinationSdkBudget originalSdk) {
+        requireAssemblyAdmission(); oxia.providers(); Objects.requireNonNull(request);
+        if (originalSdk != destinationSdkBudget || sources.containsKey(request.scope().shard())
+                || migrations.containsKey(request.scope().shard())
+                || migrations.size() >= configuration.worker().store().maxOwnedShards()
+                || Math.addExact(Math.addExact(Math.addExact(Math.addExact(channelInputBytes, reclaimInputBytes),
+                        scopeInputBytes), checkpointInputBytes), request.maximumRetainedBytes()) > maximumInputHeapBytes())
+            throw new IllegalStateException("migration requires its original pre-Source graph and finite Process reservation");
+        final var driver = new TargetMigrationProcessDriver(this,
+                new Assembly(configuration.worker(), classes, resources, io, oxia), request, owner, provider,
+                originalSdk, nanos);
+        migrations.put(request.scope().shard(), driver); migrationReservations.add(driver);
+        migrationInputBytes = Math.addExact(migrationInputBytes, request.maximumRetainedBytes());
+        return driver;
+    }
+
+    synchronized void requireMigrationAdmission(TargetMigrationProcessDriver original) {
+        if (stopping || controlledStartupFailure != null || receiptManagementFailed || host != null
+                || hostPreparationStarted || preparingHost
+                || migrations.get(original.configuration().scope().shard()) != original
+                || !migrationReservations.contains(original))
+            throw new IllegalStateException("migration lost its original Process registration/reservation");
+    }
+
+    synchronized SystemWriterAppendBudget migrationSystemWriterBudget(TargetMigrationProcessDriver original) {
+        requireMigrationAdmission(original);
+        if (systemWriters == null) systemWriters = configuration.worker().newSystemWriterBudget(classes, resources);
+        return systemWriters;
+    }
+
+    synchronized void releaseMigrationReservation(TargetMigrationProcessDriver original) {
+        if (migrations.get(original.configuration().scope().shard()) != original
+                || !migrationReservations.remove(original))
+            throw new IllegalStateException("migration release changed its original Process owner");
+        migrationInputBytes = Math.subtractExact(migrationInputBytes, original.configuration().maximumRetainedBytes());
+    }
+
+    void requireMigrationCompatibility(TargetMigrationProcessDriver original, TargetSourceApplyRuntime runtime,
+            com.nereusstream.delay.store.ShardStore actualStore) {
+        final TargetWorkerSourceStartup source;
+        synchronized (this) {
+            if (stopping || resourcesClosed || migrations.get(original.configuration().scope().shard()) != original
+                    || !migrationReservations.contains(original))
+                throw new IllegalStateException("legacy custody lost its original Process owner/reservation");
+            source = sources.get(original.configuration().scope().shard());
+        }
+        if (source == null || !source.hasMigrationStore(actualStore) || runtime == null)
+            throw new IllegalStateException("legacy compatibility is not bound to this actual Process Source Store");
+        runtime.requireWorkerStore(actualStore, resources);
+    }
+
+    void bindMigration(TargetWorkerSourceStartup source, TargetOwnerRecoveryCoordinator recovery) {
+        final TargetMigrationProcessDriver original;
+        synchronized (this) {
+            requireSourceAssemblyAdmission(source);
+            original = migrations.get(source.sourceScopeForExitBinding().shard());
+        }
+        if (original != null) recovery.configureMigration(original.compatibility(), original.requiredReplayCut());
+    }
+
+    /** A candidate/SDK acknowledgement cannot enter any normal Source bootstrap constructor. */
+    private void requireMigrationAdopted(ShardId shard) {
+        final var migration = migrations.get(shard);
+        if (migration != null) {
+            if (!migration.serviceAdmitted()) throw new IllegalStateException("original migration has not adopted actual Source A");
+        }
+    }
+
+    private boolean closeMigrationsAfterDependencies() {
+        final List<TargetMigrationProcessDriver> original;
+        synchronized (this) { original = List.copyOf(migrations.values()); }
+        boolean complete = true;
+        for (var migration : original) {
+            try { migration.requestStop(); complete &= migration.retryCleanup(); }
+            catch (RuntimeException | Error failure) { retain(failure); complete = false; }
+        }
+        return complete;
     }
 
     /** Builds the original Host from this root's privately retained Source startups, not caller-built Workers. */
     public TargetWorkerHostRuntime prepareHost(TargetCheckpointCandidateSchedule.CollectedSemanticRequestFactory checkpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {
         final List<TargetWorkerSourceStartup> original;
-        synchronized (this) { requireAssemblyAdmission(); original = List.copyOf(sources.values()); }
+        synchronized (this) {
+            requireAssemblyAdmission();
+            for (var migration : migrations.values()) if (!migration.serviceAdmitted())
+                throw new IllegalStateException("original migration resources/activation/adoption have not closed");
+            original = List.copyOf(sources.values());
+        }
         if (original.isEmpty()) throw new IllegalStateException("process has no actual Source startups");
         final var workers = original.stream().filter(source -> !source.failedCleanupComplete())
                 .map(source -> source.workerForHost(this)).toList();
@@ -471,7 +565,12 @@ public final class TargetWorkerProcessRuntime {
             TargetCheckpointCandidateSchedule.DeferredCollectedSemanticRequestFactory checkpoints,
             LongSupplier checkpointClock, Consumer<Throwable> failures) {
         final List<TargetWorkerSourceStartup> original;
-        synchronized (this) { requireAssemblyAdmission(); original = List.copyOf(sources.values()); }
+        synchronized (this) {
+            requireAssemblyAdmission();
+            for (var migration : migrations.values()) if (!migration.serviceAdmitted())
+                throw new IllegalStateException("original migration resources/activation/adoption have not closed");
+            original = List.copyOf(sources.values());
+        }
         if (original.isEmpty()) throw new IllegalStateException("process has no actual Source startups");
         final var workers = original.stream().filter(source -> !source.failedCleanupComplete())
                 .map(source -> source.workerForHost(this)).toList();
@@ -1010,7 +1109,7 @@ public final class TargetWorkerProcessRuntime {
     boolean closeCheckpointCompositionsForHost(TargetWorkerHostRuntime.OxiaClosePermit permit) {
         permit.requireOriginalRoot(oxia);
         synchronized (this) { stopping = true; }
-        return closeCheckpointCompositionsAfterDependencies();
+        return closeMigrationsAfterDependencies() && closeCheckpointCompositionsAfterDependencies();
     }
 
     /** The failed Source retains an alias; the original Process registration remains the only close owner. */
@@ -1076,6 +1175,7 @@ public final class TargetWorkerProcessRuntime {
     /** Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread. */
     public void retryCleanup() {
         synchronized (this) { if (!stopping || !dependenciesExited || resourcesClosed) return; }
+        if (!closeMigrationsAfterDependencies()) return;
         if (!closeCheckpointCompositionsAfterDependencies()) return;
         if (!closeReceiptManagementAfterDependencies()) return;
         final List<TargetWorkerSourceStartup> originalSources;
@@ -1093,7 +1193,8 @@ public final class TargetWorkerProcessRuntime {
             }
             if (checkpointInputBytes != 0 || !channelInputs.isEmpty() || channelInputBytes != 0
                     || !reclaimInputs.isEmpty() || reclaimInputBytes != 0
-                    || !scopeInputs.isEmpty() || scopeInputBytes != 0) return;
+                    || !scopeInputs.isEmpty() || scopeInputBytes != 0
+                    || !migrationReservations.isEmpty() || migrationInputBytes != 0) return;
             if (publicationDispatch != null && !publicationDispatch.closeIfDrained()) return;
             if (partialSharedOpening != null) {
                 partialSharedOpening.retryCleanup();

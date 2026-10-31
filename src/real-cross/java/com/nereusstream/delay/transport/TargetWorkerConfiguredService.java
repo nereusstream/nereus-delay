@@ -10,6 +10,8 @@ import com.nereusstream.delay.ownership.TargetDestinationActivation;
 import com.nereusstream.delay.ownership.TargetDestinationChannelRuntime;
 import com.nereusstream.delay.ownership.TargetDestinationCredentialChecks;
 import com.nereusstream.delay.ownership.TargetDestinationSdkBudget;
+import com.nereusstream.delay.ownership.TargetMigrationInputs;
+import com.nereusstream.delay.ownership.TargetMigrationProcessDriver;
 import com.nereusstream.delay.ownership.TargetOwnerDrainCoordinator;
 import com.nereusstream.delay.ownership.TargetScopeResourceManager;
 import com.nereusstream.delay.ownership.TargetSourceBacklog;
@@ -110,7 +112,17 @@ public final class TargetWorkerConfiguredService {
             ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
             TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
             Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
-            Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders) {
+            Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders,
+            TargetMigrationInputs.Provider migration) {
+        public SourceInputs(TargetWorkerSourceStartup.Owner owner, TargetWorkerSourceStartup.Initial initial,
+                TargetWorkerSourceRuntimeFactory.Content content, SourceReplaySuccessor successor,
+                ShardCapacityEnvelope capacity, TargetSourceRecoveryInputs.Provider recovery,
+                TargetWorkerShardRuntime.Maintenance maintenance, TargetWorkerPublishingConfiguration publishing,
+                Supplier<TargetWorkerShardRuntime.MessageExpiryRequest> expiry, CheckpointInputs checkpoint,
+                Map<String, ReceiptInputs> receipts, JournalInputs journal, TargetWorkerSloServiceConfiguration.Providers sloProviders) {
+            this(owner, initial, content, successor, capacity, recovery, maintenance, publishing, expiry, checkpoint,
+                    receipts, journal, sloProviders, null);
+        }
         public SourceInputs {
             Objects.requireNonNull(owner); Objects.requireNonNull(content); Objects.requireNonNull(successor);
             Objects.requireNonNull(capacity); Objects.requireNonNull(recovery); Objects.requireNonNull(maintenance);
@@ -138,7 +150,7 @@ public final class TargetWorkerConfiguredService {
         }
     }
 
-    private enum Stage { CHECKPOINT, SOURCE, RESTORE_PREPARATION, RESTORE, OPEN_SOURCE, SOURCE_READY,
+    private enum Stage { MIGRATION, CHECKPOINT, SOURCE, RESTORE_PREPARATION, RESTORE, OPEN_SOURCE, SOURCE_READY,
         WRITER, WRITER_READY, INVENTORY, MANAGEMENT, CHANNELS, JOURNAL, PUBLISHING,
         SLO_CONTINUATIONS, SLO_FINAL, SLO_CUSTODY, READY }
 
@@ -146,6 +158,8 @@ public final class TargetWorkerConfiguredService {
         final TargetWorkerServiceConfiguration.Source configuration;
         final SourceInputs inputs;
         Stage stage = Stage.CHECKPOINT;
+        TargetMigrationProcessDriver migration;
+        boolean migrationTransportRequested;
         TargetWorkerCheckpointComposition checkpoint;
         TargetWorkerSourceReadResources reads;
         TargetWorkerSourceStartup startup;
@@ -166,6 +180,7 @@ public final class TargetWorkerConfiguredService {
         int channelIndex;
         Source(TargetWorkerServiceConfiguration.Source configuration, SourceInputs inputs) {
             this.configuration = configuration; this.inputs = inputs;
+            if (configuration.mode() == TargetWorkerServiceConfiguration.Mode.MIGRATION) stage = Stage.MIGRATION;
         }
     }
 
@@ -253,11 +268,24 @@ public final class TargetWorkerConfiguredService {
                     throw new IllegalArgumentException("configured Pulsar Source differs from its original activation barrier");
                 }
             }
+            if (source.mode() == TargetWorkerServiceConfiguration.Mode.MIGRATION) {
+                if (source.typedSource() instanceof TargetWorkerServiceConfiguration.KafkaSource kafka)
+                    KafkaClientArtifactTargetMigrationFactory.migrationSdkCost(kafka.deployment().source(),
+                            ((TargetWorkerServiceConfiguration.KafkaWriter) source.typedWriter()).configuration());
+                else PulsarClientArtifactTargetMigrationFactory.migrationSdkCost(
+                        ((TargetWorkerServiceConfiguration.PulsarSource) source.typedSource()).deployment(),
+                        ((TargetWorkerServiceConfiguration.PulsarWriter) source.typedWriter()).configuration(),
+                        processConfig.worker().maximumSourceFrameBytes());
+            }
             if ((source.mode() == TargetWorkerServiceConfiguration.Mode.FRESH) != (input.initial() != null)
                     || (source.mode() == TargetWorkerServiceConfiguration.Mode.PUBLISHED_RECOVERY)
                         != (input.checkpoint().recovery() != null)) {
                 throw new IllegalArgumentException("Source mode lacks its exact Initial or published recovery selection");
             }
+            if ((source.mode() == TargetWorkerServiceConfiguration.Mode.MIGRATION) != (input.migration() != null))
+                throw new IllegalArgumentException("migration mode requires its genuine original maintenance input provider");
+            if (source.typedMigration() != null) retainedHeap = Math.addExact(retainedHeap,
+                    source.typedMigration().maximumRetainedBytes());
             if (input.initial() != null && (!source.scope().equals(input.initial().scope())
                     || !Arrays.equals(source.lineage(), input.initial().lineage()))) {
                 throw new IllegalArgumentException("fresh Source authority changes its configured root");
@@ -385,6 +413,30 @@ public final class TargetWorkerConfiguredService {
         final var config = source.configuration;
         final var input = source.inputs;
         switch (source.stage) {
+            case MIGRATION -> {
+                if (source.migration == null) source.migration = process.beginMigration(config.typedMigration(),
+                        input.owner(), input.migration(), sdk);
+                source.migration.advance();
+                if (source.migration.baseline().isPresent() && !source.migrationTransportRequested) {
+                    source.migration.openTransport(original -> {
+                        if (config.typedSource() instanceof TargetWorkerServiceConfiguration.KafkaSource kafka)
+                            return KafkaClientArtifactTargetMigrationFactory.openConfigured(original, kafka.deployment().source(),
+                                    ((TargetWorkerServiceConfiguration.KafkaWriter) config.typedWriter()).configuration(),
+                                    dependencies.mtls(), dependencies.sourceTrust(), dependencies.time());
+                        return PulsarClientArtifactTargetMigrationFactory.openConfigured(original,
+                                ((TargetWorkerServiceConfiguration.PulsarSource) config.typedSource()).deployment(),
+                                ((TargetWorkerServiceConfiguration.PulsarWriter) config.typedWriter()).configuration(),
+                                dependencies.mtls(), dependencies.sourceTrust(), dependencies.time());
+                    });
+                    source.migrationTransportRequested = true;
+                }
+                if (source.migration.serviceAdmitted()) {
+                    final var adopted = source.migration.adopted();
+                    if (!Arrays.equals(adopted.plan().newLineage(), config.lineage()))
+                        throw new IllegalStateException("adopted Source migration changed its configured new lineage");
+                    source.stage = Stage.CHECKPOINT;
+                }
+            }
             case CHECKPOINT -> {
                 if (source.reads == null) source.reads = TargetWorkerSourceReadResources.create(config, config.typedReadResources(),
                         sdk, dependencies.mtls(), dependencies.sourceTrust(), dependencies.time());
@@ -397,10 +449,13 @@ public final class TargetWorkerConfiguredService {
                 final var content = new TargetWorkerSourceRuntimeFactory.Content(original.provider(), original.physical(),
                         original.reads(), original.lookupTimeout(), original.maximumBytes(), source.checkpoint.evidencePublication(),
                         original.scopeResources());
+                final var actualOwner = source.migration == null ? input.owner() : new TargetWorkerSourceStartup.Owner(
+                        input.owner().tenant(), source.migration.adopted().publication(), input.owner().workerId(),
+                        input.owner().ownerId(), input.owner().leaseDurationMs(), input.owner().clock());
                 source.startup = switch (config.mode()) {
-                    case FRESH -> process.initializeSource(input.owner(), input.initial(), content, input.successor());
-                    case REOPEN -> process.reopenSource(input.owner(), config.scope(), content, input.successor());
-                    case PUBLISHED_RECOVERY -> process.checkpointSource(input.owner(), config.scope(), content, input.successor());
+                    case FRESH -> process.initializeSource(actualOwner, input.initial(), content, input.successor());
+                    case REOPEN, MIGRATION -> process.reopenSource(actualOwner, config.scope(), content, input.successor());
+                    case PUBLISHED_RECOVERY -> process.checkpointSource(actualOwner, config.scope(), content, input.successor());
                 };
                 source.checkpoint.bindStartup(source.startup, dependencies.ownerClock());
                 if (config.mode() == TargetWorkerServiceConfiguration.Mode.PUBLISHED_RECOVERY) {

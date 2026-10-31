@@ -6293,3 +6293,264 @@ and preserves earlier firsts, late rejection/POS fees, Journal/attempt duties an
 Actual recovery Fence orchestration/census, deployment providers, complete Scope resource/retention
 qualification and centralized/real validation remain required. Descriptor maximum14 and advertised
 Native56 remain unchanged; registering Native62 codecs does not activate certification.
+
+## 2026-10-31 fenced legacy-to-Target migration (independent Control purposes)
+
+The occupied predecessor reservations remain ControlOperationKind33/34, ApplyShardControl32/33,
+SystemMutation tuple body23–26, Native63/64 and META57/58. Migration allocates the next distinct
+numbers; it does not reinterpret those reservations or the old protocol activation marker:
+
+| Meaning | ControlOperationKind | ApplyShardControl kind/schema | Exact tuple |
+|---|---:|---|---|
+| `ACTIVATE_TARGET_MIGRATION` | 35 | 34 / 1 | `(1,1,SYSTEM_MUTATION,1,27)` |
+| `SETTLE_TARGET_MIGRATION_CUSTODY` | 36 | 35 / 1 | `(1,1,SYSTEM_MUTATION,1,28)` |
+
+Both requests select exactly one original SHARD target, index0, with its exact expected mutation
+ID/hash. Both require TENANT_POLICY_ADMINISTRATOR and PLATFORM_OPERATOR and the original authenticated
+resource-scope proof. The original CONTROL author, signed PreparedControlOperation, actual registered
+request, Source first/POS and independent signing-key/reader authority remain mandatory. SERVICE
+permission does not authorize either purpose. A signature, candidate seal, Catalog or assignment does
+not establish Source activation. Existing TargetProtocolActivation remains a tuple/reader prerequisite
+over an already established Target Root and cannot bootstrap a legacy Store.
+
+`TargetMigrationObjectReference` reuses the complete CheckpointResource canonical bytes unchanged:
+lineage/checkpoint ID, full OBJECT_STORE ProfileRef, container, key, immutable version, length and SHA256.
+Its inline encoding is limited to the existing4096-byte Target recovery/install reference ceiling;
+the object's contents have the separately supplied original checkpoint/object limits. Length must be
+positive and finite. This is an exact object reference, not proof of its contents, protection or authority.
+`TargetMigrationRecordReference1` fields1 version1,2 complete object reference,3 zero-based finite ordinal
+identify one complete raw conversion closure in a fixed immutable chunk. The original raw key/value,
+command/hash/Source, old result/guard and dependencies remain in that closure. Hashes and counts never
+replace reading/authenticating it. Source frames contain the fixed references, not an unbounded inventory.
+
+Plan1 fields are1 version1,2 complete Shard TargetQuotaScope,3 migrationId32,4 nonzero generation,
+optional5 exact predecessor-root digest32 (absent iff generation1),6 old Store incarnation16,
+7 old DB identity32,8 old format1,9 old lineage16,10 complete actual old Source cut C stamp,
+11 old Manifest exact reference,12 distinct new Store incarnation16,13 distinct new DB identity32,
+14 new format2,15 new lineage16,16 mapping reference,17 legacy-custody reference,18 independent
+conservation reference,19 complete closed-writer-domain reference,20 original management-authority
+digest32,21 independent eligible-reader evidence reference. The physical Source is the full original
+C SourcePosition, including resource incarnation; Shard alone is insufficient. Mapping covers the
+complete frozen writer domain, not only objects visible at C. The plan digest is SHA256(domain
+`nereus-delay-target-migration-plan-v1` plus NUL || canonical Plan1).
+
+ACTIVATE request1 fields1 version1,2 complete Plan1,3 exact sealed MIGRATION_PREPARED candidate reference.
+The candidate is in the new lineage and is not the old Manifest. It is deliberately outside Plan1:
+the PREPARED image contains Plan1, while ACTIVATE later binds that sealed image. ACTIVATE never binds
+the post-A checkpoint containing itself. Normal serving/restore rejects the PREPARED image. Actual
+Source activation A, the original first/POS, migration root/custody and accounting are materialized
+before a formal post-A checkpoint can be adopted. C and A need not be adjacent; complete old-prefix
+interpretation, frozen mapping, strict/control semantics and original successor remain required.
+
+Settlement request1 fields1 version1,2 complete Shard Scope,3 migrationId32,4 original plan digest32,
+5 DelayMessageId41,6 original uint32 generation,7 exact held-guard digest32,8 full original terminal
+raw-record reference,9 full original terminal SourcePosition,10 original terminal record digest32,
+11 independent complete no-future proof object reference,12 exact guard kind1 GENERATION or2 IDENTITY.
+One event settles one guard. The original
+terminal/source and all old producer/Admission/UNKNOWN/Journal responsibilities must independently
+authenticate; ACK, GC, local SDK exit, startup, empty poll or captured tail do not supply that authority.
+
+Both Control bodies retain common fields1–3 and10 ControlRef. Fields11 independent control kind,
+12 schema1,13 semantic hash32,14 state0 (present exact row; request contains the full predecessor),
+15 closed ControlPayload selecting that same kind and carrying the complete request. Identity is the
+original ControlRef.logicalOperationIdentity(controlKind). Semantic hash is SHA256(domain
+`nereus-delay-target-migration-control-v1` plus NUL || u16be(controlKind) || request canonical bytes).
+Retries/UNKNOWN retain the complete original signed frame and do not change candidate, time or request.
+
+| Native type/schema | META tag and key | Meaning |
+|---|---|---|
+| 65 / 1 | `3b 01 || shard20` | migration root |
+| 66 / 1 | `3c 01 || newColumnFamily:u8 || SHA256(newRowKey):32` | explicit imported-row origin |
+| 67 / 1 | `3d 01 || DelayMessageId41` | durable per-ID legacy custody/terminal guard |
+| 68 / 1 | `3e 01 || migrationId32 || u64be(actualSourceSequence)` | complete old-prefix mapping history |
+| 69 / 1 | `3f 01 || migrationId32` | durable exact before-SDK activation attempt |
+| 70 / 1 | `40 01 || shard20` | latest progress of the explicitly non-serving old shadow |
+
+Native65 fields1 version1,2 state1 MIGRATION_PREPARED or2 ACTIVATED,3 complete Plan1,4 full original
+Shard accounting incarnation, optional5 complete signed ACTIVATE envelope and6 actual A stamp
+(both present only for ACTIVATED),7 root digest32. Its digest uses domain
+`nereus-delay-target-migration-root-v1` plus NUL over fields1–6. The explicit import accounting
+baseline is `(C.sequence,C.fullSource,plan.digest)`; it is not a fabricated SourceReplayEntry or an
+ordinary grant/COMMAND first. The actual C stamp remains separately unchanged in Plan1. Root owner
+allocation has this import baseline and the new lineage. A must actually follow C on the same physical
+Source, bind the complete exact signed request and have SHA256(original envelope) as its mutation digest.
+An already activated root can only replay the identical A; adoption failures roll forward.
+
+Native66 fields1 version1,2 plan digest32,3 migrationId32,4 complete original C stamp,5 complete old
+raw conversion-record reference,6 old ColumnFamily,7 old key digest32,8 old value digest32,
+9 new ColumnFamily,10 new key digest32,11 new full-NV value digest32,12 full imported accounting
+incarnation,13 declared new contribution,14 retained legacy charge,15 origin digest32. ColumnFamily
+is closed:1 TIMELINE,2 ID,3 INFLIGHT,4 DEDUPE,5 TERMINAL,6 GC,7 META. The digest domain is
+`nereus-delay-target-migration-origin-v1` plus NUL over fields1–14. An independent row/owner/accounting
+fold must reproduce new fees; field13 is not its own oracle. The exact fixed bundle closure supplies
+the complete original rows and legacy fees. Native66 does not make an ordinary membership/grant first.
+
+Native67 fields1 version1,2 migrationId32,3 original plan digest32,4 DelayMessageId41,
+5 original uint32 generation,6 complete raw legacy closure reference,7 original result/dedupe closure
+digest32,8 full Target/Shard fee owner,9 retained original legacy charge, optional10 complete signed
+settlement envelope and11 actual settlement Source stamp,13 explicit guard kind1 GENERATION or2
+IDENTITY,14 guard digest32. Field12 is absent. IDENTITY has no generation fact; field5 is zero and
+does not mean an original generation0. GENERATION retains the complete original uint32 including0.
+The domain is `nereus-delay-target-migration-custody-guard-v1` plus NUL over fields1–13. A held guard
+prohibits all Target sends for that ID. Explicit Source settlement retains the guard and prohibits
+the original or older GENERATION; an IDENTITY guard continues to prohibit every generation after
+settlement, since missing historical generation cannot authorize any new one. Only an independently
+valid newer business generation passes the GENERATION migration gate, subject to all original
+terminal/command rules. The held guard digest is the pre-settlement fields1–9/13 digest, and
+settlement must bind it exactly. Original terminal Source precedes actual
+settlement on the identical physical Source. New guard/index storage is STATE paid by its new owner;
+field9 retains the original payer responsibility and is not refunded by deleting new metadata.
+The original Native transaction alone commits settlement/first/POS/accounting once; no ordinary GC
+operation clears this guard or refunds old custody. Old root retirement separately requires the
+complete original noFuture/Pin/reader/retention authority.
+
+TargetScheduleBinding Native21 adds independent schema2 for imported bindings. Schema1 fields,
+digest/domain and bytes remain unchanged. Schema2 preserves fields2–12, optional14/15 and the full
+original intent/binding Source, omits ordinary membershipGrantRef13 and digest16, adds17 planDigest32,
+18 complete old raw binding-record reference and19 digest32. Its independent digest domain is
+`nereus-delay-target-migration-schedule-binding-v2` plus NUL over all non-digest fields. It cannot be
+created through an ordinary membership path. Imported payload allocation explicitly uses the plan's
+import accounting baseline and full schema2 binding; ordinary scheduled/reserved factories reject
+this branch. Original payload bounds, old body bytes and Source identity are unchanged. Native66
+and independent migration audits bind imported rows instead of inventing a COMMAND first/grant.
+
+Native21 schema3 separately records actual post-C legacy prefix provenance. It preserves schema2
+non-digest fields, uses field20 complete original Source S stamp instead of digest19, and puts the
+digest in21 under domain `nereus-delay-target-migration-prefix-schedule-binding-v3` plus NUL. S
+actually follows C on the same physical Source, and the unchanged original binding Source is at or
+before S. The new prefix payload factory uses actual S; baseline schema2 keeps its explicit C/plan
+stamp. An existing original payload owner is not reallocated merely because a Reschedule or another
+prefix record was observed. Ordinary factories continue to reject both migration schemas.
+
+Native68 fields1 version1,2 migrationId32,3 original plan digest32,4 original frame recordKind
+(1 CLIENT_COMMAND or2 SYSTEM_MUTATION),5 original CommandId41 or SystemMutationId32,6 original
+commandHash/mutationHash32,7 fixed raw Source record reference,8 complete raw framed-record digest32,
+9 complete actual original predecessor stamp,10 actual original Source S stamp,11 exact immutable
+projection-chunk reference,12 record digest32. S advances the predecessor's Source and mutation
+sequence exactly once. Native68 digest domain is `nereus-delay-target-migration-prefix-record-v1`
+plus NUL over fields1–11. Its raw framing digest is distinct from S's canonical-envelope digest.
+The projection closure retains exact before/after rows, old ownership, original dedupe/terminal
+facts and independent fees. It is bounded by the existing fixed chunk/object mechanism. The
+independent original Source reader authenticates physical successor and full original frame; a
+locally guessed offset, count or this codec is not successor authority. Each original Source apply
+commits its mapping edits, Native68, actual fees/frontier in the same finite Native batch. Native66
+baseline origins remain unchanged when a later Cancel deletes converted work or another prefix
+transition changes its projection; the full Native68 history explains those changes. Late old
+Admission, unknown formats and incomplete mapping/control/strict evidence retain their original
+obligations and stop admission rather than silently skipping the prefix.
+
+Native69 fields1 version1,2 plan digest32,3 migrationId32,4 exact sealed C candidate reference,
+5 complete original signed PreparedControlOperation,6 complete original signed ACTIVATE envelope,
+7 actual local preparation stamp,8 phase1 APPEND_MAY_BE_EXPOSED,9 digest32. The independent domain
+is `nereus-delay-target-migration-activation-attempt-v1` plus NUL over fields1–8. Prepared target,
+request, CONTROL actor/roles/scope, candidate, original input and plan are checked together. This
+record is written only in the working Store after the sealed C candidate exists; C itself is not
+resealed or changed. Actual durable Native69 and its STATE fee precede the first SDK call. An unknown
+local write outcome cannot issue SDK permission. Once present, it permanently permits only that
+identical Prepared/frame/candidate to be reconciled/retried; absence from a Source read never proves
+that an already exposed append did not persist and never authorizes new signing or legacy rollback.
+
+TargetQuotaMutation adds independent optional field8 `migrationPreparation` local ordinal. Fields1–7
+and their old bytes remain unchanged. Field8 is mutually exclusive with ordinary Claim4, reservation
+expiry5, reservation closure6 and reservation close cursor7; it preserves the same actual Source and
+Source sequence, consumes the original next local ordinal and is not a local Claim. Native69's
+preparation digest is SHA256(the complete original ACTIVATE canonical envelope). Its phase is
+conservative append intent, not proof that SDK exposure actually occurred or a new Source result.
+
+The imported execution hot path uses the actual Native65 A plus original APPLIED first/POS, exact
+Native66 full binding/owner row, original fixed raw closure and complete mapped Native physical,
+required/offered dispatch and control projections. Schema3 additionally joins the actual Native68
+Source stamp. The original import/cold authority independently reads/authenticates complete sealed
+mapping/raw/history and fixed chunk membership before these projections are accepted. No hash-only
+proposal or caller boolean creates this branch, and no ordinary membership grant is synthesized.
+Claim, Admission materialization/submission/apply and first send retain the same actual bounded
+Store/Owner guards; Native67 forbids legacy/UNKNOWN responsibility. Strict ORDER_STATE, watermark,
+barrier and current control/permit gates remain the original rules. A missing new common Native
+scope does not promote an old Profile signature; converted work uses ordinary delivery until genuine
+new Source-authorized Native policy exists. New ordinary first Schedule still requires its own
+normal membership/grant and rejects an imported-binding proposal.
+
+Private assignment/catalog adoption preserves original metadata bytes and adds the following
+closed encodings (neither is a Shard Log purpose or activation authority):
+
+- TargetMigrationAssignmentReceipt1 domain `nereus-delay-target-migration-assignment-adoption-v1`
+  plus NUL: fields1 version1,2 full Plan1,3 actual A TargetQuotaMutation,4 migration root digest32,
+  5 original Catalog namespace32,6 formal checkpoint ID16,7 formal Manifest digest32,
+  8 previous assignment revision,9 previous publication digest32,10 complete original WorkerAssignment,
+  11 digest over fields1–10. Receipt adoption carries the already existing Source activation and
+  formal post-A checkpoint; it cannot create either fact.
+- OxiaSyncWorkerAssignmentBackend private record3: fields1 version3,2 revision,3 complete assignment,
+  4 optional original P1 receipt bytes (empty bytes explicitly represent absence),5 migration receipt,
+  6 record digest. Old record1/2 bytes remain unchanged. Normal successor publication/renewal retains
+  both original migration and P1 chains.
+- OxiaSyncCheckpointPublicationBackend private record2: fields1 version2,2 complete existing Catalog
+  snapshot,3 optional Shard,4 repeated original upload intents,5 migration receipt,6 record digest.
+  Old record1 bytes remain unchanged, and all successor Catalog states carry the accepted migration.
+
+Native70 preserves an exact reference to content on the original protected physical Source. Fields1
+version1,2 plan digest32,3 migrationId32,4 existing recordKind1 COMMAND or2 SYSTEM_MUTATION,
+5 original CommandId41/SystemMutationId32,6 original commandHash/mutationHash32,7 complete original
+framed-record SHA256,8 actual Target applied Source stamp S (including full physical SourcePosition),
+9 full prior SourcePosition,10 actual migration root digest32, optional11 actual logical-first digest32,
+12 actual physical-proof digest32,13 logical proof kind,14 digest32. Domain is
+`nereus-delay-target-migration-shadow-progress-v1` plus NUL over fields1–13. Proof kind1 FIRST_POSITION
+requires11; kind2 EXPIRED_COMMAND_POSITION and3 MIGRATION_PREFIX require11 absent. Kind2 is COMMAND
+only and preserves actual POSITION_COMMAND_EXPIRED absence; kind3 points to the actual Native68
+original-result/prefix proof and does not fabricate a normal first. The original Source position,
+resource incarnation and retained Pin/custody provide the exact content reference; the full unchanged
+frame remains on that Source. `requireFrame` strictly decodes the existing two frame branches, checks
+full frame hash/ID/semantic hash and actual stamp. COMMAND uses its original SHA256(full frame);
+SYSTEM_MUTATION uses SHA256(canonical envelope). Marker hashes alone do not authorize progress.
+
+Only a privately minted actual-Target proof after a real Source read and real Native first/POS or
+explicit physical-only/prefix proof can advance this shadow. One latest marker retains original
+prior/S; there is no second Source/log, normal legacy result or whole-view overwrite. The original
+Source protection must retain raw content and history for recovery; lookup failure is not absence.
+The independently reserved tuple `(1,1,SYSTEM_MUTATION,1,29)` is solely a private old-shadow required
+reader capability. It has no Source mutation body, Control purpose or signing/activation authority.
+The original authorized shadow snapshot adds this reader requirement without changing its existing
+Profile/grant/control scope. Ordinary legacy opening/serving rejects shadow state, including old
+readers that cannot satisfy29; the migration-only open path retains the actual original protections.
+
+Native38 TargetReservationRecord adds independent schema2, preserving schema1 bytes and its ordinary
+Prepare-first rules. Schema2 common fields1–14 have their existing meanings except1 version2 and10/11
+explicit migration accounting anchor/current stamp; field15 is absent. Optional16 retains the same
+closure,17 complete TargetMigrationReservationOrigin1,18 digest32 under independent domain
+`nereus-delay-target-migration-reservation-v2` plus NUL over all preceding fields. This import anchor
+does not pretend to be the original ordinary Prepare first. It is C/planDigest for schema2 bindings
+or actual S for schema3 prefix bindings. Original immutable Prepare tuple/ID/hash/body stay unchanged.
+
+ReservationOrigin1 fields1 version1,2 plan digest32,3 migrationId32,4 complete original reservation
+raw-record reference,5 full original Prepare SourcePosition,6 original receipt-anchor state version,
+7 full original receipt-anchor SourcePosition,8 explicit import stamp,9 complete receipt raw-record
+reference,10 complete unchanged PayloadReservationReceipt frame,11 original reservation stateVersion,
+12 original reservation status,13 full original reservation mutation SourcePosition. Receipt identity,
+original ProfileRef/trust set, length/hash/expiry, container/key and receipt Source/version are checked
+against the complete unchanged Prepare and old row. Receipt bounds reuse its existing container1024,
+key4096, Target Profile and Source bounds. Genuine old object/upload/custody/fee ownership remains an
+independent required import audit, not a receipt-hash assertion.
+
+Safe RESERVED imports contain the same complete schema2 value at primary, reservation-ID lookup,
+Target-local index and expiry index, plus explicit Native66 origins, frozen binding and RESERVED
+object payload owner. Safe already-COMMITTED imports retain primary/lookup and their exact committed
+object/ACTIVE owner, with no expiry/Target-local index; their original terminal status/version/source
+are explicit, not invented Target Prepare/Commit firsts. Existing future Commit proofs still require
+the original trust authority, immutable version/hash/length/Profile and now the frozen original
+receipt container/key. Query returns that exact original receipt, never today's object layout or C
+as an invented receipt anchor. Later Commit/Cancel/expiry/Close uses the original Native transaction,
+actual Source/local stamp, existing fees and finite indexes; it preserves the origin and original
+receipt. A real newer Command first/POS is ordinary actual Source evidence, not a retroactive baseline
+first. Original Close checks use the original Prepare Source. Missing proof remains a real blocker.
+
+Target-owned legacy-compatible Commands use only a genuine process-owned opaque migration permit
+and frozen original policy/control/proof history. The existing Command/Replay planners recheck it in
+their actual bounded Store view and retain original raw bytes/ID/hash/S, ordinary actual first/POS,
+fees and existing strict contract. They do not send an imported proposal through ordinary first
+Schedule membership. The old applier only handles entities genuinely still owned by the old domain;
+it cannot overwrite Native Claim/Admission/Reschedule state. An original pre-C legacy first remains
+in its original retained result/custody and must not be fabricated as a Target baseline first.
+
+These codec reservations do not raise descriptor maximum14, advertised Native56, validation flags,
+deployment/resource qualification or production authority. Full resources/JVM peak qualification,
+real old-writer fencing, migration/restore/conservation validation and environment retirement remain
+separate requirements; no environment migration, deletion or protection release is authorized here.

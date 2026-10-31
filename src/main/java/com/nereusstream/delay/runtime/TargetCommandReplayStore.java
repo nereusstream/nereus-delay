@@ -81,13 +81,31 @@ public final class TargetCommandReplayStore {
     public Optional<Prepared> prepareReplayOrExpired(
             final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source,
             final java.util.function.Supplier<TargetSloObservationSamples.Authority> samples) {
+        return prepareReplayOrExpiredAuthenticated(budget, mutation, source, samples, null);
+    }
+
+    public Optional<Prepared> prepareMigrationReplayOrExpired(
+            BoundedReadBudget budget, PreparedCommand mutation, SourcePosition source,
+            java.util.function.Supplier<TargetSloObservationSamples.Authority> samples,
+            com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
+        return prepareReplayOrExpiredAuthenticated(budget, mutation, source, samples,
+                Objects.requireNonNull(migration, "actual migration-owned legacy Command"));
+    }
+
+    private Optional<Prepared> prepareReplayOrExpiredAuthenticated(
+            final BoundedReadBudget budget, final PreparedCommand mutation, final SourcePosition source,
+            final java.util.function.Supplier<TargetSloObservationSamples.Authority> samples,
+            com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
         Objects.requireNonNull(mutation, "mutation");
         Objects.requireNonNull(samples, "samples");
         TargetSourcePosition.requireBounded(source);
         if (!scope.shard().equals(source.shardId()) || !scope.shard().equals(mutation.shardId())) {
             throw new IllegalArgumentException("Command replay belongs to another Shard");
         }
-        final var probe = backend.prepareRead(budget, reader -> inspect(reader, mutation, source));
+        final var probe = backend.prepareRead(budget, reader -> {
+            if (migration != null) migration.requireCurrent(reader, mutation, source);
+            return inspect(reader, mutation, source);
+        });
         if (probe.value().result() == null) {
             return Optional.empty();
         }
@@ -98,6 +116,7 @@ public final class TargetCommandReplayStore {
         final Runnable[] qualification={()->{}};
         // The probe chooses a branch only. The actual write plan rereads all facts using the same shared budget.
         final var batch = backend.prepare(budget, reader -> {
+            if (migration != null) migration.requireCurrent(reader, mutation, source);
             final var actual = inspect(reader, mutation, source);
             if (actual.result() == null || actual.samePosition()) {
                 throw new IllegalStateException(

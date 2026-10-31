@@ -67,6 +67,12 @@ public final class TargetKeyCodec {
     public static final int SLO_WRITER_EPOCH_TAG = 56;
     public static final int PARENT_CONTROL_CREDIT_TAG = 57;
     public static final int SCOPE_CONTROL_OBLIGATION_TAG = 58;
+    public static final int MIGRATION_ROOT_TAG = 59;
+    public static final int MIGRATION_ORIGIN_TAG = 60;
+    public static final int MIGRATION_CUSTODY_GUARD_TAG = 61;
+    public static final int MIGRATION_PREFIX_TAG = 62;
+    public static final int MIGRATION_ACTIVATION_ATTEMPT_TAG = 63;
+    public static final int MIGRATION_SHADOW_PROGRESS_TAG = 64;
     // Target result tags belong to DEDUPE, independently of META and ID tags.
     public static final int RESULT_COMMAND_TAG = 6;
     public static final int RESULT_QUERY_TAG = 7;

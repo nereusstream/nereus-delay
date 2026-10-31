@@ -358,6 +358,13 @@ public final class TargetStoreBackend {
         private boolean active = true;
         private final BoundedReadBudget budget;
 
+        /** Exact original maintenance acquisition, available only on the opaque candidate backend. */
+        public com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate migrationCandidate() {
+            requireActive();
+            if (migrationCandidate != null) migrationCandidate.requireStore(store);
+            return migrationCandidate;
+        }
+
         private Reader(final BoundedReadBudget budget) {
             this.budget = budget;
         }
@@ -562,6 +569,7 @@ public final class TargetStoreBackend {
     private final TargetQuotaAggregate genesis;
     private final byte[] lineage;
     private final WriteLimits limits;
+    private final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate migrationCandidate;
     private final AtomicReference<ShardStore.NativeWriteOperation> nextNativeWriteForTesting = new AtomicReference<>();
     private volatile TargetQueueChangeSignal targetQueueChangeSignal;
     private volatile TargetQueueHeadCache targetQueueHeadCache;
@@ -572,9 +580,28 @@ public final class TargetStoreBackend {
             final byte[] shardAccountingIncarnation,
             final byte[] lineage,
             final WriteLimits limits) {
+        this(store, scope, shardAccountingIncarnation, lineage, limits, null);
+    }
+
+    /** Only the opaque, independently sealed migration cut can operate while its Root is PREPARED. */
+    public static TargetStoreBackend forMigration(final ShardStore store, final TargetQuotaScope scope,
+            final byte[] shardAccountingIncarnation, final byte[] lineage, final WriteLimits limits,
+            final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate candidate) {
+        Objects.requireNonNull(candidate, "sealed migration candidate").requireStore(store);
+        if (!candidate.plan().scope().equals(scope) || !Arrays.equals(candidate.plan().newLineage(), lineage)
+                || !Arrays.equals(candidate.root().identity().accountingIncarnation(), shardAccountingIncarnation)) {
+            throw new IllegalArgumentException("migration backend changed its actual candidate root");
+        }
+        return new TargetStoreBackend(store, scope, shardAccountingIncarnation, lineage, limits, candidate);
+    }
+
+    private TargetStoreBackend(final ShardStore store, final TargetQuotaScope scope,
+            final byte[] shardAccountingIncarnation, final byte[] lineage, final WriteLimits limits,
+            final com.nereusstream.delay.runtime.TargetMigrationImporter.PreparedCandidate migration) {
         this.store = Objects.requireNonNull(store, "store");
         this.scope = Objects.requireNonNull(scope, "scope");
         this.limits = Objects.requireNonNull(limits, "limits");
+        migrationCandidate = migration;
         Bytes.requireLength(lineage, 16, "lineage");
         this.lineage = Bytes.copy(lineage);
         if (store.metadata().storeFormatVersion() != 2
@@ -584,6 +611,7 @@ public final class TargetStoreBackend {
             throw new IllegalArgumentException("Target backend requires explicit format and Shard/lineage binding");
         }
         genesis = TargetQuotaAggregate.genesis(scope.shard(), shardAccountingIncarnation);
+        if (migration == null) com.nereusstream.delay.runtime.TargetMigrationStore.requireServiceable(store);
     }
 
     /** Binds production composition to this exact native Store object, not merely a matching Shard ID. */
@@ -894,6 +922,19 @@ public final class TargetStoreBackend {
         final var keys = new HashSet<String>();
         long bytes = 0;
         for (var edit : mutation.business()) {
+            if (edit.family == ColumnFamily.META && edit.key.length > 2
+                    && edit.key[0] == TargetKeyCodec.MIGRATION_ACTIVATION_ATTEMPT_TAG
+                    && (edit.before != null || edit.after == null || migrationCandidate == null
+                        || !mutation.quota().counters().mutation().migrationPreparation()))
+                throw new IllegalArgumentException("durable migration append intent requires its original typed maintenance purpose");
+            if (edit.family == ColumnFamily.META && edit.key.length > 2
+                    && (edit.key[0] == TargetKeyCodec.MIGRATION_CUSTODY_GUARD_TAG
+                        || edit.key[0] == TargetKeyCodec.MIGRATION_ORIGIN_TAG
+                        || edit.key[0] == TargetKeyCodec.MIGRATION_PREFIX_TAG
+                        || edit.key[0] == TargetKeyCodec.MIGRATION_ROOT_TAG
+                        || edit.key[0] == TargetKeyCodec.MIGRATION_ACTIVATION_ATTEMPT_TAG)
+                    && edit.after == null)
+                throw new IllegalArgumentException("normal Native/GC cannot delete migration root, origin, custody or prefix");
             if (edit.family == ColumnFamily.META && Arrays.equals(edit.key, KeyCodec.metaFixed(10))) {
                 final var stamp = mutation.quota().counters().mutation();
                 if (edit.before != null || edit.after == null || stamp.isLocalMutation() || stamp.sequence() != 1) {
@@ -1131,7 +1172,9 @@ public final class TargetStoreBackend {
                         final var value = TargetValueEnvelope.decodeAny(raw);
                         return new TargetResultLedgerAudit.Stored(key, value.valueType(), value.payload());
                     },
-                    authority);
+                    authority,
+                    com.nereusstream.delay.runtime.TargetMigrationStore.decodeRoot(store.get(ColumnFamily.META,
+                            com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard()))));
         });
         return new AuditedResults(this, read);
     }
@@ -1278,6 +1321,11 @@ public final class TargetStoreBackend {
                             case 56 -> 62;
                             case 57 -> 63;
                             case 58 -> 64;
+                            case 59 -> 65;
+                            case 60 -> 66;
+                            case 61 -> 67;
+                            case 62 -> 68;
+                            case 63 -> 69;
                             default -> 0;
                         };
                     default -> 0;

@@ -62,7 +62,7 @@ public final class TargetWorkerSourceStartup {
     private final LongSupplier nanos;
     private SourceAssignment assignment;
     private OwnerLease lease;
-    private ShardStore store;
+    private volatile ShardStore store;
     private TargetWorkerSourceRuntimeFactory.Activated activation;
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
     private TargetWorkerSourceRuntimeFactory.Recovery recovery;
@@ -1055,6 +1055,7 @@ public final class TargetWorkerSourceStartup {
                 if (!openedSuccessor) {
                     final var reopened = ShardStore.openTarget(startup.graph.config().store(), originalLease.shardId(), startup.graph.resources());
                     startup.store = reopened; startup.storeClosed = false;
+                    startup.requireMigrationAdoption();
                     if (!Arrays.equals(frozen.storeIncarnation(), reopened.metadata().storeIncarnation())
                             || !Bytes.constantTimeEquals(cut.canonicalBytes(), reopened.appliedShardLogPosition().canonicalBytes())) {
                         throw new IllegalStateException("successor Store changed the original positioned incarnation/cut");
@@ -1425,6 +1426,7 @@ public final class TargetWorkerSourceStartup {
         requireCheckpointPin();
         try {
             store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+            requireMigrationAdoption();
             requireCurrent();
             final var base = store.recoveryMetadata().lineageBase();
             final var install = store.recoveryMetadata().installState();
@@ -1458,7 +1460,10 @@ public final class TargetWorkerSourceStartup {
             lease = TargetWorkerSourceRuntimeFactory.acquire(graph.oxia(), owner.tenant(), publication,
                     owner.workerId(), owner.ownerId(), owner.leaseDurationMs(), owner.clock());
             requireCurrent();
-            if (openStore) store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+            if (openStore) {
+                store = ShardStore.openTarget(graph.config().store(), scope.shard(), graph.resources());
+                requireMigrationAdoption();
+            }
             requireCurrent();
         } catch (RuntimeException | Error failure) {
             retain(failure); throw new StartupFailure(failure, this);
@@ -1541,7 +1546,7 @@ public final class TargetWorkerSourceStartup {
             retain(outcome.get().failure()); throw new StartupFailure(outcome.get().failure(), this);
         }
         store = outcome.get().restored();
-        try { requireCurrent(); return true; }
+        try { requireMigrationAdoption(); requireCurrent(); return true; }
         catch (RuntimeException | Error failure) { retain(failure); throw new StartupFailure(failure, this); }
     }
 
@@ -1585,6 +1590,7 @@ public final class TargetWorkerSourceStartup {
         }
         try (original) {
             original.requireCurrent();
+            requireMigrationAdoption();
             if (identity.ownerEpoch() != lease.ownerEpoch() || !Bytes.constantTimeEquals(identity.leaseFencingDigest(), lease.leaseToken())
                     || registryIdentity != null && (!Arrays.equals(registryIdentity.deploymentId(), identity.deploymentId())
                             || !Arrays.equals(registryIdentity.workerRunId(), identity.workerRunId()))) {
@@ -1619,6 +1625,7 @@ public final class TargetWorkerSourceStartup {
                             source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), sourceContent, identity, journal,
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
             if (scopeResources != null) recovery.coordinator().configureScopeResources(scopeResources);
+            process.bindMigration(this, recovery.coordinator());
             if (assignment.activationBarrier() instanceof com.nereusstream.delay.protocol.PulsarActivationBarrier) {
                 recovery.coordinator().bindReader(source, store.appliedShardLogPosition());
                 if (pulsarPreparation == null) recovery.coordinator().deferForSourceReactivation();
@@ -1785,6 +1792,23 @@ public final class TargetWorkerSourceStartup {
         return store;
     }
     public TargetWorkerProcessRuntime.Assembly graph() { return graph; }
+    boolean hasMigrationStore(ShardStore actual) { return store == actual; }
+
+    /** Native A and its exact adopted assignment are both required on reopen, restore and successor-reader paths. */
+    private void requireMigrationAdoption() {
+        final var actual = Objects.requireNonNull(store, "original opened Source Store");
+        final var budget = new com.nereusstream.delay.store.BoundedReadBudget(2, content.maximumBytes(),
+                content.lookupTimeout().toNanos(), nanos);
+        actual.readWithBudget(budget, () -> {
+            final var key = com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard());
+            final byte[] raw = actual.get(com.nereusstream.delay.store.ColumnFamily.META, key);
+            final var root = raw == null ? null : com.nereusstream.delay.protocol.TargetMigrationRoot.decode(
+                    com.nereusstream.delay.store.TargetValueEnvelope.decode(raw,
+                            com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE).payload());
+            publication.requireMigration(actual.metadata(), root);
+            return Boolean.TRUE;
+        });
+    }
 
     // Final graph/Scope identities only; retained-current guards may call these while holding a Native Store view.
     TargetWorkerProcessRuntime sourceProcessForExitBinding(){return process;}

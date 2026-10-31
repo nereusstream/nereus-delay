@@ -60,6 +60,14 @@ public record PulsarSourceReactivationReceipt(
         }
     }
 
+    /** Metadata-only adoption and later placement retain the same actual source-renewal ancestry. */
+    void requireCarriedSuccessor(long revision, WorkerAssignment assignment) {
+        if (revision < Math.addExact(previousPublicationRevision, 1)
+                || !successorAssignment.sourceAssignment().sameIdentity(assignment.sourceAssignment())
+                || !Arrays.equals(successorAssignment.routeSnapshotDigest(), assignment.routeSnapshotDigest()))
+            throw new IllegalArgumentException("carried reactivation lost its actual Source or signed Route root");
+    }
+
     void requireRoute(RouteSnapshot route) {
         if (!Bytes.constantTimeEquals(route.snapshotDigest(), successorAssignment.routeSnapshotDigest())
                 || !RouteSourceAssignmentFactory.fromRoute(route, routeSourceRoot.shardId().partition(),

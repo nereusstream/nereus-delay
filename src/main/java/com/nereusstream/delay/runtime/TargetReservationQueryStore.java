@@ -127,7 +127,6 @@ public final class TargetReservationQueryStore {
                 scope.tenantScope());
         record.requireOwner(payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(aggregate.mutation());
-        requireOwner(reader, payloadOwner.primaryIdentity()).requirePayloadOwner(payloadOwner);
         final byte[] bindingKey =
                 TargetKeyCodec.scheduleBinding(record.locator().scheduleBindingDigest());
         final var binding = TargetScheduleBinding.decodeForStore(
@@ -135,6 +134,9 @@ public final class TargetReservationQueryStore {
                 payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
                 scope.shard());
         record.requireBinding(binding);
+        TargetMembershipStoreAuthority.requireImportedReservation(reader, scope, lineage, record, binding);
+        TargetMembershipStoreAuthority.requirePayloadOwner(reader, scope, lineage,
+                requireOwner(reader, payloadOwner.primaryIdentity()), payloadOwner, binding);
         payloadOwner.requireInitialBinding(binding);
         final byte[] targetIndex = reader.get(ColumnFamily.ID, record.targetIndexKey());
         if (record.status() == PayloadReservationStatus.RESERVED) {
@@ -279,6 +281,7 @@ public final class TargetReservationQueryStore {
         /** Reconstructs the immutable Prepare receipt; lifecycle changes never change its source or state version. */
         public PayloadReservationReceipt receipt(ReceiptLocation location) {
             Objects.requireNonNull(location, "location");
+            if (record.migrationOrigin() != null) return record.migrationOrigin().originalReceipt();
             if (!location.profile().equals(prepare.objectStoreProfile())
                     || (record.committedPayload() != null
                             && (!Arrays.equals(record.committedPayload().container(), location.container())
@@ -288,9 +291,9 @@ public final class TargetReservationQueryStore {
             return PayloadReservationReceipt.create(
                     record.reservationId(),
                     record.locator().messageId(),
-                    record.prepareAnchor().source().shardId(),
-                    record.prepareAnchor().source(),
-                    1,
+                    record.receiptAnchorSource().shardId(),
+                    record.receiptAnchorSource(),
+                    record.receiptAnchorStateVersion(),
                     prepare.objectStoreProfile(),
                     location.container(),
                     location.objectKey(),

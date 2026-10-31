@@ -97,7 +97,7 @@ public final class PulsarSourceReactivationCoordinator {
         final ShardId shard = plan.reactivation().successorAssignment().shardId();
         final long successorRevision = nextRevision(plan.expectedPublication().revision());
         final var expectedSuccessor = new WorkerAssignmentAuthority.Publication(successorRevision, successor,
-                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successor));
+                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successor), plan.expectedPublication().migration());
         final Optional<OwnerLease> currentOwner = ownerAuthority.current(shard);
         if (currentOwner.isPresent()
                 && (!plan.fencedLease().sameIdentity(currentOwner.get())
@@ -156,7 +156,8 @@ public final class PulsarSourceReactivationCoordinator {
         requireSuccessorAssignment(plan, successorPublication.assignment());
         requireSuccessorPublication(successorPublication, new WorkerAssignmentAuthority.Publication(
                 nextRevision(plan.expectedPublication().revision()), successorPublication.assignment(),
-                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successorPublication.assignment())));
+                PulsarSourceReactivationReceipt.next(plan.expectedPublication(), successorPublication.assignment()),
+                plan.expectedPublication().migration()));
         if (!workerId.equals(successorPublication.assignment().workerId())) {
             throw new IllegalArgumentException("successor Owner is not the assigned Worker");
         }

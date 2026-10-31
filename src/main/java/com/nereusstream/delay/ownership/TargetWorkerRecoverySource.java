@@ -21,6 +21,10 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
     default boolean replayTailReached(SourcePosition actualApplied){
         throw new IllegalStateException("reader has no original captured-prefix consumption proof");
     }
+    /** Actual decoded/delivered finite prefix only. This grants no Store progress, ACK or recovery completion. */
+    default java.util.Optional<SourcePosition> capturedTailReadThrough() {
+        throw new IllegalStateException("reader has no original captured-prefix delivery proof");
+    }
     /** Private Target-startup path: the actual SDK reader must own the independent post-seek proof. */
     default void requireReaderBinding(SourceAssignment assignment, SourcePosition positionedCut) {
         throw new IllegalStateException("reader has no independent Target startup binding");

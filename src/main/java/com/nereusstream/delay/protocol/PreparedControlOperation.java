@@ -276,6 +276,16 @@ public final class PreparedControlOperation {
             throw new IllegalArgumentException("Control Operation requires at least one target");
         }
         switch (kind) {
+            case ACTIVATE_TARGET_MIGRATION, SETTLE_TARGET_MIGRATION_CUSTODY -> {
+                requireOnlyKinds(values, ControlTargetKind.SHARD);
+                requireCount(values, ControlTargetKind.SHARD, 1, 1);
+                requireMutationPresence(values, ControlTargetKind.SHARD, true);
+                final var migration = branch(request, TargetMigrationRequest.class);
+                if (values.getFirst().targetIndex() != 0
+                        || !values.getFirst().shard().shardId().equals(migration.scope().shard())) {
+                    throw new IllegalArgumentException("migration Control must select its exact original Source Shard at index zero");
+                }
+            }
             case ALLOCATE_SCOPE_CONTROL_OBLIGATION -> {
                 requireOnlyKinds(values,ControlTargetKind.SHARD);requireCount(values,ControlTargetKind.SHARD,1,1);
                 requireMutationPresence(values,ControlTargetKind.SHARD,true);

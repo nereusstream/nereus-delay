@@ -92,6 +92,23 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         return delegate.download(request, targetDirectory);
     }
 
+    public synchronized com.nereusstream.delay.protocol.CheckpointResource putMigrationObject(byte[] lineage,
+            byte[] checkpoint, String name, byte[] bytes, int maximumBytes) {
+        requireProviderAdmission(); renewIfNeeded();
+        return delegate.putMigrationObject(lineage, checkpoint, name, bytes, maximumBytes);
+    }
+
+    public synchronized com.nereusstream.delay.protocol.CheckpointResource putMigrationFile(byte[] lineage,
+            byte[] checkpoint, String name, Path file, long length, byte[] checksum, long maximumBytes) {
+        requireProviderAdmission(); renewIfNeeded();
+        return delegate.putMigrationFile(lineage, checkpoint, name, file, length, checksum, maximumBytes);
+    }
+
+    public synchronized byte[] readMigrationObject(com.nereusstream.delay.protocol.CheckpointResource resource,
+            int maximumBytes) {
+        requireProviderAdmission(); renewIfNeeded(); return delegate.readMigrationObject(resource, maximumBytes);
+    }
+
     /** Returns the current local lease projection without reading the authority. */
     public CredentialUseLease lease() {
         return gate.lease();

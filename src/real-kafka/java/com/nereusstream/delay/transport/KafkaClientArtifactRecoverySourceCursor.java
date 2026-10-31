@@ -60,6 +60,8 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private String isolationLevel;
     private KafkaSourcePosition positionedAnchor;
     private KafkaSourcePosition lastDeliveredPosition;
+    private SourceReplayEntry lastDeliveredEntry;
+    private com.nereusstream.delay.ownership.TargetOwnedBackendGroup migrationBackend;
     private boolean closed;
     private boolean failed;
 
@@ -154,6 +156,29 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             // This pinned factory retains unfinished construction/bind/position cleanup as TargetSdkCleanupFailure.
             reserved.closed(); throw failure;
         }
+    }
+
+    /** The original migration owner has already registered the SDK construction before this synchronous open. */
+    static KafkaClientArtifactRecoverySourceCursor openForMigration(
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend, java.util.Map<String,Object> operational,
+            byte[] sdkJar, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt credential,
+            KafkaSourcePosition actualCut, Duration pollTimeout, int maximumFrameBytes,
+            java.util.function.Supplier<com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence> time,
+            String allocationId, int maximumConnections, com.nereusstream.delay.protocol.CapacityVector cost) {
+        opening.requireCurrent();
+        final var graph = opening.graph();
+        backend.requireWorkerGraph(graph.classes(), graph.resources());
+        opening.assignment().activationBarrier().validatePosition(actualCut);
+        if (actualCut.offset() < 0 || actualCut.offset() == Long.MAX_VALUE
+                || maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
+            throw new IllegalArgumentException("migration reader requires the complete original finite K1 baseline");
+        }
+        final var cursor = openVerified(operational, sdkJar, credential, opening.assignment(),
+                Math.addExact(actualCut.offset(), 1L), pollTimeout, maximumFrameBytes, time, opening::requireLocalCurrent,
+                opening.sdkBudget(), allocationId, maximumConnections, cost, graph.classes(), graph.resources());
+        cursor.positionedAnchor = actualCut; cursor.migrationBackend = backend;
+        return cursor;
     }
 
     /** Component entry without a Worker charge; the process startup requires the budgeted overload above. */
@@ -284,6 +309,25 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         }
     }
 
+    /** Actual decoded delivery through the captured native prefix; this is never a Store apply receipt. */
+    @Override public synchronized java.util.Optional<SourcePosition> capturedTailReadThrough() {
+        requireCurrent();
+        if (!target || verifiedCredential == null || allocation == null || allocation.released()
+                || positionedAnchor == null || replayTailExclusive < 0) {
+            throw new IllegalStateException("Source delivery cut requires its original captured budgeted reader");
+        }
+        if (readThrough < replayTailExclusive
+                || current != null && ((KafkaSourcePosition) current.position()).offset() < replayTailExclusive
+                || !buffered.isEmpty() && buffered.peekFirst().record().offset() < replayTailExclusive) {
+            return java.util.Optional.empty();
+        }
+        // Native offsets can include processed control/aborted batches. Return only an actual decoded
+        // Source position, or the complete original positioned cut; never manufacture nativeTail - 1.
+        final SourcePosition observed = lastDeliveredPosition == null ? positionedAnchor : lastDeliveredPosition;
+        activationBarrier.validatePosition(observed); requireCurrent();
+        return java.util.Optional.of(observed);
+    }
+
     /** Local qualification of this reader's actually processed prefix and already delivered Source frames. */
     @Override public synchronized boolean replayTailReached(SourcePosition actualApplied) {
         requireCurrent();
@@ -399,7 +443,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new NoSuchElementException("Kafka recovery source is exhausted");
         }
         final SourceReplayEntry result = current;
-        if (target) { lastDeliveredPosition = (KafkaSourcePosition) result.position(); }
+        if (target) { lastDeliveredPosition = (KafkaSourcePosition) result.position(); lastDeliveredEntry = result; }
         current = null;
         return result;
     }
@@ -522,7 +566,20 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         }
         return com.nereusstream.delay.ownership.SourceReplaySuccessor.strictKafka();
     }
-    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return null; }
+    @Override public synchronized void requireReaderBinding(SourceAssignment expected, SourcePosition positionedCut) {
+        if (migrationBackend == null || verifiedCredential == null || allocation == null || allocation.released()
+                || positionedAnchor == null || !assignment.sameIdentity(expected)
+                || !java.util.Arrays.equals(positionedAnchor.canonicalBytes(), positionedCut.canonicalBytes())) {
+            throw new IllegalStateException("migration K1 reader changed its original independent Source binding");
+        }
+        verifiedCredential.authorization().requireAssignment(expected); requireCurrent();
+    }
+    @Override public synchronized void requireReaderEntry(SourceReplayEntry entry, SourceAssignment expected, SourcePosition cut) {
+        requireReaderBinding(expected, cut);
+        if (entry != lastDeliveredEntry) throw new IllegalStateException("migration entry is not this K1 reader's original native delivery");
+        activationBarrier.validatePosition(entry.position());
+    }
+    @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return migrationBackend; }
     @Override public synchronized boolean cleanupComplete() {
         return closed && target && consumer.guardedResourcesTerminated() && (allocation == null || allocation.released());
     }

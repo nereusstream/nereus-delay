@@ -91,6 +91,10 @@ public final class ProtocolTuple {
     public static ProtocolTuple targetScopeControlObligation() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,24);}
     public static ProtocolTuple targetScopeControlObligationFrozen() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,25);}
     public static ProtocolTuple targetScopeControlObligationExposure() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,26);}
+    public static ProtocolTuple targetMigrationActivate() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,27);}
+    public static ProtocolTuple targetMigrationSettlement() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,28);}
+    /** Required-reader capability of the private old shadow; this is not a Source mutation purpose. */
+    public static ProtocolTuple targetMigrationShadowProgress() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,1,29);}
     public static ProtocolTuple targetSloObservationEpochEvent() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,5);}
     public static ProtocolTuple targetSloObservationCustody() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,3);}
     public static ProtocolTuple targetSloObservationEventAssigned() {return new ProtocolTuple(1,1,SYSTEM_MUTATION,15,4);}

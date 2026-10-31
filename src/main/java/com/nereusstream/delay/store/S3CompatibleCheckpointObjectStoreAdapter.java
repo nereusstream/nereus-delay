@@ -365,6 +365,110 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         }
     }
 
+    /** Exact migration companion bytes under the existing credential, transport and provider ownership. */
+    public synchronized CheckpointResource putMigrationObject(byte[] lineage, byte[] checkpointId,
+            String relativeName, byte[] bytes, int maximumBytes) {
+        Objects.requireNonNull(bytes); requireMigrationLength(bytes.length, maximumBytes);
+        final String key = migrationKey(lineage, checkpointId, relativeName);
+        requireMigrationKeyBound(key);
+        requireCredentialGate(); final var ownership = beginProviderOperation();
+        try {
+            final byte[] digest = sha256(bytes);
+            final String version = putBytes(key, bytes, digest, maximumBytes);
+            final var resource = migrationResource(lineage, checkpointId, key, version, bytes.length, digest);
+            verifyMigrationObjectInternal(resource, maximumBytes); ownership.complete(); return resource;
+        } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
+    }
+
+    /** Prepared-C image files stream through the same immutable If-None-Match/read-back mechanism. */
+    public synchronized CheckpointResource putMigrationFile(byte[] lineage, byte[] checkpointId,
+            String relativeName, Path file, long length, byte[] checksum, long maximumBytes) {
+        requireMigrationLength(length, maximumBytes); final String key = migrationKey(lineage, checkpointId, relativeName);
+        requireMigrationKeyBound(key);
+        requireCredentialGate(); final var ownership = beginProviderOperation();
+        try {
+            putFile(key, file, length, checksum);
+            final String version = verifyRemoteFile(key, length, checksum, maximumBytes);
+            final var resource = migrationResource(lineage, checkpointId, key, version, length, checksum);
+            verifyMigrationObjectInternal(resource, maximumBytes); ownership.complete(); return resource;
+        } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
+    }
+
+    public synchronized byte[] readMigrationObject(CheckpointResource resource, int maximumBytes) {
+        validateMigrationResource(resource, maximumBytes); requireCredentialGate();
+        final var ownership = beginProviderOperation();
+        try {
+            final var actual = getBytes(decodeText(resource.objectKey(), "migration object key"), maximumBytes,
+                    decodeProviderVersion(resource.immutableVersion()));
+            final byte[] bytes = actual.bytes();
+            if (bytes.length != resource.manifestLength() || !Arrays.equals(sha256(bytes), resource.manifestSha256())
+                    || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(actual.version("sha256-" + Bytes.hex(resource.manifestSha256())))))
+                throw new IllegalStateException("exact migration object version/length/hash changed");
+            ownership.complete(); return bytes;
+        } catch (RuntimeException | Error failure) { ownership.uncertain(); throw failure; }
+    }
+
+    private void verifyMigrationObjectInternal(CheckpointResource resource, long maximumBytes) {
+        validateMigrationResource(resource, maximumBytes);
+        final String key = decodeText(resource.objectKey(), "migration object key");
+        final var response = send("GET", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(), Map.of(),
+                decodeProviderVersion(resource.immutableVersion()), HttpResponse.BodyHandlers.ofInputStream());
+        if (!isSuccess(response.statusCode())) {
+            closeQuietly(response.body()); throw unexpectedStatus("GET", key, response.statusCode());
+        }
+        try (InputStream input = response.body()) {
+            final var read = consume(input, null, resource.manifestLength(), objectBytesLimit(maximumBytes));
+            final String version = responseVersionOrFallback(response, "sha256-" + Bytes.hex(resource.manifestSha256()), "GET", key);
+            if (read.length() != resource.manifestLength() || !Arrays.equals(read.checksum(), resource.manifestSha256())
+                    || !Arrays.equals(Bytes.utf8(version), resource.immutableVersion()))
+                throw new IllegalStateException("exact prepared migration object changed");
+        } catch (IOException failure) { throw new IllegalStateException("cannot verify migration object", failure); }
+    }
+
+    private CheckpointResource migrationResource(byte[] lineage, byte[] checkpoint, String key, String version,
+            long length, byte[] digest) {
+        final var resource = new CheckpointResource(lineage, checkpoint, profile.ref(), Bytes.utf8(bucket),
+                Bytes.utf8(key), Bytes.utf8(version), length, digest);
+        validateMigrationResource(resource, Math.max(1, length)); return resource;
+    }
+
+    private void validateMigrationResource(CheckpointResource resource, long maximumBytes) {
+        requireMigrationLength(resource.manifestLength(), maximumBytes);
+        final String key = decodeText(resource.objectKey(), "migration object key");
+        final String prefix = checkpointPrefix(resource.recoveryLineageId(), resource.checkpointId()) + "/migration/";
+        if (!resource.objectStoreProfile().equals(profile.ref()) || !Arrays.equals(resource.container(), Bytes.utf8(bucket))
+                || !key.startsWith(prefix) || resource.objectKey().length > limits.maxObjectIdentityBytes()
+                || resource.immutableVersion().length > limits.maxObjectIdentityBytes())
+            throw new IllegalArgumentException("migration object changed its original Profile/container/fixed namespace");
+        migrationKey(resource.recoveryLineageId(), resource.checkpointId(), key.substring(prefix.length()));
+        decodeProviderVersion(resource.immutableVersion());
+    }
+
+    private void requireMigrationLength(long bytes, long maximum) {
+        if (bytes < 0 || maximum < 1 || maximum == Long.MAX_VALUE || bytes > maximum || bytes > objectStore.maxObjectBytes())
+            throw new IllegalArgumentException("migration object exceeds its explicit finite size");
+    }
+
+    private void requireMigrationKeyBound(String key) {
+        if (Bytes.utf8(key).length > limits.maxObjectIdentityBytes())
+            throw new IllegalArgumentException("migration object key exceeds its original identity bound");
+    }
+
+    private static String migrationKey(byte[] lineage, byte[] checkpoint, String name) {
+        if (name == null || name.isEmpty() || name.startsWith("/") || name.endsWith("/"))
+            throw new IllegalArgumentException("migration object requires a fixed relative name");
+        for (String part : name.split("/", -1))
+            if (part.isEmpty() || part.equals(".") || part.equals("..") || !part.matches("[A-Za-z0-9._-]+"))
+                throw new IllegalArgumentException("migration object name is not canonical");
+        return checkpointPrefix(lineage, checkpoint) + "/migration/" + name;
+    }
+
+    private static String decodeText(byte[] encoded, String name) {
+        final String value = new String(encoded, java.nio.charset.StandardCharsets.UTF_8);
+        if (!Arrays.equals(encoded, Bytes.utf8(value))) throw new IllegalArgumentException(name + " is not canonical UTF-8");
+        return canonicalText(value, name);
+    }
+
     @Override
     public synchronized CheckpointDeleteResult delete(final CheckpointDeleteRequest request) {
         Objects.requireNonNull(request, "request");

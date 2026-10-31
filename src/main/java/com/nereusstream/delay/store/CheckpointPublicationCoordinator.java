@@ -111,6 +111,21 @@ public final class CheckpointPublicationCoordinator {
         return new CheckpointPublication(published, Objects.requireNonNull(publication, "Target catalog publication"));
     }
 
+    /** Same upload/Catalog mechanism, on the original migration CHECKPOINT/owned-I/O turn after actual A. */
+    public CheckpointPublication publishMigration(CheckpointUploadIntent pending,
+            TargetCheckpointRootVerifier.AuthenticatedImage image, long nowEpochMs, CheckpointUploadAdapter adapter,
+            CatalogInitializationAuthority initialization, com.nereusstream.delay.runtime.TargetMigrationStore.Activated applied) {
+        Objects.requireNonNull(applied).requireCurrent();
+        final var plan = applied.migration().plan();
+        if (!image.manifest().sourceStoreIncarnation().equals(applied.candidate().store().metadata().storeIncarnationUuid())
+                || !java.util.Arrays.equals(image.manifest().recoveryLineageId(), plan.newLineage())
+                || image.manifest().appliedShardLogPosition().compareTo(applied.migration().activatedAt().source()) < 0)
+            throw new IllegalArgumentException("formal migration publication changed actual A/new Store");
+        initializeTarget(pending, image, Objects.requireNonNull(initialization));
+        final var result = publishTarget(pending, image, pending.baseCatalogGeneration(), nowEpochMs, adapter);
+        applied.requireCurrent(); return result;
+    }
+
     public record CheckpointPublication(
             CheckpointUploadIntent uploadIntent, RecoveryCatalog.Publication catalogPublication) {
         public CheckpointPublication {

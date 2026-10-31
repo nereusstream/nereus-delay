@@ -779,6 +779,38 @@ public final class DelayShard {
         return profileBindingControlState;
     }
 
+    /**
+     * Advances only the isolated migration shadow after the actual Target domain committed this exact Source.
+     * The private proof preserves original content and actual first/POS; it grants no legacy business write.
+     */
+    public synchronized void applyMigrationTargetPosition(final TargetMigrationTargetApplied actual) {
+        Objects.requireNonNull(actual).requirePosition(store,
+                Objects.requireNonNull(lastAppliedSourcePosition), mutationSequence);
+        final var progress = actual.progress();
+        if (Arrays.equals(lastAppliedSourcePosition.canonicalBytes(), progress.appliedAt().source().canonicalBytes())) return;
+        final var original = Objects.requireNonNull(store.controlSnapshot(), "protected original legacy control snapshot");
+        final var tuples = new ArrayList<>(original.protocolTuples());
+        if (!tuples.contains(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress()))
+            tuples.add(com.nereusstream.delay.protocol.ProtocolTuple.targetMigrationShadowProgress());
+        final var shadow = new CompatibleControlSnapshot(original.shard(), tuples, original.profiles(), original.initialQuotaGrant());
+        final var fence = actual.fence();
+        final boolean advancesFence = fence != null && fence.closedThroughEpochMs() > closedIngressDeadlineThrough;
+        store.write(batch -> {
+            actual.requirePosition(store, lastAppliedSourcePosition, mutationSequence);
+            batch.putMigrationShadowControlSnapshot(shadow, actual);
+            batch.put(ColumnFamily.META, progress.key(), com.nereusstream.delay.store.TargetValueEnvelope.encode(
+                    com.nereusstream.delay.protocol.TargetMigrationShadowProgress.VALUE_TYPE, progress.canonicalBytes()));
+            if (advancesFence) {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(META_CLOSED_INGRESS_DEADLINE), fence.canonicalBytes());
+                batch.putRuntimeMetadata(store.runtimeMetadata().withLastIngressFenceProofId(fence.proofId()));
+            }
+            writePosition(batch, progress.appliedAt().source());
+        });
+        lastAppliedSourcePosition = progress.appliedAt().source();
+        mutationSequence = progress.appliedAt().sequence();
+        if (advancesFence) closedIngressDeadlineThrough = fence.closedThroughEpochMs();
+    }
+
     public synchronized CommandResult apply(final PreparedCommand command, final SourcePosition sourcePosition) {
         return runReadRetryableMutation(() -> applyCommand(command, sourcePosition));
     }

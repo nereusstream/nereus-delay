@@ -10,9 +10,15 @@ public record TargetQuotaMutation(
         long localClaimOrdinal,
         boolean reservationExpiry,
         boolean reservationClosure,
-        boolean reservationCloseCursor) {
+        boolean reservationCloseCursor,
+        boolean migrationPreparation) {
     public static final int MAX_SOURCE_CANONICAL_BYTES = 11 + 4 + TargetSourcePosition.MAX_CANONICAL_BYTES + 34;
     public static final int MAX_CANONICAL_BYTES = MAX_SOURCE_CANONICAL_BYTES + 11;
+
+    public TargetQuotaMutation(long sequence, SourcePosition source, byte[] mutationDigest, long localClaimOrdinal,
+            boolean reservationExpiry, boolean reservationClosure, boolean reservationCloseCursor) {
+        this(sequence, source, mutationDigest, localClaimOrdinal, reservationExpiry, reservationClosure, reservationCloseCursor, false);
+    }
 
     public TargetQuotaMutation(
             long sequence,
@@ -47,10 +53,11 @@ public record TargetQuotaMutation(
 
     public TargetQuotaMutation {
         if (sequence == 0
-                || ((reservationExpiry || reservationClosure || reservationCloseCursor) && localClaimOrdinal == 0)
+                || ((reservationExpiry || reservationClosure || reservationCloseCursor || migrationPreparation) && localClaimOrdinal == 0)
                 || (reservationExpiry && reservationClosure)
                 || (reservationExpiry && reservationCloseCursor)
-                || (reservationClosure && reservationCloseCursor)) {
+                || (reservationClosure && reservationCloseCursor)
+                || (migrationPreparation && (reservationExpiry || reservationClosure || reservationCloseCursor))) {
             throw new IllegalArgumentException("quota source sequence must be nonzero");
         }
         source = TargetSourcePosition.requireBounded(source);
@@ -63,7 +70,7 @@ public record TargetQuotaMutation(
     }
 
     public boolean isLocalClaim() {
-        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure && !reservationCloseCursor;
+        return localClaimOrdinal != 0 && !reservationExpiry && !reservationClosure && !reservationCloseCursor && !migrationPreparation;
     }
 
     public boolean isLocalMutation() {
@@ -146,7 +153,7 @@ public record TargetQuotaMutation(
             if (isLocalMutation()) {
                 CanonicalProtobuf.uint64Bits(
                         out,
-                        reservationCloseCursor ? 7 : reservationClosure ? 6 : reservationExpiry ? 5 : 4,
+                        migrationPreparation ? 8 : reservationCloseCursor ? 7 : reservationClosure ? 6 : reservationExpiry ? 5 : 4,
                         localClaimOrdinal);
             }
         });
@@ -157,7 +164,8 @@ public record TargetQuotaMutation(
         final boolean expiry = fields.size() == 4 && fields.getLast().number() == 5;
         final boolean closure = fields.size() == 4 && fields.getLast().number() == 6;
         final boolean cursor = fields.size() == 4 && fields.getLast().number() == 7;
-        final int ordinalField = cursor ? 7 : closure ? 6 : expiry ? 5 : 4;
+        final boolean preparation = fields.size() == 4 && fields.getLast().number() == 8;
+        final int ordinalField = preparation ? 8 : cursor ? 7 : closure ? 6 : expiry ? 5 : 4;
         QueryCodecSupport.requireNumbers(
                 fields,
                 fields.size() == 4 ? new int[] {1, 2, 3, ordinalField} : new int[] {1, 2, 3},
@@ -169,7 +177,8 @@ public record TargetQuotaMutation(
                 fields.size() == 4 ? QueryCodecSupport.uint64Bits(fields.get(3), ordinalField) : 0,
                 expiry,
                 closure,
-                cursor);
+                cursor,
+                preparation);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "TargetQuotaMutation");
         return result;
     }
@@ -182,6 +191,7 @@ public record TargetQuotaMutation(
                 && reservationExpiry == that.reservationExpiry
                 && reservationClosure == that.reservationClosure
                 && reservationCloseCursor == that.reservationCloseCursor
+                && migrationPreparation == that.migrationPreparation
                 && Arrays.equals(source.canonicalBytes(), that.source.canonicalBytes())
                 && Arrays.equals(mutationDigest, that.mutationDigest);
     }

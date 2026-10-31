@@ -117,6 +117,7 @@ public final class TargetSourceAccounting implements TargetMessageStore.Accounti
         final var aggregate = reader.aggregate();
         final var stamp =
                 new TargetQuotaMutation(TargetQuotaMutation.increment(reader.sourceSequence()), source, mutationDigest);
+        TargetMigrationStore.requireGuardEdits(reader, inputBusiness, stamp);
         final var rootId = new TargetQuotaIdentity(
                 TargetQuotaIdentity.Kind.SHARD, scope.shard(), aggregate.accountingIncarnation(), null, null);
         final byte[] descriptorKey = rootId.key();

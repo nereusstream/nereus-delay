@@ -454,6 +454,8 @@ public final class TargetCheckpointSemanticSnapshot {
 
     /** Exact image contents and closure still need historical publication, keys, pins and activation authority. */
     public void validateAgainst(TargetCheckpointDependencies dependencies, Limits limits) {
+        if (Objects.requireNonNull(dependencies).migrationRoot() != null && version < 2)
+            throw new IllegalStateException("migration checkpoint requires original Source A/settlement Control images");
         if(Objects.requireNonNull(dependencies).hasLifecycleInputs()&&version<6)
             throw new IllegalStateException("Target activation/retirement requires complete schema6 companion");
         if(lifecycle!=null)lifecycle.validateAgainst(dependencies,limits);

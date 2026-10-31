@@ -183,7 +183,7 @@ public final class TargetRecordAccounting {
                 reservation.requireOwner(payloadOwner);
                 reservation.mutation().requireAtOrBefore(operation);
                 final var owner = descriptor(payloadOwner.primaryIdentity());
-                owner.requirePayloadOwner(payloadOwner);
+                requirePayloadOwner(owner, payloadOwner);
                 result = new Charge(
                         owner,
                         resources(owner.accounting()
@@ -202,7 +202,7 @@ public final class TargetRecordAccounting {
                 terminal.requireOwner(payloadOwner);
                 terminal.mutation().requireAtOrBefore(operation);
                 final var owner = descriptor(payloadOwner.primaryIdentity());
-                owner.requirePayloadOwner(payloadOwner);
+                requirePayloadOwner(owner, payloadOwner);
                 result = new Charge(
                         owner,
                         resources(owner.accounting()
@@ -253,7 +253,7 @@ public final class TargetRecordAccounting {
                 final var owner =
                         TargetQuotaPayloadOwner.decodeForStore(key, payload, scope.shard(), scope.tenantScope());
                 final var descriptor = descriptor(owner.primaryIdentity());
-                descriptor.requirePayloadOwner(owner);
+                requirePayloadOwner(descriptor, owner);
                 TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,overlay,scope,lineage,
                         root.owner(),owner,operation);
                 result = new Charge(
@@ -801,6 +801,14 @@ public final class TargetRecordAccounting {
                 }
                 return null;
             }
+            case com.nereusstream.delay.protocol.TargetMigrationRoot.VALUE_TYPE,
+                    com.nereusstream.delay.protocol.TargetMigrationOrigin.VALUE_TYPE,
+                    com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.VALUE_TYPE,
+                    com.nereusstream.delay.protocol.TargetMigrationPrefixRecord.VALUE_TYPE,
+                    com.nereusstream.delay.protocol.TargetMigrationActivationAttempt.VALUE_TYPE -> {
+                result = TargetMigrationStore.nativeCharge(reader, overlay, scope, lineage, operation,
+                        family, key, payload, value.valueType());
+            }
             default ->
                 throw new IllegalArgumentException("unhandled business record accounting type: " + value.valueType());
         }
@@ -829,7 +837,16 @@ public final class TargetRecordAccounting {
                 || !Arrays.equals(owner.recoveryLineage(), lineage)) {
             throw new IllegalStateException("record accounting crossed Shard/tenant/lineage");
         }
-        owner.latestMutation().requireAtOrBefore(operation);
+        final var latest = owner.latestMutation();
+        if (latest.sequence() == operation.sequence() && latest.localOrdinal() == operation.localOrdinal()
+                && !latest.equals(operation)) {
+            final var migration = TargetMigrationStore.decodeRoot(reader.projected(ColumnFamily.META,
+                    com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard()), overlay));
+            if (migration != null && owner.allocation().equals(migration.plan().baseline())
+                    && operation.equals(com.nereusstream.delay.protocol.TargetMigrationRoot.baselineFor(migration.plan()))) {
+                if (owner.draining()) throw new IllegalStateException("import baseline cannot invent a drained owner");
+            } else latest.requireAtOrBefore(operation);
+        } else latest.requireAtOrBefore(operation);
     }
 
     private TargetQuotaIncarnation targetOwner(final TargetPartitionId target, final byte[] incarnation) {
@@ -875,9 +892,38 @@ public final class TargetRecordAccounting {
         final var targetScope = scope.forTarget(target);
         final byte[] grantKey =
                 Bytes.concat(new byte[] {TargetKeyCodec.QUOTA_GRANT_ACTIVATION_TAG, 1}, targetScope.keySuffix());
+        final byte[] rawGrant = reader.projected(ColumnFamily.META, grantKey, overlay);
+        if (rawGrant == null) {
+            final var migration = TargetMigrationStore.decodeRoot(reader.projected(ColumnFamily.META,
+                    com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard()), overlay));
+            if (migration == null) throw new IllegalStateException("shared metadata lacks first allocation origin");
+            final var origin = TargetMigrationStore.origin(reader, overlay, migration.plan(), ColumnFamily.META, key);
+            origin.requireRow(ColumnFamily.META, key, TargetValueEnvelope.encode(
+                    switch (role) {
+                        case IDENTITY -> CanonicalTargetPartition.VALUE_TYPE;
+                        case DISPATCH -> TargetDispatchCompatibility.VALUE_TYPE;
+                        case CONTROL -> TargetControlScope.VALUE_TYPE;
+                        case MEMBERSHIP_GRANT -> TargetMembershipGrant.VALUE_TYPE;
+                        case MEMBERSHIP_POLICY -> TargetMembershipPolicy.VALUE_TYPE;
+                    }, payload));
+            final var owner = descriptor(origin.owner().identity());
+            if (!Objects.equals(owner.identity().target(), target)
+                    || !owner.allocation().equals(migration.plan().baseline()))
+                throw new IllegalStateException("imported shared metadata changed original C allocation");
+            final var identity = physical(target);
+            switch (role) {
+                case IDENTITY -> CanonicalTargetPartition.decodeForStore(key, payload);
+                case DISPATCH -> TargetDispatchCompatibility.decodeForStore(key, payload, identity);
+                case CONTROL -> TargetControlScope.decodeForStore(key, payload, target, scope.shard());
+                case MEMBERSHIP_GRANT -> TargetMembershipGrant.decodeForStore(key, payload, scope.shard());
+                case MEMBERSHIP_POLICY -> TargetMembershipPolicy.decodeForStore(key, payload, scope.shard());
+            }
+            return new Charge(owner, resources(owner.accounting().recordCharge(
+                    TargetQuotaAccounting.RecordClass.STATE, key.length, payload.length)));
+        }
         final var grant = TargetQuotaGrantActivation.decodeForStore(
                 grantKey,
-                payload(ColumnFamily.META, grantKey, TargetQuotaGrantActivation.VALUE_TYPE),
+                TargetValueEnvelope.decode(rawGrant, TargetQuotaGrantActivation.VALUE_TYPE).payload(),
                 scope.shard(),
                 scope.tenantScope());
         if (grant.allocation() == null) {
@@ -889,8 +935,23 @@ public final class TargetRecordAccounting {
 
     private Charge messageCharge(final TargetQuotaPayloadOwner owner, final TargetQuotaMessageRecords.Record record) {
         final var descriptor = descriptor(owner.primaryIdentity());
-        descriptor.requirePayloadOwner(owner);
+        requirePayloadOwner(descriptor, owner);
         return new Charge(descriptor, resources(record.charge()));
+    }
+
+    private void requirePayloadOwner(final TargetQuotaIncarnation descriptor, final TargetQuotaPayloadOwner owner) {
+        if (descriptor.allocation().sequence() == owner.mutation().sequence()
+                && descriptor.allocation().localOrdinal() == owner.mutation().localOrdinal()
+                && !descriptor.allocation().equals(owner.mutation())) {
+            final var migration = Objects.requireNonNull(TargetMigrationStore.decodeRoot(reader.projected(ColumnFamily.META,
+                    com.nereusstream.delay.protocol.TargetMigrationRoot.keyFor(scope.shard()), overlay)), "imported payload migration root");
+            if (!owner.mutation().equals(com.nereusstream.delay.protocol.TargetMigrationRoot.baselineFor(migration.plan())))
+                throw new IllegalStateException("payload owner changed its complete source allocation stamp");
+            final byte[] bindingKey = TargetKeyCodec.scheduleBinding(owner.initialBindingDigest());
+            final var binding = TargetScheduleBinding.decodeForStore(bindingKey,
+                    payload(ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE), scope.shard());
+            descriptor.requireImportedPayloadOwner(owner, binding, migration.plan());
+        } else descriptor.requirePayloadOwner(owner);
     }
 
     private Charge metadata(final TargetQuotaMetadataRecords.Record record) {

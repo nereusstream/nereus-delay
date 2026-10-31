@@ -48,6 +48,8 @@ public final class TargetOwnerRecoveryCoordinator {
     private OwnerLease lease;
     private TargetSourceApplyRuntime replay;
     private TargetScopeResourceManager scopeResources;
+    private TargetMigrationCompatibilityRuntime migrationCompatibility;
+    private com.nereusstream.delay.protocol.SourcePosition requiredReplayCut;
     private SourceApplyWorkClassExecutor sourceApply;
     private SourceReplayEntry pendingEntry;
     private SourceApplyWorkClassExecutor.Submission pending;
@@ -434,13 +436,27 @@ public final class TargetOwnerRecoveryCoordinator {
         scopeResources = Objects.requireNonNull(original);
     }
 
+    synchronized void configureMigration(TargetMigrationCompatibilityRuntime original,
+            com.nereusstream.delay.protocol.SourcePosition minimum) {
+        if (turnNumber != 0 || replay != null || migrationCompatibility != null)
+            throw new IllegalStateException("migration compatibility must bind before actual Source recovery");
+        migrationCompatibility = Objects.requireNonNull(original);
+        if (minimum != null) {
+            assignment.activationBarrier().validatePosition(minimum);
+            requiredReplayCut = minimum;
+        }
+    }
+
     public synchronized void stopAuthorityPreparation() {
         if (authorityPreparation != null) authorityPreparation.requestStop();
+        if (replay != null) replay.stopAuthorityPreparation();
     }
     public synchronized void retryAuthorityCleanup() {
         if (authorityPreparation != null) authorityPreparation.retryCleanup();
+        if (replay != null) replay.retryAuthorityCleanup();
     }
-    public synchronized boolean authorityIoExited() { return authorityPreparation == null || authorityPreparation.ioExited(); }
+    public synchronized boolean authorityIoExited() { return (authorityPreparation == null || authorityPreparation.ioExited())
+            && (replay == null || replay.authorityIoExited()); }
     synchronized boolean nativeReadLoansExited() { return authorityPreparation == null || authorityPreparation.nativeReadLoansExited(); }
 
     /** Protection rechecks held snapshots at native guards; provider acquisition/full reads remain outside monitors. */
@@ -679,6 +695,7 @@ public final class TargetOwnerRecoveryCoordinator {
         requireLease(false);
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
+        if (migrationCompatibility != null) replay.configureMigration(migrationCompatibility);
         if (boundReader != null) replay.bindRecoveryReader(boundReader, boundReaderCut);
         if (authorityPreparation != null) replay.configureAuthorityPreparation(authorityPreparation, clock,evidenceCatalog);
         if (scopeResources != null) scopeResources.bindSource(replay, clock);
@@ -686,6 +703,12 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     private boolean finish() {
+        if (requiredReplayCut != null) {
+            final var actual = Objects.requireNonNull(store.appliedShardLogPosition());
+            if (!actual.sameSourceIdentity(requiredReplayCut) || actual.compareTo(requiredReplayCut) < 0
+                    || actual.compareTo(requiredReplayCut) == 0 && !Arrays.equals(actual.canonicalBytes(), requiredReplayCut.canonicalBytes()))
+                throw new SourceReplayGapException("actual Source recovery has not applied the original captured migration prefix");
+        }
         if(replayTailReader!=null&&!sloRecoveryPhaseComplete)throw new IllegalStateException("bounded pre/post recovery census phase must precede Claim takeover/Source freeze");
         if (deferForSourceReactivation) {
             beginReplay();
@@ -836,6 +859,7 @@ public final class TargetOwnerRecoveryCoordinator {
             sloRecoveryQualification.bindRuntimeRoot(root);
         }
         runtime.bindRecoveredSloQualification(sloRecoveryQualification);
+        if (migrationCompatibility != null) runtime.configureMigration(migrationCompatibility);
         if (scopeResources != null) scopeResources.bindSource(runtime, clock);
         return runtime;
     }

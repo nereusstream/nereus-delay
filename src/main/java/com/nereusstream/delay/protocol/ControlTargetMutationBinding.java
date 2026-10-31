@@ -51,6 +51,21 @@ public final class ControlTargetMutationBinding {
         final byte[] expectedLogicalIdentity;
         switch (mutation.type()) {
             case APPLY_SHARD_CONTROL -> {
+                if (prepared.request().branch() instanceof TargetMigrationRequest expected) {
+                    final var body = TargetMigrationControlBody.decode(mutation.canonicalBody());
+                    body.requireInput(mutation);
+                    final var actualAuthor = AuthorIdentity.decode(mutation.authorIdentity());
+                    final var registeredAuthor = prepared.author();
+                    if (!Arrays.equals(actualAuthor.first(), registeredAuthor.operationActorIdHash())
+                            || !Arrays.equals(actualAuthor.second(), registeredAuthor.authenticatedRoleSetHash())
+                            || !Arrays.equals(actualAuthor.digest(), registeredAuthor.tenantResourceScopeHash())) {
+                        throw new IllegalArgumentException("migration Source CONTROL author differs from its exact registered actor/roles/scope");
+                    }
+                    requireControlRef(expectedControlRef, body.controlRef());
+                    if (!expected.equals(body.request())) throw new IllegalArgumentException("migration differs from its exact registered Control request");
+                    expectedLogicalIdentity = body.logicalIdentity();
+                    break;
+                }
                 if(prepared.request().branch() instanceof TargetScopeControlObligationRequest expected){
                     final var body=TargetScopeControlObligationBody.decode(mutation.canonicalBody());
                     requireControlRef(expectedControlRef,body.controlRef());
@@ -158,6 +173,8 @@ public final class ControlTargetMutationBinding {
             final ControlOperationKind operationKind, final ControlTargetKind targetKind) {
         return switch (operationKind) {
             case GRANT_TARGET_MEMBERSHIP,
+                    ACTIVATE_TARGET_MIGRATION,
+                    SETTLE_TARGET_MIGRATION_CUSTODY,
                     ALLOCATE_SCOPE_CONTROL_OBLIGATION,
                     ALLOCATE_PARENT_CONTROL_CREDIT,
                     REGISTER_TARGET_SLO_WRITER_EPOCH,

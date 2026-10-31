@@ -73,7 +73,7 @@ public final class LegacyCheckpointStateInventory {
         Objects.requireNonNull(readLimits, "readLimits");
         final LegacyCheckpointImageInspector.ImageProof before =
                 LegacyCheckpointImageInspector.inspect(image, expectedShard, manifest, fileLimits);
-        final Inventory inventory = scan(image, before, readLimits);
+        final Inventory inventory = scan(image, before, readLimits, null);
         // Re-validate the manifest-bound image after the logical read to detect concurrent changes.
         final LegacyCheckpointImageInspector.ImageProof after =
                 LegacyCheckpointImageInspector.inspect(image, expectedShard, manifest, fileLimits);
@@ -83,10 +83,38 @@ public final class LegacyCheckpointStateInventory {
         return inventory;
     }
 
+    /**
+     * Captures the complete finite image, including namespaces whose semantics remain under legacy custody.
+     * Unlike a caller-created inventory, this view can only originate from the manifest-bound read below.
+     * The caller must reserve its original operation's memory for at least {@code maxBytes} before opening it.
+     */
+    public static CompleteView inspectComplete(
+            final Path image,
+            final ShardId expectedShard,
+            final CheckpointManifest manifest,
+            final CheckpointManifestLimits fileLimits,
+            final ReadLimits readLimits) {
+        Objects.requireNonNull(readLimits, "readLimits");
+        if (readLimits.maxRecords() == Integer.MAX_VALUE
+                || readLimits.maxBytes() == Long.MAX_VALUE
+                || readLimits.maxElapsedNanos() == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("complete legacy view requires finite read limits");
+        }
+        final var before = LegacyCheckpointImageInspector.inspect(image, expectedShard, manifest, fileLimits);
+        final List<RawEntry> entries = new ArrayList<>();
+        final Inventory inventory = scan(image, before, readLimits, entries);
+        final var after = LegacyCheckpointImageInspector.inspect(image, expectedShard, manifest, fileLimits);
+        if (!samePhysicalProof(before, after)) {
+            throw new IllegalArgumentException("legacy checkpoint changed during complete state read");
+        }
+        return new CompleteView(manifest, inventory, entries);
+    }
+
     private static Inventory scan(
             final Path image,
             final LegacyCheckpointImageInspector.ImageProof proof,
-            final ReadLimits limits) {
+            final ReadLimits limits,
+            final List<RawEntry> captured) {
         RocksDB.loadLibrary();
         final BoundedReadBudget budget = new BoundedReadBudget(
                 limits.maxRecords(), limits.maxBytes(), limits.maxElapsedNanos(), System::nanoTime);
@@ -153,6 +181,9 @@ public final class LegacyCheckpointStateInventory {
                             recordsByFamily.compute(family, (ignored, count) -> Math.addExact(count, 1));
                             scannedRecords = Math.addExact(scannedRecords, 1);
                             totalBytes = Math.addExact(totalBytes, (long) key.length + value.length);
+                            if (captured != null) {
+                                captured.add(new RawEntry(captured.size(), family, key, value));
+                            }
                             final String keyKind = keyKind(family, key);
                             keyKinds.merge(keyKind, 1L, Math::addExact);
                             boolean claimRecordKey = false;
@@ -1376,6 +1407,130 @@ public final class LegacyCheckpointStateInventory {
                 throw new IllegalArgumentException("legacy checkpoint read limits must be finite and positive");
             }
         }
+    }
+
+    /** Exact original bytes, in fixed ColumnFamily order and unsigned RocksDB key order. */
+    public record RawEntry(long ordinal, ColumnFamily family, byte[] key, byte[] value) {
+        public RawEntry {
+            if (ordinal < 0) {
+                throw new IllegalArgumentException("negative legacy record ordinal");
+            }
+            Objects.requireNonNull(family, "family");
+            key = Bytes.copy(Objects.requireNonNull(key, "key"));
+            value = Bytes.copy(Objects.requireNonNull(value, "value"));
+        }
+
+        @Override
+        public byte[] key() { return Bytes.copy(key); }
+
+        @Override
+        public byte[] value() { return Bytes.copy(value); }
+
+        public byte[] canonicalBytes() {
+            return Bytes.concat(Bytes.u64be(ordinal), Bytes.u8(family.ordinal()), Bytes.lp32(key), Bytes.lp32(value));
+        }
+    }
+
+    public static final class CompleteView {
+        private final CheckpointManifest manifest;
+        private final Inventory inventory;
+        private final List<RawEntry> entries;
+
+        private CompleteView(final CheckpointManifest manifest, final Inventory inventory, final List<RawEntry> entries) {
+            this.manifest = manifest;
+            this.inventory = inventory;
+            this.entries = List.copyOf(entries);
+            if (entries.size() != inventory.scannedRecords()) {
+                throw new IllegalStateException("complete legacy view lost a scanned row");
+            }
+        }
+
+        public CheckpointManifest manifest() { return manifest; }
+        public Inventory inventory() { return inventory; }
+        public List<RawEntry> entries() { return entries; }
+    }
+
+    /** Actual source-applied old Store snapshot; unlike CompleteView this is not certified by the C Manifest. */
+    public static final class LiveView {
+        private final StoreMetadata metadata;
+        private final SourcePosition applied;
+        private final long sequence;
+        private final List<RawEntry> entries;
+        private final ShardStore.ReadView readView;
+
+        private LiveView(StoreMetadata metadata, SourcePosition applied, long sequence,
+                         List<RawEntry> entries, ShardStore.ReadView readView) {
+            this.metadata = metadata; this.applied = applied; this.sequence = sequence;
+            this.entries = List.copyOf(entries); this.readView = readView;
+        }
+        public StoreMetadata metadata() { return metadata; }
+        public SourcePosition applied() { return applied; }
+        public long sequence() { return sequence; }
+        public List<RawEntry> entries() { return entries; }
+        public ShardStore.ReadView readView() { return readView; }
+    }
+
+    public static LiveView baselineView(CompleteView complete) {
+        final var proof = complete.inventory().physicalProof();
+        return new LiveView(proof.metadata(), proof.appliedSourcePosition(), proof.mutationSequence(), complete.entries(), null);
+    }
+
+    /** Reads every CF under one original Store monitor and one shared finite read budget, after the real old applier. */
+    public static LiveView inspectLive(ShardStore store, CompleteView baseline, SourcePosition expectedApplied,
+                                       ReadLimits limits, Runnable originalGuard) {
+        return inspectLive(store, baseline, expectedApplied, limits, originalGuard, null);
+    }
+
+    public static LiveView inspectLive(ShardStore store, CompleteView baseline, SourcePosition expectedApplied,
+                                       ReadLimits limits, Runnable originalGuard,
+                                       com.nereusstream.delay.protocol.TargetMigrationPlan migration) {
+        Objects.requireNonNull(store, "store"); Objects.requireNonNull(baseline, "baseline");
+        Objects.requireNonNull(expectedApplied, "expectedApplied"); Objects.requireNonNull(originalGuard, "originalGuard");
+        if (limits.maxRecords() == Integer.MAX_VALUE || limits.maxBytes() == Long.MAX_VALUE
+                || limits.maxElapsedNanos() == Long.MAX_VALUE) throw new IllegalArgumentException("live migration view requires finite limits");
+        originalGuard.run();
+        if (store.metadata().storeFormatVersion() != 1
+                || !Arrays.equals(store.metadata().storeIncarnation(), baseline.inventory().physicalProof().metadata().storeIncarnation())
+                || !Arrays.equals(store.metadata().dbIdentity(), baseline.manifest().dbIdentity()))
+            throw new IllegalArgumentException("live legacy view changed original Store identity");
+        final var budget = new BoundedReadBudget(limits.maxRecords(), limits.maxBytes(), limits.maxElapsedNanos(), System::nanoTime);
+        final var read = store.readWithBudget(budget, () -> {
+            originalGuard.run();
+            final SourcePosition actual = store.appliedShardLogPosition();
+            if (actual == null || !Arrays.equals(actual.canonicalBytes(), expectedApplied.canonicalBytes()))
+                throw new IllegalArgumentException("old applier has not materialized the exact requested Source entry");
+            final List<RawEntry> rows = new ArrayList<>();
+            for (var family : ColumnFamily.values()) {
+                final var result = store.visitResult(family, new byte[0], null, limits.maxRecords(), budget, (row, shared) -> {
+                    if (rows.size() >= limits.maxRecords()) throw new IllegalStateException("live legacy complete view exceeds record bound");
+                    final boolean progressKey = family == ColumnFamily.META && Arrays.equals(row.key(),
+                            com.nereusstream.delay.protocol.TargetMigrationShadowProgress.keyFor(expectedApplied.shardId()));
+                    if (progressKey) {
+                        if (migration == null) throw new IllegalArgumentException("migration shadow progress has no original Plan");
+                        final var progress = com.nereusstream.delay.protocol.TargetMigrationShadowProgress.decode(
+                                TargetValueEnvelope.decode(row.value(), com.nereusstream.delay.protocol.TargetMigrationShadowProgress.VALUE_TYPE).payload());
+                        progress.requirePlan(migration);
+                        if (!progress.appliedAt().source().sameSourceIdentity(expectedApplied)
+                                || progress.appliedAt().source().compareTo(expectedApplied) > 0
+                                || Long.compareUnsigned(progress.appliedAt().sequence(), store.shardMutationSequence()) > 0)
+                            throw new IllegalArgumentException("migration shadow progress exceeds actual old Source/sequence");
+                    } else {
+                        ValueEnvelope.decodeAny(row.value());
+                        final var unknown = uninspectedNamespace(family, row.key(), row.value());
+                        if (unknown != null && unknown.reason() == ConflictReason.LEGACY_KEY_KIND_UNRECOGNIZED)
+                            throw new IllegalArgumentException("unknown legacy namespace in actual Source prefix");
+                    }
+                    rows.add(new RawEntry(rows.size(), family, row.key(), row.value()));
+                    return true;
+                });
+                if (result.stop() != ShardStore.VisitStop.RANGE_END)
+                    throw new IllegalStateException("live legacy complete view did not exhaust its fixed CF range");
+            }
+            originalGuard.run();
+            return new LiveView(store.metadata(), actual, store.shardMutationSequence(), rows, null);
+        });
+        originalGuard.run();
+        return new LiveView(read.value().metadata(), read.value().applied(), read.value().sequence(), read.value().entries(), read.view());
     }
 
     public record Inventory(

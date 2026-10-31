@@ -94,6 +94,9 @@ public final class TargetScheduleRegistration {
             throw new IllegalArgumentException("first binding requires assigned lineage and bounded domains");
         }
         final var proposedBinding = authority.proposed();
+        if (proposedBinding.imported()) {
+            throw new IllegalArgumentException("an imported binding cannot authorize a new ordinary first Schedule");
+        }
         var binding = proposedBinding;
         if (shardScope.target() != null
                 || !shardScope.shard().equals(reader.shardId())

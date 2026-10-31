@@ -212,6 +212,7 @@ public final class TargetPublishAdmissionStore {
             if (raw == null) { throw new StaleAdmission(); }
             final var message = TargetMessageRecord.decodeForStore(messageKey,
                     TargetValueEnvelope.decode(raw, TargetMessageRecord.VALUE_TYPE).payload(), scope.shard());
+            TargetMigrationStore.requireSendAllowed(reader, locator.messageId(), locator.generation());
             final var claim = TargetClaimStore.current(reader, message);
             if (!Arrays.equals(claim.canonicalBytes(), expected.canonicalBytes())
                     || !Arrays.equals(claim.storeIncarnation(), reader.metadata().storeIncarnation())) {
@@ -227,6 +228,7 @@ public final class TargetPublishAdmissionStore {
             final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(bindingKey,
                     TargetValueEnvelope.decode(bindingRaw,
                             com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
+            TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
             final var physical = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(identityKey,
                     TargetValueEnvelope.decode(identityRaw,
                             com.nereusstream.delay.protocol.CanonicalTargetPartition.VALUE_TYPE).payload());
@@ -335,6 +337,15 @@ public final class TargetPublishAdmissionStore {
                             TargetQuotaAttemptBudget.VALUE_TYPE).payload(), scope.shard());
             final var generation = retainedGeneration(reader, scope, lineage, body.locator());
             final var runtime = generation.runtime();
+            if (firstSend) {
+                TargetMigrationStore.requireSendAllowed(reader, body.locator().messageId(), body.locator().generation());
+                final byte[] bindingKey = TargetKeyCodec.scheduleBinding(body.locator().scheduleBindingDigest());
+                final var binding = com.nereusstream.delay.protocol.TargetScheduleBinding.decodeForStore(bindingKey,
+                        TargetValueEnvelope.decode(required(reader, ColumnFamily.ID, bindingKey),
+                                com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE).payload(), scope.shard());
+                binding.requireLocator(body.locator());
+                TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
+            }
             if (first.kind() != TargetResultRecord.Kind.SYSTEM || first.allocation() != null
                     || !Arrays.equals(first.logicalId(), image.systemMutationId())
                     || !Arrays.equals(result.mutationId(), image.systemMutationId())
@@ -559,6 +570,7 @@ public final class TargetPublishAdmissionStore {
 
     private CurrentClaim currentClaim(final TargetStoreBackend.Reader reader, final TargetPublishAdmissionBody body) {
         final TargetMessageLocator locator = body.locator();
+        TargetMigrationStore.requireSendAllowed(reader, locator.messageId(), locator.generation());
         final byte[] messageKey = TargetKeyCodec.message(locator.messageId());
         final byte[] rawMessage = reader.get(ColumnFamily.ID, messageKey);
         if (rawMessage == null) {
@@ -617,6 +629,7 @@ public final class TargetPublishAdmissionStore {
                                     com.nereusstream.delay.protocol.TargetScheduleBinding.VALUE_TYPE)
                             .payload(),
                     scope.shard());
+            TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
             final var identity = com.nereusstream.delay.protocol.CanonicalTargetPartition.decodeForStore(
                     identityKey,
                     TargetValueEnvelope.decode(identityRaw,

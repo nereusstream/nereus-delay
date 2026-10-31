@@ -201,6 +201,113 @@ public final class TargetQuotaPayloadOwner {
                 null);
     }
 
+    /** Explicit migration baseline allocation. Complete original binding/raw custody is retained by schema2 and Native66. */
+    public static TargetQuotaPayloadOwner importedScheduled(
+            final TargetScheduleBinding binding, final TargetMigrationPlan plan,
+            final byte[] tenantScope, final TargetQuotaAccounting accounting, final byte[] lineage) {
+        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != 2 || binding.commandType() != CommandType.SCHEDULE
+                || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())
+                || binding.bindingSource().compareTo(plan.baseline().source()) > 0) {
+            throw new IllegalArgumentException("imported payload allocation changed its complete original binding/plan/baseline");
+        }
+        return importedScheduledAt(binding, tenantScope, accounting, lineage, TargetMigrationRoot.baselineFor(plan));
+    }
+
+    /** A newly accepted legacy-prefix Schedule retains its actual Source S, never a provisional A or fake first. */
+    public static TargetQuotaPayloadOwner importedPrefixScheduled(
+            final TargetScheduleBinding binding, final TargetMigrationPlan plan,
+            final byte[] tenantScope, final TargetQuotaAccounting accounting, final byte[] lineage) {
+        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != 3 || binding.commandType() != CommandType.SCHEDULE
+                || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())) {
+            throw new IllegalArgumentException("prefix payload allocation changed its complete original Source binding/plan");
+        }
+        binding.migrationSource().requireAfter(plan.baseline());
+        return importedScheduledAt(binding, tenantScope, accounting, lineage, binding.migrationSource());
+    }
+
+    /** Complete original Prepare/receipt remains in migration custody; this is an explicit C allocation. */
+    public static TargetQuotaPayloadOwner importedReserved(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage) {
+        return importedReservedAt(binding, plan, reservationId, tenantScope, accounting, lineage, false);
+    }
+
+    public static TargetQuotaPayloadOwner importedPrefixReserved(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage) {
+        return importedReservedAt(binding, plan, reservationId, tenantScope, accounting, lineage, true);
+    }
+
+    private static TargetQuotaPayloadOwner importedReservedAt(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            byte[] reservationId, byte[] tenantScope, TargetQuotaAccounting accounting, byte[] lineage, boolean prefix) {
+        Objects.requireNonNull(binding); Objects.requireNonNull(plan);
+        if (binding.schemaVersion() != (prefix ? 3 : 2) || binding.commandType() != CommandType.PREPARE_LARGE_SCHEDULE
+                || !Arrays.equals(binding.migrationPlanDigest(), plan.digest())
+                || !Arrays.equals(tenantScope, plan.scope().tenantScope()) || !Arrays.equals(lineage, plan.newLineage())
+                || !prefix && binding.bindingSource().compareTo(plan.baseline().source()) > 0) {
+            throw new IllegalArgumentException("imported reservation payload changed complete original Prepare/plan");
+        }
+        final var stamp = prefix ? binding.migrationSource() : TargetMigrationRoot.baselineFor(plan);
+        if (prefix) stamp.requireAfter(plan.baseline());
+        final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
+        return new TargetQuotaPayloadOwner(binding.messageId(), identity(binding), tenantScope, accounting, binding.digest(),
+                Kind.OBJECT, prepare.expectedPayloadLength(), prepare.payloadSha256(), reservationId,
+                prepare.objectStoreProfile().semanticHash(), null, Phase.RESERVED, 1, stamp, lineage, null);
+    }
+
+    public static TargetQuotaPayloadOwner importedCommitted(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
+            TargetQuotaAccounting accounting, byte[] lineage) {
+        return importedCommittedAt(binding, plan, original, tenantScope, accounting, lineage, false);
+    }
+
+    public static TargetQuotaPayloadOwner importedPrefixCommitted(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
+            TargetQuotaAccounting accounting, byte[] lineage) {
+        return importedCommittedAt(binding, plan, original, tenantScope, accounting, lineage, true);
+    }
+
+    private static TargetQuotaPayloadOwner importedCommittedAt(TargetScheduleBinding binding, TargetMigrationPlan plan,
+            com.nereusstream.delay.runtime.PayloadReservation original, byte[] tenantScope,
+            TargetQuotaAccounting accounting, byte[] lineage, boolean prefix) {
+        Objects.requireNonNull(original);
+        final var reserved = importedReservedAt(binding, plan, original.reservationId(), tenantScope, accounting, lineage, prefix);
+        final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
+        if (original.status() != com.nereusstream.delay.runtime.PayloadReservationStatus.COMMITTED
+                || !original.delayMessageId().equals(binding.messageId()) || original.committedPayload() == null
+                || original.intent().expectedPayloadLength() != reserved.length
+                || !Arrays.equals(original.intent().payloadSha256(), reserved.payloadSha256)
+                || original.intent().deliverAtEpochMs() != prepare.intentWithoutPayload().deliverAtEpochMs()
+                || original.intent().expireAtEpochMs() != prepare.intentWithoutPayload().expireAtEpochMs()
+                || original.intent().orderingMode() != prepare.intentWithoutPayload().orderingMode()
+                || original.intent().reservationTtlMs() != prepare.reservationTtlMs()
+                || original.intent().payloadProofTrustSetVersion() != prepare.trustSet().version()) {
+            throw new IllegalArgumentException("imported committed payload lost its complete original reservation/object");
+        }
+        final var object = TargetPayloadReference.requireBounded(original.committedPayload());
+        if (!Arrays.equals(object.objectStoreProfileHash(), reserved.objectStoreProfileHash)
+                || object.length() != reserved.length || !Arrays.equals(object.payloadSha256(), reserved.payloadSha256)) {
+            throw new IllegalArgumentException("imported committed object differs from the original full Prepare declaration");
+        }
+        return new TargetQuotaPayloadOwner(reserved.messageId, reserved.owner, reserved.tenantScope, reserved.accounting,
+                reserved.bindingDigest, Kind.OBJECT, reserved.length, reserved.payloadSha256, reserved.reservationId,
+                reserved.objectStoreProfileHash, object, Phase.ACTIVE, 1, reserved.mutation, reserved.recoveryLineage, null);
+    }
+
+    private static TargetQuotaPayloadOwner importedScheduledAt(TargetScheduleBinding binding, byte[] tenantScope,
+            TargetQuotaAccounting accounting, byte[] lineage, TargetQuotaMutation source) {
+        final var intent = binding.intent();
+        final var object = intent.hasInlinePayload() ? null : PayloadReference.fromDescriptor(intent.committedPayload());
+        return new TargetQuotaPayloadOwner(binding.messageId(), identity(binding), tenantScope, accounting, binding.digest(),
+                object == null ? Kind.INLINE : Kind.OBJECT,
+                object == null ? intent.inlinePayload().length : object.length(),
+                object == null ? Bytes.sha256(intent.inlinePayload()) : object.payloadSha256(),
+                object == null ? null : object.reservationId(), object == null ? null : object.objectStoreProfileHash(),
+                object, Phase.ACTIVE, 1, source, lineage, null);
+    }
+
     /** Reservation ID must come from the authenticated Prepare/receipt authority, not an arbitrary caller value. */
     public static TargetQuotaPayloadOwner reserved(
             final TargetScheduleBinding binding,
@@ -241,7 +348,7 @@ public final class TargetQuotaPayloadOwner {
 
     private static void requireInitialBinding(
             final TargetScheduleBinding binding, final CommandType type, final TargetQuotaMutation stamp) {
-        if (binding.commandType() != type
+        if (binding.imported() || binding.commandType() != type
                 || !Arrays.equals(
                         binding.bindingSource().canonicalBytes(), stamp.source().canonicalBytes())) {
             throw new IllegalArgumentException("payload allocation does not match its initial binding source/type");

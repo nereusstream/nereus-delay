@@ -68,6 +68,16 @@ public record RocksDbUsageLimits(
             final List<RocksDbUsageSnapshot> snapshots,
             final Path rootPath,
             final long workerEnvelopeMinimumFilesystemFreeBytes) {
+        validateInternal(snapshots, rootPath, workerEnvelopeMinimumFilesystemFreeBytes, true);
+    }
+
+    /** Caller is the inventory of independently registered, actually opened Native handles. */
+    void validateRegisteredDatabases(List<RocksDbUsageSnapshot> snapshots, Path rootPath, long filesystemFloor) {
+        validateInternal(snapshots, rootPath, filesystemFloor, false);
+    }
+
+    private void validateInternal(final List<RocksDbUsageSnapshot> snapshots, final Path rootPath,
+            final long workerEnvelopeMinimumFilesystemFreeBytes, final boolean requireUniqueShard) {
         Objects.requireNonNull(snapshots, "snapshots");
         Objects.requireNonNull(rootPath, "rootPath");
         if (workerEnvelopeMinimumFilesystemFreeBytes < 0) {
@@ -84,7 +94,7 @@ public record RocksDbUsageLimits(
         int liveSstFiles = 0;
         for (RocksDbUsageSnapshot snapshot : snapshots) {
             Objects.requireNonNull(snapshot, "snapshot");
-            if (!identities.add(snapshot.shardId())) {
+            if (!identities.add(snapshot.shardId()) && requireUniqueShard) {
                 throw new IllegalArgumentException("duplicate RocksDB usage snapshot identity");
             }
             if (snapshot.walBytes() > maxWalBytesPerDb || snapshot.walFiles() > maxWalFilesPerDb) {

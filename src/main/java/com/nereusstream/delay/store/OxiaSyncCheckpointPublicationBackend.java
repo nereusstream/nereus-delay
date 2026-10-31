@@ -51,6 +51,7 @@ import java.util.function.Function;
  */
 public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAtomicPublicationAuthority {
     private static final int RECORD_VERSION = 1;
+    private static final int MIGRATION_RECORD_VERSION = 2;
     private static final int MAX_STATE_BYTES = 64 * 1024 * 1024;
     private static final int MAX_INTENTS = 100_000;
     private static final int MAX_CAS_ATTEMPTS = 32;
@@ -156,6 +157,50 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         final var latest = snapshot.manifests().stream().max((left, right) ->
                 Long.compareUnsigned(left.lineageGeneration(), right.lineageGeneration())).orElse(null);
         return new CheckpointHead(snapshot.catalogGeneration(), snapshot.initialization(), latest);
+    }
+
+    /** Original SDK namespace and exact Catalog key, independently bound from the legacy Catalog. */
+    public byte[] migrationNamespace() {
+        if (originalManagedOwner == null) throw new IllegalStateException("migration requires the original managed Catalog SDK");
+        return Bytes.sha256(Bytes.utf8("nereus-delay-migration-publication-namespace\0"),
+                originalEvidenceNamespace(), Bytes.lp32(Bytes.utf8(recordKey)));
+    }
+
+    /** Durable roll-forward metadata after the original authenticated image was actually published. */
+    public void adoptMigration(com.nereusstream.delay.runtime.TargetMigrationStore.Activated applied,
+            TargetCheckpointRootVerifier.AuthenticatedImage image,
+            com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt receipt, Runnable protection) {
+        receipt.requireApplied(applied); receipt.requireManifest(image.manifest()); image.authenticate();
+        if (!Arrays.equals(receipt.catalogNamespace(), migrationNamespace()))
+            throw new IllegalArgumentException("migration adoption changed original Catalog namespace");
+        final Runnable current = () -> { protection.run(); applied.requireCurrent(); image.requireCurrent(); };
+        mutate(state -> {
+            final var catalog = RecoveryCatalog.fromSnapshot(state.catalog());
+            final var published = catalog.manifest(image.manifest().checkpointId()).orElseThrow();
+            if (!Arrays.equals(published.canonicalJsonBytes(), image.manifest().canonicalJsonBytes()))
+                throw new IllegalStateException("migration post-A image is not the exact published Manifest");
+            catalog.validatePublishedRestoreCandidate(published);
+            if (state.migration() != null && !Arrays.equals(state.migration().canonicalBytes(), receipt.canonicalBytes()))
+                throw new IllegalStateException("Catalog already adopted another exact migration fact");
+            return changed(receipt, state.withMigration(receipt));
+        }, current);
+        requireMigration(receipt, image.manifest()); current.run();
+    }
+
+    /** Exact durable reread also used after a lost metadata response and before Source service. */
+    public void requireMigration(com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt receipt,
+            CheckpointManifest expected) {
+        if (!Arrays.equals(receipt.catalogNamespace(), migrationNamespace()))
+            throw new IllegalStateException("migration metadata uses another SDK namespace");
+        final var state = read().state();
+        if (state.migration() == null || !Arrays.equals(state.migration().canonicalBytes(), receipt.canonicalBytes()))
+            throw new IllegalStateException("original Catalog has not adopted the exact Source A");
+        receipt.requireManifest(expected);
+        final var catalog = RecoveryCatalog.fromSnapshot(state.catalog());
+        final var actual = catalog.manifest(expected.checkpointId()).orElseThrow();
+        if (!Arrays.equals(actual.canonicalJsonBytes(), expected.canonicalJsonBytes()))
+            throw new IllegalStateException("migration adopted Manifest changed");
+        catalog.validatePublishedRestoreCandidate(actual);
     }
 
     /** Reads the exact already-published immutable pair; it creates no Pin or restoration authority. */
@@ -978,13 +1023,15 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         }
         int index = 0;
         final CanonicalProtobuf.Reader.Field version = nextField(fields, index++, 1);
-        if (uint(version, 1) != RECORD_VERSION) {
+        final long recordVersion = uint(version, 1);
+        if (recordVersion != RECORD_VERSION && recordVersion != MIGRATION_RECORD_VERSION) {
             throw new IllegalArgumentException("unsupported Oxia checkpoint publication state version");
         }
         final byte[] catalogBytes = bytes(nextField(fields, index++, 2), 2);
         ShardId shard = null;
         final List<CheckpointUploadIntent> intents = new ArrayList<>();
         byte[] digest = null;
+        com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt migration = null;
         while (index < fields.size()) {
             final CanonicalProtobuf.Reader.Field field = fields.get(index++);
             switch (field.number()) {
@@ -1001,21 +1048,31 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                     intents.add(CheckpointUploadIntent.decode(bytes(field, 4)));
                 }
                 case 5 -> {
+                    if (recordVersion == MIGRATION_RECORD_VERSION) {
+                        if (migration != null) throw new IllegalArgumentException("duplicate migration adoption field");
+                        migration = com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt.decode(bytes(field, 5));
+                        break;
+                    }
                     if (digest != null || index != fields.size()) {
                         throw new IllegalArgumentException("Oxia publication digest must be the final field");
                     }
                     digest = bytes(field, 5);
+                }
+                case 6 -> {
+                    if (recordVersion != MIGRATION_RECORD_VERSION || digest != null || index != fields.size())
+                        throw new IllegalArgumentException("migration Catalog digest must be the final field");
+                    digest = bytes(field, 6);
                 }
                 default ->
                     throw new IllegalArgumentException(
                             "unknown Oxia checkpoint publication state field " + field.number());
             }
         }
-        if (digest == null) {
+        if (digest == null || (recordVersion == MIGRATION_RECORD_VERSION) != (migration != null)) {
             throw new IllegalArgumentException("Oxia checkpoint publication state has no digest");
         }
         final PublicationState state = new PublicationState(
-                shard, OxiaSyncRecoveryCatalogBackend.decodeSnapshot(catalogBytes, manifestLimits), intents);
+                shard, OxiaSyncRecoveryCatalogBackend.decodeSnapshot(catalogBytes, manifestLimits), intents, migration);
         final byte[] payload = encodePayload(state);
         if (!Bytes.constantTimeEquals(digest, Bytes.sha256(DIGEST_DOMAIN, payload))
                 || !Arrays.equals(encoded, encode(state))) {
@@ -1032,7 +1089,7 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         final byte[] digest = Bytes.sha256(DIGEST_DOMAIN, payload);
         return CanonicalProtobuf.message(output -> {
             output.writeBytes(payload);
-            CanonicalProtobuf.bytes(output, 5, digest);
+            CanonicalProtobuf.bytes(output, state.migration() == null ? 5 : 6, digest);
         });
     }
 
@@ -1042,12 +1099,13 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 .sorted(Comparator.comparing(OxiaSyncCheckpointPublicationBackend::intentIdentity))
                 .toList();
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, RECORD_VERSION);
+            CanonicalProtobuf.uint32(output, 1, state.migration() == null ? RECORD_VERSION : MIGRATION_RECORD_VERSION);
             CanonicalProtobuf.bytes(output, 2, catalogBytes);
             if (state.shard() != null) {
                 CanonicalProtobuf.bytes(output, 3, new ShardSubject(state.shard()).canonicalBytes());
             }
             intents.forEach(intent -> CanonicalProtobuf.bytes(output, 4, intent.canonicalBytes()));
+            if (state.migration() != null) CanonicalProtobuf.bytes(output, 5, state.migration().canonicalBytes());
         });
     }
 
@@ -1312,7 +1370,11 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     }
 
     private record PublicationState(
-            ShardId shard, RecoveryCatalog.Snapshot catalog, List<CheckpointUploadIntent> intents) {
+            ShardId shard, RecoveryCatalog.Snapshot catalog, List<CheckpointUploadIntent> intents,
+            com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt migration) {
+        private PublicationState(ShardId shard, RecoveryCatalog.Snapshot catalog, List<CheckpointUploadIntent> intents) {
+            this(shard, catalog, intents, null);
+        }
         private PublicationState {
             Objects.requireNonNull(catalog, "catalog");
             Objects.requireNonNull(intents, "intents");
@@ -1341,6 +1403,9 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 throw new IllegalArgumentException("checkpoint publication intents require a record shard");
             }
             intents = List.copyOf(copied);
+            if (migration != null && (shard == null || !migration.plan().scope().shard().equals(shard)
+                    || catalog.initialization() == null))
+                throw new IllegalArgumentException("migration Catalog lacks its exact Target genesis");
         }
 
         private PublicationState withIntent(final CheckpointUploadIntent intent) {
@@ -1349,15 +1414,18 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
             for (int index = 0; index < next.size(); index++) {
                 if (identity.equals(intentIdentity(next.get(index)))) {
                     next.set(index, intent);
-                    return new PublicationState(shard, catalog, next);
+                    return new PublicationState(shard, catalog, next, migration);
                 }
             }
             next.add(intent);
-            return new PublicationState(shard == null ? intent.shard().shardId() : shard, catalog, next);
+            return new PublicationState(shard == null ? intent.shard().shardId() : shard, catalog, next, migration);
         }
 
         private PublicationState withCatalog(final RecoveryCatalog.Snapshot nextCatalog) {
-            return new PublicationState(shard, nextCatalog, intents);
+            return new PublicationState(shard, nextCatalog, intents, migration);
+        }
+        private PublicationState withMigration(com.nereusstream.delay.ownership.TargetMigrationAssignmentReceipt next) {
+            return new PublicationState(shard, catalog, intents, next);
         }
     }
 }

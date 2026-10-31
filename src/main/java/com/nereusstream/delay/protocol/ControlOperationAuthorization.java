@@ -51,6 +51,8 @@ public final class ControlOperationAuthorization {
     private static ControlRole[] requiredRoles(final PreparedControlOperation prepared) {
         return switch (prepared.kind()) {
             case GRANT_TARGET_MEMBERSHIP,
+                    ACTIVATE_TARGET_MIGRATION,
+                    SETTLE_TARGET_MIGRATION_CUSTODY,
                     ALLOCATE_SCOPE_CONTROL_OBLIGATION,
                     ALLOCATE_PARENT_CONTROL_CREDIT,
                     REGISTER_TARGET_SLO_WRITER_EPOCH,

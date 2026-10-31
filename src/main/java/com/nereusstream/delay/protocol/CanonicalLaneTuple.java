@@ -38,6 +38,11 @@ public final class CanonicalLaneTuple {
         return parse(encoded);
     }
 
+    /** Exact ordering branch from the same complete canonical parser; no tail-byte inference. */
+    public static OrderingProjection orderingProjection(final byte[] encoded) {
+        return parseAll(encoded).ordering();
+    }
+
     static void requireProfileProjection(
             final byte[] encoded, final ProfileRef destination, final ProfileRef capability) {
         final Projection projection = parse(encoded);
@@ -66,6 +71,10 @@ public final class CanonicalLaneTuple {
     }
 
     private static Projection parse(final byte[] encoded) {
+        return parseAll(encoded).projection();
+    }
+
+    private static Parsed parseAll(final byte[] encoded) {
         final Cursor cursor = new Cursor(encoded);
         final byte[] tenantRouteScopeDigest = cursor.fixed(TENANT_SCOPE_LENGTH, "tenantRoutingScope");
         final int adapter = cursor.u8("adapterKind");
@@ -110,10 +119,12 @@ public final class CanonicalLaneTuple {
         final byte[] capabilityHash = cursor.fixed(HASH_LENGTH, "capabilityProfileSemanticHash");
 
         final int laneKind = cursor.u8("orderingLaneKind");
+        final OrderingProjection ordering;
         if (laneKind == ORDERED_LANE) {
-            cursor.fixed(HASH_LENGTH, "orderingDomainHash");
+            ordering = new OrderingProjection(OrderingMode.DELIVERY_TIME_FIFO,
+                    cursor.fixed(HASH_LENGTH, "orderingDomainHash"), null);
         } else if (laneKind == UNORDERED_LANE) {
-            cursor.u32("unorderedBucket");
+            ordering = new OrderingProjection(OrderingMode.BEST_EFFORT, null, cursor.u32("unorderedBucket"));
         } else {
             throw new IllegalArgumentException("unknown Lane tuple ordering kind");
         }
@@ -124,12 +135,29 @@ public final class CanonicalLaneTuple {
                 : BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                         new String(cluster, StandardCharsets.UTF_8), resourceIncarnation,
                         new String(physicalTopic, StandardCharsets.UTF_8), physicalTopicCreationTimestamp));
-        return new Projection(
+        return new Parsed(new Projection(
                 tenantRouteScopeDigest,
                 target,
                 physicalPartition,
                 new ProfileRef(destinationId, destinationVersion, destinationHash, ProfileKind.DESTINATION),
-                new ProfileRef(capabilityId, capabilityVersion, capabilityHash, ProfileKind.DELIVERY_CAPABILITY));
+                new ProfileRef(capabilityId, capabilityVersion, capabilityHash, ProfileKind.DELIVERY_CAPABILITY)), ordering);
+    }
+
+    private record Parsed(Projection projection, OrderingProjection ordering) {}
+
+    public record OrderingProjection(OrderingMode orderingMode, byte[] orderingDomainHash, Long unorderedBucket) {
+        public OrderingProjection {
+            Objects.requireNonNull(orderingMode);
+            if (orderingMode == OrderingMode.DELIVERY_TIME_FIFO) {
+                Bytes.requireLength(orderingDomainHash, HASH_LENGTH, "orderingDomainHash");
+                if (unorderedBucket != null) throw new IllegalArgumentException("ordered Lane has no unordered bucket");
+                orderingDomainHash = Bytes.copy(orderingDomainHash);
+            } else if (orderingDomainHash != null || unorderedBucket == null
+                    || unorderedBucket < 0 || unorderedBucket > 0xffff_ffffL) {
+                throw new IllegalArgumentException("unordered Lane requires its exact uint32 bucket");
+            }
+        }
+        @Override public byte[] orderingDomainHash() { return orderingDomainHash == null ? null : Bytes.copy(orderingDomainHash); }
     }
 
     private static UUID uuid(final byte[] value) {

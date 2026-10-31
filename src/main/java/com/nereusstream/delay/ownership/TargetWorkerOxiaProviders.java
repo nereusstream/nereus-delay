@@ -147,4 +147,10 @@ public final class TargetWorkerOxiaProviders {
         return new OxiaSyncCheckpointPublicationBackend(session, exactShardPrefix, Objects.requireNonNull(limits));
     }
     public void requireOriginalEvidenceCatalog(OxiaSyncCheckpointPublicationBackend actual){actual.requireOriginalEvidenceOwner(session.backend());}
+
+    /** Uses these same managed assignment/Catalog handles; the caller supplies retained original materials. */
+    public TargetMigrationCheckpointAdoption migrationAdoption(TargetWorkerCheckpointConfiguration configuration,
+            TargetMigrationCheckpointAdoption.Materials materials, java.time.Clock clock) {
+        return new TargetMigrationCheckpointAdoption(this, configuration, materials, clock);
+    }
 }

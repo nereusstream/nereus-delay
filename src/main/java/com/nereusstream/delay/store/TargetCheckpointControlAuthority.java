@@ -27,6 +27,7 @@ import com.nereusstream.delay.runtime.TargetResultRecord;
 import com.nereusstream.delay.runtime.TargetStoreBootstrap;
 import java.security.PublicKey;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.TreeMap;
 
@@ -55,6 +56,19 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         Authorization resolve(PreparedControlOperation registered, TargetCheckpointDependencies.ControlImage input);
     }
 
+    /** Original held history: reads complete fixed chunks and authenticates their old universe and protections.
+     * This includes independent management/eligible readers, exact mapping/custody/conservation, added-copy
+     * funding, every original C-after Source classification and durable intent. Hashes/row lists are indexes. */
+    public interface MigrationMaterials {
+        void requireCurrent();
+        void requireHistorical(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                List<com.nereusstream.delay.protocol.TargetMigrationOrigin> origins,
+                List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> guards,
+                List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> originalPrefix,
+                com.nereusstream.delay.protocol.TargetMigrationActivationAttempt attempt);
+    }
+
     private final ControlTargetRegistrationAuthority registrations;
     private final TargetQuotaGrantControlVerifier.KeyAuthority keys;
     private final HistoryAuthority history;
@@ -66,6 +80,7 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     private final TargetParentControlCreditVerifier.CapacityAuthority parentCredits;
     private final TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations;
     private final com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFees;
+    private final MigrationMaterials migrations;
 
     /** All external I/O must have finite provider deadlines; use outside Store locks with a held protection set. */
     public TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
@@ -116,6 +131,18 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
             TargetParentControlCreditVerifier.CapacityAuthority parentCredits,
             TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations,
             com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFees) {
+        this(registrations, keys, history, source, budget, protection, observations, writers, parentCredits,
+                scopeObligations, scopeFees, null);
+    }
+
+    private TargetCheckpointControlAuthority(ControlTargetRegistrationAuthority registrations,
+            TargetQuotaGrantControlVerifier.KeyAuthority keys, HistoryAuthority history, SourceAuthority source,
+            BoundedReadBudget budget, Runnable protection,
+            com.nereusstream.delay.runtime.TargetSloObservationEventStore.ObservationAuthority observations,
+            com.nereusstream.delay.runtime.TargetSloWriterEpochVerifier.MaterializationAuthority writers,
+            TargetParentControlCreditVerifier.CapacityAuthority parentCredits,
+            TargetScopeControlObligationVerifier.CapacityAuthority scopeObligations,
+            com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFees, MigrationMaterials migrations) {
         this.registrations = Objects.requireNonNull(registrations, "registrations");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.history = Objects.requireNonNull(history, "history");
@@ -127,6 +154,45 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
         this.parentCredits = parentCredits;
         this.scopeObligations = scopeObligations;
         this.scopeFees = scopeFees;
+        this.migrations = migrations;
+    }
+
+    /** Immutable composition under the same original budget/protection; no live Runtime qualification setter. */
+    public TargetCheckpointControlAuthority withMigrationMaterials(MigrationMaterials original) {
+        return new TargetCheckpointControlAuthority(registrations, keys, history, source, budget, protection,
+                observations, writers, parentCredits, scopeObligations, scopeFees, Objects.requireNonNull(original));
+    }
+
+    @Override
+    public PublicKey authenticateMigration(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first,
+            com.nereusstream.delay.protocol.TargetMigrationRoot root,
+            List<com.nereusstream.delay.protocol.TargetMigrationOrigin> origins,
+            List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> guards,
+            List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> originalPrefix,
+            com.nereusstream.delay.protocol.TargetMigrationActivationAttempt attempt) {
+        final var authenticated = authenticateControl(input, first);
+        if (authenticated == null) return null;
+        final var body = com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(input.image().canonicalBody());
+        body.requireInput(input.image());
+        final var actual = Objects.requireNonNull(root, "original activated migration root");
+        final var intent = Objects.requireNonNull(attempt, "original durable before-SDK intent"); intent.requirePlan(actual.plan());
+        if (!actual.activated() || !actual.plan().scope().equals(body.request().scope()))
+            throw new IllegalStateException("historical migration Control changed original active root/scope");
+        if (body.request() instanceof com.nereusstream.delay.protocol.TargetMigrationActivateRequest activation) {
+            if (!activation.plan().equals(actual.plan()) || !activation.candidate().equals(intent.candidate())
+                    || !Arrays.equals(authenticated.registered().canonicalBytes(), intent.control().canonicalBytes())
+                    || !Arrays.equals(input.image().canonicalEnvelope(), actual.activation().canonicalEnvelope()))
+                throw new IllegalStateException("historical actual A changed original exact Prepared/candidate/frame");
+        } else {
+            final var request = (com.nereusstream.delay.protocol.TargetMigrationSettlementRequest) body.request();
+            final var guard = guards.stream().filter(value -> value.messageId().equals(request.messageId())).findFirst().orElseThrow();
+            if (!guard.settled() || !Arrays.equals(guard.settlement().canonicalEnvelope(), input.image().canonicalEnvelope()))
+                throw new IllegalStateException("historical custody settlement lost original exact guard/Source");
+        }
+        final var materials = Objects.requireNonNull(migrations, "original migration bundle/custody history authority");
+        before(); materials.requireCurrent();
+        materials.requireHistorical(input, first, actual, origins, guards, originalPrefix, intent);
+        materials.requireCurrent(); after(); return authenticated.key();
     }
 
     @Override
@@ -356,11 +422,26 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     public void authenticateSnapshot(TargetCheckpointDependencies dependencies,
             TargetCheckpointSemanticSnapshot snapshot, TargetCheckpointSemanticSnapshot.Limits limits,
             TargetStoreBootstrap.InitialControlAuthority initialAuthority) {
-        Objects.requireNonNull(initialAuthority, "initialAuthority");
         if (snapshot.schemaVersion() < 2) {
             throw new IllegalArgumentException("Control authentication requires complete original-Control schema 2");
         }
         snapshot.validateAgainst(dependencies, limits);
+        if (dependencies.migrationRoot() != null) {
+            final var firsts = new TreeMap<String, TargetResultRecord>();
+            dependencies.controlResults().forEach(first -> firsts.put(Bytes.hex(first.logicalId()), first));
+            for (var input : dependencies.correlateControlImages(snapshot.controls(), limits.maximumBytes())) {
+                before();
+                if (!budget.tryCharge(input.source().canonicalBytes().length, input.image().encodeFrame().length)) throw budget.incomplete();
+                final var first = Objects.requireNonNull(firsts.remove(Bytes.hex(input.image().systemMutationId())), "actual migration/control first");
+                final var key = dependencies.authenticateInput(input, first, this);
+                if (first.appliedFirst() && (key == null || !input.image().verifySignature(key)))
+                    throw new IllegalArgumentException("migration checkpoint lacks original authenticated Source Control");
+                after();
+            }
+            TargetScopeNativeUsageAudit.require(dependencies, snapshot.controls(), scopeFees, budget, protection);
+            after(); return;
+        }
+        Objects.requireNonNull(initialAuthority, "initialAuthority");
         final var initial = dependencies.controls().stream().filter(control -> control.family() == ColumnFamily.META
                 && Arrays.equals(control.key(), KeyCodec.metaFixed(10)))
                 .map(control -> TargetInitialControlSnapshot.decode(control.payload())).findFirst()

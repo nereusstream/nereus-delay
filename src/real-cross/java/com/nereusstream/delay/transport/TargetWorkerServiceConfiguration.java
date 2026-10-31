@@ -41,7 +41,7 @@ public final class TargetWorkerServiceConfiguration {
             CapacityDimension.BUFFERED_BYTES, CapacityDimension.DIRECT_BUFFER_BYTES,
             CapacityDimension.OTHER_NATIVE_BYTES);
 
-    public enum Mode { FRESH, REOPEN, PUBLISHED_RECOVERY }
+    public enum Mode { FRESH, REOPEN, PUBLISHED_RECOVERY, MIGRATION }
     public enum Transport { KAFKA, PULSAR }
     public enum Destination { KAFKA_BASELINE, KAFKA_RECEIPT, PULSAR_BASELINE, PULSAR_MANAGED }
 
@@ -136,7 +136,18 @@ public final class TargetWorkerServiceConfiguration {
             SourceConfiguration typedSource, WriterConfiguration typedWriter,
             TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
             List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
-            Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService) {
+            Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService,
+            Path migrationFile, com.nereusstream.delay.ownership.TargetMigrationConfiguration typedMigration) {
+        public Source(String name, TargetQuotaScope scope, byte[] lineage, Mode mode, Transport transport,
+                Path sourceFile, Path writerFile, Path checkpointFile, Path inventoryFile, Path storePath,
+                SourceConfiguration typedSource, WriterConfiguration typedWriter,
+                TargetWorkerCheckpointConfiguration typedCheckpoint, TargetWorkerChannelInventory.Limits inventoryLimits,
+                List<Channel> channels, Path readResourcesFile, TargetWorkerSourceReadResources.Configuration typedReadResources,
+                Path sloServiceFile, TargetWorkerSloServiceConfiguration typedSloService) {
+            this(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile, inventoryFile,
+                    storePath, typedSource, typedWriter, typedCheckpoint, inventoryLimits, channels,
+                    readResourcesFile, typedReadResources, sloServiceFile, typedSloService, null, null);
+        }
         public Source {
             Objects.requireNonNull(name); Objects.requireNonNull(scope); Objects.requireNonNull(mode); Objects.requireNonNull(transport);
             Objects.requireNonNull(sourceFile); Objects.requireNonNull(writerFile); Objects.requireNonNull(checkpointFile);
@@ -146,6 +157,9 @@ public final class TargetWorkerServiceConfiguration {
             Objects.requireNonNull(sloServiceFile); Objects.requireNonNull(typedSloService);
             Bytes.requireLength(lineage, 16, "service Native lineage"); lineage = Bytes.copy(lineage);
             channels = List.copyOf(channels);
+            if ((mode == Mode.MIGRATION) != (migrationFile != null && typedMigration != null)
+                    || typedMigration != null && !typedMigration.scope().equals(scope))
+                throw new IllegalArgumentException("migration mode requires its exact finite maintenance configuration");
         }
         @Override public byte[] lineage() { return Bytes.copy(lineage); }
     }
@@ -270,6 +284,15 @@ public final class TargetWorkerServiceConfiguration {
             }
             final byte[] lineage = f.hex(key + "lineage", 16, 16);
             final Mode mode = Mode.valueOf(f.text(key + "mode"));
+            final Path migrationFile;
+            final com.nereusstream.delay.ownership.TargetMigrationConfiguration migration;
+            if (mode == Mode.MIGRATION) {
+                migrationFile = files.add(resolve(base, f.text(key + "migrationFile")), MAXIMUM_FILE_BYTES);
+                files.references(migrationFile, "migration.scopeFile");
+                migration = com.nereusstream.delay.ownership.TargetMigrationConfiguration.load(migrationFile);
+                if (!migration.scope().equals(scope)) throw new IllegalArgumentException("migration changes its configured Source scope");
+                retainedHeap = Math.addExact(retainedHeap, migration.maximumRetainedBytes());
+            } else { migrationFile = null; migration = null; }
             final Transport transport = Transport.valueOf(f.text(key + "transport"));
             final Path sourceFile = files.add(resolve(base, f.text(key + "sourceFile")), MAXIMUM_FILE_BYTES);
             files.references(sourceFile, "source.authorizationFile", "source.signedRouteFile");
@@ -318,6 +341,16 @@ public final class TargetWorkerServiceConfiguration {
                 actualClients = Math.addExact(actualClients, 2);
             }
             requireSdkCost(source.cost()); requireSdkCost(writer.cost());
+            if (mode == Mode.MIGRATION) {
+                final CapacityVector maintenanceDemand;
+                if (source instanceof KafkaSource kafka && writer instanceof KafkaWriter kafkaWriter)
+                    maintenanceDemand = KafkaClientArtifactTargetMigrationFactory.migrationSdkCost(
+                            kafka.deployment().source(), kafkaWriter.configuration());
+                else maintenanceDemand = PulsarClientArtifactTargetMigrationFactory.migrationSdkCost(
+                        ((PulsarSource) source).deployment(), ((PulsarWriter) writer).configuration(),
+                        process.worker().maximumSourceFrameBytes());
+                requireSdkCost(maintenanceDemand);
+            }
             actualSdk = actualSdk.add(source.cost()).add(writer.cost());
             final Path readResourcesFile = files.add(resolve(base, f.text(key + "readResourcesFile")), MAXIMUM_FILE_BYTES);
             final var readResources = TargetWorkerSourceReadResources.Configuration.load(readResourcesFile, source, process.worker());
@@ -422,7 +455,7 @@ public final class TargetWorkerServiceConfiguration {
             }
             sources.add(new Source(name, scope, lineage, mode, transport, sourceFile, writerFile, checkpointFile,
                     inventoryFile, storePath, source, writer, checkpoint, inventory, channelList, readResourcesFile, readResources,
-                    sloServiceFile, sloService));
+                    sloServiceFile, sloService, migrationFile, migration));
         }
         f.requireComplete();
         files.requireUnchanged();

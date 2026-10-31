@@ -2,6 +2,8 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.TargetMigrationRoot;
+import com.nereusstream.delay.protocol.TargetMigrationOrigin;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TargetQuotaIdentity;
 import com.nereusstream.delay.protocol.TargetQuotaIncarnation;
@@ -9,6 +11,8 @@ import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaScope;
 import com.nereusstream.delay.protocol.TargetSourcePosition;
 import com.nereusstream.delay.store.TargetKeyCodec;
+import com.nereusstream.delay.store.TargetValueEnvelope;
+import com.nereusstream.delay.store.ColumnFamily;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -92,8 +96,14 @@ public final class TargetResultLedgerAudit {
             final Iterable<Stored> resultRows,
             final DescriptorLookup lookup,
             final CompletenessAuthority authority) {
+        return audit(scope, lineage, sourceSequence, frontier, limits, resultRows, lookup, authority, null);
+    }
+
+    public static Summary audit(final TargetQuotaScope scope, final byte[] lineage, final long sourceSequence,
+            final SourcePosition frontier, final Limits limits, final Iterable<Stored> resultRows,
+            final DescriptorLookup lookup, final CompletenessAuthority authority, final TargetMigrationRoot migration) {
         Objects.requireNonNull(authority, "completenessAuthority");
-        final Summary summary = auditRows(scope, lineage, sourceSequence, frontier, limits, resultRows, lookup);
+        final Summary summary = auditRows(scope, lineage, sourceSequence, frontier, limits, resultRows, lookup, migration);
         authority.requireComplete(summary);
         return summary;
     }
@@ -107,6 +117,13 @@ public final class TargetResultLedgerAudit {
             final Limits limits,
             final Iterable<Stored> resultRows,
             final DescriptorLookup lookup) {
+        return auditRows(scope, lineage, sourceSequence, frontier, limits, resultRows, lookup, null);
+    }
+
+    /** Explicit migration-baseline interpretation; normal descriptor-only lookup behavior remains unchanged. */
+    public static Summary auditRows(final TargetQuotaScope scope, final byte[] lineage, final long sourceSequence,
+            final SourcePosition frontier, final Limits limits, final Iterable<Stored> resultRows,
+            final DescriptorLookup lookup, final TargetMigrationRoot migration) {
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(resultRows, "resultRows");
@@ -129,7 +146,20 @@ public final class TargetResultLedgerAudit {
         final var contributions = new LinkedHashMap<TargetQuotaIdentity, CapacityVector>();
         CapacityVector total = CapacityVector.empty();
         long bytes = 0;
+        if (migration != null) {
+            final var storedMigration = Objects.requireNonNull(lookup.get(TargetMigrationRoot.keyFor(scope.shard())),
+                    "actual migration result baseline");
+            bytes = consume(bytes, storedMigration, limits);
+            if (storedMigration.type() != TargetMigrationRoot.VALUE_TYPE)
+                throw new IllegalStateException("migration result baseline has another Native type");
+            if (!migration.plan().scope().equals(scope) || !Arrays.equals(migration.plan().newLineage(), expectedLineage)
+                    || !Arrays.equals(migration.key(), storedMigration.key())
+                    || !Arrays.equals(migration.canonicalBytes(), storedMigration.payload()))
+                throw new IllegalStateException("migration result baseline changed exact scope/key/lineage");
+        }
         for (Stored stored : resultRows) {
+            if (migration != null && !migration.activated())
+                throw new IllegalStateException("prepared migration cannot fabricate ordinary Target results");
             if (records.size() == limits.maximumResults()) {
                 throw new IllegalStateException("result recovery record budget exhausted");
             }
@@ -193,8 +223,25 @@ public final class TargetResultLedgerAudit {
                 }
                 descriptor.latestMutation().requireAtOrBefore(sourceSequence, frontier);
                 for (var ownerStamp : java.util.List.of(descriptor.allocation(), descriptor.latestMutation())) {
-                    final var same = stamps.putIfAbsent(ownerStamp.sequence(), ownerStamp);
-                    if (same != null && !same.equals(ownerStamp)) {
+                    TargetQuotaMutation comparison = ownerStamp;
+                    if (migration != null && descriptor.identity().kind() == TargetQuotaIdentity.Kind.TARGET
+                            && ownerStamp.equals(migration.plan().baseline())) {
+                        final byte[] originKey = TargetMigrationOrigin.keyFor(ColumnFamily.META, Bytes.sha256(descriptorKey));
+                        final var storedOrigin = Objects.requireNonNull(lookup.get(originKey), "original imported Target allocation");
+                        bytes = consume(bytes, storedOrigin, limits);
+                        if (storedOrigin.type() != TargetMigrationOrigin.VALUE_TYPE || !Arrays.equals(storedOrigin.key(), originKey))
+                            throw new IllegalStateException("imported result owner has no exact Native origin");
+                        final var origin = TargetMigrationOrigin.decode(storedOrigin.payload()); origin.requirePlan(migration.plan());
+                        if (!origin.owner().identity().equals(descriptor.identity())
+                                || !origin.owner().allocation().equals(descriptor.allocation())
+                                || !origin.owner().accounting().equals(descriptor.accounting()))
+                            throw new IllegalStateException("imported result owner changed original C allocation");
+                        origin.requireRow(ColumnFamily.META, descriptorKey,
+                                TargetValueEnvelope.encode(TargetQuotaIncarnation.VALUE_TYPE, origin.owner().canonicalBytes()));
+                        comparison = TargetMigrationRoot.baselineFor(migration.plan());
+                    }
+                    final var same = stamps.putIfAbsent(comparison.sequence(), comparison);
+                    if (same != null && !same.equals(comparison)) {
                         throw new IllegalStateException("result owner and ledger contradict the same source mutation");
                     }
                 }

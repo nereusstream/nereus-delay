@@ -108,6 +108,7 @@ public final class TargetClaimStore {
                 budget,
                 reader -> {
                     final var message = message(reader, selected);
+                    TargetMigrationStore.requireSendAllowed(reader, message.locator().messageId(), message.locator().generation());
                     if (message.runtime().currentWorkKind() != CurrentSendWorkKind.TIMELINE
                             || nowEpochMs >= message.expireAtEpochMs()
                             || (selected.nativeCandidate() && nowEpochMs >= message.deliverAtEpochMs())) {
@@ -123,6 +124,7 @@ public final class TargetClaimStore {
                     binding.requireLocator(message.locator());
                     binding.requireMessageSource(message.scheduleSource());
                     binding.requireQueueProjection(queue);
+                    TargetMembershipStoreAuthority.requireImportedBinding(reader, scope, lineage, binding);
                     if (selected.nativeCandidate()
                             && nowEpochMs < Math.max(0, message.deliverAtEpochMs() - queue.nativeIndexLeadCapMs())) {
                         throw new IllegalStateException("Target native Claim precedes its pinned maximum lead");

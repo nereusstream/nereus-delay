@@ -20,6 +20,7 @@ import com.nereusstream.delay.protocol.TargetPublishAdmissionBody;
 import com.nereusstream.delay.protocol.TargetParentControlCredit;
 import com.nereusstream.delay.protocol.TargetParentControlCreditBody;
 import com.nereusstream.delay.protocol.TargetQuotaGrantActivation;
+import com.nereusstream.delay.protocol.TargetQuotaMutation;
 import com.nereusstream.delay.protocol.TargetQuotaGrantControlBody;
 import com.nereusstream.delay.protocol.TargetQuotaAttemptBudget;
 import com.nereusstream.delay.protocol.TargetScheduleBinding;
@@ -145,6 +146,11 @@ public final class TargetCheckpointDependencies {
     private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents;
     private final List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations;
     private final List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations;
+    private final com.nereusstream.delay.protocol.TargetMigrationRoot migrationRoot;
+    private final List<com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOrigins;
+    private final List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards;
+    private final List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes;
+    private final com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt;
     private final List<TargetScopeNativeUsageAudit.Row> scopeNativeRows;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates;
     private final List<com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations;
@@ -194,6 +200,9 @@ public final class TargetCheckpointDependencies {
         retirements = List.copyOf(builder.retirements.values());
         evidenceConfirmations = List.copyOf(builder.evidenceConfirmations.values());
         protocolActivations=List.copyOf(builder.protocolActivations.values());
+        migrationRoot=builder.migrationRoot; migrationOrigins=List.copyOf(builder.migrationOrigins.values());
+        migrationGuards=List.copyOf(builder.migrationGuards.values());
+        migrationPrefixes=List.copyOf(builder.migrationPrefixes.values()); migrationAttempt=builder.migrationAttempt;
         scopeNativeRows=List.copyOf(builder.scopeNativeRows.values());
         sloStates=List.copyOf(builder.sloStates.values());
         sloGenerations=List.copyOf(builder.sloGenerations.values());
@@ -296,6 +305,12 @@ public final class TargetCheckpointDependencies {
     public List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> retirements() { return retirements; }
     public List<com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations() { return evidenceConfirmations; }
     public List<com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations(){return protocolActivations;}
+    public com.nereusstream.delay.protocol.TargetMigrationRoot migrationRoot(){return migrationRoot;}
+    public List<com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOrigins(){return migrationOrigins;}
+    public List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards(){return migrationGuards;}
+    public List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes(){return migrationPrefixes;}
+    public com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt(){return migrationAttempt;}
+    public List<com.nereusstream.delay.protocol.TargetQuotaCounter> quotaCounters(){return List.copyOf(quotaCounters.values());}
     /** Exact physical Native57..62 facts captured by the complete bounded image fold. */
     public List<TargetScopeNativeUsageAudit.Row> scopeNativeRows(){return scopeNativeRows;}
     public List<com.nereusstream.delay.protocol.TargetSloObservationState> sloStates(){return sloStates;}
@@ -720,6 +735,15 @@ public final class TargetCheckpointDependencies {
         /** Already-held original occurrence/Scope fee protection; settlement-v2 images require it. */
         default com.nereusstream.delay.runtime.TargetScopeFeeAuthority scopeFeeAuthority(){return null;}
         java.security.PublicKey authenticate(ControlImage input, TargetResultRecord first);
+        /** Complete original immutable bundle/raw bytes, management authority, reader set, Pin and old fee custody. */
+        default java.security.PublicKey authenticateMigration(ControlImage input, TargetResultRecord first,
+                com.nereusstream.delay.protocol.TargetMigrationRoot root,
+                List<com.nereusstream.delay.protocol.TargetMigrationOrigin> origins,
+                List<com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> guards,
+                List<com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> originalPrefix,
+                com.nereusstream.delay.protocol.TargetMigrationActivationAttempt originalAttempt) {
+            throw new IllegalStateException("checkpoint authority lacks original migration/bundle/custody authentication");
+        }
         /** Original SERVICE event history, endpoint/time and retained budget; APPLIED uses its frozen sample. */
         default java.security.PublicKey authenticateObservation(ControlImage input,TargetResultRecord first,
                 com.nereusstream.delay.protocol.TargetSloObservationGeneration generation,
@@ -791,6 +815,10 @@ public final class TargetCheckpointDependencies {
 
     java.security.PublicKey authenticateInput(ControlImage input,TargetResultRecord first,ControlImageAuthority authority){
         final var image=input.image();
+        if(com.nereusstream.delay.protocol.TargetMigrationControlBody.isControl(image)) {
+            if(migrationRoot==null || !migrationRoot.activated()) throw new IllegalStateException("migration Control lost actual activated root");
+            return authority.authenticateMigration(input,first,migrationRoot,migrationOrigins,migrationGuards,migrationPrefixes,migrationAttempt);
+        }
         if(TargetScopeControlObligationBody.isControl(image)){
             final var definition=TargetScopeControlObligationBody.decode(image.canonicalBody()).request().definition();
             final var obligation=first.appliedFirst()?scopeObligation(definition.headerReference()):null;
@@ -849,7 +877,64 @@ public final class TargetCheckpointDependencies {
         requireWriterControlInputs(complete);
         requireParentCreditControlInputs(complete);
         requireScopeObligationControlInputs(complete);
+        requireMigrationControlInputs(complete);
         return correlated;
+    }
+
+    private void requireMigrationControlInputs(Map<String,ControlImage> inputs) {
+        if(migrationRoot==null) {
+            if(!migrationOrigins.isEmpty() || !migrationGuards.isEmpty() || !migrationPrefixes.isEmpty() || migrationAttempt!=null || bindings.stream().anyMatch(TargetScheduleBinding::imported))
+                throw new IllegalStateException("migration projection lost original root");
+            return;
+        }
+        if(!migrationRoot.activated()) throw new IllegalStateException("MIGRATION_PREPARED is not a formal checkpoint candidate");
+        final var original=inputs.get(Bytes.hex(migrationRoot.activation().systemMutationId()));
+        if(original==null || !Arrays.equals(original.image().canonicalEnvelope(),migrationRoot.activation().canonicalEnvelope())
+                || !Arrays.equals(original.source().canonicalBytes(),migrationRoot.activatedAt().source().canonicalBytes()))
+            throw new IllegalStateException("formal migration checkpoint lost original actual A input");
+        if(migrationAttempt==null || !Arrays.equals(migrationAttempt.input().canonicalEnvelope(),migrationRoot.activation().canonicalEnvelope()))
+            throw new IllegalStateException("formal migration checkpoint lost original durable may-be-exposed activation intent");
+        migrationAttempt.requirePlan(migrationRoot.plan());
+        final var events=new TreeMap<Long,TargetQuotaMutation>(Long::compareUnsigned);
+        final var legacySequences=new java.util.HashSet<Long>();
+        events.put(migrationRoot.activatedAt().sequence(),migrationRoot.activatedAt());
+        long through=migrationRoot.activatedAt().sequence();
+        for(var prefix:migrationPrefixes) {
+            prefix.requirePlan(migrationRoot.plan());
+            if(events.putIfAbsent(prefix.at().sequence(),prefix.at())!=null||!legacySequences.add(prefix.at().sequence()))
+                throw new IllegalStateException("one original Source entry has multiple migration dispositions");
+            if(Long.compareUnsigned(prefix.at().sequence(),through)>0)through=prefix.at().sequence();
+        }
+        for(var row:resultRecords.values()) if(row.kind().position()
+                &&Long.compareUnsigned(row.mutation().sequence(),migrationRoot.plan().baseline().sequence())>0
+                &&Long.compareUnsigned(row.mutation().sequence(),through)<=0) {
+            if(legacySequences.contains(row.mutation().sequence()))throw new IllegalStateException("old entry also has a fabricated ordinary Target POS");
+            final var prior=events.putIfAbsent(row.mutation().sequence(),row.mutation());
+            if(prior!=null&&!prior.equals(row.mutation()))throw new IllegalStateException("Target-only Source position changed exact event stamp");
+        }
+        var predecessor=migrationRoot.plan().baseline();
+        for(var event:events.values()) {
+            if(event.sequence()!=TargetQuotaMutation.increment(predecessor.sequence()))
+                throw new IllegalStateException("migration Source chain omitted an actual legacy or Target-only entry");
+            event.requireAfter(predecessor); predecessor=event;
+        }
+        for(var prefix:migrationPrefixes) {
+            final var prior=prefix.prior().sequence()==migrationRoot.plan().baseline().sequence()
+                    ?migrationRoot.plan().baseline():events.get(prefix.prior().sequence());
+            if(prior==null||!prior.equals(prefix.prior()))throw new IllegalStateException("migration prefix changed complete actual predecessor");
+        }
+        for(var origin:migrationOrigins) origin.requirePlan(migrationRoot.plan());
+        for(var guard:migrationGuards) {
+            com.nereusstream.delay.runtime.TargetMigrationStore.requireGuard(migrationRoot.plan(),guard);
+            if(guard.settled()) {
+                final var settlement=inputs.get(Bytes.hex(guard.settlement().systemMutationId()));
+                if(settlement==null || !Arrays.equals(settlement.image().canonicalEnvelope(),guard.settlement().canonicalEnvelope())
+                        || !Arrays.equals(settlement.source().canonicalBytes(),guard.settledAt().source().canonicalBytes()))
+                    throw new IllegalStateException("formal migration checkpoint lost exact custody settlement input");
+            }
+        }
+        for(var binding:bindings) if(binding.imported() && !Arrays.equals(binding.migrationPlanDigest(),migrationRoot.plan().digest()))
+            throw new IllegalStateException("imported binding changed original migration authority");
     }
 
     private void requireScopeObligationControlInputs(Map<String,ControlImage> inputs){
@@ -1148,6 +1233,11 @@ public final class TargetCheckpointDependencies {
             for(final var tip:historyTips){CanonicalProtobuf.bytes(out,14,tip.digest());}
             for(final var credit:parentCredits()){CanonicalProtobuf.bytes(out,15,Bytes.sha256(credit.canonicalBytes()));}
             for(final var obligation:scopeObligations()){CanonicalProtobuf.bytes(out,16,Bytes.sha256(obligation.canonicalBytes()));}
+            if(migrationRoot!=null) CanonicalProtobuf.bytes(out,17,migrationRoot.digest());
+            for(var origin:migrationOrigins) CanonicalProtobuf.bytes(out,18,origin.digest());
+            for(var guard:migrationGuards) CanonicalProtobuf.bytes(out,19,guard.digest());
+            for(var prefix:migrationPrefixes) CanonicalProtobuf.bytes(out,20,prefix.digest());
+            if(migrationAttempt!=null) CanonicalProtobuf.bytes(out,21,migrationAttempt.digest());
         });
         return Bytes.sha256(Bytes.utf8("nereus-delay-target-checkpoint-semantic-inputs\0"), fields);
     }
@@ -1182,6 +1272,11 @@ public final class TargetCheckpointDependencies {
         private final Map<String,com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord> payloadObjectIntents=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetEvidenceConfirmedRecord> evidenceConfirmations = new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetProtocolActivationRecord> protocolActivations=new TreeMap<>();
+        private com.nereusstream.delay.protocol.TargetMigrationRoot migrationRoot;
+        private final Map<String,com.nereusstream.delay.protocol.TargetMigrationOrigin> migrationOrigins=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetMigrationCustodyGuard> migrationGuards=new TreeMap<>();
+        private final Map<String,com.nereusstream.delay.protocol.TargetMigrationPrefixRecord> migrationPrefixes=new TreeMap<>();
+        private com.nereusstream.delay.protocol.TargetMigrationActivationAttempt migrationAttempt;
         private final Map<String,TargetScopeNativeUsageAudit.Row> scopeNativeRows=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationState> sloStates=new TreeMap<>();
         private final Map<String, com.nereusstream.delay.protocol.TargetSloObservationGeneration> sloGenerations=new TreeMap<>();
@@ -1231,6 +1326,8 @@ public final class TargetCheckpointDependencies {
             prior.retirements.forEach(this::retirement);
             prior.evidenceConfirmations.forEach(this::evidenceConfirmation);
             prior.protocolActivations.forEach(this::protocolActivation);
+            if(prior.migrationRoot!=null) migrationRoot(prior.migrationRoot);
+            prior.migrationOrigins.forEach(this::migrationOrigin); prior.migrationGuards.forEach(this::migrationGuard); prior.migrationPrefixes.forEach(this::migrationPrefix); if(prior.migrationAttempt!=null)migrationAttempt(prior.migrationAttempt);
             prior.scopeNativeRows.forEach(this::scopeNativeRow);
             prior.sloStates.forEach(this::sloState);
             prior.sloGenerations.forEach(this::sloGeneration);
@@ -1340,6 +1437,21 @@ public final class TargetCheckpointDependencies {
         }
         void sloSample(com.nereusstream.delay.protocol.TargetSloObservationSample record) {
             if(sloSamples.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target SLO sample");
+        }
+        void migrationAttempt(com.nereusstream.delay.protocol.TargetMigrationActivationAttempt record){
+            if(migrationAttempt!=null)throw new IllegalStateException("duplicate durable migration intent"); migrationAttempt=record;
+        }
+        void migrationPrefix(com.nereusstream.delay.protocol.TargetMigrationPrefixRecord record){
+            if(migrationPrefixes.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration prefix");
+        }
+        void migrationRoot(com.nereusstream.delay.protocol.TargetMigrationRoot record){
+            if(migrationRoot!=null)throw new IllegalStateException("duplicate migration root"); migrationRoot=record;
+        }
+        void migrationOrigin(com.nereusstream.delay.protocol.TargetMigrationOrigin record){
+            if(migrationOrigins.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration origin");
+        }
+        void migrationGuard(com.nereusstream.delay.protocol.TargetMigrationCustodyGuard record){
+            if(migrationGuards.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate migration custody");
         }
         void protocolActivation(com.nereusstream.delay.protocol.TargetProtocolActivationRecord record){
             if(protocolActivations.putIfAbsent(Bytes.hex(record.key()),record)!=null)throw new IllegalStateException("duplicate Target protocol activation");

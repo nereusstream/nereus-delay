@@ -96,7 +96,17 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         @Override void close();
     }
 
-    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation, ScopeFees {}
+    public sealed interface Inputs permits Command, Grant, Fence, Expiry, Close, Membership, NativePolicy, Admission, Outcome, Channel, Retirement, Confirmation, Activation, Reclaim, SloMode, SloEvent, SloWriter, ParentCredit, ScopeObligation, ScopeFees, Migration {}
+    public record Migration(PreparedControlOperation prepared,
+            com.nereusstream.delay.runtime.TargetMigrationStore.Authority authority,
+            com.nereusstream.delay.protocol.TargetMigrationCustodyGuard.SettlementAuthority settlement,
+            com.nereusstream.delay.runtime.TargetMigrationImporter.Limits importLimits,
+            TargetStoreBackend.CommitAuthority commit) implements Inputs {
+        public Migration {
+            Objects.requireNonNull(prepared); Objects.requireNonNull(authority); Objects.requireNonNull(settlement);
+            Objects.requireNonNull(importLimits); Objects.requireNonNull(commit);
+        }
+    }
     /** Payment of this exact Source occurrence only; it grants no current business role or write authority. */
     public record ScopeFees(TargetScopeFeeAuthority fees) implements Inputs {
         public ScopeFees { Objects.requireNonNull(fees); }
@@ -218,6 +228,31 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
     private Object collect(SourceReplayEntry entry, Inputs inputs, Held held, Runnable guard,TargetSourceApplyRuntime.ReclaimRead reclaim) {
         var commit = held.commit(originalCommit);
         return switch (inputs) {
+            case Migration value -> {
+                final var a = value.authority();
+                final var frozen = freeze(value.prepared(), entry, a.registrations(),
+                        version -> a.keys().resolve(version, entry.position()), held, guard);
+                final var original = (SourceReplayMutation) entry;
+                final var body = com.nereusstream.delay.protocol.TargetMigrationControlBody.decode(original.mutation().canonicalBody());
+                final var retained = Objects.requireNonNull(a.inputs().authenticate(value.prepared(), original.mutation(),
+                        entry.position(), body.request()), "original migration settlement protections");
+                retained.run(); held.requireCurrent(); guard.run();
+                final var captured = new com.nereusstream.delay.runtime.TargetMigrationStore.Authority(frozen,
+                        (version, source) -> frozen.key(version, source), a.actor(), a.scopeProof(),
+                        (prepared, input, source, request) -> {
+                            held.requireCurrent(); requireSource(entry, source);
+                            if (!Arrays.equals(prepared.canonicalBytes(), value.prepared().canonicalBytes())
+                                    || !Arrays.equals(input.canonicalEnvelope(), original.mutation().canonicalEnvelope())
+                                    || !Arrays.equals(request.canonicalBytes(), body.request().canonicalBytes()))
+                                throw new IllegalStateException("migration Source hold changed its original exact CONTROL input");
+                            retained.run(); held.requireCurrent(); return () -> { held.requireCurrent(); retained.run(); };
+                        });
+                yield new TargetSourceApplyRuntime.MigrationControl(value.prepared(), captured,
+                        (prior, request, actualSource) -> {
+                            held.requireCurrent(); requireSource(entry, actualSource.source());
+                            value.settlement().requireAuthorized(prior, request, actualSource); retained.run(); held.requireCurrent();
+                        }, value.importLimits(), held.commit(value.commit()));
+            }
             case Command value -> {
                 yield new TargetSourceApplyRuntime.CommandControl(value.policy(),value.cancellations(),value.reservations(),value.schedules(),value.payloadProofs(),sampleHold(value.samples(),held),commit);
             }
@@ -430,6 +465,7 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
 
     private static TargetSourceAuthorityPreparation.Family family(Inputs inputs) {
         return switch (inputs) {
+            case Migration ignored -> TargetSourceAuthorityPreparation.Family.MIGRATION;
             case Command ignored -> TargetSourceAuthorityPreparation.Family.COMMAND;
             case Grant ignored -> TargetSourceAuthorityPreparation.Family.GRANT;
             case Fence ignored -> TargetSourceAuthorityPreparation.Family.FENCE;

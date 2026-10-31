@@ -61,6 +61,9 @@ public final class SharedRocksDbResources implements AutoCloseable {
     private final Set<ShardId> ownedShardIdentities = new HashSet<>();
 
     private final Map<ShardId, PhysicalUsageSource> physicalUsageSources = new HashMap<>();
+    /** Actual isolated Native copies, never a second logical owned Shard. Identity is the original Store supplier. */
+    private final Map<Supplier<RocksDbUsageSnapshot>, PhysicalUsageSource> privateCopyPhysicalUsageSources =
+            new java.util.IdentityHashMap<>();
     private int shardAcquireCount;
     private int ownedShardCount;
     private int openDbCount;
@@ -352,6 +355,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         synchronized (this) {
             ensureOpen();
             sources = new ArrayList<>(physicalUsageSources.values());
+            sources.addAll(privateCopyPhysicalUsageSources.values());
         }
         final List<RocksDbUsageSnapshot> snapshots = new ArrayList<>(sources.size());
         for (PhysicalUsageSource source : sources) {
@@ -364,7 +368,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
                 snapshots.add(snapshot);
             } catch (RuntimeException failure) {
                 synchronized (this) {
-                    if (physicalUsageSources.get(source.shardId()) != source) {
+                    if (physicalUsageSources.get(source.shardId()) != source
+                            && privateCopyPhysicalUsageSources.get(source.snapshot()) != source) {
                         continue;
                     }
                 }
@@ -377,13 +382,13 @@ public final class SharedRocksDbResources implements AutoCloseable {
                     ? 0
                     : runtimeSafetyGate.minimumRuntimeUsableFilesystemBytes();
         }
-        limits.validate(snapshots, config.rootPath(), workerEnvelopeMinimumFilesystemFreeBytes);
+        limits.validateRegisteredDatabases(snapshots, config.rootPath(), workerEnvelopeMinimumFilesystemFreeBytes);
         return List.copyOf(snapshots);
     }
 
     /** Returns the number of open stores currently registered for observation. */
     public synchronized int registeredPhysicalUsageSources() {
-        return physicalUsageSources.size();
+        return Math.addExact(physicalUsageSources.size(), privateCopyPhysicalUsageSources.size());
     }
 
     void registerPhysicalUsage(final ShardId shardId, final Supplier<RocksDbUsageSnapshot> source) {
@@ -394,7 +399,22 @@ public final class SharedRocksDbResources implements AutoCloseable {
             if (physicalUsageSources.containsKey(shardId)) {
                 throw new IllegalStateException("physical usage source already registered for " + shardId);
             }
+            if (privateCopyPhysicalUsageSources.containsKey(source))
+                throw new IllegalStateException("Native physical usage supplier is already registered as a private copy");
             physicalUsageSources.put(shardId, new PhysicalUsageSource(shardId, source));
+        }
+    }
+
+    /** Only the actual private Native open path calls this; configured DB/open/resource bounds remain in force. */
+    void registerPrivateCopyPhysicalUsage(final ShardId shardId, final Supplier<RocksDbUsageSnapshot> source) {
+        synchronized (this) {
+            ensureOpen(); Objects.requireNonNull(shardId); Objects.requireNonNull(source);
+            if (privateCopyPhysicalUsageSources.containsKey(source)
+                    || physicalUsageSources.values().stream().anyMatch(value -> value.snapshot() == source))
+                throw new IllegalStateException("private Native DB supplier already registered");
+            if (registeredPhysicalUsageSources() >= openDbCount)
+                throw new IllegalStateException("private physical usage has no actual admitted Native DB slot");
+            privateCopyPhysicalUsageSources.put(source, new PhysicalUsageSource(shardId, source));
         }
     }
 
@@ -404,6 +424,8 @@ public final class SharedRocksDbResources implements AutoCloseable {
             if (existing != null && existing.snapshot() == source) {
                 physicalUsageSources.remove(shardId);
             }
+            final var copy = privateCopyPhysicalUsageSources.get(source);
+            if (copy != null && copy.shardId().equals(shardId)) privateCopyPhysicalUsageSources.remove(source);
         }
     }
 
@@ -688,6 +710,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
                         || ownedShardCount != 0
                         || !ownedShardIdentities.isEmpty()
                         || !physicalUsageSources.isEmpty()
+                        || !privateCopyPhysicalUsageSources.isEmpty()
                         || checkpointCreateCount != 0
                         || checkpointUploadCount != 0
                         || checkpointDownloadCount != 0

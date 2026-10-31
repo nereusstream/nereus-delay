@@ -178,7 +178,7 @@ public final class TargetReservationControls {
                 || !Arrays.equals(closed.bindingDigest(), binding.digest())
                 || !Arrays.equals(closed.recoveryLineage(), reservation.recoveryLineage())
                 || !closed.source().shardId().equals(reader.shardId())
-                || closed.source().compareTo(reservation.prepareAnchor().source()) <= 0
+                || closed.source().compareTo(reservation.originalPrepareSource()) <= 0
                 || reader.source() == null
                 || closed.source().compareTo(reader.source()) > 0
                 || closed.fenceAtClose() > watermark

@@ -206,6 +206,25 @@ public final class TargetCommandStore {
             BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
             CancellationControls controls, TargetReservationControls.Authority reservationControls,
             Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples) {
+        return prepareFirstAuthenticated(budget, command, source, policy, controls, reservationControls,
+                schedules, payloadProofs, samples, null);
+    }
+
+    /** Actual Target-owned legacy raw Command, under the original process-owned migration permit. */
+    public Prepared prepareMigrationFirst(
+            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
+            CancellationControls controls, TargetReservationControls.Authority reservationControls,
+            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
+        return prepareFirstAuthenticated(budget, command, source, policy, controls, reservationControls,
+                schedules, payloadProofs, samples, Objects.requireNonNull(migration, "actual migration-owned legacy Command"));
+    }
+
+    private Prepared prepareFirstAuthenticated(
+            BoundedReadBudget budget, PreparedCommand command, SourcePosition source, Policy policy,
+            CancellationControls controls, TargetReservationControls.Authority reservationControls,
+            Schedules schedules, PayloadProofControls payloadProofs, TargetSloObservationSamples.Authority samples,
+            com.nereusstream.delay.ownership.TargetMigrationCompatibilityRuntime.NativeOwnedCommand migration) {
         Objects.requireNonNull(samples, "original certification sample authority");
         Objects.requireNonNull(payloadProofs, "payloadProofs");
         Objects.requireNonNull(reservationControls, "reservationControls");
@@ -229,6 +248,7 @@ public final class TargetCommandStore {
                         throw new IllegalStateException(
                                 "first Command requires a strictly advancing established source");
                     }
+                    if (migration != null) migration.requireCurrent(reader, command, source);
                     final var stamp = new TargetQuotaMutation(
                             TargetQuotaMutation.increment(reader.sourceSequence()), source, digest);
                     for (var key : List.of(commandKey(command), queryKey(command), positionKey(source))) {
@@ -487,7 +507,7 @@ public final class TargetCommandStore {
                     scope.shard(),
                     scope.tenantScope());
             final var owner = descriptor(reader, payloadOwner.primaryIdentity());
-            owner.requirePayloadOwner(payloadOwner);
+            requirePayloadAttribution(reader, owner, payloadOwner);
             payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
             if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
                 TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
@@ -804,7 +824,7 @@ public final class TargetCommandStore {
         if(payloadOwner.phase()==TargetQuotaPayloadOwner.Phase.RELEASED&&payloadOwner.committedPayload()==null)
             TargetRetirementSourceHistoryStore.requirePayloadReclaim(reader,List.of(),scope,lineage,root.identity(),payloadOwner,reader.aggregate().mutation());
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
-        owner.requirePayloadOwner(payloadOwner);
+        requirePayloadAttribution(reader, owner, payloadOwner);
         final byte[] bindingKey =
                 TargetKeyCodec.scheduleBinding(reservation.locator().scheduleBindingDigest());
         final var binding = TargetScheduleBinding.decodeForStore(
@@ -812,6 +832,7 @@ public final class TargetCommandStore {
                 payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
                 scope.shard());
         reservation.requireBinding(binding);
+        TargetMembershipStoreAuthority.requireImportedReservation(reader, scope, lineage, reservation, binding);
         payloadOwner.requireInitialBinding(binding);
         final var prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
         final byte[] queueKey = TargetKeyCodec.state(binding.target());
@@ -840,6 +861,12 @@ public final class TargetCommandStore {
             throw new IllegalStateException("terminal reservation retains expiry");
         }
         final var proof = body.proof();
+        if (reservation.migrationOrigin() != null) {
+            final var receipt = reservation.migrationOrigin().originalReceipt();
+            if (!Arrays.equals(proof.container(), receipt.container()) || !Arrays.equals(proof.objectKey(), receipt.objectKey())) {
+                return unchanged(rejected(StableCode.PAYLOAD_PROOF_INVALID, source), owner);
+            }
+        }
         if (!proof.objectStoreProfile().equals(prepare.objectStoreProfile())
                 || !Arrays.equals(proof.tenantRoutingScope(), scope.tenantScope())
                 || proof.trustSetVersion() != prepare.trustSet().version()
@@ -971,7 +998,7 @@ public final class TargetCommandStore {
                 scope.tenantScope());
         reservation.requireOwner(payloadOwner);
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
-        owner.requirePayloadOwner(payloadOwner);
+        requirePayloadAttribution(reader, owner, payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if ((precondition.expectedGeneration() != null && precondition.expectedGeneration() != 0)
                 || (precondition.expectedStateVersion() != null
@@ -985,6 +1012,7 @@ public final class TargetCommandStore {
                 payload(reader, ColumnFamily.ID, bindingKey, TargetScheduleBinding.VALUE_TYPE),
                 scope.shard());
         reservation.requireBinding(binding);
+        TargetMembershipStoreAuthority.requireImportedReservation(reader, scope, lineage, reservation, binding);
         payloadOwner.requireInitialBinding(binding);
         final var queueKey = TargetKeyCodec.state(binding.target());
         final var queue =
@@ -1122,7 +1150,7 @@ public final class TargetCommandStore {
                 scope.tenantScope());
         payloadOwner.requireMessagePayload(before);
         final var owner = descriptor(reader, payloadOwner.primaryIdentity());
-        owner.requirePayloadOwner(payloadOwner);
+        requirePayloadAttribution(reader, owner, payloadOwner);
         payloadOwner.mutation().requireAtOrBefore(reader.aggregate().mutation());
         if ((precondition.expectedGeneration() != null
                         && precondition.expectedGeneration()
@@ -1490,6 +1518,17 @@ public final class TargetCommandStore {
         result[0] = decision.result();
         return new TargetMessageStore.Input(
                 decision.input().messages(), decision.input().orders(), edits);
+    }
+
+    private void requirePayloadAttribution(TargetStoreBackend.Reader reader, TargetQuotaIncarnation descriptor,
+            TargetQuotaPayloadOwner owner) {
+        if (!owner.mutation().isLocalMutation() && owner.mutation().sequence() == descriptor.allocation().sequence()
+                && !owner.mutation().equals(descriptor.allocation())) {
+            final byte[] key = TargetKeyCodec.scheduleBinding(owner.initialBindingDigest());
+            final var binding = TargetScheduleBinding.decodeForStore(key,
+                    payload(reader, ColumnFamily.ID, key, TargetScheduleBinding.VALUE_TYPE), scope.shard());
+            TargetMembershipStoreAuthority.requirePayloadOwner(reader, scope, lineage, descriptor, owner, binding);
+        } else descriptor.requirePayloadOwner(owner);
     }
 
     private TargetQuotaIncarnation descriptor(TargetStoreBackend.Reader reader, TargetQuotaIdentity identity) {

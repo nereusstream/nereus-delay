@@ -18,6 +18,12 @@ public final class SystemMutationBodyCodec {
         if(type==SystemMutationType.TARGET_SLO_OBSERVATION){TargetSloObservationEventBody.decode(canonicalBody);return;}
         final List<CanonicalProtobuf.Reader.Field> fields =
                 readBodyFields(Objects.requireNonNull(canonicalBody, "canonicalBody"));
+        if (type == SystemMutationType.APPLY_SHARD_CONTROL && fields.size() > 4 && fields.get(4).number() == 11
+                && (fields.get(4).unsignedValue() == TargetMigrationActivateRequest.CONTROL_KIND
+                        || fields.get(4).unsignedValue() == TargetMigrationSettlementRequest.CONTROL_KIND)) {
+            TargetMigrationControlBody.decode(canonicalBody);
+            return;
+        }
         if(type==SystemMutationType.APPLY_SHARD_CONTROL&&fields.size()==10&&fields.get(4).number()==11
                 &&fields.getLast().number()==16){
             final long kind=fields.get(4).unsignedValue();

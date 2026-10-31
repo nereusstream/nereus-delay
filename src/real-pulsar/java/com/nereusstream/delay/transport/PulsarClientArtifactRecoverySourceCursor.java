@@ -60,6 +60,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     private final SourceProof independentReaderProof;
     private final PulsarSourcePosition positionedReaderCut;
     private final com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
+    private com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening migrationOpening;
     private Message<byte[]> buffered;
     private SourceReplayEntry current;
     private PulsarSourcePosition successorAnchor;
@@ -113,7 +114,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             }
             final var cursor = openVerified0(group, resource, credential, Optional.of(position), receiveTimeout,
                     maximumFrameBytes, time, () -> { startup.requireRecoveryReaderCurrent(); originalProtection.run(); },
-                    null, startup, position);
+                    null, startup, position, null);
             startup.retainRecoverySource(cursor); original.requireCurrent();
             return cursor;
         } catch (CleanupFailure partial) {
@@ -160,7 +161,24 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
             Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment) {
         return openVerified0(group, resource, credential, lastApplied, receiveTimeout, maximumFrameBytes, time,
-                originalProtection, Objects.requireNonNull(acceptPostSeekAssignment), null, null);
+                originalProtection, Objects.requireNonNull(acceptPostSeekAssignment), null, null, null);
+    }
+
+    /** Real no-ACK reader under the original migration hold, with its own post-seek native proof. */
+    static PulsarClientArtifactRecoverySourceCursor openForMigration(
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            PulsarClientArtifactOwnedBackendGroup group, TopicResourceGuard resource,
+            LocalBrokerMtlsResolver.SourceReceipt credential, PulsarSourcePosition actualCut,
+            Duration timeout, int maximumFrameBytes, Supplier<TrustedUtcIntervalEvidence> time) {
+        opening.requireCurrent();
+        final var graph = opening.graph(); group.requireWorkerGraph(graph.classes(), graph.resources());
+        credential.authorization().requireAssignment(opening.assignment());
+        opening.assignment().activationBarrier().validatePosition(actualCut);
+        if (maximumFrameBytes > graph.config().maximumSourceFrameBytes()) {
+            throw new IllegalArgumentException("migration recovery exceeds its original Source frame bound");
+        }
+        return openVerified0(group, resource, credential, Optional.of(actualCut), timeout, maximumFrameBytes,
+                time, opening::requireLocalCurrent, null, null, actualCut, opening);
     }
 
     private static PulsarClientArtifactRecoverySourceCursor openVerified0(PulsarClientArtifactOwnedBackendGroup group,
@@ -168,12 +186,13 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
             Optional<PulsarSourcePosition> lastApplied, Duration receiveTimeout, int maximumFrameBytes,
             Supplier<TrustedUtcIntervalEvidence> time, Runnable originalProtection,
             Function<PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof, SourceAssignment> acceptPostSeekAssignment,
-            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarSourcePosition actualCut) {
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup, PulsarSourcePosition actualCut,
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening migration) {
         final long timeoutMs = Objects.requireNonNull(receiveTimeout, "receiveTimeout").toMillis();
         if (timeoutMs < 1 || timeoutMs > 60_000 || maximumFrameBytes < 1 || maximumFrameBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Source recovery settings must be finite");
         }
-        if (startup == null) Objects.requireNonNull(acceptPostSeekAssignment, "original post-seek assignment acceptance");
+        if (startup == null && migration == null) Objects.requireNonNull(acceptPostSeekAssignment, "original post-seek assignment acceptance");
         Objects.requireNonNull(lastApplied, "lastApplied");
         group.requireSourceReadResource(credential, resource);
         final var authorization = credential.authorization();
@@ -203,7 +222,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                     else { opening.completeExceptionally(failure); }
                 });
             } catch (RuntimeException | Error failure) { opening.completeExceptionally(failure); throw failure; }
-            return owned.read(timeoutMs, nativeConsumer -> {
+            final var ready = owned.read(timeoutMs, nativeConsumer -> {
                 if (!(nativeConsumer instanceof GuardedConsumer<?>)) {
                     throw new IllegalStateException("P1 recovery requires the guarded Source proof API");
                 }
@@ -212,18 +231,24 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
                 final var positioned = PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, resource,
                         topic, authorization.shard(), lastApplied, receiveTimeout);
                 protection.run();
-                final var assignment = startup == null
+                final var assignment = migration != null ? migration.assignment() : startup == null
                         ? Objects.requireNonNull(acceptPostSeekAssignment.apply(positioned), "accepted assignment")
                         : startup.acceptedAssignment();
                 authorization.requireAssignment(assignment);
                 protection.run();
                 final var cursor = new PulsarClientArtifactRecoverySourceCursor(consumer, resource, assignment, topic,
                         receiveTimeout, true, maximumFrameBytes, protection, owned, group,
-                        startup == null ? null : new SourceProof(positioned.connectionGeneration(),
+                        startup == null && migration == null ? null : new SourceProof(positioned.connectionGeneration(),
                                 positioned.attestation(), positioned.attestationDigest()), actualCut, startup);
-                cursor.verifiedCredential = credential;
+                cursor.verifiedCredential = credential; cursor.migrationOpening = migration;
                 return cursor;
             });
+            if (migration != null) {
+                // A detached subscribe success is not the original creation callback's actual exit.
+                group.nativeCreationExit(ready.consumer).get(timeoutMs, TimeUnit.MILLISECONDS);
+                ready.requireCurrent();
+            }
+            return ready;
         } catch (Exception | Error failure) {
             if (failure instanceof InterruptedException) { Thread.currentThread().interrupt(); }
             if (!started) { owned.abandonBeforeOpen(); }
@@ -355,12 +380,13 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     }
     @Override public com.nereusstream.delay.ownership.TargetOwnedBackendGroup backend() { return backend; }
     @Override public synchronized void requireReaderBinding(SourceAssignment expected, SourcePosition cut) {
-        if (independentReaderProof == null || sourceStartup == null || positionedReaderCut == null
+        if (independentReaderProof == null || sourceStartup == null && migrationOpening == null || positionedReaderCut == null
                 || !assignment.sameIdentity(expected) || !sameCanonicalPosition(positionedReaderCut, cut)
                 || verifiedCredential == null || backend == null) {
             throw new IllegalStateException("reader lacks its original independent Target startup binding");
         }
-        sourceStartup.requireRecoveryReaderCurrent();
+        if (sourceStartup != null) sourceStartup.requireRecoveryReaderCurrent();
+        else migrationOpening.requireLocalCurrent();
         verifiedCredential.authorization().requireAssignment(expected);
         protection.run(); requireProof();
     }
@@ -464,6 +490,27 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         }
     }
 
+    /** Actual normalized decoded delivery through the original finite tail, independent of Store progress. */
+    @Override public synchronized Optional<SourcePosition> capturedTailReadThrough() {
+        ensureOpen(); requireIndependentReader();
+        if (readThrough == null) {
+            throw new IllegalStateException("P1 delivery cut requires its original captured guarded tail");
+        }
+        protection.run(); requireProof();
+        final PulsarSourcePosition observed;
+        if (current == null && buffered == null && lastDelivered != null && readThrough.matches(lastDelivered)) {
+            observed = lastDelivered;
+        } else if (replayTailAtPositionedCut && lastDelivered == null && current == null && buffered == null) {
+            observed = positionedReaderCut;
+        } else {
+            return Optional.empty();
+        }
+        // ReplayTail only authenticates the finite bound; all returned identity/time/batch fields
+        // come from the actual decoder delivery or the complete original positioned Source cut.
+        barrier.validatePosition(observed); protection.run(); requireProof();
+        return Optional.of(observed);
+    }
+
     /** Requires the actual decoded delivery (or exact original Store cut) and the actual applied Source position. */
     @Override public synchronized boolean replayTailReached(SourcePosition actualApplied) {
         ensureOpen();
@@ -497,7 +544,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
     }
 
     private void requireIndependentReader() {
-        if (!target || independentReaderProof == null || sourceStartup == null || positionedReaderCut == null
+        if (!target || independentReaderProof == null || sourceStartup == null && migrationOpening == null || positionedReaderCut == null
                 || verifiedCredential == null || backend == null) {
             throw new IllegalStateException("P1 replay tail requires its original independent Target startup reader");
         }
@@ -532,7 +579,7 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
 
     private boolean load() {
         protection.run();
-        final boolean independentReplay = target && sourceStartup != null;
+        final boolean independentReplay = target && (sourceStartup != null || migrationOpening != null);
         if (current != null) {
             requireProof();
             if (independentReplay) { requireReplayBound((PulsarSourcePosition) current.position()); }
@@ -679,6 +726,18 @@ public final class PulsarClientArtifactRecoverySourceCursor implements Iterator<
         group.requireSourceReadResource(credential, expectedGuard);
         requireCurrent();
         return consumer;
+    }
+
+    GuardedConsumer<byte[]> migrationConsumer(
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.Opening opening,
+            PulsarClientArtifactOwnedBackendGroup group, LocalBrokerMtlsResolver.SourceReceipt credential) {
+        if (migrationOpening != opening || backend != group || verifiedCredential == null
+                || !verifiedCredential.sameMaterial(credential) || independentReaderProof == null
+                || PulsarClientArtifactOwnedBackendGroup.findNative(consumer) != group) {
+            throw new IllegalStateException("migration producer lacks its original independent Source reader/material");
+        }
+        opening.requireCurrent(); credential.authorization().requireAssignment(assignment);
+        group.requireSourceReadResource(credential, expectedGuard); requireCurrent(); return consumer;
     }
 
     /** Native-only recheck for the SDK handoff; original Root/Owner checks run before entering that lock. */

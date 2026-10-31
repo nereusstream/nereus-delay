@@ -272,6 +272,12 @@ public final class TargetMessageStore {
             }
             requireOrder(transition.before(), orders);
             requireOrder(transition.after(), orders);
+            if (transition.after() != null
+                    && (transition.after().runtime().currentWorkKind() == CurrentSendWorkKind.CLAIMED
+                            || transition.after().runtime().currentWorkKind() == CurrentSendWorkKind.PUBLISHING)) {
+                TargetMigrationStore.requireSendAllowed(reader, transition.after().locator().messageId(),
+                        transition.after().locator().generation());
+            }
             requireWorkRouting(reader, transition.before(), List.of());
             requireWorkRouting(reader, transition.after(), List.copyOf(edits.values()));
             final var before = records(transition.before());

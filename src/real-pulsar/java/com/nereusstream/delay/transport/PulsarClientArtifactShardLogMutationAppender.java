@@ -118,7 +118,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
 
     @Override
     public AppendOutcome append(final SystemMutation mutation) {
-        return append(mutation, null, null, null);
+        return append(mutation, null, null, null, null, null, null);
     }
 
     /** Only the original Root permit admits this type4 send before the active Host exists. */
@@ -126,12 +126,23 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
             PulsarClientArtifactRecoveryFenceWriter recoveryWriter) {
         return append(Objects.requireNonNull(exact).mutation(), Objects.requireNonNull(recoveryWriter), exact,
-                Objects.requireNonNull(permit));
+                Objects.requireNonNull(permit), null, null, null);
+    }
+
+    /** Independent migration CONTROL entry; the ordinary Host nativeSend gate remains unchanged. */
+    AppendOutcome appendMigrationControl(com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared exact,
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit permit,
+            PulsarClientArtifactTargetMigrationControlWriter writer) {
+        return append(Objects.requireNonNull(exact).mutation(), null, null, null, Objects.requireNonNull(writer),
+                exact, Objects.requireNonNull(permit));
     }
 
     private AppendOutcome append(final SystemMutation mutation, PulsarClientArtifactRecoveryFenceWriter recoveryWriter,
             com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared fence,
-            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
+            PulsarClientArtifactTargetMigrationControlWriter migrationWriter,
+            com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared migration,
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit migrationPermit) {
         final SystemMutation exact = Objects.requireNonNull(mutation, "mutation");
         if (!shard.equals(exact.shardId())) {
             throw new IllegalArgumentException("Pulsar Shard Log mutation belongs to another Shard");
@@ -141,7 +152,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             return AppendOutcome.definitelyNotPersisted();
         }
         try {
-            return appendReserved(exact, reservation, recoveryWriter, fence, permit);
+            return appendReserved(exact, reservation, recoveryWriter, fence, permit, migrationWriter, migration, migrationPermit);
         } finally {
             if (reservation != null) { reservation.callerReturned(); }
         }
@@ -150,7 +161,10 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
     private AppendOutcome appendReserved(final SystemMutation exact,
             final SystemWriterAppendBudget.Reservation reservation, PulsarClientArtifactRecoveryFenceWriter recoveryWriter,
             com.nereusstream.delay.ownership.TargetTimeFenceMutationFactory.Prepared fence,
-            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit) {
+            com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryFenceAppend permit,
+            PulsarClientArtifactTargetMigrationControlWriter migrationWriter,
+            com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared migration,
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit migrationPermit) {
         final SourceProof before;
         try {
             before = sourceProof();
@@ -206,9 +220,11 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
                                 }
                             });
                 };
-                return recoveryWriter == null
-                        ? PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, nativeSend)
-                        : recoveryWriter.nativeSend(this, producer, fence, permit, nativeSend);
+                return migrationWriter != null
+                        ? migrationWriter.nativeSend(this, producer, migration, migrationPermit, nativeSend)
+                        : recoveryWriter == null
+                            ? PulsarClientArtifactOwnedBackendGroup.nativeSend(producer, nativeSend)
+                            : recoveryWriter.nativeSend(this, producer, fence, permit, nativeSend);
             };
             if (writer == null) {
                 completion = send.get();
@@ -243,6 +259,7 @@ public final class PulsarClientArtifactShardLogMutationAppender implements Shard
             }
         });
         if (recoveryWriter != null) recoveryWriter.trackSdkCompletion(completion, accountingExit);
+        if (migrationWriter != null) migrationWriter.trackSdkCompletion(completion, accountingExit);
         final MessageId messageId;
         try {
             messageId = accountingExit.get(responseTimeout.toMillis(), TimeUnit.MILLISECONDS);

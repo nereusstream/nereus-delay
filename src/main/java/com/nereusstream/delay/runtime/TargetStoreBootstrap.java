@@ -216,6 +216,7 @@ public final class TargetStoreBootstrap {
         try (var guard = Objects.requireNonNull(reads.acquire(store.metadata(), scope), "Target reopen read guard")) {
             guard.requireCurrent();
             final var plan = store.readWithBudget(budget, () -> {
+                TargetMigrationStore.requireServiceable(store);
                 final byte[] bookkeepingKey = TargetQuotaBookkeeping.keyFor(scope.shard());
                 final byte[] bookkeepingRaw = store.get(ColumnFamily.META, bookkeepingKey);
                 if (bookkeepingRaw == null) {

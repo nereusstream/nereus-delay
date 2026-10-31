@@ -237,10 +237,7 @@ public final class TargetReservationClosureStore {
                                     .routingId()
                                     .shardId()
                                     .equals(scope.shard())
-                            || reservation
-                                            .prepareAnchor()
-                                            .source()
-                                            .compareTo(marker.mutation().source())
+                            || reservation.originalPrepareSource().compareTo(marker.mutation().source())
                                     >= 0) {
                         throw new IllegalStateException(
                                 "Target Close index differs from its frozen reservation/marker");

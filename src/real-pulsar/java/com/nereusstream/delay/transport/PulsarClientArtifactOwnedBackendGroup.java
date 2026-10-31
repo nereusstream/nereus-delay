@@ -751,6 +751,23 @@ public final class PulsarClientArtifactOwnedBackendGroup implements TargetOwnedB
         }
     }
 
+    /** Only the migration root's exact Prepared registration can use this pre-Host CONTROL producer. */
+    <T> T migrationControlSend(PulsarClientArtifactTargetMigrationControlWriter writer, Producer<?> producer,
+            com.nereusstream.delay.ownership.TargetMigrationControlMutationFactory.Prepared exact,
+            com.nereusstream.delay.ownership.TargetMigrationProcessDriver.AppendPermit permit, Supplier<T> send) {
+        final var source = writer.requireNativeSendBinding(this, producer);
+        permit.beforeSdk(writer, exact);
+        synchronized (gate) {
+            final var nativeProducer = use(producer);
+            final var nativeSource = use(source);
+            if (!ready || host != null || frozen || sdkTerminated || nativeProducer == null
+                    || nativeProducer.firstClose != null || nativeSource == null || nativeSource.firstClose != null) {
+                throw new IllegalStateException("original migration CONTROL native SEND is unavailable");
+            }
+            return send.get();
+        }
+    }
+
     static <T> T nativeSend(Object nativeHandle, Supplier<T> send) {
         final var group = findNative(nativeHandle);
         if (group != null) { return group.nativeSend(send); }
