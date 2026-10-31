@@ -103,7 +103,9 @@ public final class TargetScopeControlObligationMutationFactory {
             throw new IllegalArgumentException("Scope Control obligation requires finite independent retry deadlines");
         }
     }
-    /** Original plan schema, immutable registration and exact signed Source bytes, retained unchanged across UNKNOWN. */
+    /**
+     * Original plan schema, immutable registration and exact signed Source bytes, retained unchanged across UNKNOWN.
+     */
     public static final class Prepared {
         private final PreparedControlOperation control;
         private final SystemMutation mutation;

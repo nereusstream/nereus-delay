@@ -91,7 +91,10 @@ public final class KafkaClientArtifactRecoveryFenceWriter
         assignment = opening.assignment();
     }
 
-    /** Invoked synchronously by the original prepare hook already running on graph.io; never submits and waits on that pool. */
+    /**
+     * Invoked synchronously by the original prepare hook already running on graph.io; never submits and waits on that
+     * pool.
+     */
     public static KafkaClientArtifactRecoveryFenceWriter open(
             KafkaClientArtifactOwnedSystemWriter.Settings settings,
             Map<String, Object> operational,

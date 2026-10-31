@@ -424,7 +424,9 @@ public final class TargetPublishOutcomeStore {
         }
     }
 
-    /** Actual retained Admission, pending slot and unreleased obligation; no expiry check on the historical SEND lease. */
+    /**
+     * Actual retained Admission, pending slot and unreleased obligation; no expiry check on the historical SEND lease.
+     */
     public KafkaRecoveryPending readKafkaRecoveryPending(
             BoundedReadBudget budget,
             SystemMutation admission,

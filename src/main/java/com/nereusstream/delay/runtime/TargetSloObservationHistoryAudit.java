@@ -414,7 +414,8 @@ public final class TargetSloObservationHistoryAudit {
                     if (!expected.equals(generation.counts())
                             || !latest.get(generation.generation()).equals(generation.mutation())) {
                         throw new IllegalStateException(
-                                "Target SLO generation disagrees with complete actual/reserved sample/event/custody fold");
+                                ("Target SLO generation disagrees with complete actual/reserved "
+                                        + "sample/event/custody fold"));
                     }
                 }
                 case ELIGIBILITY_MESSAGES -> {
@@ -711,7 +712,8 @@ public final class TargetSloObservationHistoryAudit {
                     || !Arrays.equals(
                             copy(sample.declaration().canonicalBytes()), copy(declaration.canonicalBytes()))) {
                 throw new IllegalStateException(
-                        "durable ordinary eligibility is missing its original ALL_ACCEPTED Start, independently of Admission");
+                        ("durable ordinary eligibility is missing its original ALL_ACCEPTED Start, "
+                                + "independently of Admission"));
             }
         }
 
@@ -1328,7 +1330,10 @@ public final class TargetSloObservationHistoryAudit {
         }
     }
 
-    /** Current durable Message generations positively require their original ordinary eligibility Start, even without Admission. */
+    /**
+     * Current durable Message generations positively require their original ordinary eligibility Start, even without
+     * Admission.
+     */
     public static void requireEligibilityMessages(
             List<TargetSloObservationGeneration> generations,
             List<TargetSloObservationSample> samples,
@@ -1385,7 +1390,8 @@ public final class TargetSloObservationHistoryAudit {
                             message.scheduleSource().canonicalBytes())
                     || !Arrays.equals(sample.declaration().canonicalBytes(), declaration.canonicalBytes())) {
                 throw new IllegalStateException(
-                        "durable ordinary eligibility is missing its original ALL_ACCEPTED Start, independently of Admission");
+                        ("durable ordinary eligibility is missing its original ALL_ACCEPTED Start, "
+                                + "independently of Admission"));
             }
         }
     }

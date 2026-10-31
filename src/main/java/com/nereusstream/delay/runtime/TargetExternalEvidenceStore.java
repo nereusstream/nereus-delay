@@ -26,7 +26,10 @@ import java.util.Objects;
 public final class TargetExternalEvidenceStore {
     private TargetExternalEvidenceStore() {}
 
-    /** Non-DTO evidence from actual Source first result and retained owner/ref rows, usable for conservative catalog adoption. */
+    /**
+     * Non-DTO evidence from actual Source first result and retained owner/ref rows, usable for conservative catalog
+     * adoption.
+     */
     public static final class Adoption {
         private final TargetKafkaReceiptMapping mapping;
         private final TargetExternalEvidenceOwner protection;
@@ -585,7 +588,8 @@ public final class TargetExternalEvidenceStore {
                         .add(com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner.maximumRecoveryCharge(
                                 anchorOwner.accounting())))) {
             throw new IllegalArgumentException(
-                    "new K2 Admission has not allocated its anchor and finite complete recovery object/native STATE window");
+                    ("new K2 Admission has not allocated its anchor and finite complete recovery "
+                            + "object/native STATE window"));
         }
         for (var blob : List.of(protectedBlob, anchoredBlob)) {
             final var ref = new TargetExternalEvidenceReference(
@@ -667,7 +671,9 @@ public final class TargetExternalEvidenceStore {
         return proposed;
     }
 
-    /** Reservation consumed by the uniquely owned anchor is excluded from each referencing Attempt's remaining reserve. */
+    /**
+     * Reservation consumed by the uniquely owned anchor is excluded from each referencing Attempt's remaining reserve.
+     */
     public static CapacityVector remainingAttemptCharge(
             TargetRecordAccounting.View reader,
             List<TargetStoreBackend.Edit> overlay,

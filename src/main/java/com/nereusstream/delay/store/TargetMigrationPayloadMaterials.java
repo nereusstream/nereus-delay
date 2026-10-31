@@ -23,7 +23,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Original protected migration material, read in full outside Store locks before freezing or authenticating a reclaim. */
+/**
+ * Original protected migration material, read in full outside Store locks before freezing or authenticating a reclaim.
+ */
 public record TargetMigrationPayloadMaterials(
         LegacyMigrationBundle.Material material,
         LegacyMigrationBundle.Held held,

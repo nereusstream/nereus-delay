@@ -54,7 +54,10 @@ public interface PayloadUploadOperationHistory {
     TargetUncommittedObjectClosure closeAndFreeze(
             TargetPayloadObjectRetiringRecord intent, long maximumBytes, Runnable originalHeld);
 
-    /** Local recheck of the original qualified hold and exact persisted closed inventory, including old deleted versions. */
+    /**
+     * Local recheck of the original qualified hold and exact persisted closed inventory, including old deleted
+     * versions.
+     */
     void requireClosed(TargetPayloadObjectRetiringRecord intent, TargetUncommittedObjectClosure closure);
 
     /** Original protocol's finite upper bound for each complete public deletion history, reserved before DELETE. */
@@ -63,7 +66,8 @@ public interface PayloadUploadOperationHistory {
     /**
      * Persist this actual exact deletion outcome and return its complete public history. A failure keeps UNKNOWN;
      * the history must recover a lost response and late I/O, not compensate with absence/404 or SDK shutdown.
-     * Retaining an actual old response must remain possible after the current admission loan expires; it grants no new I/O.
+     * Retaining an actual old response must remain possible after the current admission loan expires; it grants no new
+     * I/O.
      */
     TargetUncommittedObjectClosure.Deletion recordDeleted(
             TargetPayloadObjectRetiringRecord intent,

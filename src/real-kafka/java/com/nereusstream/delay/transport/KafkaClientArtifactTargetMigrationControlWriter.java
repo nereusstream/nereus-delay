@@ -94,7 +94,10 @@ public final class KafkaClientArtifactTargetMigrationControlWriter
         assignment = opening.assignment();
     }
 
-    /** Invoked synchronously by the original prepare hook already running on graph.io; never submits and waits on that pool. */
+    /**
+     * Invoked synchronously by the original prepare hook already running on graph.io; never submits and waits on that
+     * pool.
+     */
     public static KafkaClientArtifactTargetMigrationControlWriter open(
             KafkaClientArtifactOwnedSystemWriter.Settings settings,
             Map<String, Object> operational,
@@ -391,7 +394,8 @@ public final class KafkaClientArtifactTargetMigrationControlWriter
                                     partial.reconcile(settings.timeout());
                                     if (!partial.resourcesTerminated()) {
                                         throw new IllegalStateException(
-                                                "original migration CONTROL producer partial construction remains live");
+                                                ("original migration CONTROL producer partial construction "
+                                                        + "remains live"));
                                     }
                                     if (partial.firstCleanupFailure() != null) {
                                         remember(partial.firstCleanupFailure());
@@ -402,7 +406,8 @@ public final class KafkaClientArtifactTargetMigrationControlWriter
                                     allocation.releaseUnstarted();
                                 } else {
                                     throw new IllegalStateException(
-                                            "started migration CONTROL producer lacks a retained native cleanup handle");
+                                            ("started migration CONTROL producer lacks a retained native "
+                                                    + "cleanup handle"));
                                 }
                                 synchronized (gate) {
                                     sdkTerminated = true;

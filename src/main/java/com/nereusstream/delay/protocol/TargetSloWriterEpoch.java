@@ -11,7 +11,10 @@ public record TargetSloWriterEpoch(Control register, Control close) {
     private static final byte[] DOMAIN = Bytes.utf8("nereus-delay-target-slo-writer-epoch\0");
     private static final byte[] CONTRACT_DOMAIN = Bytes.utf8("nereus-delay-target-slo-applied-writer-contract\0");
 
-    /** Complete original signed Control and its actual Source stamp; registration and first/POS are authenticated separately. */
+    /**
+     * Complete original signed Control and its actual Source stamp; registration and first/POS are authenticated
+     * separately.
+     */
     public record Control(SystemMutation input, TargetQuotaMutation appliedAt) {
         public static final int MAX_INPUT_BYTES = TargetSloWriterControlBody.MAX_CANONICAL_BYTES
                 + (TargetSloObservationGeneration.Control.MAX_INPUT_BYTES

@@ -545,7 +545,8 @@ public final class TargetCommandStore {
                         gate.check(reader, assembled, operation, ingress[0]);
                     } catch (TargetQuotaStoreGate.Rejected capacity) {
                         throw new IllegalStateException(
-                                "required Target certification evidence cannot downgrade the original business decision",
+                                ("required Target certification evidence cannot downgrade the original "
+                                        + "business decision"),
                                 capacity);
                     }
                     return assembled;

@@ -200,7 +200,10 @@ public interface TargetMigrationInputs
         throw new TargetSourceAuthorityPreparation.InputUnavailable(
                 "original owner cannot independently exit its legacy-only runtime sub-loan");
     }
-    /** Complete original frozen writer/control domain and durable anti-reopening material, retained by the actual new owner. */
+    /**
+     * Complete original frozen writer/control domain and durable anti-reopening material, retained by the actual new
+     * owner.
+     */
     default com.nereusstream.delay.runtime.TargetMigrationArchiveClosedContract.Materials archiveClosedMaterials(
             com.nereusstream.delay.runtime.TargetMigrationRetirementStore.AppliedIntent intention) {
         throw new TargetSourceAuthorityPreparation.InputUnavailable(
@@ -237,7 +240,9 @@ public interface TargetMigrationInputs
 
     /** Original reserved encoded-origin construction window; this is within retainedBytes, not an extra pool. */
     long maximumRetainedOriginBytes();
-    /** Pure local classification from the independently held original writer/producer history; never today's Profile. */
+    /**
+     * Pure local classification from the independently held original writer/producer history; never today's Profile.
+     */
     SourceDomain classifySource(SourceReplayEntry original, TargetMigrationPlan plan);
     /** Same original custody/Source/Pin/reader/mapping and paid-copy protection, after the maintenance Owner exited. */
     void requireCompatibilityCurrent(TargetMigrationPlan plan, StoreMetadata actualTarget);

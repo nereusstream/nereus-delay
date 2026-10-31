@@ -543,7 +543,9 @@ public final class TargetWorkerSourceStartup {
         public TargetWorkerSourceStartup startup() {
             return startup;
         }
-        /** The original registered handle also survives a factory's partial/late failure; no recursive hold validation. */
+        /**
+         * The original registered handle also survives a factory's partial/late failure; no recursive hold validation.
+         */
         public TargetRecoveryFenceWriter fenceWriter() {
             synchronized (startup) {
                 return fenceWriter;
@@ -966,7 +968,8 @@ public final class TargetWorkerSourceStartup {
                                     guard.run();
                                     if (hasSlo(audit) && fence == null) {
                                         throw new IllegalStateException(
-                                                "original SLO recovery returned no exact Fence for its retained domain");
+                                                ("original SLO recovery returned no exact Fence for its "
+                                                        + "retained domain"));
                                     }
                                 }
                                 guard.run();
@@ -1041,7 +1044,8 @@ public final class TargetWorkerSourceStartup {
                                 guard.run();
                                 if (requested && !qualificationRequired) {
                                     throw new IllegalStateException(
-                                            "ordinary recovery cannot acquire SLO qualification after its preparation cut");
+                                            ("ordinary recovery cannot acquire SLO qualification after its "
+                                                    + "preparation cut"));
                                 }
                             }
                             if (qualificationRequired && input == null) {
@@ -1221,7 +1225,9 @@ public final class TargetWorkerSourceStartup {
             }
         }
 
-        /** Local retained guards only; no authoritative lookup, Store view or SDK acquisition under native send locks. */
+        /**
+         * Local retained guards only; no authoritative lookup, Store view or SDK acquisition under native send locks.
+         */
         public void beforeSdk(TargetRecoveryFenceWriter actual, TargetTimeFenceMutationFactory.Prepared actualFrame) {
             synchronized (input.startup) {
                 requireLocal(actual, actualFrame);
@@ -1780,7 +1786,10 @@ public final class TargetWorkerSourceStartup {
                         "backend is not the original retired preparation reader's SDK owner");
             }
         }
-        /** Advances one original consumer/authority handoff; the consumer supplies actual SDK facts, never publication authority. */
+        /**
+         * Advances one original consumer/authority handoff; the consumer supplies actual SDK facts, never publication
+         * authority.
+         */
         public boolean advanceOwner(SourceRecordConsumer prepared) {
             if (!startup.settleRecoveryJournal(previousInputs, this)) {
                 return false;
@@ -2087,7 +2096,9 @@ public final class TargetWorkerSourceStartup {
         }
     }
 
-    /** Optional deployment owners are acquired on the original bounded I/O graph, never converted from configuration. */
+    /**
+     * Optional deployment owners are acquired on the original bounded I/O graph, never converted from configuration.
+     */
     private TargetWorkerSourceRuntimeFactory.Content scopeContent() {
         if (content.scopeResources() == null) {
             return content.withSourcePlanInputs(sourcePlanReservation());
@@ -2614,7 +2625,9 @@ public final class TargetWorkerSourceStartup {
         return retryCheckpointPinCreation();
     }
 
-    /** The original backend owns exact-CAS response-loss reconciliation; no new request or successful pin is guessed. */
+    /**
+     * The original backend owns exact-CAS response-loss reconciliation; no new request or successful pin is guessed.
+     */
     public synchronized com.nereusstream.delay.protocol.RecoveryPin retryCheckpointPinCreation() {
         requireCurrent();
         if (!ownsCheckpointPin || checkpointPin == null || checkpointPinReleased) {
@@ -3004,7 +3017,10 @@ public final class TargetWorkerSourceStartup {
         }
     }
 
-    /** Two real C-reader passes: the first captures/closes R, the second independently replays only that protected prefix. */
+    /**
+     * Two real C-reader passes: the first captures/closes R, the second independently replays only that protected
+     * prefix.
+     */
     public Optional<TargetWorkerRecoverySource> payloadSummaryRecoverySource(TargetWorkerRecoverySource original) {
         final OwnedCheckpointIo<TargetPayloadSummaryLegacyPrefix> acquired;
         synchronized (this) {
@@ -3245,7 +3261,9 @@ public final class TargetWorkerSourceStartup {
         return history == null ? actual : history;
     }
 
-    /** Retains the C reader until its real native close; the next factory turn must open a fresh reader at Native's cut. */
+    /**
+     * Retains the C reader until its real native close; the next factory turn must open a fresh reader at Native's cut.
+     */
     public boolean advanceMigrationHistory(TargetWorkerRecoverySource original) {
         synchronized (this) {
             if (recoverySource != original || recovery != null || activation != null) {
@@ -4464,7 +4482,9 @@ public final class TargetWorkerSourceStartup {
         actualWorker.retainPublicationBackend(original, budget);
     }
 
-    /** Builds the actual single-flight driver and its mandatory recovery/Journal maintenance, never a supplied runtime. */
+    /**
+     * Builds the actual single-flight driver and its mandatory recovery/Journal maintenance, never a supplied runtime.
+     */
     public TargetPulsarPublishRuntime configurePublishing(
             OwnedSourceSystemWriter writer, TargetWorkerPublishingConfiguration configuration) {
         try (var construction = beginWorkerResourceConstruction(worker)) {
@@ -4568,7 +4588,9 @@ public final class TargetWorkerSourceStartup {
         }
     }
 
-    /** Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure. */
+    /**
+     * Original acquired/activated lease for binding the deployment's existing OwnerIdentity; never inferred on failure.
+     */
     public synchronized OwnerLease ownerLease() {
         if (lease == null || stopping || firstFailure != null) {
             throw new IllegalStateException("original acquired Source lease is unavailable");

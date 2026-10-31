@@ -1809,7 +1809,9 @@ public final class TargetWorkerHostRuntime {
         }
     }
 
-    /** Registers the original actual authority graph while prepared, including a failed Host retained for fault exit. */
+    /**
+     * Registers the original actual authority graph while prepared, including a failed Host retained for fault exit.
+     */
     public void registerOxiaRuntime(TargetWorkerOxiaRuntime root) {
         final List<TargetWorkerShardRuntime> workers;
         synchronized (this) {
@@ -2956,7 +2958,9 @@ public final class TargetWorkerHostRuntime {
                 .allMatch(backend -> backend.resourcesTerminated() && backend.nativeResourcesTerminated());
     }
 
-    /** Reuses only permits already issued after this Host's actual barriers; does not fence or authorize a new group. */
+    /**
+     * Reuses only permits already issued after this Host's actual barriers; does not fence or authorize a new group.
+     */
     private void advanceOwnedBackendClose(List<TargetOwnedBackendGroup> backends) {
         Throwable failure = null;
         for (var backend : backends) {
@@ -3432,7 +3436,9 @@ public final class TargetWorkerHostRuntime {
     public record QuarantinedShardExit(
             ShardId shard, TargetOwnerDrainCoordinator.ReplayExit exited, RuntimeException failure) {}
 
-    /** Retries only the quarantined old process exit; pending ACK/UNKNOWN and protected candidates remain for replay. */
+    /**
+     * Retries only the quarantined old process exit; pending ACK/UNKNOWN and protected candidates remain for replay.
+     */
     public List<QuarantinedShardExit> exitQuarantinedForReplay(
             TargetOwnerDrainCoordinator.Request request, LongSupplier clock) {
         final List<Shard> current;

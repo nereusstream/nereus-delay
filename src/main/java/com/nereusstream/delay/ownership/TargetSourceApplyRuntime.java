@@ -1831,7 +1831,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new IllegalArgumentException("reclaim changed original Source Native Store");
             }
         }
-        /** Actual selected input and native read authority; the complete-flight capacity comes only from its held admission. */
+        /**
+         * Actual selected input and native read authority; the complete-flight capacity comes only from its held
+         * admission.
+         */
         public com.nereusstream.delay.runtime.TargetRetirementPreparation beginPreparation(
                 com.nereusstream.delay.runtime.TargetRetirementPreparation.Protection protection) {
             requireCurrent();
@@ -2670,7 +2673,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
                 throw new IllegalArgumentException("Native payment lookup is not an SDK exposure frame");
             }
         }
-        /** Actual remaining Native duties only; qualified time, signatures and physical closure coverage stay independent. */
+        /**
+         * Actual remaining Native duties only; qualified time, signatures and physical closure coverage stay
+         * independent.
+         */
         public synchronized boolean closureDischarge() {
             return value().closure() != NativeClosureDischarge.NONE;
         }
@@ -6150,7 +6156,9 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         }
     }
 
-    /** Legacy providers remain confined to the original component path; configured services require the new capability. */
+    /**
+     * Legacy providers remain confined to the original component path; configured services require the new capability.
+     */
     private <T> T checkpointRead(
             final BoundedReadBudget budget,
             final java.util.function.Function<TargetStoreBackend.Reader, T> projection,

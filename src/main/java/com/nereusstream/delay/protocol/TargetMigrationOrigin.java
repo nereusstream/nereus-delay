@@ -5,7 +5,9 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** One imported row's explicit baseline and complete old conversion closure; never a fabricated ordinary first/grant. */
+/**
+ * One imported row's explicit baseline and complete old conversion closure; never a fabricated ordinary first/grant.
+ */
 public record TargetMigrationOrigin(
         byte[] planDigest,
         byte[] migrationId,

@@ -4,7 +4,9 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Native72 original logical/physical identity projection; materialization Source never becomes the old logical first. */
+/**
+ * Native72 original logical/physical identity projection; materialization Source never becomes the old logical first.
+ */
 public record TargetMigrationArchiveRow(
         byte[] migrationId,
         byte[] planDigest,

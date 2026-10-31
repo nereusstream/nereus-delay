@@ -142,7 +142,9 @@ public final class TargetResourceReclaimMaintenance {
         default void requireInlinePayloadIndependent() {
             throw new IllegalStateException("GC input hold has no real inline reader/admission protection");
         }
-        /** Actual explicit Close/Registry lifecycle authorization and all old/current writer/zero-reference protection. */
+        /**
+         * Actual explicit Close/Registry lifecycle authorization and all old/current writer/zero-reference protection.
+         */
         default void requireIncarnationIndependent() {
             throw new IllegalStateException("GC hold lacks actual incarnation lifecycle protection");
         }
@@ -163,7 +165,9 @@ public final class TargetResourceReclaimMaintenance {
                 com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent) {
             return Optional.empty();
         }
-        /** Original durable capability/PUT closure and exact terminal history, acquired before physical closure/delete. */
+        /**
+         * Original durable capability/PUT closure and exact terminal history, acquired before physical closure/delete.
+         */
         default void requireRecoverableUncommittedProviderOperation(
                 com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent) {
             throw new IllegalStateException("durable original uncommitted upload/provider closure is unqualified");
@@ -172,14 +176,17 @@ public final class TargetResourceReclaimMaintenance {
         default com.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore objectPayloadStore() {
             throw new IllegalStateException("actual OBJECT provider unavailable");
         }
-        /** A bounded already loaded, independently authenticated original provider operation; absence is not evidence. */
+        /**
+         * A bounded already loaded, independently authenticated original provider operation; absence is not evidence.
+         */
         default Optional<com.nereusstream.delay.protocol.TargetResourceReclaimBody.ObjectPayloadConfirm>
                 objectPayloadHistoricalConfirmation(
                         com.nereusstream.delay.protocol.TargetPayloadObjectRetiringRecord intent) {
             return Optional.empty();
         }
         /**
-         * The original load authenticates the durable exact-operation-history guarantee outside locks; recheck it locally before I/O.
+         * The original load authenticates the durable exact-operation-history guarantee outside locks; recheck it
+         * locally before I/O.
          * It survives response loss, process/Owner/epoch loss and this preparation's close. Native56 and original
          * Source/Pin/reader protections remain durable until confirmation. No current Profile flag/empty GET or
          * in-memory receipt is that guarantee. Missing deployment integration rejects before DELETE.

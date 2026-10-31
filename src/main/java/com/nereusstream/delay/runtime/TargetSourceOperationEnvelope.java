@@ -202,8 +202,8 @@ public final class TargetSourceOperationEnvelope {
 
         private void requireFrameQualification() {
             if (requiresSourceFrameQualification()) {
-                throw unavailable(
-                        "Source service still needs its original frozen prefix and continuous writer frame qualification");
+                throw unavailable(("Source service still needs its original frozen prefix and continuous writer "
+                        + "frame qualification"));
             }
             frameContract.requireLocalCurrent();
         }

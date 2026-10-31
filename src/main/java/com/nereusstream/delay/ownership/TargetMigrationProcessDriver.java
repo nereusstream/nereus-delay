@@ -743,7 +743,10 @@ public final class TargetMigrationProcessDriver {
         state = State.MATERIAL;
     }
 
-    /** Revalidates the original C inventory against the already published fixed objects; writes no candidate or activation. */
+    /**
+     * Revalidates the original C inventory against the already published fixed objects; writes no candidate or
+     * activation.
+     */
     private void recoverMaterial(Runnable current) {
         if (!recoveredRoot.equals(readMigrationRoot())) {
             throw new IllegalStateException("opened migration root changed during recovery");

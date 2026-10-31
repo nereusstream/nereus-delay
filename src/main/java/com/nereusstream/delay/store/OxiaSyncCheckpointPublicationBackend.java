@@ -327,7 +327,9 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 "Catalog retirement adoption did not converge; original Source intent stays RETIRING");
     }
 
-    /** Only the original owner may discharge an exact stopped admission; missing ephemeral state alone is insufficient. */
+    /**
+     * Only the original owner may discharge an exact stopped admission; missing ephemeral state alone is insufficient.
+     */
     public void reconcileRetiringPinAdmission(CheckpointRetirementBarrier barrier, RecoveryPin exact) {
         barrier.requireCurrent();
         barrier.admissions.requirePinAttemptExited(exact);
@@ -1386,7 +1388,10 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         }
         return result;
     }
-    /** Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held protocol. */
+    /**
+     * Actual bounded Catalog/Pin reads and full immutable images; future admission still needs the original held
+     * protocol.
+     */
     public NativeRecoveryProtection captureNativeRecoveryProtection(
             com.nereusstream.delay.protocol.SystemMutation input,
             List<TargetCheckpointRootVerifier.AuthenticatedImage> images,
@@ -2062,7 +2067,9 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                 copy.requireFor(intent);
             }
         }
-        /** Actual bounded rereads, not a local boolean and not a substitute for the original admission/Pin protocols. */
+        /**
+         * Actual bounded rereads, not a local boolean and not a substitute for the original admission/Pin protocols.
+         */
         public void requireCurrent(BoundedReadBudget reads, Runnable current) {
             Objects.requireNonNull(reads);
             Objects.requireNonNull(current);

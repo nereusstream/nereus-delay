@@ -3,7 +3,9 @@ package com.nereusstream.delay.protocol;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Complete original DEDUPE bytes and their real provenance; compact evidence does not invent a logical first Source. */
+/**
+ * Complete original DEDUPE bytes and their real provenance; compact evidence does not invent a logical first Source.
+ */
 public record TargetMigrationArchiveEntry(
         byte[] originalKey,
         byte[] rawValue,

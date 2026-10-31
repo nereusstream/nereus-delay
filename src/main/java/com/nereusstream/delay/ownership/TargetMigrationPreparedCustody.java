@@ -178,7 +178,10 @@ public final class TargetMigrationPreparedCustody implements TargetMigrationSour
         retainedPreparedBytes = Math.addExact(restored.controlBytes(), restored.sdkFrameBytes());
         object = new TargetMigrationObjectReference(resource);
     }
-    /** Canonical byte decoding only. The independent startup Source owner still authenticates keys/actor/registration/cost/retention. */
+    /**
+     * Canonical byte decoding only. The independent startup Source owner still authenticates
+     * keys/actor/registration/cost/retention.
+     */
     public static TargetMigrationControlMutationFactory.Prepared restoreExact(
             byte[] bytes, TargetMigrationRequest request) {
         return decodeExact(bytes, request).exact();

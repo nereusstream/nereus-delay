@@ -105,7 +105,9 @@ public final class KafkaClientArtifactTargetReceiptProvider
         credentialReceipt.requireChannel(actual, time.get());
     }
 
-    /** Actual resolved private transport material must match the exact frozen binding/fingerprint, not a mutable alias. */
+    /**
+     * Actual resolved private transport material must match the exact frozen binding/fingerprint, not a mutable alias.
+     */
     @FunctionalInterface
     public interface CredentialMaterial {
         void requireConfigured(CredentialBinding original);
@@ -304,7 +306,10 @@ public final class KafkaClientArtifactTargetReceiptProvider
         requireProtected(resource, topic, partition);
     }
 
-    /** Snapshot lookup runs before the Store view; the apply callback only compares exact preloaded signed bytes and charges. */
+    /**
+     * Snapshot lookup runs before the Store view; the apply callback only compares exact preloaded signed bytes and
+     * charges.
+     */
     public TargetPublishAdmissionVerifier.MaterializationAuthority materialization(
             com.nereusstream.delay.protocol.SystemMutation prepared,
             com.nereusstream.delay.protocol.SourcePosition source) {

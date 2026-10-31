@@ -257,8 +257,8 @@ public final class TargetMigrationArchiveClosedContract {
         materials.inventory().requireContent(inventory);
         material(materials.permanentScopeGuard());
         if (!materials.coveredFamilies().equals(EnumSet.allOf(Family.class))) {
-            throw unavailable(
-                    "old query/cancel/terminal/control/new-scope namespace is not completely replaced or originally closed");
+            throw unavailable(("old query/cancel/terminal/control/new-scope namespace is not completely "
+                    + "replaced or originally closed"));
         }
         final var rows = List.copyOf(materials.domains());
         if (materials.domainCount() < 0 || materials.domainCount() != rows.size()) {
@@ -483,8 +483,8 @@ public final class TargetMigrationArchiveClosedContract {
         final byte[] producer = material(q.materials.authenticatedProducer(actual));
         final var domain = q.domains.get(Bytes.hex(producer));
         if (domain == null) {
-            throw unavailable(
-                    "post-T frame contradicts the complete original producer domain; preserve frame and stop roll-forward");
+            throw unavailable(("post-T frame contradicts the complete original producer domain; preserve frame "
+                    + "and stop roll-forward"));
         }
         q.materials.requireEntryBinding(domain, actual);
         final ProtocolTuple tuple = Objects.requireNonNull(
@@ -549,7 +549,10 @@ public final class TargetMigrationArchiveClosedContract {
                 domain);
     }
 
-    /** Recomputes the finite original clause; original issuer/producer/registration pins remain the receiver's authority. */
+    /**
+     * Recomputes the finite original clause; original issuer/producer/registration pins remain the receiver's
+     * authority.
+     */
     public static void requireClosedProof(
             byte[] fullProof,
             TargetMigrationRoot root,

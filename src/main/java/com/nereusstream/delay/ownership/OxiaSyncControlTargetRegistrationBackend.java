@@ -804,7 +804,8 @@ public final class OxiaSyncControlTargetRegistrationBackend
             if (observed == null) {
                 if (beforeBirth != null) {
                     throw new IllegalStateException(
-                            "resource first-birth marker exists without its Root; retain UNKNOWN and do not reconstruct");
+                            ("resource first-birth marker exists without its Root; retain UNKNOWN and do "
+                                    + "not reconstruct"));
                 }
                 requireNeverBorn();
                 requireCurrent();

@@ -33,7 +33,10 @@ public final class KafkaClientArtifactTargetReceiptAnchor {
                 byte[] actualSdkJarSha256);
     }
 
-    /** Private construction follows this actual guarded response. Its bytes still require an authenticated durable provider. */
+    /**
+     * Private construction follows this actual guarded response. Its bytes still require an authenticated durable
+     * provider.
+     */
     public static final class Observation {
         private final KafkaReceiptSlotResource resource;
         private final String topic;

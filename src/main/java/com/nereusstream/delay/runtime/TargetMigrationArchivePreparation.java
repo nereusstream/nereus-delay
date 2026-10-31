@@ -1602,7 +1602,9 @@ public final class TargetMigrationArchivePreparation {
         }
     }
 
-    /** Minted only inside the real Native planner; it carries exact projected facts, never a caller's completed claim. */
+    /**
+     * Minted only inside the real Native planner; it carries exact projected facts, never a caller's completed claim.
+     */
     public static final class TailPreparationRequired extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         private final transient TargetMigrationRoot root;

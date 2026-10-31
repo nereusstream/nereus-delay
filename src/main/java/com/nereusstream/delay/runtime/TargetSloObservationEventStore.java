@@ -45,7 +45,9 @@ public final class TargetSloObservationEventStore {
         default TargetScopeFeeAuthority scopeFees() {
             return TargetScopeFeeAuthority.UNAVAILABLE;
         }
-        /** Original semantic endpoint/time/history and real retained budget qualification; already-held local checks. */
+        /**
+         * Original semantic endpoint/time/history and real retained budget qualification; already-held local checks.
+         */
         void requireAuthorized(
                 TargetSloObservationGeneration generation,
                 TargetSloObservationSample sample,

@@ -30,7 +30,10 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.LongConsumer;
 
-/** Complete physical Native inventory for one held retirement view; independent recovery audits keep their original path. */
+/**
+ * Complete physical Native inventory for one held retirement view; independent recovery audits keep their original
+ * path.
+ */
 public final class TargetRetirementLedgerCursor {
     private final TargetCheckpointRootVerifier.RootProof root;
     private final long nativeSequence;
@@ -150,7 +153,10 @@ public final class TargetRetirementLedgerCursor {
         }
         return terminal;
     }
-    /** Internal exact joins while the final original historical predicates are still advancing; not a completion receipt. */
+    /**
+     * Internal exact joins while the final original historical predicates are still advancing; not a completion
+     * receipt.
+     */
     public TargetCheckpointDependencies dependenciesForClosure() {
         return fold.dependenciesForClosure();
     }
@@ -316,7 +322,10 @@ public final class TargetRetirementLedgerCursor {
                     ? null
                     : entry.getValue();
         }
-        /** Original full reference scans may use the complete inventory's exact object index; all other point joins stay original. */
+        /**
+         * Original full reference scans may use the complete inventory's exact object index; all other point joins stay
+         * original.
+         */
         public TargetRecordAccounting.View evidence(int subtype, byte[] digest) {
             final var selected = owner.references.get(subtype + ":" + Bytes.hex(digest));
             final var dependents = owner.dependents.get(subtype + ":" + Bytes.hex(digest));

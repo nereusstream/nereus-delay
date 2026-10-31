@@ -2670,10 +2670,11 @@ class TargetCommandStoreTest {
                                                                         .canonicalBytes(),
                                                                 writer.canonicalBytes());
                                                         final var verificationKey = keys.getPublic();
-                                                        final boolean ordinaryPublication = TargetPublishAdmissionBody
-                                                                        .decode(mutation.canonicalBody())
-                                                                        .publication()
-                                                                == null;
+                                                        final boolean ordinaryPublication =
+                                                                TargetPublishAdmissionBody.decode(
+                                                                                        mutation.canonicalBody())
+                                                                                .publication()
+                                                                        == null;
                                                         return new TargetPublishAdmissionVerifier.Authorization(
                                                                 verificationKey,
                                                                 ordinaryPublication

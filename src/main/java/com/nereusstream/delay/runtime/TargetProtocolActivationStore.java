@@ -50,7 +50,8 @@ public final class TargetProtocolActivationStore {
         PublicKey resolve(long version, SourcePosition source);
     }
     /**
-     * Trusted original Root must authenticate complete eligible membership/revisions/sessions, exact binary/SDK support,
+     * Trusted original Root must authenticate complete eligible membership/revisions/sessions, exact binary/SDK
+     * support,
      * established base environment/reset scope and independent issuer pin at this Source point. It retains every pin.
      * Historical collection must not resample today's readers or reactivate the old reset's cutover window.
      * Incomplete inputs throw; no caller boolean or data-record constructor grants this permission.
@@ -690,7 +691,10 @@ public final class TargetProtocolActivationStore {
             throw new IllegalStateException("archive reader activation needs its exact new Native53/first/POS batch");
         }
     }
-    /** Read-only ledger dependency; no local runtime capability or current reader/Owner is substituted for historical bytes. */
+    /**
+     * Read-only ledger dependency; no local runtime capability or current reader/Owner is substituted for historical
+     * bytes.
+     */
     public static void requirePriorActivation(
             TargetRecordAccounting.View view,
             List<TargetStoreBackend.Edit> overlay,

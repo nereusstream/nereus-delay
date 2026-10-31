@@ -42,7 +42,10 @@ public final class TargetReceiptCurrentManagement {
             throw new IllegalStateException("actual protected deployment/admission epoch is unavailable");
         }
     }
-    /** Immutable local view; the root authenticator retains its own transports/resources, none transfer to this snapshot. */
+    /**
+     * Immutable local view; the root authenticator retains its own transports/resources, none transfer to this
+     * snapshot.
+     */
     public interface Snapshot {
         ControlAuthorizationContext context();
 

@@ -7,7 +7,9 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Public original Root inputs; issuer trust is independently pinned at original Source, never granted by these bytes. */
+/**
+ * Public original Root inputs; issuer trust is independently pinned at original Source, never granted by these bytes.
+ */
 public record TargetProtocolRootIssuerEvidence(
         TargetInitialControlSnapshot initial,
         byte[] issuerKey,

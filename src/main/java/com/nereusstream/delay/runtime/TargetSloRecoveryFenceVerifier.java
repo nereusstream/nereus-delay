@@ -17,7 +17,10 @@ import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Local actual-prefix facts only; independent original Fence/time authority and old-domain qualification remain required. */
+/**
+ * Local actual-prefix facts only; independent original Fence/time authority and old-domain qualification remain
+ * required.
+ */
 public final class TargetSloRecoveryFenceVerifier {
     private TargetSloRecoveryFenceVerifier() {}
 

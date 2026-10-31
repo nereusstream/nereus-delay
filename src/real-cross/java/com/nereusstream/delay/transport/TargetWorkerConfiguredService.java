@@ -119,7 +119,9 @@ public final class TargetWorkerConfiguredService {
         }
     }
 
-    /** Independent original Journal material and literal client settings; no destination channel supplies its authority. */
+    /**
+     * Independent original Journal material and literal client settings; no destination channel supplies its authority.
+     */
     public record JournalInputs(
             TargetWorkerServiceConfiguration.PulsarClientConfiguration client,
             CredentialBinding binding,
@@ -596,7 +598,8 @@ public final class TargetWorkerConfiguredService {
             }
             if ((source.nativeGc() != null) != (input.nativeGc() != null)) {
                 throw new IllegalArgumentException(
-                        "Native GC configuration requires its exact original input provider and qualified UTC supplier");
+                        ("Native GC configuration requires its exact original input provider and "
+                                + "qualified UTC supplier"));
             }
             if (source.nativeGc() != null) {
                 if (processConfig.worker().source().counters() < 4) {
@@ -633,7 +636,8 @@ public final class TargetWorkerConfiguredService {
             if (!(input.content().reads()
                     instanceof com.nereusstream.delay.store.TargetStoreBackend.CheckpointReadAuthority)) {
                 throw new IllegalArgumentException(
-                        "configured service requires the original checkpoint read authority with independent external and local checks");
+                        ("configured service requires the original checkpoint read authority with "
+                                + "independent external and local checks"));
             }
             retainedHeap = Math.addExact(
                     retainedHeap,

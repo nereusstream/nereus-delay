@@ -30,7 +30,9 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
          */
         Debit reserveMigrationControl(Request request, Runnable current);
 
-        /** Actual original controlled namespace/cost/retention loan; raw custody algorithm remains in this repository. */
+        /**
+         * Actual original controlled namespace/cost/retention loan; raw custody algorithm remains in this repository.
+         */
         default TargetMigrationPreparedCustody.Backing maintenancePreparedBacking(PreparedRequest request) {
             throw new IllegalStateException("original Source owner lacks prepaid exact Prepared history backing");
         }
@@ -63,7 +65,9 @@ public final class TargetMigrationSourceExposure implements CheckpointInputFutur
         public byte[] candidateId() {
             return candidateId(request);
         }
-        /** Pure identity for startup recovery's independent original Source/registration loader; grants no capability. */
+        /**
+         * Pure identity for startup recovery's independent original Source/registration loader; grants no capability.
+         */
         public static byte[] candidateId(com.nereusstream.delay.protocol.TargetMigrationRequest request) {
             final byte[] identity =
                     switch (request) {

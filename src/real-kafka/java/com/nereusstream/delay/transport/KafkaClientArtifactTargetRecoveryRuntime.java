@@ -91,7 +91,9 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
     private int readerMaximumTurns;
     private volatile boolean ready, stopping, closed;
 
-    /** Called only by the accepted Source startup, which reads the original mapping rather than accepting a caller DTO. */
+    /**
+     * Called only by the accepted Source startup, which reads the original mapping rather than accepting a caller DTO.
+     */
     static KafkaClientArtifactTargetRecoveryRuntime create(
             TargetWorkerSourceStartup startup,
             TargetWorkerShardRuntime worker,
@@ -522,7 +524,9 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         return poll.receipt();
     }
 
-    /** Independent recovery requires a durably selected exact proof ref; memory observations cannot use the legacy path. */
+    /**
+     * Independent recovery requires a durably selected exact proof ref; memory observations cannot use the legacy path.
+     */
     public TargetPublishRecoveryMaintenance.ResolutionAuthority resolutionAuthority() {
         throw new IllegalStateException(
                 "independent K2 resolution requires archived proof and proof-bearing Source composition");
@@ -572,7 +576,10 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         }
     }
 
-    /** One original owned future drives SDK opening/finite scan/archive, retaining actual I/O/cleanup facts on detached views. */
+    /**
+     * One original owned future drives SDK opening/finite scan/archive, retaining actual I/O/cleanup facts on detached
+     * views.
+     */
     CompletableFuture<TargetPublishRecoveryMaintenance.Prepared> recoverArchivedResolution(
             int maximumTurns,
             KafkaClientArtifactTargetRecoveryProofIssuer issuer,
@@ -843,7 +850,9 @@ public final class KafkaClientArtifactTargetRecoveryRuntime implements TargetWor
         return archiving.receipt();
     }
 
-    /** Runs after actual Source first observation; it deliberately does not require the old pending/material permission. */
+    /**
+     * Runs after actual Source first observation; it deliberately does not require the old pending/material permission.
+     */
     private synchronized CompletableFuture<java.util.Optional<TargetRecoveryEvidenceStore.Adoption>>
             completeArchivedSource(TargetArchivedKafkaResolution exact) {
         final var image = exact.mutation();

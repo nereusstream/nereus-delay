@@ -13,7 +13,9 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
-/** Constructs actual configured Source runtimes from native committed/recovered Store roots, not caller-built runtimes. */
+/**
+ * Constructs actual configured Source runtimes from native committed/recovered Store roots, not caller-built runtimes.
+ */
 public final class TargetWorkerSourceRuntimeFactory {
     private TargetWorkerSourceRuntimeFactory() {}
 
@@ -165,7 +167,10 @@ public final class TargetWorkerSourceRuntimeFactory {
             opening.requireCheckpoint(Objects.requireNonNull(actual));
             requireLocalCurrent();
         }
-        /** Retained authenticated archive material has its historical guard proof in the same original complete prefix hold. */
+        /**
+         * Retained authenticated archive material has its historical guard proof in the same original complete prefix
+         * hold.
+         */
         public void requireRetainedFrame(com.nereusstream.delay.protocol.SourcePosition actual, long bytes) {
             requireLocalCurrent();
             if (opening != null) {
@@ -201,7 +206,8 @@ public final class TargetWorkerSourceRuntimeFactory {
             }
             if (bytes < 1 || bytes > snapshot.maximumSourceFrameBytes()) {
                 throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
-                        "retained actual Source frame is outside the authenticated complete frame freeze; preserve its raw responsibility");
+                        ("retained actual Source frame is outside the authenticated complete frame "
+                                + "freeze; preserve its raw responsibility"));
             }
         }
 
@@ -406,7 +412,10 @@ public final class TargetWorkerSourceRuntimeFactory {
         return new SourceConstructionFailure(failure, activation);
     }
 
-    /** Uses the actual accepted assignment and this root's original Oxia session; an uncertain acquire is never guessed on reread. */
+    /**
+     * Uses the actual accepted assignment and this root's original Oxia session; an uncertain acquire is never guessed
+     * on reread.
+     */
     public static OwnerLease acquire(
             TargetWorkerOxiaRuntime oxia,
             AuthenticatedTenantContext tenant,
@@ -467,7 +476,10 @@ public final class TargetWorkerSourceRuntimeFactory {
         }
     }
 
-    /** Fresh bootstrap has already committed the genuine initial Source/root batch; this performs actual Owner activation. */
+    /**
+     * Fresh bootstrap has already committed the genuine initial Source/root batch; this performs actual Owner
+     * activation.
+     */
     public static Activated initialize(
             TargetWorkerOxiaRuntime oxia,
             TargetWorkerRuntimeConfig config,
@@ -515,7 +527,10 @@ public final class TargetWorkerSourceRuntimeFactory {
         }
     }
 
-    /** Real same-DB reopen and protected no-ACK recovery; Source/Journal inputs retain their original provider ownership. */
+    /**
+     * Real same-DB reopen and protected no-ACK recovery; Source/Journal inputs retain their original provider
+     * ownership.
+     */
     public static Recovery reopen(
             TargetWorkerOxiaRuntime oxia,
             TargetWorkerRuntimeConfig config,
@@ -560,7 +575,9 @@ public final class TargetWorkerSourceRuntimeFactory {
                 null);
     }
 
-    /** Exact installed Target image recovery retains its original published Catalog/Pin throughout Source/Claim replay. */
+    /**
+     * Exact installed Target image recovery retains its original published Catalog/Pin throughout Source/Claim replay.
+     */
     public static Recovery recoverInstalled(
             TargetWorkerOxiaRuntime oxia,
             TargetWorkerRuntimeConfig config,
@@ -1013,7 +1030,10 @@ public final class TargetWorkerSourceRuntimeFactory {
         }
     }
 
-    /** No automatic Store/lease release: the original process root must settle I/O, close the Store, then decide lease release. */
+    /**
+     * No automatic Store/lease release: the original process root must settle I/O, close the Store, then decide lease
+     * release.
+     */
     public static final class AssemblyFailure extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         private final transient ShardStore store;

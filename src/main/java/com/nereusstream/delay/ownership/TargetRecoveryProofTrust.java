@@ -124,7 +124,9 @@ public final class TargetRecoveryProofTrust {
         }
         return key;
     }
-    /** No current Owner/session/credential/active requirement: this authenticates the original signed observation only. */
+    /**
+     * No current Owner/session/credential/active requirement: this authenticates the original signed observation only.
+     */
     public Verified verify(String exactKey, byte[] signedValue) {
         try {
             final var proof = TargetRecoveryProof.decode(signedValue);

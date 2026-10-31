@@ -3,7 +3,10 @@ package com.nereusstream.delay.protocol;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Exact provider observation data for a retained marker. Only the original Catalog may authenticate the actual operation. */
+/**
+ * Exact provider observation data for a retained marker. Only the original Catalog may authenticate the actual
+ * operation.
+ */
 public record TargetEvidenceRetiredMarkerEvidence(
         TargetEvidenceRetiredMarker marker,
         byte[] observedMarkerDigest,

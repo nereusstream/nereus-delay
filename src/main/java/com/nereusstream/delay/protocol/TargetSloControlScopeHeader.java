@@ -327,7 +327,9 @@ public final class TargetSloControlScopeHeader {
         return reference().equals(reference);
     }
 
-    /** Structural Scope membership only. Original birth, actor, alias and complete-domain authority remain independent. */
+    /**
+     * Structural Scope membership only. Original birth, actor, alias and complete-domain authority remain independent.
+     */
     public void requireInput(TargetSloControlRegisteredInput input) {
         final var actual = Objects.requireNonNull(input);
         if (!matches(actual.headerReference()) || actual.entryBytes() > limits.maximumEntryBytes()) {

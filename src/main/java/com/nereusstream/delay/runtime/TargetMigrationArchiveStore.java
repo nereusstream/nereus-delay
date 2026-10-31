@@ -115,7 +115,9 @@ public final class TargetMigrationArchiveStore {
         requireEdits(reader, edits, at);
         return true;
     }
-    /** Independently held original management payment. Acquired on owned I/O; all checks here consume local held data. */
+    /**
+     * Independently held original management payment. Acquired on owned I/O; all checks here consume local held data.
+     */
     public interface OriginalInputs {
         void requireManagementPayment(
                 TargetMigrationRoot root,
@@ -1106,7 +1108,9 @@ public final class TargetMigrationArchiveStore {
         proof.requireCurrent();
         return List.copyOf(edits);
     }
-    /** Original new owner retains the real Source frame, frozen old contract and exact physical charge through commit. */
+    /**
+     * Original new owner retains the real Source frame, frozen old contract and exact physical charge through commit.
+     */
     public interface ReplayInputs {
         TargetMigrationRecordReference sourceRecord(SourceReplayEntry actual);
         /** Same material's captured original fence; no I/O or authority substitution. */
@@ -1309,7 +1313,9 @@ public final class TargetMigrationArchiveStore {
                 }));
         return new PreparedReplay(backend, batch, outcome, current);
     }
-    /** Pure derivative projection shared by actual custody, Source writing and cold verification; it mints no authority. */
+    /**
+     * Pure derivative projection shared by actual custody, Source writing and cold verification; it mints no authority.
+     */
     public static List<TargetMigrationArchiveEntry> closedEntries(
             AppliedTakeover takeover,
             TargetMigrationArchiveState prior,
@@ -1429,7 +1435,8 @@ public final class TargetMigrationArchiveStore {
                     decision.requireReader(reader, takeover, actual);
                     if (reader.source() == null || actual.position().compareTo(reader.source()) <= 0) {
                         throw new IllegalStateException(
-                                "route an already applied closed-contract occurrence through actual Native72 physical replay");
+                                ("route an already applied closed-contract occurrence through actual "
+                                        + "Native72 physical replay"));
                     }
                     if (reader.closedIngressDeadlineThrough() != fence
                             || !decision.before().equals(reader.aggregate().mutation())) {
@@ -1569,7 +1576,10 @@ public final class TargetMigrationArchiveStore {
                         "actual archived original logical first");
         requirePhysicalRow(row, first, plan, physical);
     }
-    /** Actual archived physical first reference/frame/result; its independent Source/fence authority is retained by the new owner. */
+    /**
+     * Actual archived physical first reference/frame/result; its independent Source/fence authority is retained by the
+     * new owner.
+     */
     public static void requirePhysical(TargetCheckpointDependencies dependencies, TargetMigrationArchiveRow row) {
         if (row.sourceBranch() != TargetMigrationArchiveRow.SourceBranch.ARCHIVE_REPLAY) {
             return;
@@ -1869,7 +1879,10 @@ public final class TargetMigrationArchiveStore {
         requireCheckpointFormat(dependencies, state);
         genuineM.requireCheckpoint(dependencies.root());
     }
-    /** Structural Source/first/POS join; the original lifecycle audit independently authenticates its Root/issuer/readers. */
+    /**
+     * Structural Source/first/POS join; the original lifecycle audit independently authenticates its
+     * Root/issuer/readers.
+     */
     private static void requireCheckpointFormat(
             TargetCheckpointDependencies dependencies, TargetQuotaMutation business, byte[] actualFrame) {
         final var migration = Objects.requireNonNull(dependencies.migrationRoot());
@@ -1935,7 +1948,10 @@ public final class TargetMigrationArchiveStore {
         }
     }
 
-    /** Same complete archive fold for protected multi-turn preparation; construction does not copy or sort the inventory. */
+    /**
+     * Same complete archive fold for protected multi-turn preparation; construction does not copy or sort the
+     * inventory.
+     */
     public static final class RetirementCursor {
         private final TargetCheckpointDependencies dependencies;
         private final TargetMigrationRoot root;

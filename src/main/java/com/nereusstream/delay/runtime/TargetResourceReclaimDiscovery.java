@@ -306,7 +306,9 @@ public final class TargetResourceReclaimDiscovery {
             Objects.requireNonNull(continuation);
             Objects.requireNonNull(stop);
         }
-        /** End of this traversal only; concurrent earlier inserts are picked up when the caller starts the next sweep. */
+        /**
+         * End of this traversal only; concurrent earlier inserts are picked up when the caller starts the next sweep.
+         */
         public boolean complete() {
             return stop == Stop.RANGE_END;
         }

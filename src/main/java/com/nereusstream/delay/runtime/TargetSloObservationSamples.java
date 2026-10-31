@@ -224,7 +224,8 @@ public final class TargetSloObservationSamples {
                 if (generation.policy().declarations().stream()
                         .anyMatch(d -> d.objective().name() == SloObjectiveName.DUE_ADMISSION_LAG)) {
                     throw new IllegalStateException(
-                            "native-capable Message eligibility requires its original qualified Source observation producer");
+                            ("native-capable Message eligibility requires its original qualified Source "
+                                    + "observation producer"));
                 }
                 continue;
             }
@@ -331,7 +332,8 @@ public final class TargetSloObservationSamples {
             lower = Bytes.concat(row.key(), new byte[] {0});
         }
         throw new IllegalStateException(
-                "Admission cannot create a missing ALL_ACCEPTED eligibility Start or change its observation generation");
+                ("Admission cannot create a missing ALL_ACCEPTED eligibility Start or change its "
+                        + "observation generation"));
     }
 
     private static Plan append(
@@ -708,8 +710,8 @@ public final class TargetSloObservationSamples {
             }
         }
         if (!reserved && !touched.isEmpty()) {
-            throw new IllegalStateException(
-                    "legacy SLO generation has no persistent completion reservation for new sample/event/custody writes");
+            throw new IllegalStateException(("legacy SLO generation has no persistent completion reservation for new "
+                    + "sample/event/custody writes"));
         }
         final var reservation = reserved
                 ? (prior == null ? TargetSloObservationGeneration.Counts.Reservation.empty() : base.reservation())

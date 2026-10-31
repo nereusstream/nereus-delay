@@ -124,7 +124,8 @@ public record TargetProtocolReaderSet(TargetProtocolActivationDescriptor descrip
                             && sameReaderLocks(value));
             if (!known) {
                 throw new IllegalStateException(
-                        "eligible reader lacks the explicit migration/Native32v2 decoder matrix under the same actual binary/SDK locks");
+                        ("eligible reader lacks the explicit migration/Native32v2 decoder matrix under "
+                                + "the same actual binary/SDK locks"));
             }
         }
     }

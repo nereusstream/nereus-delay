@@ -27,7 +27,9 @@ import java.util.Objects;
 public final class TargetScopeControlObligationVerifier {
     private TargetScopeControlObligationVerifier() {}
 
-    /** Original registry/physical Source funding and retention are independently held, never inferred from Native bytes. */
+    /**
+     * Original registry/physical Source funding and retention are independently held, never inferred from Native bytes.
+     */
     public interface CapacityAuthority {
         default void requireHistoricalAuthorized(
                 TargetScopeControlObligation obligation, TargetParentControlCredit parent) {

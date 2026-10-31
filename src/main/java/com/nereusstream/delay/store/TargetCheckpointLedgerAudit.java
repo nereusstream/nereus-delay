@@ -1285,7 +1285,10 @@ final class TargetCheckpointLedgerAudit {
         }
     }
 
-    /** Independent exact inventory/first-result correlation; complete blob cryptographic authentication is outside Store I/O. */
+    /**
+     * Independent exact inventory/first-result correlation; complete blob cryptographic authentication is outside Store
+     * I/O.
+     */
     private static void auditRetirementResults(
             List<com.nereusstream.delay.protocol.TargetEvidenceRetiringRecord> records,
             List<TargetResultLedgerAudit.Stored> results) {
@@ -1422,7 +1425,9 @@ final class TargetCheckpointLedgerAudit {
         }
     }
 
-    /** Independent inventory correlation. Complete actual external byte authentication follows outside the Store view. */
+    /**
+     * Independent inventory correlation. Complete actual external byte authentication follows outside the Store view.
+     */
     private static void auditExternalEvidenceReferences(
             List<com.nereusstream.delay.protocol.TargetKafkaReceiptMapping> mappings,
             List<com.nereusstream.delay.protocol.TargetExternalEvidenceOwner> owners,
@@ -3026,8 +3031,8 @@ final class TargetCheckpointLedgerAudit {
                             if (expectedExternal.size() != externalReferences.size()
                                     || usedExternal.size() != externalIndex.size()
                                     || createdExternal.size() != externalIndex.size()) {
-                                throw new IllegalStateException(
-                                        "external owner/ref inventory lacks complete original mapping/adoption closure");
+                                throw new IllegalStateException(("external owner/ref inventory lacks complete original "
+                                        + "mapping/adoption closure"));
                             }
                             joinPhase++;
                             joinIndex = 0;

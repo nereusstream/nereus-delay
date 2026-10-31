@@ -167,7 +167,10 @@ public final class TargetRetirementPreparation {
         prepared.pendingObject = pending;
         return prepared.recovery(catalog, recovery);
     }
-    /** The original Catalog's actual exact-input recovery receipt, acquired before this flight starts reading Native pages. */
+    /**
+     * The original Catalog's actual exact-input recovery receipt, acquired before this flight starts reading Native
+     * pages.
+     */
     public TargetRetirementPreparation recovery(
             OxiaSyncCheckpointPublicationBackend catalog,
             OxiaSyncCheckpointPublicationBackend.NativeRecoveryProtection recovery) {

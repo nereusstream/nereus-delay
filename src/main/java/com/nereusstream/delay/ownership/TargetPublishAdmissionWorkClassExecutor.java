@@ -115,7 +115,9 @@ public final class TargetPublishAdmissionWorkClassExecutor {
         }
     }
 
-    /** APPLIED and REJECTED are both real terminal first results; only the separate Applied Store proof permits SEND. */
+    /**
+     * APPLIED and REJECTED are both real terminal first results; only the separate Applied Store proof permits SEND.
+     */
     public synchronized Optional<SystemMutationResult> settle(final LongSupplier ownerClock) {
         final var submission = Objects.requireNonNull(pending, "pending Admission");
         final var result = readFirstResult(submission, Objects.requireNonNull(ownerClock, "ownerClock"));

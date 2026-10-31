@@ -17,7 +17,10 @@ import com.nereusstream.delay.store.TargetValueEnvelope;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Actual A/first/POSITION and immutable Native66 joins. Original objects/history are read separately outside Store locks. */
+/**
+ * Actual A/first/POSITION and immutable Native66 joins. Original objects/history are read separately outside Store
+ * locks.
+ */
 public final class TargetMigrationPayloadJoins {
     private TargetMigrationPayloadJoins() {}
 

@@ -25,7 +25,10 @@ import java.util.function.LongSupplier;
 
 /** One business Source entry's bounded post-sync observations; completion never waits for the next Source apply. */
 public final class TargetSloFinalContinuation implements SourceApplyTarget.FinalContinuation {
-    /** Original post-read UTC, SERVICE signer and complete reservation/retention custody; all I/O stays on the caller pool. */
+    /**
+     * Original post-read UTC, SERVICE signer and complete reservation/retention custody; all I/O stays on the caller
+     * pool.
+     */
     @FunctionalInterface
     public interface Provider {
         Held prepare(
@@ -425,8 +428,8 @@ public final class TargetSloFinalContinuation implements SourceApplyTarget.Final
                     || !Arrays.equals(body.bindingDigest(), sample.bindingDigest())
                     || !evidence.inspectedAt().equals(inspectedAt)
                     || !body.isSourceAssigned()) {
-                throw new IllegalArgumentException(
-                        "Final provider changed original sample/binding/author/read cut or Source-assigned observation");
+                throw new IllegalArgumentException(("Final provider changed original sample/binding/author/read cut or "
+                        + "Source-assigned observation"));
             }
             evidence.requireSample(sample);
             if (entry instanceof SourceReplayRecord) {

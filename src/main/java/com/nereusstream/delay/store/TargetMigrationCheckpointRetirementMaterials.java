@@ -16,7 +16,10 @@ import com.nereusstream.delay.runtime.TargetResultRecord;
 import java.util.List;
 import java.util.Objects;
 
-/** Combines complete immutable migration content with the original public Source and actual Catalog retirement authority. */
+/**
+ * Combines complete immutable migration content with the original public Source and actual Catalog retirement
+ * authority.
+ */
 public final class TargetMigrationCheckpointRetirementMaterials
         implements TargetCheckpointControlAuthority.MigrationMaterials {
     private final TargetCheckpointControlAuthority.MigrationMaterials original;

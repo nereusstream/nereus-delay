@@ -52,7 +52,9 @@ public final class TargetMigrationRetirementOwner implements TargetMigrationMain
         this.checkpoints = Objects.requireNonNull(checkpoints);
         this.resources = Objects.requireNonNull(resources);
     }
-    /** Capture the actual full member cut before signing; supplied resources still need original-owner authentication. */
+    /**
+     * Capture the actual full member cut before signing; supplied resources still need original-owner authentication.
+     */
     public TargetMigrationRetirementInventory inventory(
             TargetMigrationRoot actual,
             List<TargetMigrationRetirementInventory.Resource> exactResources,

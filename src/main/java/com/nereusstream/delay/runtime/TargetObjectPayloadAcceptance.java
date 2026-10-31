@@ -24,7 +24,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Exact retained Native joins, not a proof-key verifier or a deletion authority. Root history authenticates acceptance. */
+/**
+ * Exact retained Native joins, not a proof-key verifier or a deletion authority. Root history authenticates acceptance.
+ */
 public final class TargetObjectPayloadAcceptance {
     private TargetObjectPayloadAcceptance() {}
 

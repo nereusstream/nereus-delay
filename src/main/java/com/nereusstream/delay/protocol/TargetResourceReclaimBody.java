@@ -366,7 +366,8 @@ public record TargetResourceReclaimBody(
                     && expected.kind() != TargetResultRecord.Kind.POSITION_COMMAND_EXPIRED
                     && expected.kind() != TargetResultRecord.Kind.POSITION_COMMAND) {
                 throw new IllegalArgumentException(
-                        "only query-result, standalone expired POSITION and strictly later COMMAND POSITION leaves are supported");
+                        ("only query-result, standalone expired POSITION and strictly later COMMAND "
+                                + "POSITION leaves are supported"));
             }
         }
 

@@ -35,7 +35,8 @@ public record TargetProtocolActivatePayload(
                         && !(rootAuthorization.migrated()
                                 && (descriptor.schemaVersion() == 10 || descriptor.schemaVersion() == 11))) {
             throw new IllegalArgumentException(
-                    "new reader descriptor requires the original Root issuer authorization; old payload stays unchanged");
+                    ("new reader descriptor requires the original Root issuer authorization; old "
+                            + "payload stays unchanged"));
         }
         if (rootAuthorization != null
                 && (!scope.equals(rootAuthorization.scope())

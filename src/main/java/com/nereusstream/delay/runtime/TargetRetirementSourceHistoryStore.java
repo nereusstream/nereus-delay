@@ -26,7 +26,9 @@ import java.util.Objects;
 /** Local Native joins only; independent original Root authentication happens outside these views. */
 public final class TargetRetirementSourceHistoryStore {
     private TargetRetirementSourceHistoryStore() {}
-    /** Exact Native point lookup: no full history scan, current file head or currently admitted Worker is substituted. */
+    /**
+     * Exact Native point lookup: no full history scan, current file head or currently admitted Worker is substituted.
+     */
     public static TargetRetirementHistoryTipRecord currentTip(
             TargetStoreBackend.Reader reader,
             TargetQuotaScope scope,

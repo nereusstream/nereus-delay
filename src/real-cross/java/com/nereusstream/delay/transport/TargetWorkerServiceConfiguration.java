@@ -674,7 +674,8 @@ public final class TargetWorkerServiceConfiguration {
                             || mode == Mode.FRESH
                             || typedMigration == null && typedMigrationCompatibility == null)) {
                 throw new IllegalArgumentException(
-                        "daily migration retirement requires its actual activated migration and protected compatibility root");
+                        ("daily migration retirement requires its actual activated migration and "
+                                + "protected compatibility root"));
             }
             if (payloadSummaryInitialization != null
                     && (!scope.equals(
@@ -1075,7 +1076,8 @@ public final class TargetWorkerServiceConfiguration {
                         || !liveFields.keySet().equals(Set.of("file", "sourceFile", "writerFile"))
                         || migration == null && compatibility == null) {
                     throw new IllegalArgumentException(
-                            "daily migration maintenance requires exact finite configuration and independent Source SDK files");
+                            ("daily migration maintenance requires exact finite configuration and "
+                                    + "independent Source SDK files"));
                 }
                 final Path liveFile = files.add(resolve(base, liveFields.get("file")), MAXIMUM_FILE_BYTES);
                 files.references(liveFile, "maintenance.migrationFile");

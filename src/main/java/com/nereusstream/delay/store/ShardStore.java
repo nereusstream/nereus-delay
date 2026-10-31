@@ -1763,7 +1763,10 @@ public final class ShardStore implements AutoCloseable {
         return false;
     }
 
-    /** Original partial restore probes remain reachable after failed native teardown; no ACTIVE directory is deleted here. */
+    /**
+     * Original partial restore probes remain reachable after failed native teardown; no ACTIVE directory is deleted
+     * here.
+     */
     private static final class TargetInstallCleanup extends IllegalStateException
             implements com.nereusstream.delay.ownership.CheckpointInputFuture.Cleanup {
         private static final long serialVersionUID = 1L;
@@ -1961,7 +1964,9 @@ public final class ShardStore implements AutoCloseable {
         return false;
     }
 
-    /** Only repository-minted, unexposed native-opening/install owners are retried, never arbitrary authority callbacks. */
+    /**
+     * Only repository-minted, unexposed native-opening/install owners are retried, never arbitrary authority callbacks.
+     */
     public static boolean retryTargetOpeningCleanup(Throwable failure) {
         return retryTargetOpeningCleanup(
                 failure, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));

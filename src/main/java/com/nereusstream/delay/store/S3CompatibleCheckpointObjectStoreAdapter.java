@@ -451,7 +451,9 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         }
     }
 
-    /** Fixed immutable lookup only. A 404 is provider data, never authority to resign an already exposed Source frame. */
+    /**
+     * Fixed immutable lookup only. A 404 is provider data, never authority to resign an already exposed Source frame.
+     */
     public synchronized java.util.Optional<MigrationObject> lookupMigrationObject(
             byte[] lineage, byte[] checkpoint, String fixedName, int maximumBytes) {
         requireMigrationLength(0, maximumBytes);

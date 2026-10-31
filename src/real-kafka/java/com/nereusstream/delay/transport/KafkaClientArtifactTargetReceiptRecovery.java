@@ -15,7 +15,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** One actual guarded poll per caller-driven turn after same-ID fencing; the first response freezes the finite range. */
+/**
+ * One actual guarded poll per caller-driven turn after same-ID fencing; the first response freezes the finite range.
+ */
 public final class KafkaClientArtifactTargetReceiptRecovery implements AutoCloseable {
     public enum Status {
         WAITING,
@@ -27,7 +29,9 @@ public final class KafkaClientArtifactTargetReceiptRecovery implements AutoClose
 
     public record Turn(Status status, long nextOffset, Observation observation) {}
 
-    /** Private actual scan result; canonical/hash equality never substitutes for current independent recovery rights. */
+    /**
+     * Private actual scan result; canonical/hash equality never substitutes for current independent recovery rights.
+     */
     public static final class Observation {
         private final TargetKafkaReceiptMapping mapping;
         private final PublishEvidence evidence;

@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Five exact original DEDUPE ranges, including physical provenance. Only the private complete scanner proves these data. */
+/**
+ * Five exact original DEDUPE ranges, including physical provenance. Only the private complete scanner proves these
+ * data.
+ */
 public record TargetMigrationArchiveCoverage(List<Range> ranges) {
     public static final int MAX_CANONICAL_BYTES = 5 * (3 * TargetMigrationArchiveEntry.MAX_KEY_BYTES + 128) + 32;
 

@@ -4,7 +4,9 @@ import com.nereusstream.delay.store.TargetKeyCodec;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Permanent root-bound retirement fact; the original migration root/birth and every resource receipt remain retained. */
+/**
+ * Permanent root-bound retirement fact; the original migration root/birth and every resource receipt remain retained.
+ */
 public record TargetMigrationRetirementRecord(
         TargetQuotaIncarnation payer,
         PreparedControlOperation intentControl,

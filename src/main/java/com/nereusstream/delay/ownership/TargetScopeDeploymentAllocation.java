@@ -208,7 +208,10 @@ public final class TargetScopeDeploymentAllocation {
             throw new TargetSourceAuthorityPreparation.InputUnavailable(
                     "original Source has no complete prepaid read/codec service window");
         }
-        /** Actual Root-selected Native work under the same original IO/SDK/shared owner; computed bytes alone grant none. */
+        /**
+         * Actual Root-selected Native work under the same original IO/SDK/shared owner; computed bytes alone grant
+         * none.
+         */
         default void requireNativeSourceService(
                 TargetWorkerSourceStartup.FrameOpening opening,
                 SourceSnapshot authenticated,
@@ -232,7 +235,10 @@ public final class TargetScopeDeploymentAllocation {
             throw new TargetWorkerSourceStartup.FrameCapacityUnavailable(
                     "original Source has no current prepaid SDK/read/codec subloan");
         }
-        /** Same complete Source freeze for this exact authenticated old Store/Manifest acquisition; grants no Target writes. */
+        /**
+         * Same complete Source freeze for this exact authenticated old Store/Manifest acquisition; grants no Target
+         * writes.
+         */
         default void requireAllRetainedAndFutureFrames(
                 TargetMigrationProcessDriver.FrameOpening opening, SourceSnapshot authenticated) {
             throw new TargetSourceAuthorityPreparation.InputUnavailable(

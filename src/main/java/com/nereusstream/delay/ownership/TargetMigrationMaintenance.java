@@ -628,7 +628,8 @@ public final class TargetMigrationMaintenance {
         }
         if (first.applyStatus() != ApplyStatus.APPLIED || first.stableCode() != StableCode.OK) {
             throw new IllegalStateException(
-                    "original migration Source input has a terminal non-success first; retain its original obligations");
+                    ("original migration Source input has a terminal non-success first; retain its "
+                            + "original obligations"));
         }
         if (request instanceof TargetMigrationSettlementRequest settlement) {
             admission

@@ -57,7 +57,10 @@ public final class TargetCheckpointRetirementActions {
     }
 
     public interface DeleteHold extends Hold {
-        /** Actual original APPLIED retire contract and first/POS/protection history, independently authenticated by its original owner. */
+        /**
+         * Actual original APPLIED retire contract and first/POS/protection history, independently authenticated by its
+         * original owner.
+         */
         ResourceRetireIntentRecord originalRetire();
 
         void requireOriginalContract(
@@ -112,7 +115,8 @@ public final class TargetCheckpointRetirementActions {
         barrier.requireDrained();
         if (resource.disposition() != TargetMigrationRetirementInventory.Disposition.RETIRE) {
             throw new IllegalStateException(
-                    "checkpoint with retained/transfer duties requires its real original custody owner, not physical deletion");
+                    ("checkpoint with retained/transfer duties requires its real original custody "
+                            + "owner, not physical deletion"));
         }
         final var identity = CheckpointRetirementResourceIdentity.decode(resource.exactIdentity());
         if (resource.kind() != TargetMigrationRetirementInventory.Kind.CHECKPOINT
@@ -334,7 +338,8 @@ public final class TargetCheckpointRetirementActions {
             }
             if (encoded.length > TargetMigrationRetirementResourceReceipt.MAX_EVIDENCE_BYTES) {
                 throw new IllegalStateException(
-                        "complete original checkpoint contract exceeds this confirmation operation's evidence capacity");
+                        ("complete original checkpoint contract exceeds this confirmation operation's "
+                                + "evidence capacity"));
             }
         }
 

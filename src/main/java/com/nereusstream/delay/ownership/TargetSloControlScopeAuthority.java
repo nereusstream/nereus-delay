@@ -93,13 +93,19 @@ public final class TargetSloControlScopeAuthority {
         default void requireContract(TargetScopeExposureSource.CopyContract sdk) {
             throw new IllegalStateException("actual SDK exposure expansion contract authority is unavailable");
         }
-        /** Validate the complete proposed transition under the same actual Native/Source coverage. The root view is borrowed. */
+        /**
+         * Validate the complete proposed transition under the same actual Native/Source coverage. The root view is
+         * borrowed.
+         */
         default void requireDebitTransition(
                 RootHold expected, TargetSloControlScopeRoot next, TargetScopeExposureDebit debit) {
             throw new IllegalStateException(
                     "actual Source coverage for the original exposure debit transition is unavailable");
         }
-        /** Requalify the actual observed own debit and remaining coverage; an old proposal cannot stand in for this proof. */
+        /**
+         * Requalify the actual observed own debit and remaining coverage; an old proposal cannot stand in for this
+         * proof.
+         */
         default void requireCommittedDebit(RootHold expected, RootHold observed, TargetScopeExposureDebit debit) {
             throw new IllegalStateException("actual committed Source exposure debit coverage is unavailable");
         }

@@ -236,7 +236,9 @@ class TargetSourceAccountingTest {
                     .contains("Budget pending transition lacks its actual runtime/terminal change"));
             assertEquals(before, store.latestSequenceNumber());
             assertEquals(2, store.shardMutationSequence());
-            assertArrayEquals(priorSource.canonicalBytes(), store.appliedShardLogPosition().canonicalBytes());
+            assertArrayEquals(
+                    priorSource.canonicalBytes(),
+                    store.appliedShardLogPosition().canonicalBytes());
             assertArrayEquals(beforeAggregate, store.get(ColumnFamily.META, aggregateKey));
             assertNull(store.get(ColumnFamily.META, attemptBudget.key()));
         }

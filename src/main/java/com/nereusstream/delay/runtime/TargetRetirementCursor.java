@@ -32,7 +32,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.LongConsumer;
 
-/** Repository-only continuation for the exact original retirement predicates, including aliases and hidden generations. */
+/**
+ * Repository-only continuation for the exact original retirement predicates, including aliases and hidden generations.
+ */
 final class TargetRetirementCursor {
     private record Range(ColumnFamily family, byte tag) {
         byte[] lower() {

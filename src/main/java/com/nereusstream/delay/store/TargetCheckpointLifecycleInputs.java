@@ -97,7 +97,9 @@ public record TargetCheckpointLifecycleInputs(
         }
 
         void requireActivation(TargetProtocolActivationRecord record);
-        /** Original Root issuer key/history at the original snapshot Source; a record's embedded key grants no trust. */
+        /**
+         * Original Root issuer key/history at the original snapshot Source; a record's embedded key grants no trust.
+         */
         default void requireRootTupleAuthorization(TargetProtocolActivationRecord record) {
             if (record.rootEvidence() != null) {
                 throw new IllegalStateException("lifecycle lacks original Root issuer history for tuple extension");
@@ -115,7 +117,9 @@ public record TargetCheckpointLifecycleInputs(
                 HistoryImage originalIntent,
                 TargetRetirementAuthorizationHistory.Grant intentGrant,
                 TargetRetirementAuthorizationHistory.Grant confirmationGrant);
-        /** Original retention/fence/safe-cut, all Native references, metadata readers and actual Pin/reader admission. */
+        /**
+         * Original retention/fence/safe-cut, all Native references, metadata readers and actual Pin/reader admission.
+         */
         default void requireInlinePayloadDecision(HistoryImage input, TargetResultRecord originalFirst) {
             throw new IllegalStateException(
                     "original lifecycle authority lacks complete inline payload decision authentication");
@@ -125,23 +129,32 @@ public record TargetCheckpointLifecycleInputs(
             throw new IllegalStateException(
                     "original lifecycle authority lacks actual Native OBJECT decision authentication");
         }
-        /** Original Prepare/local terminal causality, frozen policy and complete durable closed upload/delete history. */
+        /**
+         * Original Prepare/local terminal causality, frozen policy and complete durable closed upload/delete history.
+         */
         default void requireUncommittedObjectDecision(HistoryImage input, TargetResultRecord originalFirst) {
             throw new IllegalStateException(
                     "original lifecycle authority lacks uncommitted reservation/provider terminal authentication");
         }
-        /** Historical accepted creation semantics and exact original ownership; raw DTOs/hash joins do not authenticate it. */
+        /**
+         * Historical accepted creation semantics and exact original ownership; raw DTOs/hash joins do not authenticate
+         * it.
+         */
         default void requireObjectPayloadAcceptance(
                 HistoryImage input, TargetResultRecord originalFirst, TargetObjectPayloadOrigin origin) {
             throw new IllegalStateException(
                     "original lifecycle authority lacks Native OBJECT accepted-creation authentication");
         }
-        /** Original explicit Control/Registry lifecycle decision, exact full ledgers and all live zero-fee references. */
+        /**
+         * Original explicit Control/Registry lifecycle decision, exact full ledgers and all live zero-fee references.
+         */
         default void requireIncarnationDecision(HistoryImage input, TargetResultRecord originalFirst) {
             throw new IllegalStateException(
                     "original lifecycle authority lacks actual incarnation drain/retirement authentication");
         }
-        /** Original record/query/Source/Pin admission and immutable retention/allocation provenance, not today's policy. */
+        /**
+         * Original record/query/Source/Pin admission and immutable retention/allocation provenance, not today's policy.
+         */
         default void requireNativeRetainedDecision(HistoryImage input, TargetResultRecord originalFirst) {
             throw new IllegalStateException(
                     "original lifecycle authority lacks Native retained-reclaim decision authentication");

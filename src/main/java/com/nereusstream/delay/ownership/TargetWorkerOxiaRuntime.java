@@ -116,7 +116,9 @@ public final class TargetWorkerOxiaRuntime {
     private boolean stopping;
     private Throwable firstFailure;
 
-    /** No remote connection or private material is read by the caller; SDK opening/markers use the existing finite pool. */
+    /**
+     * No remote connection or private material is read by the caller; SDK opening/markers use the existing finite pool.
+     */
     public static TargetWorkerOxiaRuntime open(
             Connection connection,
             Registries registries,

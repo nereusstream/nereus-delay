@@ -499,7 +499,9 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                     sdkBudget);
         }
 
-        /** Reuses the final actually positioned consumer and its original shared client/material after Source recovery. */
+        /**
+         * Reuses the final actually positioned consumer and its original shared client/material after Source recovery.
+         */
         public void openSystemWriter(
                 Path path, LocalBrokerMtlsResolver resolver, SourceTransportCredentialAuthorization.Trust trust)
                 throws java.io.IOException {

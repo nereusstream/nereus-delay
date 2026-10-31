@@ -344,7 +344,8 @@ public final class TargetMigrationCheckpointAdoption implements TargetMigrationA
         if (head.initialization() != null && !head.initialization().pending().equals(pending)
                 || head.initialization() == null && (head.catalogGeneration() != 0 || head.latest() != null)) {
             throw new IllegalStateException(
-                    "migration requires its original independently identified Target Catalog; legacy Catalog remains held");
+                    ("migration requires its original independently identified Target Catalog; legacy "
+                            + "Catalog remains held"));
         }
         if (existing.isEmpty()) {
             catalog.create(pending, this::requireCurrent);
@@ -430,7 +431,8 @@ public final class TargetMigrationCheckpointAdoption implements TargetMigrationA
                         pending.owner().canonicalBytes(),
                         opening.ownerIdentity().canonicalBytes())) {
                     throw new IllegalStateException(
-                            "original pending image must be recovered; a new Owner cannot recreate its immutable bytes");
+                            ("original pending image must be recovered; a new Owner cannot recreate its "
+                                    + "immutable bytes"));
                 }
                 requireCurrent();
                 applied.candidate()

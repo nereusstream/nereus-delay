@@ -51,7 +51,9 @@ import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
 
-/** Actual operator-only Kafka configuration/ACL backing for Registry receipt protection; no deletion or relaxation API. */
+/**
+ * Actual operator-only Kafka configuration/ACL backing for Registry receipt protection; no deletion or relaxation API.
+ */
 public final class KafkaClientArtifactTargetReceiptManagement implements AutoCloseable {
     private static final Map<String, String> REQUIRED_POLICY = Map.of(
             "cleanup.policy",
@@ -216,7 +218,9 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         }
     }
 
-    /** Closes the startup dependency loop once: trust delegates to this actual backing and the catalog uses that trust. */
+    /**
+     * Closes the startup dependency loop once: trust delegates to this actual backing and the catalog uses that trust.
+     */
     public synchronized void attach(
             OxiaSyncTargetKafkaReceiptProtectionCatalog actualCatalog, TargetKafkaReceiptProtectionTrust actualTrust) {
         if (stopping || catalog != null) {
@@ -226,7 +230,10 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         trust = Objects.requireNonNull(actualTrust, "registered CONTROL deployment trust");
     }
 
-    /** Runtime entry: establish actual restrictions, authenticate/control-sign, exact durable publication, then expose protection. */
+    /**
+     * Runtime entry: establish actual restrictions, authenticate/control-sign, exact durable publication, then expose
+     * protection.
+     */
     public CompletableFuture<TargetKafkaReceiptControlArtifact> establish(
             Scope scope,
             PreparedControlOperation control,
@@ -243,7 +250,10 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         });
     }
 
-    /** The restricted Worker gets only this typed publication operation, never CONTROL private key or Admin mutation access. */
+    /**
+     * The restricted Worker gets only this typed publication operation, never CONTROL private key or Admin mutation
+     * access.
+     */
     public KafkaClientArtifactTargetReceiptProvider.AnchorPublisher anchorPublisher(
             TargetKafkaReceiptControlArtifact protection,
             PrivateKey originalControlKey,
@@ -288,7 +298,9 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         });
     }
 
-    /** Same actual startup method under the already owned finite factory I/O task; never blocks on another queued task. */
+    /**
+     * Same actual startup method under the already owned finite factory I/O task; never blocks on another queued task.
+     */
     TargetKafkaReceiptControlArtifact establishForStartup(
             Scope scope,
             PreparedControlOperation control,
@@ -391,7 +403,10 @@ public final class KafkaClientArtifactTargetReceiptManagement implements AutoClo
         }
     }
 
-    /** Reopens by original management epoch and exact policy/ACL image. It never reapplies settings to mask a historical gap. */
+    /**
+     * Reopens by original management epoch and exact policy/ACL image. It never reapplies settings to mask a historical
+     * gap.
+     */
     public void requireCurrent(
             TargetKafkaReceiptProtection protection, PreparedControlOperation control, SourcePosition at) {
         final var use = beginUse();

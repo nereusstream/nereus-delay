@@ -185,7 +185,10 @@ public final class TargetWorkerOxiaClientOwner {
         this.resources = resources;
     }
 
-    /** Other SDK methods have exited; retain their exact input charge while this original Registry SDK may still hold bytes. */
+    /**
+     * Other SDK methods have exited; retain their exact input charge while this original Registry SDK may still hold
+     * bytes.
+     */
     public synchronized void retainClosedClientInputUntilTermination(TargetDestinationSdkBudget.Client input) {
         Objects.requireNonNull(input);
         input.requireResources(resources);

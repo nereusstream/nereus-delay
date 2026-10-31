@@ -533,7 +533,9 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 throw failure;
             }
         }
-        /** A fresh independently authorized normal runtime becomes visible only after its actual READY/dispatch handoff. */
+        /**
+         * A fresh independently authorized normal runtime becomes visible only after its actual READY/dispatch handoff.
+         */
         public Optional<KafkaClientArtifactTargetReceiptRuntime> newWorkRuntime() {
             final var active = successor;
             return failed || stopping || active == null ? Optional.empty() : active.newWorkRuntime();
@@ -583,7 +585,9 @@ public final class KafkaClientArtifactTargetReceiptFactory {
             this.reopen = reopen;
         }
 
-        /** Completes the original startup configuration, before Host transfer; never installs a replacement controller. */
+        /**
+         * Completes the original startup configuration, before Host transfer; never installs a replacement controller.
+         */
         public void configureAutomaticReopen(KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
             try (var construction = startup.beginWorkerResourceConstruction(worker)) {
                 construction.requireCurrent();
@@ -636,7 +640,10 @@ public final class KafkaClientArtifactTargetReceiptFactory {
                 throw failure;
             }
         }
-        /** One caller-driven transition on the same Host; no new SDK is allocated until original Source and exit proofs hold. */
+        /**
+         * One caller-driven transition on the same Host; no new SDK is allocated until original Source and exit proofs
+         * hold.
+         */
         public synchronized Optional<Opening> tryReopenForNewWork(
                 TargetWorkerHostRuntime host, KafkaClientArtifactTargetReceiptProvider.AnchorPublisher publisher) {
             if (failed || newWork || reopen == null) {

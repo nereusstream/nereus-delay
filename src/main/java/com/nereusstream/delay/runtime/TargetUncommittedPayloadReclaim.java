@@ -32,7 +32,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Actual Native reservation/causal joins. Upload closure and provider/public-history authentication remain independent. */
+/**
+ * Actual Native reservation/causal joins. Upload closure and provider/public-history authentication remain independent.
+ */
 public final class TargetUncommittedPayloadReclaim {
     private TargetUncommittedPayloadReclaim() {}
 

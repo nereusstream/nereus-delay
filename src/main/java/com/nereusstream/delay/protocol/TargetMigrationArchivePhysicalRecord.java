@@ -2,7 +2,10 @@ package com.nereusstream.delay.protocol;
 
 import java.util.Arrays;
 
-/** Native72 nested schema2 physical occurrence. It references an existing archived first and creates no new logical first. */
+/**
+ * Native72 nested schema2 physical occurrence. It references an existing archived first and creates no new logical
+ * first.
+ */
 public record TargetMigrationArchivePhysicalRecord(
         int recordKind,
         byte[] firstOriginalKey,

@@ -522,7 +522,9 @@ public final class TargetPayloadObligationSummaryBootstrap {
         void requireImageResource(CheckpointResource resource);
 
         void requireCurrent();
-        /** Cached original paid-loan/revocation checks only: no RPC, Startup monitor, or outer Store lock acquisition. */
+        /**
+         * Cached original paid-loan/revocation checks only: no RPC, Startup monitor, or outer Store lock acquisition.
+         */
         void requireLocalCurrent();
     }
 

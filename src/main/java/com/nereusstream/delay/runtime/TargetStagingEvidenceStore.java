@@ -22,7 +22,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Actual Native preparation for an already closed unadopted Catalog object; no I/O-settlement or deletion authority. */
+/**
+ * Actual Native preparation for an already closed unadopted Catalog object; no I/O-settlement or deletion authority.
+ */
 public final class TargetStagingEvidenceStore {
     private TargetStagingEvidenceStore() {}
 

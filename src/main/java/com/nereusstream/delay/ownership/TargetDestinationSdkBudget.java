@@ -31,7 +31,9 @@ public final class TargetDestinationSdkBudget {
     private final Map<String, Client> clients = new HashMap<>();
     private CapacityVector used = CapacityVector.empty();
 
-    /** Pool is a fixed Worker cost; committed Shard grants and other fixed SDK costs are not subtracted by guesswork. */
+    /**
+     * Pool is a fixed Worker cost; committed Shard grants and other fixed SDK costs are not subtracted by guesswork.
+     */
     public TargetDestinationSdkBudget(
             TargetWorkerRuntimeConfig config,
             List<ShardCapacityEnvelope> shards,

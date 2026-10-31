@@ -553,7 +553,9 @@ public final class TargetCheckpointSemanticSnapshot {
         dependencies.requireOutcomeImages(outcomes, limits.maximumBytes(), budget, authority, protectionGuard);
     }
 
-    /** Schema 4 carries the complete physical objects once, with original CONTROL signatures embedded in their bytes. */
+    /**
+     * Schema 4 carries the complete physical objects once, with original CONTROL signatures embedded in their bytes.
+     */
     public TargetCheckpointSemanticSnapshot withExternalEvidence(
             TargetCheckpointDependencies dependencies,
             TargetCheckpointDependencies.ExternalEvidenceAuthority authority,
@@ -688,7 +690,10 @@ public final class TargetCheckpointSemanticSnapshot {
         }
     }
 
-    /** Complete lifecycle inputs use schema6, or explicit schema7 for retained markers; component images cannot stand in for them. */
+    /**
+     * Complete lifecycle inputs use schema6, or explicit schema7 for retained markers; component images cannot stand in
+     * for them.
+     */
     public static TargetCheckpointSemanticSnapshot fromLifecycleValues(
             TargetCheckpointDependencies dependencies,
             List<TargetCheckpointDependencies.AdmissionImage> admissions,

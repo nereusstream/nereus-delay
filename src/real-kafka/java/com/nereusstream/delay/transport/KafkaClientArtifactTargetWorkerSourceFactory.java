@@ -525,7 +525,9 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                     clock);
         }
 
-        /** Uses the ready privileged backing retained by the same process; no Admin or CONTROL key reaches this Worker. */
+        /**
+         * Uses the ready privileged backing retained by the same process; no Admin or CONTROL key reaches this Worker.
+         */
         public KafkaClientArtifactTargetReceiptFactory.Opening openReceiptChannel(
                 Path configuration,
                 byte[] channelDigest,
@@ -645,7 +647,10 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             return recovery.prepareArchivedResolution(issuer, proofTrust, sourceSigner, contexts);
         }
 
-        /** Installs into existing publication recovery configuration; other rows and initial UNKNOWN holds use original history. */
+        /**
+         * Installs into existing publication recovery configuration; other rows and initial UNKNOWN holds use original
+         * history.
+         */
         public com.nereusstream.delay.ownership.TargetPublishRecoveryMaintenance.History receiptRecoveryHistory(
                 KafkaClientArtifactTargetRecoveryRuntime recovery,
                 KafkaClientArtifactTargetReceiptManagementFactory.Opening management,
@@ -692,7 +697,10 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
             };
         }
 
-        /** Live admitted checkpoint collection also reconciles post-crash APPLIED proofs; bootstrap image audit uses history-only authority. */
+        /**
+         * Live admitted checkpoint collection also reconciles post-crash APPLIED proofs; bootstrap image audit uses
+         * history-only authority.
+         */
         public com.nereusstream.delay.store.TargetCheckpointDependencies.RecoveryEvidenceAuthority
                 reconcilingReceiptRecoveryEvidenceAuthority(
                         KafkaClientArtifactTargetReceiptManagementFactory.Opening management,

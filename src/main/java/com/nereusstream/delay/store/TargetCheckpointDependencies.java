@@ -653,7 +653,9 @@ public final class TargetCheckpointDependencies {
         }
         return obligation;
     }
-    /** Exact retained applied registration; an absent or substituted epoch never falls back to the generation signer. */
+    /**
+     * Exact retained applied registration; an absent or substituted epoch never falls back to the generation signer.
+     */
     public TargetSloWriterEpoch sloWriterEpoch(TargetSloWriterContract.Reference reference) {
         final var writer = sloWriterEpochs.get(
                 Bytes.hex(Objects.requireNonNull(reference).key(root.root().scope())));
@@ -663,7 +665,9 @@ public final class TargetCheckpointDependencies {
         return writer;
     }
 
-    /** The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup. */
+    /**
+     * The actual signed catalog object; neither copied lengths nor Target aggregate counters can satisfy this lookup.
+     */
     @FunctionalInterface
     public interface ExternalEvidenceAuthority {
         com.nereusstream.delay.protocol.TargetKafkaReceiptControlArtifact resolve(
@@ -842,7 +846,9 @@ public final class TargetCheckpointDependencies {
         requireRecoveryEvidenceImages(values, outcomes);
         return List.copyOf(values);
     }
-    /** Structural complete-cut correlation only; the authority above must still authenticate every actual signed object. */
+    /**
+     * Structural complete-cut correlation only; the authority above must still authenticate every actual signed object.
+     */
     public void requireRecoveryEvidenceImages(List<RecoveryEvidenceImage> images, List<OutcomeImage> outcomes) {
         final var byKey = new TreeMap<String, RecoveryEvidenceImage>();
         for (var image : images) {

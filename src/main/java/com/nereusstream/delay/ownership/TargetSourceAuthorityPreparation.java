@@ -101,7 +101,9 @@ public final class TargetSourceAuthorityPreparation {
         default boolean preparationReady() {
             return true;
         }
-        /** One actual bounded cursor turn on the original owned I/O; no control is consumable before it returns true. */
+        /**
+         * One actual bounded cursor turn on the original owned I/O; no control is consumable before it returns true.
+         */
         default boolean advancePreparation() {
             return true;
         }
@@ -342,7 +344,9 @@ public final class TargetSourceAuthorityPreparation {
         return true;
     }
 
-    /** External consumers own these loans; registering one neither changes their lifetime nor grants Source authority. */
+    /**
+     * External consumers own these loans; registering one neither changes their lifetime nor grants Source authority.
+     */
     synchronized void retainNativeReadLoan(
             TargetSourceApplyRuntime source, TargetSourceApplyRuntime.NativeExposureHold loan) {
         if (stopping || originalSource != source) {

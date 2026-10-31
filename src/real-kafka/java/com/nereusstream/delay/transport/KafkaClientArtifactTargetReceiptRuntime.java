@@ -40,7 +40,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/** Actual one-slot startup/reopen/teardown over the Worker graph; CONTROL Admin and shared executors remain caller-owned. */
+/**
+ * Actual one-slot startup/reopen/teardown over the Worker graph; CONTROL Admin and shared executors remain
+ * caller-owned.
+ */
 public final class KafkaClientArtifactTargetReceiptRuntime
         implements DestinationPublishAdapter, TargetWorkerShardRuntime.PublicationResources {
     @Override
@@ -360,7 +363,9 @@ public final class KafkaClientArtifactTargetReceiptRuntime
         }
     }
 
-    /** Called by the actual per-Claim preparation on its bounded I/O owner; tuple/key/quota authorities remain frozen. */
+    /**
+     * Called by the actual per-Claim preparation on its bounded I/O owner; tuple/key/quota authorities remain frozen.
+     */
     public TargetPulsarPublishRuntime.Inputs inputs(
             ProfileRef capability,
             long retryUntil,
@@ -390,7 +395,9 @@ public final class KafkaClientArtifactTargetReceiptRuntime
                 provider.publications(reads, io));
     }
 
-    /** Existing issuer/tuple/time authority is retained; only this actual K2 provider supplies external materialization. */
+    /**
+     * Existing issuer/tuple/time authority is retained; only this actual K2 provider supplies external materialization.
+     */
     public TargetPublishAdmissionVerifier.Authority sourceAuthority(
             TargetPublishAdmissionVerifier.Authority originalAuthority) {
         return (scope, writer, image, source) -> {
@@ -420,7 +427,9 @@ public final class KafkaClientArtifactTargetReceiptRuntime
     public BoundedDestinationPublishAdapter adapter(WorkClassExecutionRegistry classes) {
         return new BoundedDestinationPublishAdapter(this, physicalAdmission, classes, io);
     }
-    /** Joins the original process mux only after actual K2 startup; cold recovery resources never acquire SEND routing. */
+    /**
+     * Joins the original process mux only after actual K2 startup; cold recovery resources never acquire SEND routing.
+     */
     public synchronized void bindDispatch(com.nereusstream.delay.ownership.TargetWorkerPublicationDispatch owner) {
         owner.requireWorker(worker);
         if (!ready || stopping || closed || original != null || owner.physical() != physicalAdmission) {

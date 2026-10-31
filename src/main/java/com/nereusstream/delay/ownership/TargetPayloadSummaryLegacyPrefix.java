@@ -88,7 +88,9 @@ public final class TargetPayloadSummaryLegacyPrefix implements CheckpointInputFu
                 SourceReplayEntry original, SourcePosition actualCut);
         /** Releases only this event's original local image/read acquisition; durable history/retention remains held. */
         void releaseEvent(TargetPayloadObligationSummaryBootstrap.Protection original);
-        /** All non-Native legacy/external responsibilities, under their original payer and exact retained protection. */
+        /**
+         * All non-Native legacy/external responsibilities, under their original payer and exact retained protection.
+         */
         default boolean closedLegacyRetain(TargetQuotaPayloadOwner owner, SourceReplayEntry event) {
             return false;
         }
@@ -200,7 +202,10 @@ public final class TargetPayloadSummaryLegacyPrefix implements CheckpointInputFu
     public static TargetPayloadSummaryLegacyPrefix open(Opening opening, Provider provider, Limits limits) {
         return acquire(opening, provider, limits, null);
     }
-    /** Another genuinely acquired finite range carries the original cumulative spent/elapsed window across Owner changes. */
+    /**
+     * Another genuinely acquired finite range carries the original cumulative spent/elapsed window across Owner
+     * changes.
+     */
     public static TargetPayloadSummaryLegacyPrefix openNext(
             Opening opening, Provider provider, Limits limits, TargetPayloadSummaryLegacyPrefix previous) {
         Objects.requireNonNull(previous);
@@ -217,8 +222,8 @@ public final class TargetPayloadSummaryLegacyPrefix implements CheckpointInputFu
                 || !(same(previous.c, previous.r) || same(previous.completedAt, previous.r))
                 || !actualC.sameSourceIdentity(previous.r)
                 || actualC.compareTo(previous.r) < 0) {
-            throw new IllegalStateException(
-                    "new old-prefix range lacks the previous actual exit/apply and original Store/cumulative allocation");
+            throw new IllegalStateException(("new old-prefix range lacks the previous actual exit/apply and original "
+                    + "Store/cumulative allocation"));
         }
         return acquire(opening, provider, limits, previous.budget);
     }

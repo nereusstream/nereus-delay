@@ -68,7 +68,10 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 
-/** One bounded Registry capacity root with a permanent initialization guard and immutable external objects; no distributed-atomic claim. */
+/**
+ * One bounded Registry capacity root with a permanent initialization guard and immutable external objects; no
+ * distributed-atomic claim.
+ */
 public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
     public static final int INSTALLING = 1, ACTIVE = 2, BROKEN = 3;
     private static final int RESERVED = 1, PUBLISHED = 2, POSSIBLY_SOURCE = 3, ADOPTED = 4;
@@ -283,7 +286,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             return Bytes.copy(hash);
         }
     }
-    /** Complete candidate inventory at the closure cut; each candidate still needs actual dependency/lifetime classification. */
+    /**
+     * Complete candidate inventory at the closure cut; each candidate still needs actual dependency/lifetime
+     * classification.
+     */
     public record CatalogPublication(int subtype, byte[] id) {
         public CatalogPublication {
             if (subtype < 1 || subtype > 3) {
@@ -1527,7 +1533,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         ledgerKey = prefix + "/target-kafka-receipt-storage";
         guardKey = prefix + "/target-kafka-receipt-storage-guard";
     }
-    /** Only this invocation's fresh persistent token permits Admin effects; an old INSTALLING token is never resumed. */
+    /**
+     * Only this invocation's fresh persistent token permits Admin effects; an old INSTALLING token is never resumed.
+     */
     public static final class Installation {
         private final Management management;
         private final boolean fresh;
@@ -1736,7 +1744,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         trust.requireTrusted(artifact, protection);
         return artifact;
     }
-    /** Immutable retained read for independent checkpoint/ledger audit; BROKEN does not erase original evidence bytes. */
+    /**
+     * Immutable retained read for independent checkpoint/ledger audit; BROKEN does not erase original evidence bytes.
+     */
     public TargetKafkaReceiptControlArtifact retainedObject(String exactKey, byte[] digest) {
         final var intent = findByKey(readRoot().root, exactKey);
         if (intent == null || !Arrays.equals(intent.digest, digest)) {
@@ -1909,7 +1919,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         current.run();
         return new RecoveryPublication(this, actual);
     }
-    /** Unique mapping/evidence discovery. A reservation without a blob/publication is never reconstructed as success. */
+    /**
+     * Unique mapping/evidence discovery. A reservation without a blob/publication is never reconstructed as success.
+     */
     public Optional<RecoveryPublication> findRecoveryProof(
             TargetKafkaReceiptMapping mapping, PublishEvidence evidence, TargetRecoveryProofTrust proofTrust) {
         final var root = readRoot().root;
@@ -1927,7 +1939,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireExact(verified.proof().evidence().canonicalBytes(), evidence.canonicalBytes());
         return Optional.of(new RecoveryPublication(this, verified));
     }
-    /** Crash/unknown-response continuation authenticates the selected actual blob; it never re-signs another observation. */
+    /**
+     * Crash/unknown-response continuation authenticates the selected actual blob; it never re-signs another
+     * observation.
+     */
     public RecoveryPublication resumeRecoveryProof(
             TargetKafkaReceiptMapping mapping,
             PublishEvidence evidence,
@@ -2001,7 +2016,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         current.run();
         return result;
     }
-    /** Retained history does not depend on today's SDK, Owner or credentials; it still requires the exact durable seal. */
+    /**
+     * Retained history does not depend on today's SDK, Owner or credentials; it still requires the exact durable seal.
+     */
     public PreparedRecovery requireRecoveryPrepared(
             TargetRecoveryProofRef ref, SystemMutation prepared, TargetRecoveryProofTrust proofTrust) {
         final var intent = Objects.requireNonNull(
@@ -2018,7 +2035,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireRecoveryBody(verified, prepared);
         return new PreparedRecovery(new RecoveryPublication(this, verified), use);
     }
-    /** Actual retained blob and original seal for a Native owner; today's Owner/material/SDK is irrelevant to history. */
+    /**
+     * Actual retained blob and original seal for a Native owner; today's Owner/material/SDK is irrelevant to history.
+     */
     public PreparedRecovery retainedRecovery(
             com.nereusstream.delay.protocol.TargetRecoveryEvidenceOwner owner,
             SystemMutation outcome,
@@ -2092,7 +2111,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 .allocated()
                 .covers(originalAnchor.add(recovery).add(TargetRecoveryEvidenceOwner.maximumStateCharge(accounting)))) {
             throw new IllegalStateException(
-                    "original frozen Attempt cannot pay anchor/recovery/native STATE window; keep UNKNOWN without archiving");
+                    ("original frozen Attempt cannot pay anchor/recovery/native STATE window; keep "
+                            + "UNKNOWN without archiving"));
         }
     }
 
@@ -2113,7 +2133,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             throw new IllegalStateException("mapping/evidence already selected another exact recovery proof");
         }
     }
-    /** Only actual guarded Native APPLIED+owner/ref/first/POSITION facts can conservatively mark the Catalog adopted. */
+    /**
+     * Only actual guarded Native APPLIED+owner/ref/first/POSITION facts can conservatively mark the Catalog adopted.
+     */
     public void adoptRecovery(TargetRecoveryEvidenceStore.Adoption applied) {
         adoptRecovery(applied, session, null);
     }
@@ -2253,7 +2275,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         return 16L * (MAX_ROOT_BYTES + MAX_GUARD_BYTES + TargetRecoveryProofRef.MAX_PROOF_BYTES);
     }
 
-    /** Actual durable freeze receipt. It does not prove terminal uses, complete shared-reference release, or deletion eligibility. */
+    /**
+     * Actual durable freeze receipt. It does not prove terminal uses, complete shared-reference release, or deletion
+     * eligibility.
+     */
     public static final class ClosedObject {
         private final OxiaSyncTargetKafkaReceiptProtectionCatalog catalog;
         private final Closure closure;
@@ -2320,7 +2345,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         public List<CatalogPublication> publicationInventory() {
             return closure.inventory;
         }
-        /** Immutable identity data; actual Native adoption is authenticated separately, never inferred from this builder. */
+        /**
+         * Immutable identity data; actual Native adoption is authenticated separately, never inferred from this
+         * builder.
+         */
         public TargetExternalEvidenceObjectResource recoveryResource(TargetRecoveryEvidenceOwner owner) {
             requireRecoveryOwner(owner);
             final var frozen = owner.primaryOwner();
@@ -2384,7 +2412,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                     closure.originDigest,
                     new RecoveryIntent(id, ref, owner.primaryOwner(), RESERVED, List.of(), new byte[0]).originDigest());
         }
-        /** This matches object bytes/version only; actual Source/billing/staging provenance still requires Native joins. */
+        /**
+         * This matches object bytes/version only; actual Source/billing/staging provenance still requires Native joins.
+         */
         public void requireObjectFingerprint(TargetExternalEvidenceObjectResource resource) {
             if (resource.subtype().wireValue() != closure.subtype) {
                 throw new IllegalArgumentException("closure subtype differs from resource");
@@ -2398,7 +2428,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             requireExact(resource.immutableVersion(), Bytes.u64beBits(closure.blobVersion));
             requireExact(resource.deploymentRootDigest(), deploymentRootDigest);
         }
-        /** Reauthentication of the original freeze remains possible after blob deletion, while Root metadata is retained. */
+        /**
+         * Reauthentication of the original freeze remains possible after blob deletion, while Root metadata is
+         * retained.
+         */
         public ClosedObject reread(BoundedReadBudget reads, Runnable current) {
             Objects.requireNonNull(current).run();
             final var actual = catalog.readReferenceClosure(closure.key, closure.objectDigest, reads);
@@ -2410,7 +2443,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
 
     /**
      * Freezes new references to an actually present authenticated object under a distinct current Root policy action.
-     * Existing sealed uses and in-flight publication responsibilities remain protected, including uncertain/RESERVED ones.
+     * Existing sealed uses and in-flight publication responsibilities remain protected, including uncertain/RESERVED
+     * ones.
      */
     public ClosedObject closeAdoptedRecoveryReferences(
             TargetRecoveryEvidenceStore.Adoption applied,
@@ -2730,7 +2764,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             }
         }
     }
-    /** Reads retained Root membership/reservation, original management authorization and actual SDK storage namespace. */
+    /**
+     * Reads retained Root membership/reservation, original management authorization and actual SDK storage namespace.
+     */
     public CapacityOwner readCapacityOwner(ClosedObject original, BoundedReadBudget reads, Runnable current) {
         if (Objects.requireNonNull(original).catalog != this) {
             throw new IllegalArgumentException("closure belongs to another Catalog");
@@ -2768,7 +2804,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
             }
         }
     }
-    /** Actual provider-operation observation only. Pending metadata or an evidence DTO cannot construct this receipt. */
+    /**
+     * Actual provider-operation observation only. Pending metadata or an evidence DTO cannot construct this receipt.
+     */
     public static final class ObservedRetiredMarker {
         public enum ConditionalResult {
             CONDITION_SUCCEEDED,
@@ -2948,7 +2986,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         return authenticateHistoricalConfirmation(
                 source, history, admission, images, catalogReads, nativeReads, recoveryReads, current, null);
     }
-    /** Same historical authority and actual observations, consumed only after the original same-view Native preparation. */
+    /**
+     * Same historical authority and actual observations, consumed only after the original same-view Native preparation.
+     */
     public HistoricalConfirmation authenticateHistoricalConfirmation(
             com.nereusstream.delay.ownership.TargetSourceApplyRuntime.ConfirmationRead source,
             TargetEvidenceRetirementStore.SourceHistory history,
@@ -3117,7 +3157,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         if (selected.type() != SystemMutationType.RESOURCE_RETIRE_INTENT
                 || !body.protections().references().isEmpty()) {
             throw new ProtectionUnavailable(
-                    "declared ProtectionRef ID/generation has no defined original authority mapping; physical retirement unavailable");
+                    ("declared ProtectionRef ID/generation has no defined original authority mapping; "
+                            + "physical retirement unavailable"));
         }
     }
 
@@ -3196,7 +3237,8 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                     root.markers.get(reserved.marker.exactKey()), "original durable marker reservation");
             if (pending.settlement != null) {
                 throw new ProtectionUnavailable(
-                        "original Source confirmation is already durably settled; replay it instead of creating a new observation");
+                        ("original Source confirmation is already durably settled; replay it instead of "
+                                + "creating a new observation"));
             }
             requireExact(pending.marker.canonicalBytes(), reserved.marker.canonicalBytes());
             recovery.requireAuthority(source.originalEvidenceRecoveryCatalog(worker));
@@ -3210,7 +3252,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                 throw new ProtectionUnavailable("physical protection reauthentication exceeded its deadline");
             }
         }
-        /** Source/image/SDK ownership remains with the original holders; Root separately closes/transfers actual admission. */
+        /**
+         * Source/image/SDK ownership remains with the original holders; Root separately closes/transfers actual
+         * admission.
+         */
         @Override
         public void close() {
             if (!closed) {
@@ -3430,7 +3475,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         }
         return true;
     }
-    /** Separate physical accounting: actual Native52 first + exact current marker + original Root CAS. No key/record/slot GC. */
+    /**
+     * Separate physical accounting: actual Native52 first + exact current marker + original Root CAS. No
+     * key/record/slot GC.
+     */
     public void settleRetiredMarkerCapacity(
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup source,
             com.nereusstream.delay.ownership.TargetWorkerShardRuntime worker,
@@ -3713,7 +3761,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         }
         return new RetirementCopy(this, copy);
     }
-    /** Derives staging identity from the original reservation and actual Native SHARD fee owner, never caller-supplied provenance. */
+    /**
+     * Derives staging identity from the original reservation and actual Native SHARD fee owner, never caller-supplied
+     * provenance.
+     */
     public RetirementCopy prepareStagingRetirementCopy(
             ClosedObject original,
             TargetQuotaIncarnation feeOwner,
@@ -3782,7 +3833,10 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
                         authorization));
         return prepareStagingRetirementCopy(actual, resource, proofTrust, reads, current);
     }
-    /** Read-only reconstruction from an already closed original reservation; this does not establish writer/I/O exit or authorize deletion. */
+    /**
+     * Read-only reconstruction from an already closed original reservation; this does not establish writer/I/O exit or
+     * authorize deletion.
+     */
     public RetirementCopy prepareStagingRetirementCopy(
             ClosedObject original,
             TargetExternalEvidenceObjectResource resource,
@@ -4173,7 +4227,9 @@ public final class OxiaSyncTargetKafkaReceiptProtectionCatalog {
         requireExact(last.value(), first.value());
         return observed;
     }
-    /** Startup must run this before constructing Admin or admitting ordinary operations. It never initializes storage. */
+    /**
+     * Startup must run this before constructing Admin or admitting ordinary operations. It never initializes storage.
+     */
     public void requireReadyRoot(byte[] deploymentRoot) {
         final var actual = readRoot();
         requireExact(actual.root.binding.policy.scope().deploymentRoot(), deploymentRoot);

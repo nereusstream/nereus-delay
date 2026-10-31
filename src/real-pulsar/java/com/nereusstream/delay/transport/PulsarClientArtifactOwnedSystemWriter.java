@@ -236,9 +236,9 @@ public final class PulsarClientArtifactOwnedSystemWriter implements OwnedSourceS
                                     throw new IllegalStateException("P1 Source producer changes its signed topic");
                                 }
                                 final var nativeContract = value.guardedNativeSendContract()
-                                        .orElseThrow(
-                                                () -> new IllegalStateException(
-                                                        "P1 Source producer lacks its finite guarded native submission contract"));
+                                        .orElseThrow(() -> new IllegalStateException(
+                                                ("P1 Source producer lacks its finite guarded "
+                                                        + "native submission contract")));
                                 if (nativeContract.maximumNativeSubmissions() != 2) {
                                     throw new IllegalStateException(
                                             "P1 Source producer changed its frozen native submission limit");

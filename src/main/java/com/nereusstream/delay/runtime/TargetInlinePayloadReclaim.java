@@ -40,7 +40,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Complete terminal-payload joins shared by the separately admitted INLINE and OBJECT stages. These local facts do not grant reader, Pin or Source-history authority. */
+/**
+ * Complete terminal-payload joins shared by the separately admitted INLINE and OBJECT stages. These local facts do not
+ * grant reader, Pin or Source-history authority.
+ */
 public final class TargetInlinePayloadReclaim {
     private TargetInlinePayloadReclaim() {}
     /** Original Source inputs authenticated by the existing held Source/image authority, never today’s config. */
@@ -79,7 +82,9 @@ public final class TargetInlinePayloadReclaim {
             }
             return bytes;
         }
-        /** Freezes only already correlated actual Source stamps; the original Native rows remain mandatory dependencies. */
+        /**
+         * Freezes only already correlated actual Source stamps; the original Native rows remain mandatory dependencies.
+         */
         public TargetInlinePayloadSourceFacts freeze(
                 TargetCheckpointDependencies dependencies, TargetResourceReclaimBody body) {
             final var values = new ArrayList<TargetInlinePayloadSourceFacts.Retained>();

@@ -894,7 +894,9 @@ public final class KafkaClientArtifactRecoverySourceCursor
             throw failure;
         }
     }
-    /** The local gate is separate from native poll/close; no full protection is called while consuming this capability. */
+    /**
+     * The local gate is separate from native poll/close; no full protection is called while consuming this capability.
+     */
     @Override
     public void requireLocalCurrent() {
         final com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryReaderLocalProtection local;

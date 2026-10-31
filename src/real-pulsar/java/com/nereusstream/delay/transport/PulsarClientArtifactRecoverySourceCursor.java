@@ -121,7 +121,8 @@ public final class PulsarClientArtifactRecoverySourceCursor
     /**
      * Opens a private no-ACK consumer from the group's actual verified material. The callback must accept the
      * post-seek assignment through the existing assignment authority; the protection must recheck that accepted
-     * assignment, Owner and retained Source pins. Neither the credential nor the native proof grants assignment authority.
+     * assignment, Owner and retained Source pins. Neither the credential nor the native proof grants assignment
+     * authority.
      */
     public static PulsarClientArtifactRecoverySourceCursor openForStartup(
             com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,

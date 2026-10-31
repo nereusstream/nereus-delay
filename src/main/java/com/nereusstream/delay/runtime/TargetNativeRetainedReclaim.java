@@ -106,7 +106,10 @@ public final class TargetNativeRetainedReclaim {
             leaf.mutation().requireAfter(original.mutation());
         }
     }
-    /** Full current Floor or complete live fold; each original historical capability is independently authenticated outside. */
+    /**
+     * Full current Floor or complete live fold; each original historical capability is independently authenticated
+     * outside.
+     */
     public static TargetQuotaMutation requireClosed(
             TargetCheckpointDependencies d, SystemMutation input, boolean allowApplied, Runnable current) {
         return requireClosed(d, TargetResourceReclaimBody.decode(input.canonicalBody()), input, allowApplied, current);
@@ -116,7 +119,9 @@ public final class TargetNativeRetainedReclaim {
             TargetCheckpointDependencies d, TargetResourceReclaimBody body, Runnable current) {
         requireClosed(d, body, null, false, current);
     }
-    /** Same predicates over this repository's fully read retirement collector, using its already folded exact indexes. */
+    /**
+     * Same predicates over this repository's fully read retirement collector, using its already folded exact indexes.
+     */
     public static TargetQuotaMutation requirePreparedClosed(
             TargetRetirementLedgerCursor ledger,
             TargetResourceReclaimBody body,
@@ -496,7 +501,9 @@ public final class TargetNativeRetainedReclaim {
             }
         }
     }
-    /** Point checks are backed by the opaque complete Floor closure and this Source's independent actual admission loan. */
+    /**
+     * Point checks are backed by the opaque complete Floor closure and this Source's independent actual admission loan.
+     */
     public static void requireCurrent(TargetStoreBackend.Reader reader, SystemMutation input, Runnable current) {
         final var body = TargetResourceReclaimBody.decode(input.canonicalBody());
         final var facts = Objects.requireNonNull(body.nativeFacts());

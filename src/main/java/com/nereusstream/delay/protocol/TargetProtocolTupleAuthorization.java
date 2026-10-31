@@ -185,7 +185,10 @@ public record TargetProtocolTupleAuthorization(
                         null)
                 .sign(originalIssuer);
     }
-    /** Original management snapshot issuer is independently pinned to the actual A/material authority, never inferred from a Source signer. */
+    /**
+     * Original management snapshot issuer is independently pinned to the actual A/material authority, never inferred
+     * from a Source signer.
+     */
     public static TargetProtocolTupleAuthorization signedForMigration(
             TargetMigrationRoot original,
             TargetProtocolActivationDescriptor descriptor,

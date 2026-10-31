@@ -48,7 +48,9 @@ public record TargetMigrationCustodyGuard(
         }
     }
 
-    /** Must authenticate original terminal/raw bytes, no-future/producer obligations and original durable accounting. */
+    /**
+     * Must authenticate original terminal/raw bytes, no-future/producer obligations and original durable accounting.
+     */
     @FunctionalInterface
     public interface SettlementAuthority {
         void requireAuthorized(

@@ -61,7 +61,10 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
      * This includes independent management/eligible readers, exact mapping/custody/conservation, added-copy
      * funding, every original C-after Source classification and durable intent. Hashes/row lists are indexes. */
     public interface MigrationMaterials {
-        /** Same original held full bundle; the caller/core performs actual immutable reads, not a yes/no permission check. */
+        /**
+         * Same original held full bundle; the caller/core performs actual immutable reads, not a yes/no permission
+         * check.
+         */
         default TargetMigrationPayloadMaterials payloadMaterials() {
             throw new IllegalStateException("original migration holder has no retained payload material");
         }
@@ -587,16 +590,18 @@ public final class TargetCheckpointControlAuthority implements TargetCheckpointD
     public PublicKey authenticate(TargetCheckpointDependencies.ControlImage input, TargetResultRecord first) {
         if (first.appliedFirst()
                 && com.nereusstream.delay.protocol.TargetSloWriterControlBody.isControl(input.image())) {
-            throw new IllegalStateException(
-                    "checkpoint writer Control requires its retained Native62 and independent materialization authority");
+            throw new IllegalStateException(("checkpoint writer Control requires its retained Native62 and independent "
+                    + "materialization authority"));
         }
         if (first.appliedFirst() && TargetParentControlCreditBody.isControl(input.image())) {
             throw new IllegalStateException(
-                    "checkpoint parent Control credit requires its retained Native63 and original historical funding authority");
+                    ("checkpoint parent Control credit requires its retained Native63 and original "
+                            + "historical funding authority"));
         }
         if (first.appliedFirst() && TargetScopeControlObligationBody.isControl(input.image())) {
             throw new IllegalStateException(
-                    "checkpoint Scope Control obligation requires its retained Native64 and original historical resource authority");
+                    ("checkpoint Scope Control obligation requires its retained Native64 and original "
+                            + "historical resource authority"));
         }
         final var verified = authenticateControl(input, first);
         return verified == null ? null : verified.key();

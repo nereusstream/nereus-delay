@@ -3,7 +3,9 @@ package com.nereusstream.delay.protocol;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** One exact legacy responsibility settlement. Full terminal/raw and no-future custody remain independently required. */
+/**
+ * One exact legacy responsibility settlement. Full terminal/raw and no-future custody remain independently required.
+ */
 public record TargetMigrationSettlementRequest(
         TargetQuotaScope scope,
         byte[] migrationId,

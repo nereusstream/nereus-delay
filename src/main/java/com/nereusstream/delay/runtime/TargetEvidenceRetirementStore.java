@@ -44,11 +44,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Atomic Native retirement/confirmation, exact first/POSITION/history and accounting under protected Source approval. */
+/**
+ * Atomic Native retirement/confirmation, exact first/POSITION/history and accounting under protected Source approval.
+ */
 public final class TargetEvidenceRetirementStore {
     /**
      * The deployment must approve this exact SERVICE actor/key for retirement at the original Source,
-     * exact authenticated Root/resource/closure/protection snapshot and the complete capacity reservation. Resolve outside
+     * exact authenticated Root/resource/closure/protection snapshot and the complete capacity reservation. Resolve
+     * outside
      * Native locks and retain its local protection through commit. Null is a proved denial; unknown throws.
      */
     @FunctionalInterface
@@ -58,7 +61,10 @@ public final class TargetEvidenceRetirementStore {
         }
 
         Approval resolve(TargetQuotaScope scope, AuthorIdentity actor, SystemMutation intent, SourcePosition source);
-        /** Null is a proved Source-purpose denial; missing actual observation/protection must throw, never masquerade as denial. */
+        /**
+         * Null is a proved Source-purpose denial; missing actual observation/protection must throw, never masquerade as
+         * denial.
+         */
         default ConfirmationApproval resolveConfirmation(
                 TargetQuotaScope scope, AuthorIdentity actor, SystemMutation confirmation, SourcePosition source) {
             throw new IllegalStateException("actual Root provider observation/confirmation approval is unavailable");
@@ -69,7 +75,9 @@ public final class TargetEvidenceRetirementStore {
             throw new IllegalStateException("original retirement Source history/pin is not configured");
         }
     }
-    /** Authenticated original public inputs, held locally through the actual commit; embedded proof keys are not pins. */
+    /**
+     * Authenticated original public inputs, held locally through the actual commit; embedded proof keys are not pins.
+     */
     public record SourceHistory(
             TargetRetirementAuthorizationHistory.PublicProof proof,
             TargetRetirementAuthorizationHistory.Pin pin,
@@ -127,7 +135,10 @@ public final class TargetEvidenceRetirementStore {
         }
     }
 
-    /** Source permission plus the original Root's opaque actual observation, never pending metadata or serialized evidence. */
+    /**
+     * Source permission plus the original Root's opaque actual observation, never pending metadata or serialized
+     * evidence.
+     */
     public record ConfirmationApproval(
             PublicKey writerKey,
             OxiaSyncTargetKafkaReceiptProtectionCatalog.ObservedRetiredMarker observation,
@@ -682,7 +693,10 @@ public final class TargetEvidenceRetirementStore {
             return originalIntent;
         }
     }
-    /** Selected real Source/recovery frame before its first; never requires active maintenance or a new physical operation. */
+    /**
+     * Selected real Source/recovery frame before its first; never requires active maintenance or a new physical
+     * operation.
+     */
     public static AppliedIntent readHistoricalConfirmationIntent(
             TargetStoreBackend backend,
             com.nereusstream.delay.store.BoundedReadBudget budget,
@@ -1766,7 +1780,9 @@ public final class TargetEvidenceRetirementStore {
         return proof == null ? view : proof.evidenceView(view, overlay, subtype, digest, exactKey);
     }
 
-    /** Exact state2 invariant over actual bytes; neither a tombstone codec nor absence alone grants delete authority. */
+    /**
+     * Exact state2 invariant over actual bytes; neither a tombstone codec nor absence alone grants delete authority.
+     */
     public static void requireConfirmedState(
             TargetRecordAccounting.View view,
             List<TargetStoreBackend.Edit> overlay,

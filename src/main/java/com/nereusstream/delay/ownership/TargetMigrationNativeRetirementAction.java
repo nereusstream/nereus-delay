@@ -11,12 +11,16 @@ import java.util.concurrent.CompletableFuture;
 /** Stops an exact dedicated original native component and waits for its real callback/native exits. */
 public final class TargetMigrationNativeRetirementAction implements TargetMigrationMaintenanceInputs.ResourceAction {
     public interface OriginalOwner extends CheckpointInputFuture.Cleanup, AutoCloseable {
-        /** Local actual exclusive component ownership before stop/freeze; shared/current Source clients are excluded. */
+        /**
+         * Local actual exclusive component ownership before stop/freeze; shared/current Source clients are excluded.
+         */
         void requireComponent(
                 TargetMigrationRetirementStore.AppliedIntent intent,
                 TargetMigrationRetirementInventory.Resource resource,
                 TargetOwnedBackendGroup actual);
-        /** Already acquired original ownership; binds the exact component registrations, fees, history and Source cut. */
+        /**
+         * Already acquired original ownership; binds the exact component registrations, fees, history and Source cut.
+         */
         void requireBound(
                 TargetMigrationRetirementStore.AppliedIntent intent,
                 TargetMigrationMaintenanceInputs.Barrier barrier,
@@ -25,7 +29,9 @@ public final class TargetMigrationNativeRetirementAction implements TargetMigrat
                 List<Object> registrations);
 
         void requireCurrent();
-        /** Persists/reloads this exact native exit and original owner fee settlement, never a guessed empty component. */
+        /**
+         * Persists/reloads this exact native exit and original owner fee settlement, never a guessed empty component.
+         */
         TargetMigrationRetirementResourceReceipt recordExited(
                 TargetMigrationRetirementStore.AppliedIntent intent,
                 TargetMigrationRetirementInventory.Resource resource,

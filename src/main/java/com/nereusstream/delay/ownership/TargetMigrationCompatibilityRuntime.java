@@ -1154,7 +1154,9 @@ public final class TargetMigrationCompatibilityRuntime {
         }
     }
 
-    /** Only this original compatibility owner can select a previously un-applied old command for Native interpretation. */
+    /**
+     * Only this original compatibility owner can select a previously un-applied old command for Native interpretation.
+     */
     public static final class NativeOwnedCommand {
         private final TargetMigrationCompatibilityRuntime owner;
         private final SourceReplayRecord original;

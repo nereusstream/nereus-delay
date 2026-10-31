@@ -3,7 +3,9 @@ package com.nereusstream.delay.protocol;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Generation8 keeps original intent state0 separate from state1, with distinct deletion and retained-marker evidence. */
+/**
+ * Generation8 keeps original intent state0 separate from state1, with distinct deletion and retained-marker evidence.
+ */
 public record TargetEvidenceDeleteConfirmedBody(
         ShardId shard,
         long retryUntil,

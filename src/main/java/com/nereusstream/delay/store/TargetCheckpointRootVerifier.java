@@ -436,7 +436,10 @@ public final class TargetCheckpointRootVerifier {
         return verified.ledger();
     }
 
-    /** Independent actual-object/signature audit after the physical image fold; retained counter values are never inputs. */
+    /**
+     * Independent actual-object/signature audit after the physical image fold; retained counter values are never
+     * inputs.
+     */
     public static LedgerProof auditManifestExternalEvidenceAuthentication(
             Path image,
             CheckpointManifest manifest,
@@ -506,7 +509,9 @@ public final class TargetCheckpointRootVerifier {
 
         void requireAuthenticated(
                 CheckpointManifest manifest, LedgerProof ledger, TargetCheckpointSemanticSnapshot snapshot);
-        /** Complete original protected image, Pin/Source history and management qualification for a v1 owner upgrade. */
+        /**
+         * Complete original protected image, Pin/Source history and management qualification for a v1 owner upgrade.
+         */
         default void requirePayloadSummaryInitializationAuthenticated(
                 CheckpointManifest manifest,
                 LedgerProof ledger,
@@ -530,7 +535,10 @@ public final class TargetCheckpointRootVerifier {
                         "image authority lacks original terminal-policy publication authentication");
             }
         }
-        /** Load/authenticate original RETAINED transitions and the committed closure TimeFence under this image's held Source history. */
+        /**
+         * Load/authenticate original RETAINED transitions and the committed closure TimeFence under this image's held
+         * Source history.
+         */
         default com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts inlinePayloadSourceFacts(
                 CheckpointManifest manifest,
                 LedgerProof proof,
@@ -559,7 +567,9 @@ public final class TargetCheckpointRootVerifier {
                 com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts closure) {
             throw new IllegalStateException("image has no real primary-payload reader/recovery independence proof");
         }
-        /** Original OBJECT retention/fence inputs, authenticated under this exact image and finite held Source window. */
+        /**
+         * Original OBJECT retention/fence inputs, authenticated under this exact image and finite held Source window.
+         */
         default com.nereusstream.delay.runtime.TargetInlinePayloadReclaim.SourceFacts objectPayloadSourceFacts(
                 CheckpointManifest m,
                 LedgerProof p,
@@ -597,7 +607,10 @@ public final class TargetCheckpointRootVerifier {
             throw new IllegalStateException(
                     "image lacks original Native OBJECT acceptance semantics/ownership authentication");
         }
-        /** Original complete Prepare/terminal causal frames and frozen policy, loaded under this finite image/Source hold. */
+        /**
+         * Original complete Prepare/terminal causal frames and frozen policy, loaded under this finite image/Source
+         * hold.
+         */
         default com.nereusstream.delay.protocol.TargetUncommittedPayloadFacts uncommittedPayloadFacts(
                 CheckpointManifest m,
                 LedgerProof p,
@@ -606,7 +619,10 @@ public final class TargetCheckpointRootVerifier {
                 long maximumBytes) {
             throw new IllegalStateException("image lacks original uncommitted reservation causality");
         }
-        /** Original accepted Prepare/causal Source/Retry/Profile semantics; confirmation also authenticates complete closed provider public history. */
+        /**
+         * Original accepted Prepare/causal Source/Retry/Profile semantics; confirmation also authenticates complete
+         * closed provider public history.
+         */
         default void requireUncommittedObjectFactsAuthenticated(
                 CheckpointManifest m,
                 LedgerProof p,
@@ -615,7 +631,10 @@ public final class TargetCheckpointRootVerifier {
             throw new IllegalStateException(
                     "image lacks uncommitted original semantics/provider history authentication");
         }
-        /** Actual separate read/replay/export/Pin/upload/commit purpose, held across Source; no physical upload close before intent APPLIED. */
+        /**
+         * Actual separate read/replay/export/Pin/upload/commit purpose, held across Source; no physical upload close
+         * before intent APPLIED.
+         */
         default void requireUncommittedObjectIndependent(
                 CheckpointManifest m,
                 LedgerProof p,
@@ -624,7 +643,10 @@ public final class TargetCheckpointRootVerifier {
                 RecoveryFloorRef floor) {
             throw new IllegalStateException("image lacks actual uncommitted reservation reader/writer admission");
         }
-        /** Original immutable Route retention and actual TimeFence, collected inside the original finite image/Source hold. */
+        /**
+         * Original immutable Route retention and actual TimeFence, collected inside the original finite image/Source
+         * hold.
+         */
         default com.nereusstream.delay.protocol.TargetNativeReclaimFacts nativeRetainedFacts(
                 CheckpointManifest manifest,
                 LedgerProof proof,
@@ -633,7 +655,10 @@ public final class TargetCheckpointRootVerifier {
                 long maximumBytes) {
             throw new IllegalStateException("image authority lacks original Native retained-reclaim inputs");
         }
-        /** Independently pin the original Route/key/publication and accepted Source fence, never the capsule's embedded key alone. */
+        /**
+         * Independently pin the original Route/key/publication and accepted Source fence, never the capsule's embedded
+         * key alone.
+         */
         default void requireNativeRetainedFactsAuthenticated(
                 CheckpointManifest manifest,
                 LedgerProof proof,
@@ -1391,7 +1416,9 @@ public final class TargetCheckpointRootVerifier {
         public void authenticate() {
             auditManifestImageAuthentication(image, manifest, physical, quota, ledger, semantic, authority, protection);
         }
-        /** Actual full physical, ledger and original public-history authentication under this image's own held rights. */
+        /**
+         * Actual full physical, ledger and original public-history authentication under this image's own held rights.
+         */
         public TargetCheckpointDependencies payloadSummaryDependencies() {
             requireCurrent();
             final var audited = authenticateManifestCompanion(

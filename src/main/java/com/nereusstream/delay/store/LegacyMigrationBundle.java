@@ -353,7 +353,8 @@ public final class LegacyMigrationBundle {
                         && type != TargetDispatchCompatibility.VALUE_TYPE
                         && type != TargetControlScope.VALUE_TYPE) {
                     throw new IllegalArgumentException(
-                            "migration conversion support must be an actual C descriptor or frozen dispatch/control material");
+                            ("migration conversion support must be an actual C descriptor or frozen "
+                                    + "dispatch/control material"));
                 }
             }
         }
@@ -1277,7 +1278,9 @@ public final class LegacyMigrationBundle {
         }
     }
 
-    /** Exact full desired data and physical deletions; the store worker computes Native fees and actual S atomically. */
+    /**
+     * Exact full desired data and physical deletions; the store worker computes Native fees and actual S atomically.
+     */
     public record TailProjection(
             SourceReplayEntry original,
             SourceReplayOutcome outcome,
@@ -1368,7 +1371,8 @@ public final class LegacyMigrationBundle {
                                     .compareTo(plan.baseline().source())
                             > 0) {
                 throw new IllegalStateException(
-                        "late old Admission crossed the frozen migration baseline; preserve custody and stop admission");
+                        ("late old Admission crossed the frozen migration baseline; preserve custody and "
+                                + "stop admission"));
             }
         }
         final var actual = candidate.store().readWithBudget(targetBudget, () -> {
@@ -1655,7 +1659,8 @@ public final class LegacyMigrationBundle {
                     && old.status() == MessageStatus.SCHEDULED
                     && old.orderingMode() == OrderingMode.DELIVERY_TIME_FIFO) {
                 throw new IllegalStateException(
-                        "safe strict Source work lacks its exact noFuture/mapping authority; cannot strand it in custody");
+                        ("safe strict Source work lacks its exact noFuture/mapping authority; cannot "
+                                + "strand it in custody"));
             }
             if (!imported) {
                 retained.add(new RetainedEntity(
@@ -1962,7 +1967,8 @@ public final class LegacyMigrationBundle {
                                 && !prefixSources.contains(
                                         Bytes.hex(message.scheduleSource().canonicalBytes()))) {
                     throw new IllegalStateException(
-                            "actual new Native business is not represented by the old shadow; original owner interpretation is required");
+                            ("actual new Native business is not represented by the old shadow; original "
+                                    + "owner interpretation is required"));
                 }
             } else if (value.valueType() == TargetScheduleBinding.VALUE_TYPE
                     && !TargetScheduleBinding.decode(value.payload()).imported()) {

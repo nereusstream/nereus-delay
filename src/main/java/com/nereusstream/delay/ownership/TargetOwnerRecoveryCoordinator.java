@@ -406,7 +406,9 @@ public final class TargetOwnerRecoveryCoordinator {
         sloRecoveryBound = true;
     }
 
-    /** Existing signed Fence frames require actual original-cut APPLIED first/POS before skipping a new SDK producer. */
+    /**
+     * Existing signed Fence frames require actual original-cut APPLIED first/POS before skipping a new SDK producer.
+     */
     synchronized void requireSloRecoveryFencePreviouslyApplied(
             TargetStoreBootstrap.SloRecoveryAudit original, TargetTimeFenceMutationFactory.Prepared exactFence) {
         requireSloAuditPhase(false);
@@ -591,7 +593,8 @@ public final class TargetOwnerRecoveryCoordinator {
         for (var writer : audit.writers()) {
             if (writer.contract().maximumRetryUntil() > fence.body().closeThrough()) {
                 throw new IllegalStateException(
-                        "recovery Fence omits a restored writer deadline; observed maxima do not prove the old domain complete");
+                        ("recovery Fence omits a restored writer deadline; observed maxima do not prove "
+                                + "the old domain complete"));
             }
         }
     }
@@ -722,7 +725,9 @@ public final class TargetOwnerRecoveryCoordinator {
         }
         payloadSummaryLegacyPrefix = Objects.requireNonNull(original);
     }
-    /** Only the actual startup binds limits/physical Owner; each prepared prefix still needs its independent paid loan. */
+    /**
+     * Only the actual startup binds limits/physical Owner; each prepared prefix still needs its independent paid loan.
+     */
     synchronized void configureWriterOrigin(
             com.nereusstream.delay.runtime.TargetSloWriterOrigin.Limits originalLimits,
             com.nereusstream.delay.protocol.OwnerIdentity actualOwner,
@@ -1351,7 +1356,9 @@ public final class TargetOwnerRecoveryCoordinator {
         return activeRuntime(authorities.successor());
     }
 
-    /** Active consumption uses its own adapter proof; a closed recovery reader cannot authorize later Source delivery. */
+    /**
+     * Active consumption uses its own adapter proof; a closed recovery reader cannot authorize later Source delivery.
+     */
     public synchronized TargetSourceApplyRuntime activeRuntime(SourceReplaySuccessor activeSuccessor) {
         Objects.requireNonNull(activeSuccessor, "actual active Source successor");
         final var root = completedRoot();

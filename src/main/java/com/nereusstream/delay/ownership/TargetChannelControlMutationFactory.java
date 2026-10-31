@@ -116,7 +116,9 @@ public final class TargetChannelControlMutationFactory {
             return mutation;
         }
 
-        /** Reuses original registered/signed bytes recovered from protected history; no signing or Source allocation. */
+        /**
+         * Reuses original registered/signed bytes recovered from protected history; no signing or Source allocation.
+         */
         public static Prepared restore(final PreparedControlOperation control, final SystemMutation mutation) {
             final var body = TargetChannelControlBody.decode(
                     Objects.requireNonNull(mutation, "mutation").canonicalBody());

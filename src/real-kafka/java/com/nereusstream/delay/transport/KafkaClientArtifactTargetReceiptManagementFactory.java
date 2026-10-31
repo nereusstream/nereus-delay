@@ -96,7 +96,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             if ((policy.purpose() == TargetCatalogRootAuthority.Purpose.INITIALIZE_FRESH_CATALOG_ROOT)
                     != (externalAllocation != null)) {
                 throw new IllegalArgumentException(
-                        "fresh initialization requires its actual external allocation authority; adoption does not substitute one");
+                        ("fresh initialization requires its actual external allocation authority; "
+                                + "adoption does not substitute one"));
             }
         }
     }
@@ -218,7 +219,8 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     || receipts.size() > storage.maximumPublications()
                     || !Arrays.equals(receipts.getFirst().authority().canonicalBytes(), management.canonicalBytes())) {
                 throw new IllegalArgumentException(
-                        "receipt inventory lacks its original first management authorization or exceeds storage bounds");
+                        ("receipt inventory lacks its original first management authorization or exceeds "
+                                + "storage bounds"));
             }
             final var channels = new HashSet<String>();
             final var resources = new HashSet<String>();
@@ -396,7 +398,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 authenticator);
     }
 
-    /** Historical Source authorization has an independent purpose/issuer pin and never inherits the signing manifest. */
+    /**
+     * Historical Source authorization has an independent purpose/issuer pin and never inherits the signing manifest.
+     */
     public static Opening openConfigured(
             TargetWorkerProcessRuntime root,
             Path configuration,
@@ -634,7 +638,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 context.controlScopeRef());
     }
 
-    /** Literal PEM is covered by the signed configuration fingerprint; mutable file references or plugin factories cannot replace it. */
+    /**
+     * Literal PEM is covered by the signed configuration fingerprint; mutable file references or plugin factories
+     * cannot replace it.
+     */
     private static int requireAdmin(Map<String, String> admin, int maximumBrokers) {
         if (admin.isEmpty() || admin.size() > 64) {
             throw new IllegalArgumentException("management operational field bound exceeded");
@@ -679,7 +686,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
         return endpoints.length;
     }
 
-    /** Privileged material stays in this original owner; only actual verified results are exposed to Worker assembly. */
+    /**
+     * Privileged material stays in this original owner; only actual verified results are exposed to Worker assembly.
+     */
     public static final class Opening implements TargetWorkerProcessRuntime.ReceiptManagement {
         private final TargetWorkerProcessRuntime root;
         private final Configuration config;
@@ -1048,7 +1057,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
             return closeAdoptedControlReferences(source, owner, reads, nativeReads);
         }
-        /** A selected immutable owner is reauthenticated from actual Native facts; its sibling may already be retired. */
+        /**
+         * A selected immutable owner is reauthenticated from actual Native facts; its sibling may already be retired.
+         */
         public synchronized java.util.concurrent.CompletableFuture<
                         OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject>
                 closeAdoptedControlReferences(
@@ -1305,7 +1316,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                 nativeReads = null;
             }
         }
-        /** Owned pending metadata only; this never authenticates a physical payload operation or provider observation. */
+        /**
+         * Owned pending metadata only; this never authenticates a physical payload operation or provider observation.
+         */
         public static final class MarkerPreparation {
             private final Opening root;
             private OxiaSyncTargetKafkaReceiptProtectionCatalog.ReservedMarker reserved;
@@ -1439,7 +1452,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             markerReservation = null;
             markerRequest = null;
         }
-        /** Actual original SDK operation, owned until Source confirmation/cleanup; never constructed from an evidence DTO. */
+        /**
+         * Actual original SDK operation, owned until Source confirmation/cleanup; never constructed from an evidence
+         * DTO.
+         */
         public static final class PayloadPreparation {
             private final Opening root;
             private final KafkaClientArtifactTargetWorkerSourceFactory.Opening source;
@@ -1585,7 +1601,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             payloadRetirement = next;
             return next.receipt();
         }
-        /** Only an actual no-Catalog-start failure can discard locally; an entered failure stays until SDK termination. */
+        /**
+         * Only an actual no-Catalog-start failure can discard locally; an entered failure stays until SDK termination.
+         */
         public synchronized boolean discardUnstartedMarkerReservation() {
             requireReady();
             final var original = markerReservation;
@@ -1606,7 +1624,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             markerRequest = null;
             return true;
         }
-        /** Actual prepared public bytes and Native cut. Source signing/apply must still revalidate its own authority/state. */
+        /**
+         * Actual prepared public bytes and Native cut. Source signing/apply must still revalidate its own
+         * authority/state.
+         */
         public static final class RetirementPreparation {
             private final Opening root;
             private com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.ClosedUses uses;
@@ -1788,7 +1809,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             Objects.requireNonNull(selected);
             return prepareRetirement(source, closure, null, selected, catalogReads, nativeReads);
         }
-        /** Already-closed reservation only; closing original publication I/O and physical retirement are separate obligations. */
+        /**
+         * Already-closed reservation only; closing original publication I/O and physical retirement are separate
+         * obligations.
+         */
         public synchronized java.util.concurrent.CompletableFuture<RetirementPreparation> prepareStagingRetirement(
                 KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
                 OxiaSyncTargetKafkaReceiptProtectionCatalog.ClosedObject closure,
@@ -2084,7 +2108,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             return withRetirementSourceInputs(original, scope, catalogReads, true, Objects.requireNonNull(cold));
         }
 
-        /** Original Root inputs for adopted objects and explicit reserved staging; Native projection is checked independently. */
+        /**
+         * Original Root inputs for adopted objects and explicit reserved staging; Native projection is checked
+         * independently.
+         */
         public com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content withRetirementSourceInputs(
                 com.nereusstream.delay.ownership.TargetWorkerSourceRuntimeFactory.Content original,
                 com.nereusstream.delay.protocol.TargetQuotaScope scope,
@@ -2198,7 +2225,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     original.scopeResources());
         }
 
-        /** Uses the original Source preparation task; it never queues a nested Root task or requires Worker admission. */
+        /**
+         * Uses the original Source preparation task; it never queues a nested Root task or requires Worker admission.
+         */
         private com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs loadRetirementSourceInputs(
                 com.nereusstream.delay.ownership.SourceReplayMutation entry,
                 com.nereusstream.delay.protocol.TargetQuotaScope scope,
@@ -2686,7 +2715,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     }
                 }
             }
-            /** Immutable observation/history and actual local loan state only; no Worker/Registry/provider RPC at commit. */
+            /**
+             * Immutable observation/history and actual local loan state only; no Worker/Registry/provider RPC at
+             * commit.
+             */
             private void requireLoadingCurrent() {
                 synchronized (root) {
                     if (closed || closing || root.confirmationSourceInputs != this) {
@@ -2760,7 +2792,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
         }
 
-        /** Authenticates complete history on the existing Source I/O turn; activation/provider/capacity checks remain independent. */
+        /**
+         * Authenticates complete history on the existing Source I/O turn; activation/provider/capacity checks remain
+         * independent.
+         */
         public RetirementHistoryInput readRetirementHistory(
                 com.nereusstream.delay.ownership.SourceReplayMutation entry, Runnable current) {
             Objects.requireNonNull(entry);
@@ -2891,7 +2926,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     throw new IllegalStateException("original history I/O has not exited");
                 }
             }
-            /** Grant data still requires actual prior protocol/Artifact activation and action-specific provider checks. */
+            /**
+             * Grant data still requires actual prior protocol/Artifact activation and action-specific provider checks.
+             */
             public java.util.Optional<com.nereusstream.delay.protocol.TargetRetirementAuthorizationHistory.Grant>
                     grant() {
                 synchronized (root) {
@@ -3053,7 +3090,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     return copy;
                 }
             }
-            /** Caller keeps original rights on failure. On success Source close owns this loan; caller close is harmless. */
+            /**
+             * Caller keeps original rights on failure. On success Source close owns this loan; caller close is
+             * harmless.
+             */
             public com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs hold(
                     com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs original) {
                 synchronized (root) {
@@ -3335,7 +3375,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                     com.nereusstream.delay.protocol.TargetEvidenceDeleteConfirmedBody.decode(selected.canonicalBody()));
             return completePhysical(payload.source, selected, payload, catalogReads, nativeReads);
         }
-        /** Recovery bookkeeping after actual Source/Worker admission; does not reconstruct provider observations or sign. */
+        /**
+         * Recovery bookkeeping after actual Source/Worker admission; does not reconstruct provider observations or
+         * sign.
+         */
         public synchronized java.util.concurrent.CompletableFuture<Boolean> reconcileRetiredMarkerCapacity(
                 KafkaClientArtifactTargetWorkerSourceFactory.Opening source,
                 com.nereusstream.delay.protocol.SystemMutation selected,
@@ -3501,7 +3544,9 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
         }
 
-        /** Uses the same Worker's actual registered Source writer and shared WorkClass queue; no local apply shortcut. */
+        /**
+         * Uses the same Worker's actual registered Source writer and shared WorkClass queue; no local apply shortcut.
+         */
         public com.nereusstream.delay.ownership.TargetEvidenceRetirementWorkClassExecutor.Submission
                 submitRetirementIntent(
                         RetirementPreparation prepared,
@@ -3547,7 +3592,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             }
         }
 
-        /** One same-process Source look-ahead may borrow this exact candidate. Caller keeps its original hold on failure. */
+        /**
+         * One same-process Source look-ahead may borrow this exact candidate. Caller keeps its original hold on
+         * failure.
+         */
         public synchronized com.nereusstream.delay.ownership.TargetSourceAuthorityLoader.HeldInputs
                 holdRetirementSourceInputs(
                         RetirementPreparation prepared,
@@ -3623,7 +3671,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
             };
         }
 
-        /** Signed/UNKNOWN candidates stay retained until an actual Native first is known; caller DTOs cannot release them. */
+        /**
+         * Signed/UNKNOWN candidates stay retained until an actual Native first is known; caller DTOs cannot release
+         * them.
+         */
         public synchronized java.util.concurrent.CompletableFuture<Boolean> releaseRetirementPreparation(
                 RetirementPreparation prepared) {
             prepared.requireRoot(this);
@@ -3714,7 +3765,10 @@ public final class KafkaClientArtifactTargetReceiptManagementFactory {
                             originalHistory);
         }
 
-        /** Bootstrap authenticates retained original proofs/seals; it neither claims adoption nor requires a live old SDK. */
+        /**
+         * Bootstrap authenticates retained original proofs/seals; it neither claims adoption nor requires a live old
+         * SDK.
+         */
         public com.nereusstream.delay.store.TargetCheckpointDependencies.RecoveryEvidenceAuthority
                 receiptRecoveryEvidenceAuthority(Supplier<com.nereusstream.delay.store.BoundedReadBudget> reads) {
             final var original = requireRecoveryArchive();

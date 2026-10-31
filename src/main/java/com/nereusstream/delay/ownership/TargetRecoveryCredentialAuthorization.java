@@ -234,7 +234,10 @@ public final class TargetRecoveryCredentialAuthorization {
         }
     }
 
-    /** Equality is a constraint on a later private runtime receipt, never proof of pending Source/Owner/retention rights. */
+    /**
+     * Equality is a constraint on a later private runtime receipt, never proof of pending Source/Owner/retention
+     * rights.
+     */
     public void requireMapping(TargetKafkaReceiptMapping mapping) {
         final var admitted = Objects.requireNonNull(mapping).admission();
         final var binding = admitted.kafkaReceipt();
@@ -251,7 +254,10 @@ public final class TargetRecoveryCredentialAuthorization {
             throw unavailable();
         }
     }
-    /** Actual Source/Owner providers supply these values; a separately valid deployment authorization cannot cross realms. */
+    /**
+     * Actual Source/Owner providers supply these values; a separately valid deployment authorization cannot cross
+     * realms.
+     */
     public void requireRuntimeScope(OwnerIdentity currentOwner, byte[] actualTenantScope) {
         if (!Arrays.equals(value(2), Objects.requireNonNull(currentOwner).deploymentId())
                 || !Arrays.equals(value(5), actualTenantScope)) {
@@ -287,7 +293,8 @@ public final class TargetRecoveryCredentialAuthorization {
     }
     /**
      * Owns actual current permission/probe and immutable-version retirement protection, independent of the SEND lease.
-     * Retirement protection stays held until explicit close, including after authorization expires; expiry only stops use.
+     * Retirement protection stays held until explicit close, including after authorization expires; expiry only stops
+     * use.
      * The deployment authority owns partial-acquisition cleanup if acquire cannot return this original handle.
      */
     public interface Hold extends AutoCloseable {
@@ -298,7 +305,9 @@ public final class TargetRecoveryCredentialAuthorization {
         byte[] principalHash();
 
         long retainedUntilEpochMs();
-        /** Revalidate actual authenticated recovery permission, revocation and the original still-held material version. */
+        /**
+         * Revalidate actual authenticated recovery permission, revocation and the original still-held material version.
+         */
         void requireCurrent();
         /** Retry the same original close after failure; successful close must be idempotent. */
         @Override
@@ -355,7 +364,10 @@ public final class TargetRecoveryCredentialAuthorization {
                 throw unavailable();
             }
         }
-        /** Original observation-time signature/scope check; today's invalidation never rewrites historical authorization. */
+        /**
+         * Original observation-time signature/scope check; today's invalidation never rewrites historical
+         * authorization.
+         */
         public void verifyHistorical(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time)
                 throws Exception {
             a.requireTime(time);
@@ -384,7 +396,9 @@ public final class TargetRecoveryCredentialAuthorization {
                 throw unavailable();
             }
         }
-        /** Exact public approval selected at the observation; no material authority, paths or private bytes transfer. */
+        /**
+         * Exact public approval selected at the observation; no material authority, paths or private bytes transfer.
+         */
         byte[] historicalPublicInputs(TargetRecoveryCredentialAuthorization a, TrustedUtcIntervalEvidence time)
                 throws Exception {
             verifyHistorical(a, time);

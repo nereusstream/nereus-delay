@@ -89,7 +89,8 @@ public final class TargetPublishRecoveryMaintenance {
                         || !java.util.Arrays.equals(service.canonicalBytes(), mutation.authorIdentity())
                         || stableCode != body.stableCode()) {
                     throw new IllegalArgumentException(
-                            "archived resolution must retain its exact sealed Source image without Worker signing keys");
+                            ("archived resolution must retain its exact sealed Source image without Worker "
+                                    + "signing keys"));
                 }
             }
             if (service.kind() != com.nereusstream.delay.protocol.AuthorIdentity.Kind.SERVICE) {

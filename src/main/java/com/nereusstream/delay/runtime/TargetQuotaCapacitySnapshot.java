@@ -428,7 +428,9 @@ public final class TargetQuotaCapacitySnapshot {
             };
         }
 
-        /** Wires the same snapshot into the existing verifier and Source atomic commit, without replacing other rights. */
+        /**
+         * Wires the same snapshot into the existing verifier and Source atomic commit, without replacing other rights.
+         */
         public TargetSourceApplyRuntime.GrantControl grantControl(
                 PreparedControlOperation prepared,
                 TargetQuotaGrantControlVerifier.Authority original,

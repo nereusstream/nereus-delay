@@ -82,7 +82,9 @@ public record TargetExternalEvidenceObjectResource(
         }
     }
 
-    /** Bounded immutable creator facts supplement the original owner; actual Native mapping/ref joins remain mandatory. */
+    /**
+     * Bounded immutable creator facts supplement the original owner; actual Native mapping/ref joins remain mandatory.
+     */
     public record Anchor(TargetExternalEvidenceOwner owner, byte[] mappingId, byte[] admissionHash)
             implements Provenance {
         public Anchor {

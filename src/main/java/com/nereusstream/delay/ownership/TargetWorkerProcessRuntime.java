@@ -628,7 +628,10 @@ public final class TargetWorkerProcessRuntime {
         }
     }
 
-    /** Drives original queued restore/recovery actions with the configured finite startup budget, including failed-stop settlement. */
+    /**
+     * Drives original queued restore/recovery actions with the configured finite startup budget, including failed-stop
+     * settlement.
+     */
     public List<com.nereusstream.delay.scheduler.WorkClassTask> runStartupWorkTurn() {
         synchronized (this) {
             if (host != null || preparingHost || startupTurnActive || dependenciesExited || resourcesClosed) {
@@ -1632,7 +1635,9 @@ public final class TargetWorkerProcessRuntime {
         return driver;
     }
 
-    /** Registers only the recovery custody owner; the already activated Native root is read after actual open/install. */
+    /**
+     * Registers only the recovery custody owner; the already activated Native root is read after actual open/install.
+     */
     public synchronized TargetMigrationProcessDriver recoverMigrationCompatibility(
             TargetMigrationConfiguration request,
             TargetWorkerSourceStartup.Owner owner,
@@ -2339,7 +2344,9 @@ public final class TargetWorkerProcessRuntime {
         return true;
     }
 
-    /** Failed controlled startups retain the authority/pool until every original local dependency has actually exited. */
+    /**
+     * Failed controlled startups retain the authority/pool until every original local dependency has actually exited.
+     */
     public boolean stopFailedSourceAssembly(TargetOwnerDrainCoordinator.Request request) {
         Objects.requireNonNull(request);
         final List<TargetWorkerSourceStartup> original;
@@ -2776,7 +2783,9 @@ public final class TargetWorkerProcessRuntime {
         retryCleanup();
     }
 
-    /** Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread. */
+    /**
+     * Non-waiting original-handle cleanup; never discards queued OwnedCheckpointIo or waits on a pool/export thread.
+     */
     public void retryCleanup() {
         synchronized (this) {
             if (!stopping || !dependenciesExited || resourcesClosed) {

@@ -191,7 +191,10 @@ public final class ProtocolActivationAuthorityCoordinator {
         return evidence;
     }
 
-    /** Actual eligible-reader snapshot plus one original Root-issuer signature, for the existing Control registration path. */
+    /**
+     * Actual eligible-reader snapshot plus one original Root-issuer signature, for the existing Control registration
+     * path.
+     */
     public com.nereusstream.delay.protocol.TargetProtocolActivatePayload authorizeTargetRootTuple(
             com.nereusstream.delay.protocol.TargetInitialControlSnapshot originalRoot,
             com.nereusstream.delay.protocol.TargetProtocolActivationDescriptor descriptor,

@@ -660,7 +660,9 @@ public final class TargetMigrationImporter {
         return store.withReadView(read.view(), () -> new PreparedCandidate(this, candidate, read.value()));
     }
 
-    /** Complete C→A old-domain application; original frame/successor and projected before/after are independently held. */
+    /**
+     * Complete C→A old-domain application; original frame/successor and projected before/after are independently held.
+     */
     public void applyLegacyPrefix(
             PreparedCandidate candidate,
             SourceReplayEntry original,

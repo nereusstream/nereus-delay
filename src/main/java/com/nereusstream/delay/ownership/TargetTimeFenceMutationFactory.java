@@ -117,7 +117,9 @@ public final class TargetTimeFenceMutationFactory {
             return body;
         }
 
-        /** Structural/mathematical recovery only; the supplied bounds must come from the original protected material. */
+        /**
+         * Structural/mathematical recovery only; the supplied bounds must come from the original protected material.
+         */
         public static Prepared restore(
                 SystemMutation original, long safetyMarginMs, long maximumProofWidthMs, long maximumFrameBytes) {
             requireFrameLimit(maximumFrameBytes);

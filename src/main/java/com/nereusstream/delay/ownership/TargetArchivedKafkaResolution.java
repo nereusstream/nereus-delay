@@ -19,7 +19,9 @@ public final class TargetArchivedKafkaResolution {
 
     @FunctionalInterface
     public interface SourceCompletion {
-        /** Actual Source first must be reread; present means real Native APPLIED adoption, empty means actual REJECTED. */
+        /**
+         * Actual Source first must be reread; present means real Native APPLIED adoption, empty means actual REJECTED.
+         */
         CompletableFuture<Optional<com.nereusstream.delay.runtime.TargetRecoveryEvidenceStore.Adoption>> complete(
                 TargetArchivedKafkaResolution exact);
     }

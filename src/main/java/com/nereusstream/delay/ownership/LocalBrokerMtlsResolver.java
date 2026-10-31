@@ -164,7 +164,9 @@ public final class LocalBrokerMtlsResolver {
         return new LocalBrokerMtlsResolver(root, clientTrust, serverTrust, limits, endpoints);
     }
 
-    /** Trust files are deployment inputs, separate from the client fingerprint; they are loaded once without symlinks. */
+    /**
+     * Trust files are deployment inputs, separate from the client fingerprint; they are loaded once without symlinks.
+     */
     public LocalBrokerMtlsResolver(
             Path credentialRoot, Path clientTrustFile, Path serverTrustFile, Limits limits, EndpointPolicy endpoints) {
         this.root = Objects.requireNonNull(credentialRoot, "controlled credential root")
@@ -1176,7 +1178,10 @@ public final class LocalBrokerMtlsResolver {
                 requireOperation(role, time.get());
             };
         }
-        /** Recovery begins before an active Worker exists; the original accepted assignment/Owner/Pin guard is mandatory. */
+        /**
+         * Recovery begins before an active Worker exists; the original accepted assignment/Owner/Pin guard is
+         * mandatory.
+         */
         public Runnable guardRecovery(
                 com.nereusstream.delay.protocol.ShardId shard,
                 String topic,

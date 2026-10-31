@@ -423,9 +423,9 @@ public final class TargetCheckpointCandidateTestBridge {
                 org.junit.jupiter.api.Assertions.assertEquals(
                         published.uploadIntent(),
                         reopened.currentPublishedFor(pending).orElseThrow());
-                System.out.println(
-                        "C5 real Oxia Target PUBLISHED intent/catalog CAS and independent reread; "
-                                + "exact File Object Store image downloaded, remaining permission/bootstrap authority is fixture.");
+                System.out.println("C5 real Oxia Target PUBLISHED intent/catalog CAS and independent reread; "
+                        + ("exact File Object Store image downloaded, remaining permission/bootstrap "
+                                + "authority is fixture."));
             }
         } finally {
             if (nativeSession != null) {

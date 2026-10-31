@@ -96,7 +96,9 @@ public final class TargetRecoveryProof {
         return new TargetRecoveryProof(Objects.requireNonNull(bytes));
     }
 
-    /** Data encoder only; the privileged signer accepts a private actual native observation, not these caller values. */
+    /**
+     * Data encoder only; the privileged signer accepts a private actual native observation, not these caller values.
+     */
     public static byte[] unsigned(
             TargetKafkaReceiptMapping mapping,
             SystemMutation admission,

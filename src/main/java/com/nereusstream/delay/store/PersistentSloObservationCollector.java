@@ -72,7 +72,10 @@ public final class PersistentSloObservationCollector {
     }
 
     public interface OriginalAuthority {
-        /** Original Control, Source, binding, endpoint/time and complete retained collector material; outside file locks. */
+        /**
+         * Original Control, Source, binding, endpoint/time and complete retained collector material; outside file
+         * locks.
+         */
         void requireOriginal(TargetSloObservationExport export);
         /** Authenticates the original protected gap confirmation and reconciled old frames, never a read failure. */
         default void requireRecoveryGap(
@@ -80,7 +83,10 @@ public final class PersistentSloObservationCollector {
                 com.nereusstream.delay.protocol.TargetSloObservationEventRecord event) {
             throw new IllegalStateException("original collector recovery-gap qualification unavailable");
         }
-        /** Actual protected Native62/Control/Fence history and original per-frame key/deadline authority, outside file locks. */
+        /**
+         * Actual protected Native62/Control/Fence history and original per-frame key/deadline authority, outside file
+         * locks.
+         */
         default void requireWriterEpoch(
                 TargetSloObservationExport export,
                 com.nereusstream.delay.protocol.TargetSloObservationEventRecord event) {
@@ -205,7 +211,8 @@ public final class PersistentSloObservationCollector {
                     if (existing != null) {
                         if (observed == null || !Arrays.equals(existing.canonicalBytes(), observed.canonicalBytes())) {
                             throw new IllegalStateException(
-                                    "Target collector version changed while original authentication was pending; retry exact input");
+                                    ("Target collector version changed while original authentication was "
+                                            + "pending; retry exact input"));
                         }
                         if (!Arrays.equals(
                                 existing.export().sample().canonicalBytes(),

@@ -3,7 +3,9 @@ package com.nereusstream.delay.protocol;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Complete same-Source Catalog CAS observation. Serialized data never substitutes for the original owner capability. */
+/**
+ * Complete same-Source Catalog CAS observation. Serialized data never substitutes for the original owner capability.
+ */
 public record TargetMigrationCatalogBarrierReceipt(
         byte[] intentDigest,
         TargetQuotaMutation intentAt,

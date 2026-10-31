@@ -231,7 +231,8 @@ public final class TargetPayloadObligationSummaryAudit {
                                         || owner.summaryOrigin() != TargetQuotaPayloadOwner.SummaryOrigin.BOOTSTRAP
                                                 && initialCounts.get(key) != 0) {
                                     throw new IllegalStateException(
-                                            "Native32 summary differs from the complete independent runtime/Budget/Source fold");
+                                            ("Native32 summary differs from the complete independent "
+                                                    + "runtime/Budget/Source fold"));
                                 }
                                 TargetPayloadObligationSummaryBootstrap.requireColdInitialization(
                                         dependencies,

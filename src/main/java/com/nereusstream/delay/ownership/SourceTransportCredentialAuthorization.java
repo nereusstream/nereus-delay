@@ -404,7 +404,9 @@ public final class SourceTransportCredentialAuthorization {
         return new IllegalStateException("Source transport credential unavailable");
     }
 
-    /** Explicit Source-use permission over existing verifier keys; invalidation only closes this deployment generation. */
+    /**
+     * Explicit Source-use permission over existing verifier keys; invalidation only closes this deployment generation.
+     */
     public static final class Trust {
         private final byte[] deployment, configuration;
         private final long generation;

@@ -5,7 +5,10 @@ import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Persistent value at the original key. It blocks old conditional puts; it does not prove their completion or permit key GC. */
+/**
+ * Persistent value at the original key. It blocks old conditional puts; it does not prove their completion or permit
+ * key GC.
+ */
 public record TargetEvidenceRetiredMarker(
         TargetCatalogCapacityOwnerRef capacityOwner,
         byte[] deploymentRootDigest,

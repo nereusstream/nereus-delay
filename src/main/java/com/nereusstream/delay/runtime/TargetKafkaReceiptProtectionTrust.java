@@ -147,7 +147,10 @@ public final class TargetKafkaReceiptProtectionTrust {
         }
     }
 
-    /** Original scope/signatures remain checkable on retained BROKEN evidence; this grants no current SEND/absence right. */
+    /**
+     * Original scope/signatures remain checkable on retained BROKEN evidence; this grants no current SEND/absence
+     * right.
+     */
     public void requireArtifactHistory(
             TargetKafkaReceiptControlArtifact artifact, TargetKafkaReceiptControlArtifact protection) {
         requirePublisher(protection.protection(), protection.control(), protection.authorizedAt());

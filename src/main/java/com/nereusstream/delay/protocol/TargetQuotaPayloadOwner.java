@@ -336,7 +336,10 @@ public final class TargetQuotaPayloadOwner {
                 null);
     }
 
-    /** Explicit migration baseline allocation. Complete original binding/raw custody is retained by schema2 and Native66. */
+    /**
+     * Explicit migration baseline allocation. Complete original binding/raw custody is retained by schema2 and
+     * Native66.
+     */
     public static TargetQuotaPayloadOwner importedScheduled(
             final TargetScheduleBinding binding,
             final TargetMigrationPlan plan,

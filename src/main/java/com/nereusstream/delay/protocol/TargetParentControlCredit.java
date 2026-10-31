@@ -296,7 +296,9 @@ public final class TargetParentControlCredit {
         }
     }
 
-    /** Full original signed funding Control and Source stamp; signature, first/POS and slice authority stay independent. */
+    /**
+     * Full original signed funding Control and Source stamp; signature, first/POS and slice authority stay independent.
+     */
     public record Control(SystemMutation input, TargetQuotaMutation appliedAt) {
         public static final int MAX_INPUT_BYTES = TargetParentControlCreditBody.MAX_INPUT_BYTES;
         public static final int MAX_CANONICAL_BYTES =
@@ -362,7 +364,9 @@ public final class TargetParentControlCredit {
         }
     }
 
-    /** Irreversible original child commitment; a complete paid Scope row and Source proof must independently join it. */
+    /**
+     * Irreversible original child commitment; a complete paid Scope row and Source proof must independently join it.
+     */
     public record Allocation(
             TargetSloControlScopeHeader.Reference scope,
             byte[] allocationGrantDigest,
@@ -611,7 +615,10 @@ public final class TargetParentControlCredit {
         }
     }
 
-    /** Projection only. Source commit/cold fold must reject allocations without the actual matching funded child Scope proof. */
+    /**
+     * Projection only. Source commit/cold fold must reject allocations without the actual matching funded child Scope
+     * proof.
+     */
     public TargetParentControlCredit allocate(Allocation child) {
         Objects.requireNonNull(child);
         for (var existing : allocations) {

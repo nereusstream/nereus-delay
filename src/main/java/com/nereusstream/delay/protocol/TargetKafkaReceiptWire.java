@@ -3,7 +3,10 @@ package com.nereusstream.delay.protocol;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-/** Independent Target receipt namespace. A mapping is intent; only a same-transaction committed receipt proves publication. */
+/**
+ * Independent Target receipt namespace. A mapping is intent; only a same-transaction committed receipt proves
+ * publication.
+ */
 public final class TargetKafkaReceiptWire {
     private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-target-kafka-receipt-key\0");
     private static final byte[] VALUE_DOMAIN = Bytes.utf8("nereus-delay-target-kafka-receipt-value\0");

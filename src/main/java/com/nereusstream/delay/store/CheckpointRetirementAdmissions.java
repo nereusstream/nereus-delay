@@ -6,7 +6,9 @@ import com.nereusstream.delay.runtime.TargetMigrationRetirementStore;
 
 /** Original complete reader/writer/Pin/reference admission ownership; no snapshot can implement these rights. */
 public interface CheckpointRetirementAdmissions extends AutoCloseable {
-    /** The original acquired epoch covers the entire exact old domain, including older protocols and in-flight admits. */
+    /**
+     * The original acquired epoch covers the entire exact old domain, including older protocols and in-flight admits.
+     */
     void requirePrepared(TargetMigrationRoot migration, String namespace, String publicationKey);
     /** Raw original authenticated closure/history material, independently verified by the actual owner. */
     byte[] originalAdmissionClosure();

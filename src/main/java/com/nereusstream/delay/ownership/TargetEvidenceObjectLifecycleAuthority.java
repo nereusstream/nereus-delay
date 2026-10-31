@@ -473,7 +473,9 @@ public final class TargetEvidenceObjectLifecycleAuthority {
                 throw new IllegalArgumentException("lifecycle history belongs to another original authority");
             }
         }
-        /** Retain the returned actual handle before requireCurrent: failed validation never loses close responsibility. */
+        /**
+         * Retain the returned actual handle before requireCurrent: failed validation never loses close responsibility.
+         */
         public AdmissionProtection acquire(TargetReceiptCurrentManagement.Authenticator authenticator) {
             return new AdmissionProtection(
                     this,

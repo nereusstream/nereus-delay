@@ -75,7 +75,9 @@ final class KafkaClientArtifactTargetRecoveryArchiveConfiguration {
         }
     }
 
-    /** Only the bounded manifest is read here; all referenced key/identity files wait for the management reservation. */
+    /**
+     * Only the bounded manifest is read here; all referenced key/identity files wait for the management reservation.
+     */
     static Inputs prepare(
             Path path,
             String actualCatalogPrefix,

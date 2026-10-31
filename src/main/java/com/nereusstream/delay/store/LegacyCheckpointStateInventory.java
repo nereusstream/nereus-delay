@@ -1496,7 +1496,9 @@ public final class LegacyCheckpointStateInventory {
                 proof.metadata(), proof.appliedSourcePosition(), proof.mutationSequence(), complete.entries(), null);
     }
 
-    /** Reads every CF under one original Store monitor and one shared finite read budget, after the real old applier. */
+    /**
+     * Reads every CF under one original Store monitor and one shared finite read budget, after the real old applier.
+     */
     public static LiveView inspectLive(
             ShardStore store,
             CompleteView baseline,

@@ -307,7 +307,10 @@ final class KafkaClientArtifactTargetRetirementHistoryConfiguration {
             }
             return bytes;
         }
-        /** Public proof data requires the independent Root pin again when restored; these embedded bytes do not self-authorize. */
+        /**
+         * Public proof data requires the independent Root pin again when restored; these embedded bytes do not
+         * self-authorize.
+         */
         TargetRetirementAuthorizationHistory.PublicProof proof() {
             return new TargetRetirementAuthorizationHistory.PublicProof(
                     authority,

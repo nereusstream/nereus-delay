@@ -848,7 +848,10 @@ public final class TargetWorkerShardRuntime
                         1));
     }
 
-    /** Actual native Store/Source/Oxia assignment-session guard for external publication resources; never SEND permission. */
+    /**
+     * Actual native Store/Source/Oxia assignment-session guard for external publication resources; never SEND
+     * permission.
+     */
     public synchronized com.nereusstream.delay.protocol.OwnerIdentity requirePublicationOwner(
             com.nereusstream.delay.protocol.OwnerIdentity expected, LongSupplier clock) {
         requireNewTurnsAdmitted();
@@ -2310,7 +2313,9 @@ public final class TargetWorkerShardRuntime
         }
     }
 
-    /** Complete local dependencies for configured service activation; native/Broker authority stays in each provider. */
+    /**
+     * Complete local dependencies for configured service activation; native/Broker authority stays in each provider.
+     */
     synchronized void requireConfiguredServiceReady(TargetWorkerHostRuntime expected, LongSupplier clock) {
         requirePublishRecoveryOwner(clock);
         if (publicationHost != expected

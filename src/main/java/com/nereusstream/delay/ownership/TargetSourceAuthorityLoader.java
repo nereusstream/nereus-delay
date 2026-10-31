@@ -132,19 +132,25 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         default TargetScopeFeeAuthority scopeFees() {
             return TargetScopeFeeAuthority.UNAVAILABLE;
         }
-        /** The actual whole-flight Root/Owner/Source/Pin/history/payment admission, never a limit inferred from this frame. */
+        /**
+         * The actual whole-flight Root/Owner/Source/Pin/history/payment admission, never a limit inferred from this
+         * frame.
+         */
         default TargetRetirementPreparation.Protection retirementPreparationProtection(
                 TargetSourceApplyRuntime.ReclaimRead source) {
             throw new TargetSourceAuthorityPreparation.InputUnavailable(
                     "original retirement cumulative admission/retention contract unavailable");
         }
         /** Transfers a separately paid original Root/Owner/history/payment/retention loan to the actual writer kernel.
-         * Closing this entry must not close the transferred loan; requestRelease/released retain actual cleanup debt. */
+         * Closing this entry must not close the transferred loan; requestRelease/released retain actual cleanup debt.
+         */
         default TargetSloWriterOrigin.Protection detachWriterOrigin(TargetSloWriterOrigin.PreparationRequired request) {
             throw new TargetSourceAuthorityPreparation.InputUnavailable(
                     "original independent writer history/retention subloan unavailable");
         }
-        /** Materializes the original historical approval only after the actual complete same-view Native proof exists. */
+        /**
+         * Materializes the original historical approval only after the actual complete same-view Native proof exists.
+         */
         default TargetEvidenceRetirementStore.ConfirmationApproval confirmationAfterPreparation(
                 PendingConfirmation input,
                 TargetSourceApplyRuntime.ConfirmationRead source,
@@ -190,7 +196,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
             throw new TargetSourceAuthorityPreparation.InputUnavailable(
                     "actual Source incarnation lifecycle protection unavailable");
         }
-        /** This RECLAIM load owns a separate actual record/query/Source/Pin admission loan through the exact Native commit. */
+        /**
+         * This RECLAIM load owns a separate actual record/query/Source/Pin admission loan through the exact Native
+         * commit.
+         */
         default void requireNativeRetainedIndependent(TargetSourceApplyRuntime.ReclaimRead source) {
             throw new TargetSourceAuthorityPreparation.InputUnavailable(
                     "actual Native record/query/recovery admission protection unavailable");
@@ -427,7 +436,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
 
     public record Channel(PreparedControlOperation prepared, TargetChannelControlVerifier.Authority authority)
             implements Inputs {}
-    /** Provider-approved original Source purpose/Root/capacity and actual Catalog copy; null approval is a proved denial. */
+    /**
+     * Provider-approved original Source purpose/Root/capacity and actual Catalog copy; null approval is a proved
+     * denial.
+     */
     public record Retirement(
             TargetQuotaScope scope,
             TargetEvidenceRetirementStore.Approval approval,
@@ -485,7 +497,10 @@ public final class TargetSourceAuthorityLoader implements TargetSourceAuthorityP
         return new PendingConfirmation(scope, history);
     }
 
-    /** The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through commit. */
+    /**
+     * The original hold protects actual Catalog/Pin/future-reader admission and complete immutable images through
+     * commit.
+     */
     public record Reclaim(
             TargetQuotaScope scope,
             TargetResourceReclaimStore.SourceHistory history,

@@ -73,9 +73,14 @@ public final class TargetWorkerCheckpointComposition
         OxiaObjectStoreCredentialLeaseActivator.CredentialMaterialResolver materialResolver();
         /** The original dedicated owned transport instance; never a shared caller/global client. */
         HttpClient httpClient();
-        /** Fresh original signed evidence already held locally; this method must not start a provider or Registry RPC. */
+        /**
+         * Fresh original signed evidence already held locally; this method must not start a provider or Registry RPC.
+         */
         TrustedUtcIntervalEvidence trustedTime();
-        /** Local binding of original deployment/run identity to the actual acquired lease; configuration grants no identity. */
+        /**
+         * Local binding of original deployment/run identity to the actual acquired lease; configuration grants no
+         * identity.
+         */
         OwnerIdentity bindOwner(OwnerLease original);
         /** Local checks of already-held original permissions, epochs, transport and credential allocation. */
         void requireCurrent();

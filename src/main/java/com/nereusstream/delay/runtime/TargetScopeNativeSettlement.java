@@ -155,8 +155,8 @@ public final class TargetScopeNativeSettlement {
                         lineage);
                 if (oldOrigin != null) {
                     if (edit.after() == null) {
-                        throw unavailable(
-                                "scoped Native history requires its dedicated complete retirement proof before deletion");
+                        throw unavailable(("scoped Native history requires its dedicated complete retirement proof "
+                                + "before deletion"));
                     }
                     final var change = require(changes, reader, scope, lineage, oldOrigin, authority);
                     requireRecord(change, value.valueType(), edit.key(), value.payload());
@@ -291,7 +291,8 @@ public final class TargetScopeNativeSettlement {
                         converted, change.occurrences, change.samples, change.writers, change.generations, stamp);
             } catch (IllegalArgumentException | ArithmeticException exhausted) {
                 throw new Unavailable(
-                        "original Scope cannot settle these actual charges within its frozen remaining/class/lifetime bounds",
+                        ("original Scope cannot settle these actual charges within its frozen "
+                                + "remaining/class/lifetime bounds"),
                         exhausted);
             }
             if (!prior.parentCommitment().equals(next.parentCommitment())) {
@@ -399,8 +400,8 @@ public final class TargetScopeNativeSettlement {
         }
         final var type = SystemMutationResult.decode(first.typedPayload()).mutationType();
         if (type == SystemMutationType.APPLY_SHARD_CONTROL || type == SystemMutationType.TARGET_SLO_OBSERVATION) {
-            throw unavailable(
-                    "paid parent retains Control/SLO SYSTEM first and POSITION fee facts until dedicated history retirement");
+            throw unavailable(("paid parent retains Control/SLO SYSTEM first and POSITION fee facts until "
+                    + "dedicated history retirement"));
         }
     }
 

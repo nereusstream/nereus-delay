@@ -53,7 +53,9 @@ public final class TargetReceiptControlHistory
         retainedBytes = bytes;
     }
 
-    /** Captures only the small root-owned manifest before reservation; actual history files load on original owned I/O. */
+    /**
+     * Captures only the small root-owned manifest before reservation; actual history files load on original owned I/O.
+     */
     public static final class Inputs {
         private final List<Path> entries;
         private final long maximumBytes;

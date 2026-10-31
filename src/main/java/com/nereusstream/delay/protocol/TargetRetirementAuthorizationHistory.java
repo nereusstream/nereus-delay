@@ -55,7 +55,10 @@ public final class TargetRetirementAuthorizationHistory {
         }
     }
 
-    /** The complete original SERVICE identity and an activation reference still requiring actual projection verification. */
+    /**
+     * The complete original SERVICE identity and an activation reference still requiring actual projection
+     * verification.
+     */
     public record Grant(
             AuthorIdentity service,
             int keyVersion,
@@ -597,7 +600,9 @@ public final class TargetRetirementAuthorizationHistory {
         }
     }
 
-    /** Created only after verification against the independent purpose-pinned Root key; no key is carried by Snapshot. */
+    /**
+     * Created only after verification against the independent purpose-pinned Root key; no key is carried by Snapshot.
+     */
     public static final class Verified {
         private final Snapshot snapshot;
 

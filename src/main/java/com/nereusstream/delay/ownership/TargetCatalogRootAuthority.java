@@ -14,7 +14,9 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Objects;
 
-/** Independent signed current policy for Catalog metadata initialization; ordinary management grants cannot supply it. */
+/**
+ * Independent signed current policy for Catalog metadata initialization; ordinary management grants cannot supply it.
+ */
 public final class TargetCatalogRootAuthority {
     public static final int MAX_POLICY_BYTES = 8192;
     private static final byte[] POLICY_DOMAIN = Bytes.utf8("nereus-delay-catalog-root-current-policy-v1\0");
