@@ -60,13 +60,15 @@ public final class TargetWorkerSourceStartup {
     private volatile boolean scopeResourcesClosing;
     private final SourceReplaySuccessor successor;
     private final LongSupplier nanos;
-    private SourceAssignment assignment;
-    private OwnerLease lease;
+    private volatile SourceAssignment assignment;
+    private volatile OwnerLease lease;
     private volatile ShardStore store;
     private TargetWorkerSourceRuntimeFactory.Activated activation;
     private TargetWorkerSourceRuntimeFactory.AssemblyFailure failedAssembly;
     private TargetWorkerSourceRuntimeFactory.Recovery recovery;
-    private TargetWorkerRecoverySource recoverySource;
+    private volatile TargetWorkerRecoverySource recoverySource;
+    private volatile TargetWorkerRecoverySource localNativeReader;
+    private final java.util.concurrent.atomic.AtomicLong recoveryLocalEpoch=new java.util.concurrent.atomic.AtomicLong();
     private OwnedCheckpointIo<Boolean> recoveryTailCapture;
     private CheckpointInputFuture.Cleanup recoveryOpeningCleanup;
     private TargetOwnedBackendGroup recoveryOpeningBackend;
@@ -88,7 +90,8 @@ public final class TargetWorkerSourceStartup {
     private boolean initializationRunning = true;
     private boolean failedCleanupComplete;
     private Thread constructionThread;
-    private long lastNow = -1;
+    private int authorityReadsInFlight;
+    private volatile long lastNow = -1;
     private volatile Throwable firstFailure;
     private PulsarPreparation pulsarPreparation;
     private boolean initialCommitted;
@@ -102,7 +105,7 @@ public final class TargetWorkerSourceStartup {
     private final java.util.Set<TargetOwnedBackendGroup> recoveryInputBackends =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private long recoveryInputBytesLimit;
-    private RecoveryInputsOpening currentRecoveryInputs;
+    private volatile RecoveryInputsOpening currentRecoveryInputs;
     private final java.util.List<SloRecoveryOpening> sloRecoveries = new java.util.ArrayList<>(2);
     private SloRecoveryOpening currentSloRecovery;
     private boolean serviceJournalHandoffComplete;
@@ -1677,7 +1680,12 @@ public final class TargetWorkerSourceStartup {
 
     public static final class PayloadSummaryPrefixOpening implements TargetPayloadSummaryLegacyPrefix.Opening {
         private final TargetWorkerSourceStartup startup;
-        private PayloadSummaryPrefixOpening(TargetWorkerSourceStartup startup) { this.startup = startup; }
+        private final ShardStore store;
+        private final SourceAssignment assignment;
+        private final OwnerLease owner;
+        private PayloadSummaryPrefixOpening(TargetWorkerSourceStartup startup) {
+            this.startup = startup;store=startup.store;assignment=startup.assignment;owner=startup.lease;
+        }
         @Override public TargetWorkerProcessRuntime.Assembly graph() { return startup.graph; }
         @Override public ShardStore store() { return startup.store(); }
         @Override public TargetQuotaScope scope() { return startup.scope; }
@@ -1689,7 +1697,14 @@ public final class TargetWorkerSourceStartup {
         @Override public LongSupplier clock() { return startup.owner.clock(); }
         @Override public TargetPayloadSummaryLegacyPrefix.Limits limits() { return startup.payloadSummaryPrefixLimits; }
         @Override public void requireCurrent() { startup.requireRecoveryReaderCurrent(); startup.payloadSummaryPrefixReservation.requireCurrent(); }
-        @Override public void requireLocalCurrent() { startup.requireMigrationLocalCurrent(); startup.payloadSummaryPrefixReservation.requireCurrent(); }
+        @Override public void requireLocalCurrent() {
+            final var current=startup.lease;final long now=startup.owner.clock().getAsLong();
+            if(startup.stopping||startup.firstFailure!=null||startup.store!=store||store.nativeExposureFenceRaised()
+                    ||startup.assignment==null||!startup.assignment.sameIdentity(assignment)||current==null||!current.sameIdentity(owner)
+                    ||!current.validAt(now)||now<startup.lastNow)
+                throw new IllegalStateException("original controlled prefix local Owner/Store/Source was revoked");
+            startup.payloadSummaryPrefixReservation.requireCurrent();
+        }
         @Override public void retainCleanup(CheckpointInputFuture.Cleanup original) {
             synchronized (startup) {
                 if (!startup.payloadSummaryPrefixPartial.contains(original)) {
@@ -1761,14 +1776,59 @@ public final class TargetWorkerSourceStartup {
             throw new IllegalStateException("original migration recovery Owner is stopped or expired");
     }
 
-    public synchronized void requireRecoveryReaderCurrent() {
-        requireCurrent();
-        if (checkpointCatalog != null) {
-            requireCheckpointPin();
-            checkpointCatalog.validatePublishedRestoreCandidate(checkpointCatalog.manifest(
-                    checkpointPin.candidate().checkpointId()).orElseThrow());
+    public void requireRecoveryReaderCurrent() {
+        final var original = beginAuthorityRead();
+        try {
             requireCurrent();
+            if (original.catalog() != null) {
+                requireObservedPin(original);
+                original.catalog().validatePublishedRestoreCandidate(original.catalog().manifest(
+                        original.pin().candidate().checkpointId()).orElseThrow());
+                requireCurrent();
+            }
+            synchronized (this) { requireSameAuthorityRead(original); }
+        } catch (RuntimeException | Error failure) {
+            recoveryLocalEpoch.incrementAndGet(); throw failure;
+        } finally { endAuthorityRead(); }
+    }
+
+    /** Minted only for the actual retained native reader after its original full owned-I/O validation. */
+    public synchronized RecoveryReaderLocalProtection recoveryReaderLocalProtection(TargetWorkerRecoverySource actual){
+        if(actual!=recoverySource||actual!=localNativeReader||stopping||firstFailure!=null||store==null||lease==null)
+            throw new IllegalStateException("local reader protection requires the original retained actual Source");
+        return new RecoveryReaderLocalProtection(this,actual,store,assignment,lease,recoveryLocalEpoch.get());
+    }
+    public void revokeRecoveryReaderLocalProtection(TargetWorkerRecoverySource actual){
+        if(localNativeReader==actual)recoveryLocalEpoch.incrementAndGet();
+    }
+    public static final class RecoveryReaderLocalProtection{
+        private final TargetWorkerSourceStartup startup;
+        private final TargetWorkerRecoverySource reader;
+        private final ShardStore store;
+        private final SourceAssignment assignment;
+        private final OwnerLease owner;
+        private final long epoch;
+        private RecoveryReaderLocalProtection(TargetWorkerSourceStartup startup,TargetWorkerRecoverySource reader,
+                ShardStore store,SourceAssignment assignment,OwnerLease owner,long epoch){
+            this.startup=startup;this.reader=reader;this.store=store;this.assignment=assignment;this.owner=owner;this.epoch=epoch;
         }
+        public void requireCurrent(){
+            startup.requireLocalRecoveryIdentity(store,assignment,owner,epoch);
+            if(startup.localNativeReader!=reader)throw new IllegalStateException("actual recovery native reader was replaced");
+            startup.graph.resources().requireRuntimeBusinessAdmission();
+            startup.requireLocalRecoveryIdentity(store,assignment,owner,epoch);
+            if(startup.localNativeReader!=reader)throw new IllegalStateException("actual recovery native reader was replaced");
+        }
+    }
+    private void requireLocalRecoveryIdentity(ShardStore actualStore,SourceAssignment accepted,OwnerLease original,long epoch){
+        final var current=lease;final var currentAssignment=assignment;final long now=owner.clock().getAsLong();
+        if(stopping||firstFailure!=null||recoveryLocalEpoch.get()!=epoch||store!=actualStore
+                ||actualStore.nativeExposureFenceRaised()||current==null||!current.sameIdentity(original)
+                ||currentAssignment==null||!currentAssignment.sameIdentity(accepted)
+                ||current.state()!=ShardLifecycleState.ACQUIRING&&current.state()!=ShardLifecycleState.CATCHING_UP
+                    &&current.state()!=ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                ||now<lastNow||!current.validAt(now))
+            throw new IllegalStateException("original recovery local Source/Store/Owner/session admission was revoked");
     }
 
     /** Adopts the exact verified reader before auditing/replaying; never takes an arbitrary iterator or issues ACK. */
@@ -1776,6 +1836,7 @@ public final class TargetWorkerSourceStartup {
             com.nereusstream.delay.adapter.PulsarAttemptJournal journal, Runnable sourceProtection, Runnable journalProtection) {
         final Construction original;
         final TargetWorkerRecoverySource rawPayloadSummaryReader;
+        TargetSourceRecoveryInputs localInput=null;
         synchronized (this) {
             if (initial != null && !initialCommitted || initializationRunning || store == null
                     || recoverySource != null && recoverySource != source
@@ -1807,6 +1868,7 @@ public final class TargetWorkerSourceStartup {
                         throw new IllegalStateException("recovery changed or reopened its original Journal input");
                     }
                     currentRecoveryInputs = input;
+                    localInput=input.original;
                 }
             }
             Objects.requireNonNull(source).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
@@ -1822,6 +1884,7 @@ public final class TargetWorkerSourceStartup {
                             graph.resources(), store, scope, owner.tenant(), publication, owner.workerId(), lease,
                             source.replayCursor(), source.successorAfter(store.appliedShardLogPosition()), sourceContent, identity, journal,
                             sourceProtection, journalProtection, owner.clock(), nanos, checkpointCatalog, checkpointPin);
+            if(localInput!=null)recovery.coordinator().configureLocalRecoveryProtection(source,localInput);
             if (scopeResources != null) recovery.coordinator().configureScopeResources(scopeResources);
             process.bindMigration(this, recovery.coordinator());
             if (writerOriginLimits != null) recovery.coordinator().configureWriterOrigin(writerOriginLimits, identity, owner.clock());
@@ -1966,31 +2029,90 @@ public final class TargetWorkerSourceStartup {
     }
 
     /** Actual Route/assignment/session/Owner reads are bounded by the original configured SDK timeout. */
-    public synchronized void requireCurrent() {
-        process.requireSourceAssemblyAdmission(this);
-        requireCurrentFacts();
+    public void requireCurrent() {
+        try {
+            process.requireSourceAssemblyAdmission(this);
+            requireCurrentFacts();
+            process.requireSourceAssemblyAdmission(this);
+        } catch (RuntimeException | Error failure) {
+            recoveryLocalEpoch.incrementAndGet(); throw failure;
+        }
     }
 
-    /** Same original assignment/session/lease facts; only the privately registered live caller may borrow them. */
-    private OwnerLease requireCurrentFacts() {
-        if (stopping || firstFailure != null) throw new IllegalStateException("Source startup is stopped or failed");
-        var accepted = TargetWorkerSourceRuntimeFactory.accept(graph.oxia(), owner.tenant(), publication, owner.workerId());
-        var current = graph.oxia().providers().leases().current(accepted.shardId()).orElseThrow();
-        long now = owner.clock().getAsLong();
-        if (assignment == null || !assignment.sameIdentity(accepted) || lease == null || !lease.sameIdentity(current)
-                || current.state() == ShardLifecycleState.FENCED || current.state() == ShardLifecycleState.FAILED
-                || current.state() == ShardLifecycleState.UNASSIGNED
-                || !Bytes.constantTimeEquals(current.sessionIdentity(), graph.oxia().providers().sessionIdentity())
-                || !current.validAt(now) || now < 0 || now < lastNow
-                || (recoverySource == null ? current.state() != lease.state()
-                        : current.state() != ShardLifecycleState.ACQUIRING && current.state() != ShardLifecycleState.CATCHING_UP
-                            && current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS)
-                || store != null && Long.compareUnsigned(store.runtimeMetadata().lastOpenedOwnerEpoch(), lease.ownerEpoch()) > 0) {
-            throw new IllegalStateException("Source startup lost its actual assignment/session/Owner/time authority");
+    private record AuthorityRead(SourceAssignment assignment, OwnerLease lease, ShardStore store,
+            TargetWorkerRecoverySource reader,
+            com.nereusstream.delay.store.RecoveryCatalogAuthority catalog,
+            com.nereusstream.delay.protocol.RecoveryPin pin, boolean pinConfirmed, boolean pinReleased) {}
+
+    private AuthorityRead beginAuthorityRead() {
+        synchronized (this) {
+            if (stopping || firstFailure != null || assignment == null || lease == null)
+                throw new IllegalStateException("Source startup is stopped, failed or lacks its original Owner");
+            final var original = new AuthorityRead(assignment, lease, store, recoverySource,
+                    checkpointCatalog, checkpointPin, checkpointPinConfirmed, checkpointPinReleased);
+            authorityReadsInFlight = Math.incrementExact(authorityReadsInFlight);
+            return original;
         }
-        lastNow = now;
-        if (checkpointCatalog != null && checkpointPinConfirmed) requireCheckpointPin();
-        return current;
+    }
+
+    private void endAuthorityRead() {
+        synchronized (this) { authorityReadsInFlight--; }
+    }
+
+    /** Called only under the short startup state lock; no external authority is read here. */
+    private void requireSameAuthorityRead(AuthorityRead original) {
+        if (stopping || firstFailure != null || assignment == null
+                || !assignment.sameIdentity(original.assignment()) || lease == null
+                || !lease.sameIdentity(original.lease()) || store != original.store()
+                || recoverySource != original.reader() || checkpointCatalog != original.catalog()
+                || checkpointPin != original.pin() || checkpointPinConfirmed != original.pinConfirmed()
+                || checkpointPinReleased != original.pinReleased())
+            throw new IllegalStateException("Source startup changed during its original authority read");
+    }
+
+    private static void requireObservedPin(AuthorityRead original) {
+        if (original.pinReleased() || original.pin() == null
+                || !original.catalog().activeRecoveryPin().orElseThrow().equals(original.pin()))
+            throw new IllegalStateException("original checkpoint pin is no longer active");
+    }
+
+    /** Same original assignment/session/lease facts, read outside the startup state monitor. */
+    private OwnerLease requireCurrentFacts() {
+        final var original = beginAuthorityRead();
+        try {
+            final var accepted = TargetWorkerSourceRuntimeFactory.accept(
+                    graph.oxia(), owner.tenant(), publication, owner.workerId());
+            final var observed = graph.oxia().providers().leases().current(accepted.shardId()).orElseThrow();
+            final var session = graph.oxia().providers().sessionIdentity();
+            final long storeOwner = original.store() == null ? 0
+                    : original.store().runtimeMetadata().lastOpenedOwnerEpoch();
+            if (original.catalog() != null && original.pinConfirmed()) requireObservedPin(original);
+            synchronized (this) {
+                requireSameAuthorityRead(original);
+                final long now = owner.clock().getAsLong();
+                if (!assignment.sameIdentity(accepted) || !lease.sameIdentity(observed)
+                        || observed.state() == ShardLifecycleState.FENCED || observed.state() == ShardLifecycleState.FAILED
+                        || observed.state() == ShardLifecycleState.UNASSIGNED
+                        || !Bytes.constantTimeEquals(observed.sessionIdentity(), session)
+                        || !observed.validAt(now) || now < 0 || now < lastNow
+                        || (recoverySource == null ? observed.state() != lease.state()
+                                : observed.state() != ShardLifecycleState.ACQUIRING
+                                    && observed.state() != ShardLifecycleState.CATCHING_UP
+                                    && observed.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS)
+                        || original.store() != null && Long.compareUnsigned(storeOwner, lease.ownerEpoch()) > 0)
+                    throw new IllegalStateException("Source startup lost its actual assignment/session/Owner/time authority");
+                // A concurrent successful check or Owner transition already published its own real observation.
+                // Do not overwrite it with this earlier in-flight response.
+                if (lease == original.lease()
+                        || lease.state() == observed.state() && observed.expiresAtEpochMs() > lease.expiresAtEpochMs())
+                    lease = observed;
+                if (!lease.validAt(now)) throw new IllegalStateException("the retained actual Owner expired during authority validation");
+                lastNow = now;
+                return lease;
+            }
+        } catch (RuntimeException | Error failure) {
+            recoveryLocalEpoch.incrementAndGet(); throw failure;
+        } finally { endAuthorityRead(); }
     }
 
     public TargetMigrationMaintenance configureMigrationMaintenance(TargetWorkerShardRuntime actual,
@@ -2380,13 +2502,21 @@ public final class TargetWorkerSourceStartup {
         return beginConstruction(false);
     }
 
-    public synchronized void retainRecoverySource(TargetWorkerRecoverySource original) {
-        Objects.requireNonNull(original).requireStartup(assignment, graph.config().maximumSourceFrameBytes(),
-                graph.classes(), graph.resources());
-        if (recoverySource != null && recoverySource != original || recovery != null || activation != null) {
-            throw new IllegalStateException("original recovery Source cannot be replaced");
-        }
-        recoverySource = original;
+    public void retainRecoverySource(TargetWorkerRecoverySource original) {
+        final var expected = beginAuthorityRead();
+        try {
+            Objects.requireNonNull(original).requireStartup(expected.assignment(), graph.config().maximumSourceFrameBytes(),
+                    graph.classes(), graph.resources());
+            synchronized (this) {
+                requireSameAuthorityRead(expected);
+                if (recoverySource != null && recoverySource != original || recovery != null || activation != null)
+                    throw new IllegalStateException("original recovery Source cannot be replaced");
+                recoverySource = original;
+                localNativeReader = original;
+            }
+        } catch (RuntimeException | Error failure) {
+            recoveryLocalEpoch.incrementAndGet(); throw failure;
+        } finally { endAuthorityRead(); }
     }
 
     public synchronized void retainRecoveryOpeningCleanup(CheckpointInputFuture.Cleanup original) {
@@ -2575,7 +2705,7 @@ public final class TargetWorkerSourceStartup {
     public synchronized boolean retryFailedStartupCleanup(TargetOwnerDrainCoordinator.Request request) {
         process.requireFailedSourceCleanup(this);
         if (failedCleanupComplete) return true;
-        if (initializationRunning || constructionThread != null) return false;
+        if (initializationRunning || constructionThread != null || authorityReadsInFlight != 0) return false;
         if (firstFailure == null) throw new IllegalStateException("successful startup is still admitted for assembly");
         stopping = true;
         archiveRecoveryAudit = null; archiveRecoveryAuditStore = null;

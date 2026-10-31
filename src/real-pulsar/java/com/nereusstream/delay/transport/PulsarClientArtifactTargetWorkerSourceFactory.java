@@ -238,7 +238,7 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
         private long maximumRecoveryInputBytes;
         private com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
         private PulsarClientArtifactRecoverySourceCursor migrationHistoryReader;
-        private com.nereusstream.delay.ownership.TargetWorkerRecoverySource payloadSummaryReader;
+        private PulsarClientArtifactRecoverySourceCursor payloadSummaryReader;
         private boolean failed;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 PulsarClientArtifactOwnedBackendGroup group, com.nereusstream.delay.ownership.LocalBrokerMtlsResolver.SourceReceipt receipt,
@@ -452,7 +452,16 @@ public final class PulsarClientArtifactTargetWorkerSourceFactory {
                     return false;
                 }
                 final var owner = preparation == null ? identity : startup.currentPulsarOwnerIdentity();
-                startup.startRecovery(preparedReader.orElseThrow(), owner, journal, sourceProtection, journalProtection);
+                final var actualReader = preparedReader.orElseThrow();
+                final var actualNativeReader = payloadSummaryReader;
+                final var graph = startup.graph();
+                final var accepted = startup.acceptedAssignment();
+                final Runnable fullProtection = () -> {
+                    actualReader.requireStartup(accepted, maximumFrameBytes, graph.classes(), graph.resources());
+                    actualNativeReader.requireCurrent(); actualReader.requireLocalCurrent();
+                };
+                fullProtection.run();
+                startup.startRecovery(actualReader, owner, journal, fullProtection, journalProtection);
                 payloadSummaryReader = null;
                 return true;
             } catch (RuntimeException | Error failure) { failed = true; startup.retain(failure); throw failure; }

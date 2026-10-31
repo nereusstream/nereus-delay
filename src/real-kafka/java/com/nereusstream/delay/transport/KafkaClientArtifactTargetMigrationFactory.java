@@ -139,6 +139,7 @@ public final class KafkaClientArtifactTargetMigrationFactory {
                         config.pollTimeout(), Math.toIntExact(original.graph().config().maximumSourceFrameBytes()), time,
                         config.allocationId(), config.maximumConnections(), config.cost());
                 original.retainRecoverySource(owner.reader); original.requireCurrent();
+                owner.reader.requireCurrent(); owner.reader.requireLocalCurrent();
                 reader = owner.reader;
             } catch (RuntimeException | Error failure) {
                 this.failure = failure; owner.failure = failure;

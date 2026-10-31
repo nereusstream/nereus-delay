@@ -62,9 +62,12 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     private KafkaSourcePosition lastDeliveredPosition;
     private SourceReplayEntry lastDeliveredEntry;
     private com.nereusstream.delay.ownership.TargetOwnedBackendGroup migrationBackend;
+    private volatile com.nereusstream.delay.ownership.TargetMigrationSourceOpening migrationOpening;
     private com.nereusstream.delay.ownership.TargetWorkerSourceStartup sourceStartup;
-    private boolean closed;
-    private boolean failed;
+    private volatile com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryReaderLocalProtection localProtection;
+    private final Object localStateGate = new Object();
+    private volatile boolean closed;
+    private volatile boolean failed;
 
     public KafkaClientArtifactRecoverySourceCursor(
             final GuardedConsumer<byte[], byte[]> consumer,
@@ -107,11 +110,12 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             }
             final var cursor = openVerified(operational, sdkJar, credential, startup.acceptedAssignment(),
                     Math.addExact(position.offset(), 1L), pollTimeout, maximumFrameBytes, time,
-                    () -> { startup.requireCurrent(); originalProtection.run(); }, budget, allocationId,
+                    () -> { startup.requireRecoveryReaderCurrent(); originalProtection.run(); }, budget, allocationId,
                     maximumConnections, cost, graph.classes(), graph.resources());
             cursor.positionedAnchor = position;
             cursor.sourceStartup = startup;
-            startup.retainRecoverySource(cursor); original.requireCurrent();
+            startup.retainRecoverySource(cursor); original.requireCurrent(); cursor.requireCurrent();
+            cursor.localProtection = startup.recoveryReaderLocalProtection(cursor);
             return cursor;
         } catch (com.nereusstream.delay.ownership.TargetSdkCleanupFailure partial) {
             startup.retainRecoveryOpeningCleanup(partial); startup.retain(partial); throw partial;
@@ -179,7 +183,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         final var cursor = openVerified(operational, sdkJar, credential, opening.assignment(),
                 Math.addExact(actualCut.offset(), 1L), pollTimeout, maximumFrameBytes, time, opening::requireLocalCurrent,
                 opening.sdkBudget(), allocationId, maximumConnections, cost, graph.classes(), graph.resources());
-        cursor.positionedAnchor = actualCut; cursor.migrationBackend = backend;
+        cursor.positionedAnchor = actualCut; cursor.migrationBackend = backend; cursor.migrationOpening = opening;
         return cursor;
     }
 
@@ -273,10 +277,10 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new IllegalArgumentException("Kafka guarded recovery consumer has a different resource guard");
         }
         activationBarrierReached = Long.compareUnsigned(startOffsetInclusive, barrier.exclusiveOffset()) >= 0;
-        protection.run();
+        requireFullProtection();
         consumer.assign(java.util.List.of(topicPartition));
         consumer.seek(topicPartition, startOffsetInclusive);
-        protection.run();
+        requireFullProtection();
     }
 
     /** Freezes one actual-mode Fetch bound; it is neither old-writer settlement nor K2 coverage. */
@@ -306,7 +310,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             replayTailExclusive = nativeBound;
             requireCurrent();
         } catch (RuntimeException | Error failure) {
-            failed = true;
+            revokeLocalProtection();
             throw failure;
         }
     }
@@ -360,13 +364,13 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
         try {
             return load();
         } catch (RuntimeException | Error failure) {
-            if (target) { failed = true; }
+            if (target) { revokeLocalProtection(); }
             throw failure;
         }
     }
 
     private boolean load() {
-        protection.run();
+        requireFullProtection();
         if (!expectedGuard.equals(consumer.resourceGuard())) {
             throw new IllegalStateException("Kafka recovery resource guard changed");
         }
@@ -395,7 +399,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                 }
                 if (records.isEmpty()) {
                     if (activationBarrierReached) {
-                        protection.run();
+                        requireFullProtection();
                         return false;
                     }
                     if (target) {
@@ -431,7 +435,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
                     ? KafkaClientArtifactSourceRecordDecoder.decodeTarget(value, shard, position, null, null)
                     : KafkaClientArtifactSourceRecordDecoder.decode(value, shard, position, null, null);
             activationBarrierReached = activationBarrier.reachedBy(position);
-            protection.run();
+            requireFullProtection();
             return true;
         } catch (RuntimeException | Error failure) {
             buffered.addFirst(fetched);
@@ -525,7 +529,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     @Override
     public synchronized void close() {
         if (!closed) {
-            failed = true;
+            revokeLocalProtection();
             if (target) {
                 consumer.closeGuardedResources(pollTimeout);
                 if (!consumer.guardedResourcesTerminated()) throw new IllegalStateException("Recovery Source native cleanup is incomplete");
@@ -544,7 +548,7 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
 
     /** Keeps the native Source guard live across Target look-ahead and queued recovery writes. */
     public com.nereusstream.delay.ownership.SourceReplayCursor<SourceReplayEntry> replayCursor() {
-        return com.nereusstream.delay.ownership.SourceReplayCursor.guarded(this, this::requireCurrent);
+        return com.nereusstream.delay.ownership.SourceReplayCursor.guarded(this, this::requireCurrent, this);
     }
 
     @Override public synchronized void requireStartup(SourceAssignment expected, long frameBytes,
@@ -588,17 +592,33 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
     }
 
     /** Rechecks this exact native Source identity and the caller-held protection without reading or committing. */
-    public synchronized void requireCurrent() {
+    public void requireCurrent() {
         ensureOpen();
         try {
-            protection.run();
+            requireFullProtection();
             if (!expectedGuard.equals(consumer.resourceGuard())) {
                 throw new IllegalStateException("Kafka recovery resource guard changed");
             }
+            ensureOpen();
         } catch (RuntimeException | Error failure) {
-            if (target) { failed = true; }
+            if (target) { revokeLocalProtection(); }
             throw failure;
         }
+    }
+    /** The local gate is separate from native poll/close; no full protection is called while consuming this capability. */
+    @Override public void requireLocalCurrent() {
+        final com.nereusstream.delay.ownership.TargetWorkerSourceStartup.RecoveryReaderLocalProtection local;
+        final com.nereusstream.delay.ownership.TargetMigrationSourceOpening migration;
+        synchronized (localStateGate) { ensureOpen(); local = localProtection; migration = migrationOpening; }
+        try {
+            if (local != null) local.requireCurrent();
+            else if (migration != null) migration.requireLocalCurrent();
+            else throw new com.nereusstream.delay.ownership.TargetSourceAuthorityPreparation.InputUnavailable(
+                    "Kafka recovery reader has no actual retained local Source capability");
+            if (!expectedGuard.equals(consumer.resourceGuard()))
+                throw new IllegalStateException("Kafka recovery resource guard changed");
+            synchronized (localStateGate) { ensureOpen(); }
+        } catch (RuntimeException | Error failure) { if (target) revokeLocalProtection(); throw failure; }
     }
 
     private static String requirePhysicalTopic(final String physicalTopic) {
@@ -614,6 +634,16 @@ public final class KafkaClientArtifactRecoverySourceCursor implements Iterator<S
             throw new IllegalArgumentException("Kafka recovery record has no NDL1 value");
         }
         return record.value();
+    }
+
+    private void revokeLocalProtection() {
+        failed = true;
+        if (sourceStartup != null) sourceStartup.revokeRecoveryReaderLocalProtection(this);
+    }
+
+    private void requireFullProtection() {
+        try { protection.run(); }
+        catch (RuntimeException | Error failure) { if (target) revokeLocalProtection(); throw failure; }
     }
 
     private void ensureOpen() {

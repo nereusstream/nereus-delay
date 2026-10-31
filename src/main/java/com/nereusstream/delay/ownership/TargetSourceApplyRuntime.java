@@ -708,6 +708,7 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     private final ThreadLocal<BoundedReadBudget> sourceActionBudget = new ThreadLocal<>();
     private final boolean recoveryOnly;
     private final Runnable recoveryProtection;
+    private volatile TargetOwnerRecoveryCoordinator.LocalRecoveryProtection recoveryLocalProtection;
     private final TargetStoreBootstrap.Initialized sloInitialization;
     private final TargetStoreBootstrap.Reopened sloReopening;
     private volatile TargetOwnerRecoveryCoordinator.SloRecoveryQualification recoveredSloQualification;
@@ -745,8 +746,8 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
     void requirePayloadSummaryPrefixLocal(TargetPayloadSummaryLegacyPrefix original, OwnerLease owner, long now) {
         final var current = lease;
         if (payloadSummaryLegacyPrefix != original || !recoveryOnly || fenced || !current.sameIdentity(owner)
-                || current.state() != ShardLifecycleState.CATCHING_UP || store.isCloseStarted()
-                || store.runtimeMetadata().lastOpenedOwnerEpoch() != current.ownerEpoch())
+                || current.state() != ShardLifecycleState.CATCHING_UP || store.nativeExposureFenceRaised()
+                || store.localOpenedOwnerEpoch() != current.ownerEpoch())
             throw new IllegalStateException("finite payload prefix lost its actual local recovery Owner/Store");
         synchronized (ownerStateLock) {
             if (fenced || now < lastOwnerTime || !lease.sameIdentity(owner) || !lease.validAt(now))
@@ -1363,9 +1364,10 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
         public synchronized boolean legacyUnscoped() { return value().writerEpoch() != null && value().paidScope() == null; }
 
         /** Local identity, admission and lease validity only; never re-enters the original read guard. */
-        public synchronized void requireLocalCurrent() {
-            value();
+        public void requireLocalCurrent() {
+            synchronized(this){value();}
             runtime.requireNativeExposureLocal(this);
+            synchronized(this){value();}
         }
 
         private NativeExposureSnapshot value() {
@@ -1704,10 +1706,14 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
 
     private void requireNativeExposureLocal(NativeExposureHold held) {
         held.localAdmission.run();
-        if (recoveryOnly && !held.sdkExposure) recoveryProtection.run();
+        if(recoveryOnly&&!held.sdkExposure){
+            final var local=recoveryLocalProtection;
+            if(local==null)throw new TargetSourceAuthorityPreparation.InputUnavailable("original actual reader/Held has no local recovery protection");
+            local.requireCurrent();
+        }
         backend.requireStore(held.originalStore);
-        final boolean storeClosed = store.isCloseStarted();
-        final long storeOwner = store.runtimeMetadata().lastOpenedOwnerEpoch();
+        final boolean storeClosed = store.nativeExposureFenceRaised();
+        final long storeOwner = store.localOpenedOwnerEpoch();
         synchronized (ownerStateLock) {
             final var current = lease;
             final long now = held.clock.getAsLong();
@@ -1726,6 +1732,13 @@ public final class TargetSourceApplyRuntime extends SourceApplyTarget {
             lastOwnerTime = now;
         }
         held.localAdmission.run();
+        if(store.nativeExposureFenceRaised()||store.localOpenedOwnerEpoch()!=held.originalOwner.ownerEpoch())
+            throw new IllegalStateException("Native exposure lost its original Store owner/write certainty");
+    }
+    void configureRecoveryLocalProtection(TargetOwnerRecoveryCoordinator.LocalRecoveryProtection actual){
+        if(!recoveryOnly||recoveryLocalProtection!=null)throw new IllegalStateException("local recovery protection belongs to one original replay runtime");
+        Objects.requireNonNull(actual).requireBinding(store,scope,lineage,assignment,lease);
+        actual.requireCurrent();recoveryLocalProtection=actual;
     }
 
     boolean hasAuthorityPreparation() { return authorityPreparation != null; }

@@ -2146,3 +2146,31 @@ classifySource。真正已属 Target 且具原授权/固定 mapping 的旧编码
 兼容，不能按格式号泛拒。T 后若遇与资格矛盾的仍合法未覆盖帧，保原 frame/Source
 责任并停止该路径、原恢复 roll-forward，不伪拒绝、不重开已交还 shadow。缺真实资格
 保持 RETIRING/held，真实 closed-contract 必须能正向接管；不记所有环境清退完成。
+
+## 2026-10-31：NativeExposure 本地保护与 Query 范围
+
+恢复fee hold的原recoveryProtection可经Source cursor/reader触达startup/Oxia；采用原
+reader/原Held最窄local protection能力接齐，不删原保护、不以身份或一次RPC成功缓存
+替代。完整acquire/Owner/session/Source/retention核验仍在原有界OwnedIO/read authority
+及最终Native commit guard。local能力由同一真实连续hold/lease/admission的取得、续持、
+撤销驱动，绑定exact reader/cursor incarnation、Source/held、Store/Root/lineage及Owner/
+session/停止/回收保护；失权、外部失败、stop/close、替换和unknown立即失效或隔离。
+
+local仅读真实token、有限有效期、关闭和epoch；不能自己续期、永久true或只sameIdentity。
+Reader.requireCurrent完整语义保留，旧Runnable protection不自动升级；缺能力默认
+Unavailable，关键路径不回退完整requireCurrent，不扩大SDK SEND权限。生产K1/P1
+factory/coordinator/held closure传同一actual capability；短锁取快照后释放再跨组件，
+不持Source/Coordinator/Worker/Store大monitor或间接动态callback做RPC。Store的volatile
+不可变metadata仅是实际已提交投影，保原成功发布/close/fence/unknown时序，不自成权威。
+原同步getter会等待Owner写入退出；改为本地投影后须保这条隔离。实际epoch变更在Native
+写入前置本地fence，成功投影发布且原post-read/Native清理退出才解除；失败/UNKNOWN
+保持隔离，不能在可能仍为旧epoch的窗口放行。普通同epoch写不新增Owner变更fence。
+外部旧provider无连续hold时仍未资格，不能以仓内接线声称所有部署通过。
+
+独立Gateway生产Query authority/server不扩为本轮NDIP-3实现。既有Gateway设计已列
+authority composition为OPEN，未注入的RPC仍UNIMPLEMENTED；ConfiguredService继续是
+Worker根，不新建Gateway root。NDIP已承诺的内部metadata/reservation/result读取、
+QUERY预算、Owner/read权限/Source barrier和状态语义保持；metadata点读不是完整公开
+Message view/Command await。F3与交接如实保留独立Gateway限制，不掩盖既有语义回归。
+任何当前合法Query/控制仍需oldshadow/原材料都阻断T/R，未配置Gateway不证明全域
+无Query/Pin/noFuture；原typed closed-contract和完整材料仍是唯一资格来源。

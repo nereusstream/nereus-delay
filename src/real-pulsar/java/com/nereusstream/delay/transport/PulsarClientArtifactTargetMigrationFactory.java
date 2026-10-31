@@ -133,7 +133,8 @@ public final class PulsarClientArtifactTargetMigrationFactory {
             if (readers.size() >= 2) throw new IllegalStateException("original migration reader cleanup window is full");
             final var actual = PulsarClientArtifactRecoverySourceCursor.openForMigration(original, group, source.guard(), credential,
                     cut, source.receiveTimeout(), Math.toIntExact(original.graph().config().maximumSourceFrameBytes()), time);
-            readers.add(actual); original.retainRecoverySource(actual); reader = actual; pendingCut = null;
+            readers.add(actual); original.retainRecoverySource(actual);
+            actual.requireCurrent(); actual.requireLocalCurrent(); reader = actual; pendingCut = null;
         }
         @Override public TargetWorkerRecoverySource reader() { original.requireCurrent(); return reader; }
         @Override public TargetMigrationControlWriter writer() { original.requireCurrent(); return writer; }

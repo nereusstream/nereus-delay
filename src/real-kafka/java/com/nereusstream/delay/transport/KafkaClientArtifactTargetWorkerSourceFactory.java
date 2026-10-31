@@ -253,7 +253,7 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
         private com.nereusstream.delay.ownership.TargetDestinationSdkBudget recoveryBudget;
         private TargetWorkerSourceStartup.RecoveryInputsOpening recoveryInputs;
         private KafkaClientArtifactRecoverySourceCursor migrationHistoryReader;
-        private com.nereusstream.delay.ownership.TargetWorkerRecoverySource payloadSummaryReader;
+        private KafkaClientArtifactRecoverySourceCursor payloadSummaryReader;
         private Opening(com.nereusstream.delay.ownership.TargetWorkerSourceStartup startup,
                 KafkaClientArtifactOwnedSourceBackend owner, TargetWorkerShardRuntime.Maintenance maintenance,
                 com.nereusstream.delay.protocol.OwnerIdentity identity,
@@ -692,7 +692,16 @@ public final class KafkaClientArtifactTargetWorkerSourceFactory {
                         if (startup.payloadSummaryCaptureReaderClosed(payloadSummaryReader)) payloadSummaryReader = null;
                         return java.util.Optional.empty();
                     }
-                    startup.startRecovery(preparedReader.orElseThrow(), identity, inputs.journal(), inputs::requireSourceCurrent,
+                    final var actualReader = preparedReader.orElseThrow();
+                    final var actualNativeReader = payloadSummaryReader;
+                    final var graph = startup.graph();
+                    final var accepted = startup.acceptedAssignment();
+                    final Runnable fullProtection = () -> {
+                        actualReader.requireStartup(accepted, inputs.maximumFrameBytes(), graph.classes(), graph.resources());
+                        actualNativeReader.requireCurrent(); actualReader.requireLocalCurrent();
+                    };
+                    fullProtection.run();
+                    startup.startRecovery(actualReader, identity, inputs.journal(), fullProtection,
                             inputs.journal() == null ? null : inputs::requireJournalCurrent);
                     payloadSummaryReader = null;
                 }

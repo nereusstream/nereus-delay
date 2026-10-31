@@ -394,6 +394,7 @@ public final class TargetPayloadSummaryLegacyPrefix implements CheckpointInputFu
         private SourceReplayEntry current;
         private SourcePosition deliveredCut = c;
         private SourceReplayCursor<SourceReplayEntry> cursor;
+        public void requireLocalCurrent(){replayReader.requireLocalCurrent();requireLocal();replayReader.requireLocalCurrent();}
         public void requireStartup(SourceAssignment assignment, long bytes, WorkClassExecutionRegistry classes, SharedRocksDbResources resources) { replayReader.requireStartup(assignment, bytes, classes, resources); requireLocal(); }
         public SourceReplayCursor<SourceReplayEntry> replayCursor() {
             if (cursor == null) {
@@ -413,7 +414,7 @@ public final class TargetPayloadSummaryLegacyPrefix implements CheckpointInputFu
                             throw new IllegalStateException("second Source pass exhausted the original shared cumulative budget");
                         deliveredCut = current.position(); return current;
                     }
-                }, TargetPayloadSummaryLegacyPrefix.this::requireLocal);
+                }, TargetPayloadSummaryLegacyPrefix.this::requireLocal,this);
             }
             return cursor;
         }

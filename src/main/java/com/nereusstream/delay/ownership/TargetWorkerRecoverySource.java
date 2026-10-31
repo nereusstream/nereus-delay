@@ -10,6 +10,10 @@ public interface TargetWorkerRecoverySource extends AutoCloseable {
             WorkClassExecutionRegistry classes, SharedRocksDbResources resources);
     SourceReplayCursor<SourceReplayEntry> replayCursor();
     SourceReplaySuccessor successorAfter(SourcePosition position);
+    /** The same actual continuous reader/Owner/admission hold, without poll, native I/O or external validation. */
+    default void requireLocalCurrent() {
+        throw new IllegalStateException("reader has no independently bound local recovery protection");
+    }
     /**
      * One finite native tail observation after the original signed barrier, before probing its old EOF.
      * Runs on the caller's owned I/O pool. A captured prefix is not an old-writer/UNKNOWN settlement proof.

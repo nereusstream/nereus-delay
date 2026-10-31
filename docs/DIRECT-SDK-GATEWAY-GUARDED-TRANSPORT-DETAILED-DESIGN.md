@@ -732,6 +732,13 @@ authority composition the generated handlers remain `UNIMPLEMENTED`, and
 production query routing, retention/source authority, deployable auth and
 Worker integration remain open.
 
+2026-10-31 NDIP-3 scope: the configured Target Worker root does not compose a
+Gateway server or this production query authority. Its internal protected metadata,
+reservation and result reads do not constitute the complete public Message view
+or Command await service. That existing Gateway composition remains separate;
+any still-lawful query that needs the old shadow or its materials continues to
+block migration takeover/retirement until the original contract is fully covered.
+
 Commit `39744ac70cae21a3ad4a5401da33805d9221dec7` adds the Oxia composition
 for the digest-only audit sink in
 `OxiaGatewayAuditSink`. It stores each canonical `GatewayAuditEvent` under

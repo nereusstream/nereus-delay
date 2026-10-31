@@ -45,7 +45,9 @@ public final class TargetOwnerRecoveryCoordinator {
     private final LongSupplier monotonic;
     private final Supplier<BoundedReadBudget> auditBudgets;
     private final TargetCheckpointRootVerifier.LedgerAuditLimits ledgerLimits;
-    private OwnerLease lease;
+    private volatile OwnerLease lease;
+    private volatile LocalRecoveryProtection localRecoveryProtection;
+    private volatile boolean localRecoveryStopped;
     private TargetSourceApplyRuntime replay;
     private TargetScopeResourceManager scopeResources;
     private TargetMigrationCompatibilityRuntime migrationCompatibility;
@@ -64,7 +66,7 @@ public final class TargetOwnerRecoveryCoordinator {
     private TargetStoreBootstrap.Reopened completedRoot;
     private boolean complete;
     private int turnNumber;
-    private long lastNow = -1;
+    private volatile long lastNow = -1;
     private TargetSourceAuthorityPreparation authorityPreparation;
     private RecoveryCatalogAuthority evidenceCatalog;
     private TargetWorkerRecoverySource boundReader;
@@ -142,6 +144,50 @@ public final class TargetOwnerRecoveryCoordinator {
 
         /** Only this hold's already-retained local version/pin/Scope protections remain valid at apply. */
         public void requireCurrent() { input.requireSourceCurrent(); }
+    }
+    /** Same original actual reader and retained input; no full cursor/Owner lookup is reachable here. */
+    static final class LocalRecoveryProtection{
+        private final TargetOwnerRecoveryCoordinator coordinator;
+        private final TargetWorkerRecoverySource reader;
+        private final TargetSourceRecoveryInputs input;
+        private final OwnerLease owner;
+        private LocalRecoveryProtection(TargetOwnerRecoveryCoordinator coordinator,TargetWorkerRecoverySource reader,
+                TargetSourceRecoveryInputs input,OwnerLease owner){
+            this.coordinator=coordinator;this.reader=reader;this.input=input;this.owner=owner;
+        }
+        void requireBinding(ShardStore store,com.nereusstream.delay.protocol.TargetQuotaScope scope,byte[] lineage,
+                SourceAssignment assignment,OwnerLease actual){
+            if(coordinator.store!=store||!coordinator.initial.root().scope().equals(scope)
+                    ||!java.util.Arrays.equals(coordinator.initial.root().recoveryLineage(),lineage)
+                    ||!coordinator.assignment.sameIdentity(assignment)||!owner.sameIdentity(actual))
+                throw new IllegalStateException("local recovery protection changed actual Store/Root/lineage/Source/Owner");
+        }
+        void requireCurrent(){
+            try{requireAdmitted();reader.requireLocalCurrent();input.requireSourceCurrent();reader.requireLocalCurrent();requireAdmitted();}
+            catch(RuntimeException|Error failure){coordinator.localRecoveryStopped=true;throw failure;}
+        }
+        private void requireAdmitted(){
+            final var current=coordinator.lease;final long now=coordinator.clock.getAsLong();
+            if(coordinator.localRecoveryStopped||coordinator.localRecoveryProtection!=this
+                    ||current==null||!current.sameIdentity(owner)||!current.validAt(now)||now<coordinator.lastNow
+                    ||coordinator.store.nativeExposureFenceRaised())
+                throw new IllegalStateException("same held recovery local protection is revoked");
+        }
+    }
+    void configureLocalRecoveryProtection(TargetWorkerRecoverySource actual,TargetSourceRecoveryInputs input){
+        Objects.requireNonNull(actual);Objects.requireNonNull(input);
+        source.requireLocalReader(actual);
+        final var identity=input.owner();
+        final LocalRecoveryProtection captured;
+        synchronized(this){
+            if(replay!=null||turnNumber!=0||localRecoveryProtection!=null||localRecoveryStopped)
+                throw new IllegalStateException("local reader/input protection must bind before the original recovery action");
+            if(identity.ownerEpoch()!=lease.ownerEpoch()||!java.util.Arrays.equals(identity.leaseFencingDigest(),lease.leaseToken()))
+                throw new IllegalStateException("local recovery input changed its actual Owner");
+            captured=new LocalRecoveryProtection(this,actual,input,lease);localRecoveryProtection=captured;
+        }
+        try{captured.requireCurrent();}
+        catch(RuntimeException|Error failure){localRecoveryStopped=true;throw failure;}
     }
 
     synchronized void bindReplayTail(TargetWorkerRecoverySource reader){
@@ -468,6 +514,7 @@ public final class TargetOwnerRecoveryCoordinator {
     }
 
     public synchronized void stopAuthorityPreparation() {
+        localRecoveryStopped=true;
         if (authorityPreparation != null) authorityPreparation.requestStop();
         if (replay != null) replay.stopAuthorityPreparation();
     }
@@ -692,6 +739,7 @@ public final class TargetOwnerRecoveryCoordinator {
                 turnNumber = turn;
                 return new OwnerRecoveryTurn(outcomes, false, turn, false, null, replay.sourceReadIncompleteReason(failure));
             }
+            localRecoveryStopped=true;
             if (replay != null) { replay.fence(); }
             throw failure;
         }
@@ -715,6 +763,7 @@ public final class TargetOwnerRecoveryCoordinator {
         requireLease(false);
         replay = TargetSourceApplyRuntime.recovery(initial, store, assignment, lease, authorities, limits,
                 monotonic, protection);
+        if(localRecoveryProtection!=null)replay.configureRecoveryLocalProtection(localRecoveryProtection);
         if (writerOriginLimits != null) replay.configureWriterOrigin(writerOriginLimits, writerOriginOwner, writerOriginClock);
         if (migrationCompatibility != null) replay.configureMigration(migrationCompatibility);
         if (payloadSummaryLegacyPrefix != null) replay.configurePayloadSummaryLegacyPrefix(payloadSummaryLegacyPrefix);

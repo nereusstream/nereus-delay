@@ -118,9 +118,10 @@ public final class ShardStore implements AutoCloseable {
      * in-memory projection cannot prove that fact, so the only safe next step
      * is to close and reopen the Store from its durable image.
      */
-    private boolean writeOutcomeUncertain;
+    private volatile boolean writeOutcomeUncertain;
+    private volatile boolean ownerEpochWriteFenced;
 
-    private StoreRuntimeMetadata runtimeMetadata;
+    private volatile StoreRuntimeMetadata runtimeMetadata;
     private StoreRecoveryMetadata recoveryMetadata;
     private CompatibleControlSnapshot controlSnapshot;
     private long closedIngressDeadlineThrough;
@@ -2892,6 +2893,11 @@ public final class ShardStore implements AutoCloseable {
         return closeStarted;
     }
 
+    /** Local admission fence; Owner publication and uncertain writes cannot expose a stale projection. */
+    public boolean nativeExposureFenceRaised() {
+        return closeStarted || writeOutcomeUncertain || ownerEpochWriteFenced;
+    }
+
     /** Returns whether every native handle and Worker slot has been released. */
     public synchronized boolean isClosed() {
         return closed.get();
@@ -2909,6 +2915,11 @@ public final class ShardStore implements AutoCloseable {
     /** Returns the local mutable metadata projection; it is not remote authority. */
     public synchronized StoreRuntimeMetadata runtimeMetadata() {
         return runtimeMetadata;
+    }
+
+    /** Committed local Owner projection for SDK guards; this does not establish lease authority. */
+    public long localOpenedOwnerEpoch() {
+        return runtimeMetadata.lastOpenedOwnerEpoch();
     }
 
     /** Returns the local recovery projection; it is not Oxia or catalog authority. */
@@ -3546,11 +3557,17 @@ public final class ShardStore implements AutoCloseable {
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(nativeWrite, "nativeWrite");
         boolean nativeWriteAttempted = false;
+        boolean ownerEpochChanged = false;
         try (WriteBatch batch = new WriteBatch();
                 WriteOptions writeOptions = new WriteOptions().setSync(true)) {
             final Batch pending =
                     new Batch(this, batch, handles, closedIngressDeadlineThrough, runtimeMetadata, controlSnapshot);
             operation.apply(pending);
+            ownerEpochChanged = pending.runtimeMetadata != null
+                    && pending.runtimeMetadata.lastOpenedOwnerEpoch() != runtimeMetadata.lastOpenedOwnerEpoch();
+            if (ownerEpochChanged) {
+                ownerEpochWriteFenced = true;
+            }
             nativeWriteAttempted = true;
             nativeWriteCalls++;
             try {
@@ -3608,6 +3625,9 @@ public final class ShardStore implements AutoCloseable {
                 writeOutcomeUncertain = true;
             }
             throw exception;
+        }
+        if (ownerEpochChanged) {
+            ownerEpochWriteFenced = false;
         }
     }
 

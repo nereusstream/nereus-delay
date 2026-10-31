@@ -14,13 +14,19 @@ import java.util.Objects;
 public final class SourceReplayCursor<T> {
     private final Iterator<? extends T> iterator;
     private final Runnable protection;
+    private final TargetWorkerRecoverySource localReader;
     private boolean loaded;
     private boolean exhausted;
     private T next;
 
     private SourceReplayCursor(final Iterator<? extends T> iterator, final Runnable protection) {
+        this(iterator,protection,null);
+    }
+    private SourceReplayCursor(final Iterator<? extends T> iterator, final Runnable protection,
+            TargetWorkerRecoverySource localReader) {
         this.iterator = Objects.requireNonNull(iterator, "iterator");
         this.protection = protection;
+        this.localReader = localReader;
     }
 
     public static <T> SourceReplayCursor<T> of(final Iterator<? extends T> iterator) {
@@ -30,6 +36,18 @@ public final class SourceReplayCursor<T> {
     /** Keeps the caller-owned native Source guard live even while a look-ahead entry is cached. */
     public static <T> SourceReplayCursor<T> guarded(Iterator<? extends T> iterator, Runnable protection) {
         return new SourceReplayCursor<>(iterator, Objects.requireNonNull(protection, "protection"));
+    }
+    /** Only the actual reader supplies its separate local capability; a full Runnable alone does not qualify. */
+    public static <T> SourceReplayCursor<T> guarded(Iterator<? extends T> iterator,Runnable protection,
+            TargetWorkerRecoverySource actualReader){
+        return new SourceReplayCursor<>(iterator,Objects.requireNonNull(protection),Objects.requireNonNull(actualReader));
+    }
+    public void requireLocalCurrent(){
+        if(localReader==null)throw new IllegalStateException("Source cursor has no actual local reader protection");
+        localReader.requireLocalCurrent();
+    }
+    void requireLocalReader(TargetWorkerRecoverySource actual){
+        if(localReader!=actual)throw new IllegalStateException("local recovery cursor changed its actual native reader");
     }
 
     public void requireGuarded() {
